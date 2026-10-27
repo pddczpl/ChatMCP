@@ -93,6 +93,20 @@ export interface UpdateDownload {
  * The update notice as /api/state, GET /api/update/status and the update routes serve it (lib/update-check.mjs), always UNDER the key `update`: a top-level `error` would read as a failed request.
  * It says that a newer release exists, where its notes are, whether its owner signed it, and (under `download`) how far the download of its installer has got. Nothing here installs or runs anything.
  */
+/** What the last update left, from the result file of the installer (lib/update-applied.mjs): memory on the Hub until it is dismissed. Null when there is nothing to say. */
+export interface AppliedUpdate {
+  /** True only for the state installed. */
+  ok: boolean;
+  /** The version that was installed, or that the update tried to install. */
+  version: string;
+  /** The version that was installed before, or null when the installer could not tell. */
+  previous: string | null;
+  state: 'installed' | 'unchanged' | 'rolled_back' | 'needs_recovery';
+  /** A code of the closed list the installer writes (never text); null for a success. */
+  reason: string | null;
+  rolledBack: boolean;
+}
+
 export interface UpdateInfo {
   /** The version that runs. */
   current: string;
@@ -126,6 +140,8 @@ export interface UpdateInfo {
     needsChoice: boolean;
   };
   download: UpdateDownload;
+  /** What the last update left (`Updated to x.y.z`, or why it did not go through), until the owner dismisses it. */
+  applied?: AppliedUpdate | null;
 }
 
 /** The answers of POST /api/update/download and /api/update/download-cancel. */

@@ -8,7 +8,8 @@ import { useUpdateActions } from '@/lib/useUpdateActions';
 import { Button } from '@/components/ui/Button';
 import { CopyButton } from '@/components/ui/CopyButton';
 import type { UpdateInfo } from '@/types';
-import { DownloadControls, PANEL_IDS } from '@/components/layout/UpdateDownload';
+import { DownloadControls, PANEL_IDS, type InstallProps } from '@/components/layout/UpdateDownload';
+import { isDesktopShell } from '@/lib/native-apply-update';
 import { SettingsCard, FactRow } from './SettingsCard';
 
 const STATE_OF = { upd_status_unknown: 'unknown', upd_status_uptodate: 'uptodate', upd_status_available: 'available', upd_status_skipped: 'skipped' } as const;
@@ -22,8 +23,8 @@ const linkClass = 'inline-flex h-8 items-center rounded-lg border border-line bg
  * Under them, for a release on offer: whether it is signed, the size of its installer and the same download controls as the strip (Download only for a signature that checked). Nothing here
  * installs or runs an installer, and the page says so.
  */
-export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = false, cancelling = false, onCheck, onSkip, onToggle, onDownload, onCancel }: {
-  update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; now?: number; busy?: boolean; cancelling?: boolean;
+export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = false, cancelling = false, install, onCheck, onSkip, onToggle, onDownload, onCancel }: {
+  update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; now?: number; busy?: boolean; cancelling?: boolean; install?: InstallProps;
   onCheck: () => void; onSkip: (version: string | null) => void; onToggle: (enabled: boolean) => void; onDownload: (version: string) => void; onCancel: () => void;
 }) {
   const { lang: current } = useTranslation();
@@ -74,7 +75,8 @@ export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = fa
             <FactRow label={t('upd_sig_label')}><span data-testid="updates-signature" data-signature={signature}>{t(`upd_sig_state_${signature}`, { kid: info?.kid ?? '' })}</span></FactRow>
             <FactRow label={t('upd_size_label')}><span data-testid="updates-size">{formatBytes(download.bytes, lang)}</span></FactRow>
           </dl>
-          <DownloadControls update={info} lang={lang} busy={busy} cancelling={cancelling} ids={PANEL_IDS} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
+          {/* no strip around these controls is a live region, so the refusal of the shell is one of its own */}
+          <DownloadControls update={info} lang={lang} busy={busy} cancelling={cancelling} ids={PANEL_IDS} install={install && { ...install, live: true }} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
         </SettingsCard>
       )}
 
@@ -95,8 +97,10 @@ export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = fa
 /** Settings → Updates (the section after Appearance). */
 export function UpdatesSection() {
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: query => pollInterval(query.state.data?.update) });
-  const { busy, cancelling, answer, check, skip, download, cancelDownload } = useUpdateActions();
   const update = hub?.update;
+  const { busy, cancelling, apply, answer, check, skip, download, downloadAgain, cancelDownload, askApply, backApply, confirmApply } = useUpdateActions({ update, hub });
+  // the same steps as the strip under the header, for the same update: inside the desktop shell it can be installed from here too
+  const install: InstallProps = { shell: isDesktopShell(), hub, phase: apply, onAsk: askApply, onConfirm: confirmApply, onBack: backApply, onAgain: version => void downloadAgain(version) };
   // While "Check now" is held back, the seconds left count down: the page paints again once a second. The time they are counted from is read at every paint, never kept, so a page that was
   // asleep (a window that was minimised stops asking the Hub) and then hears of a look made long ago does not count from the time it last painted.
   const [, tick] = useReducer((count: number) => count + 1, 0);
@@ -109,7 +113,7 @@ export function UpdatesSection() {
   }, [waiting]);
   return (
     <UpdatesPanel
-      update={update} now={now} busy={busy} cancelling={cancelling} onCheck={() => void check()} onSkip={version => void skip(version)} onToggle={enabled => void answer(enabled)}
+      update={update} now={now} busy={busy} cancelling={cancelling} install={install} onCheck={() => void check()} onSkip={version => void skip(version)} onToggle={enabled => void answer(enabled)}
       onDownload={version => void download(version)} onCancel={() => void cancelDownload()}
     />
   );

@@ -196,6 +196,78 @@ try {
     ok('a click downloads the signed installer: the release is fetched again by its tag and its signature checked again, then the installer streams to a .part file and is renamed whole; ready names the version and the size; the folder holds the installer, the signed manifest and signature (for the step that runs it) and a state file with no time in it; the requests are those and nothing else; a restart finds it ready; nothing was asked before the click');
   }
 
+  // ------------------------------------------------------------------------------------------------------------------------------- 1b. "Download again"
+  {
+    // "Ready" is the Hub's statement from the moment the files arrived. The desktop app may find, when the owner presses Install and restart, that the folder is not there any more or does not prove itself
+    // (a program that runs as the owner can damage it), and its message says "download it again": that is the same click with `again: true`, which drops what is there and fetches it anew. Only a boolean true
+    // counts, and everything else about the click stays: without it a click on something that is ready asks nothing, and the release must still be the one on offer.
+    const w = await world({ release: releaseFor({ size: 2 * MiB, seed: 21 }) });
+    await w.downloader.start({ version: '3.11.0' });
+    assert.equal((await settled(w.downloader, ['ready', 'failed'])).state, 'ready');
+    const installerFile = path.join(w.folderOf(), 'DatGoldSetup.exe');
+    const FOUR = ['DatGoldSetup.exe', 'RELEASE-MANIFEST.json', 'RELEASE-MANIFEST.json.sig', 'state.json'];
+
+    fs.writeFileSync(installerFile, Buffer.from('damaged after it was ready'));
+    feed.requests.length = 0;
+    for (const again of [undefined, false, 'true', 1, null, {}, 'yes', [true]]) {
+      const plain = await w.downloader.start({ version: '3.11.0', ...(again === undefined ? {} : { again }) });
+      assert.equal(plain.started, false, `a click with again=${JSON.stringify(again)} changes nothing on something that is ready`);
+      assert.equal(plain.status.state, 'ready');
+    }
+    assert.equal(feed.requests.length, 0, 'and asks nothing');
+    assert.ok(fs.readFileSync(installerFile).equals(Buffer.from('damaged after it was ready')), 'and does not touch the folder');
+
+    const redo = await w.downloader.start({ version: '3.11.0', again: true });
+    assert.equal(redo.started, true, 'with again: true a download that is ready is started anew');
+    assert.equal(redo.status.state, 'downloading');
+    assert.deepEqual(await settled(w.downloader, ['ready', 'failed']), { state: 'ready', version: '3.11.0', bytes: w.release.size }, 'and ends ready again');
+    assert.ok(fs.readFileSync(installerFile).equals(w.release.bytes), 'the installer on disk is whole again');
+    assert.equal(installerRequests().length, 1, 'one request for the installer');
+    assert.deepEqual(listing(w.folderOf()), FOUR, 'and the folder holds the same four files, nothing else');
+
+    // the folder removed altogether (the owner, an antivirus, a clean-up)
+    fs.rmSync(w.folderOf(), { recursive: true, force: true });
+    assert.equal(w.downloader.status().state, 'ready', 'premise: the Hub still says ready until somebody asks');
+    feed.requests.length = 0;
+    assert.equal((await w.downloader.start({ version: '3.11.0', again: true })).started, true, 'a folder that is gone is downloaded again');
+    assert.equal((await settled(w.downloader, ['ready', 'failed'])).state, 'ready');
+    assert.deepEqual(listing(w.folderOf()), FOUR);
+
+    // the checks of a click are all still made: the release must be the one on offer
+    feed.requests.length = 0;
+    await refuses(w.downloader.start({ version: '3.12.0', again: true }), 'update_download_stale', 'again for a release that is not the one on offer', 409);
+    assert.equal(w.downloader.status().state, 'ready', 'a refusal leaves what is ready as it was');
+    assert.equal(installerRequests().length, 0);
+    await refuses(w.downloader.start({ version: 'latest', again: true }), 'update_download_invalid', 'and for something that is not a release version', 400);
+
+    // with nothing ready it is a plain click, and while a download runs it changes nothing
+    const fresh = await world({ release: releaseFor({ size: 2 * MiB, seed: 22 }) });
+    assert.equal((await fresh.downloader.start({ version: '3.11.0', again: true })).started, true, 'with nothing downloaded yet it is a plain click');
+    await settled(fresh.downloader, ['ready', 'failed']);
+    const running = await world({ release: releaseFor({ size: 4 * MiB, seed: 23 }) });
+    feed.installer.mode('chain', { pauseAfter: 1 * MiB });
+    await running.downloader.start({ version: '3.11.0' });
+    await waitUntil(() => { const status = running.downloader.status(); return status.state === 'downloading' && status.received >= 1 * MiB; }, 'part of the installer');
+    const hits = installerRequests().length;
+    assert.equal((await running.downloader.start({ version: '3.11.0', again: true })).started, false, 'while a download runs it starts nothing');
+    assert.equal(installerRequests().length, hits, 'and asks for nothing');
+    await running.downloader.cancel();
+    feed.installer.resume();
+    feed.installer.mode('chain');
+
+    // a download again that fails ends as failed, and the folder it dropped stays dropped (the owner asked for a new one)
+    const failing = await world({ release: releaseFor({ size: 1 * MiB, seed: 24 }) });
+    await failing.downloader.start({ version: '3.11.0' });
+    assert.equal((await settled(failing.downloader, ['ready', 'failed'])).state, 'ready');
+    feed.installer.mode('missing');
+    await failing.downloader.start({ version: '3.11.0', again: true });
+    const lost = await settled(failing.downloader, ['ready', 'failed']);
+    assert.equal(lost.state, 'failed', 'a download again that cannot be done is a failed download');
+    assert.deepEqual(left(failing), [], 'and leaves nothing of the old folder or the new one');
+    feed.installer.mode('chain');
+    ok('"Download again" (the same click with again: true): a download that is ready, damaged or gone, is dropped and fetched anew; only a boolean true counts and without it nothing is asked; the click is still refused for a release that is not on offer; with nothing ready it is a plain click, while a download runs it changes nothing, and one that fails ends failed with nothing left');
+  }
+
   // ------------------------------------------------------------------------------------------------------------------------------- 2. progress, cancel, one at a time
   {
     const w = await world({ release: releaseFor({ size: 8 * MiB, seed: 2 }) });

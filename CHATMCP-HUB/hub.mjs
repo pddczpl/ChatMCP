@@ -24,6 +24,7 @@ import { followProviderWindow } from './lib/tool-selector.mjs';
 import { ProjectInstructionsStore, projectInstructionsSetting } from './lib/project-instructions.mjs';
 import { createUpdateChecker, updateOptionsFromEnvironment } from './lib/update-check.mjs';
 import { createUpdateDownloader } from './lib/update-download.mjs';
+import { createAppliedNote } from './lib/update-applied.mjs';
 import { loadReleaseKeys } from './lib/release-signature.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
@@ -44,7 +45,7 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
 export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
@@ -115,7 +116,7 @@ async function bodyJson(req, limit = 65536) {
 }
 
 /** Local-only HTTP Hub: localhost and 127.0.0.1 only. */
-export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true,catalogStore=null,updates=null,downloads=null}={}) {
+export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true,catalogStore=null,updates=null,downloads=null,applied=null}={}) {
   // `token` is the CSRF token of the dashboard; `secret` is the bearer every API caller must present. There is no way to
   // build a server without one: a caller that does not pass a secret gets a random one nobody knows.
   const hosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`]);
@@ -198,8 +199,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   manager.executionRegistry = sandboxEngine.registry;
   const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, update: updateState(), browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = (message = 'Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.') => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error(message); e.statusCode = 409; throw e; } };
-  // The state of the update notice with the state of the download under it (`update.download`): both are memory, so reading it never touches the network or a file.
-  const updateState = () => (updates ? { ...updates.status(), download: downloads ? downloads.status() : { state: 'idle' } } : null);
+  // The state of the update notice with the state of the download under it (`update.download`) and what the last update left (`update.applied`, null when nothing): all memory, so reading it never touches the network or a file.
+  const updateState = () => (updates ? { ...updates.status(), download: downloads ? downloads.status() : { state: 'idle' }, applied: applied ? applied.status() : null } : null);
   const updateUnavailable = () => Object.assign(new Error('Kiểm tra bản cập nhật chưa khởi tạo.'), { statusCode: 503, code: 'update_unavailable' });
   const changeAi = async (operation) => {
     requireNoTask();
@@ -640,10 +641,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/update/check': { if (!updates) throw updateUnavailable(); const answer = await updates.check(); result = { update: updateState(), checked: answer.checked, throttled: answer.throttled }; break; }
           case '/api/update/skip': if (!updates) throw updateUnavailable(); await updates.skip(payload.version); result = { update: updateState() }; break;
           case '/api/update/auto-check': if (!updates) throw updateUnavailable(); await updates.setAutoCheck(payload.enabled); result = { update: updateState() }; break;
-          // The download (lib/update-download.mjs): only from the owner's click, and the body is {version} and nothing else is read. It looks at the release again (signature, platform, version, room on the disk)
+          // The download (lib/update-download.mjs): only from the owner's click, and the body is {version} (and, for "Download again", again: true) and nothing else is read. It looks at the release again (signature, platform, version, room on the disk)
           // before it fetches one byte, then streams the installer to a .part file of the Hub's data folder. It is allowed while agent tasks run (only applying an update needs them idle) and it installs nothing.
           case '/api/update/download': { if (!updates || !downloads) throw updateUnavailable(); const answer = await downloads.start(payload); result = { update: updateState(), started: answer.started }; break; }
           case '/api/update/download-cancel': { if (!downloads) throw updateUnavailable(); const answer = await downloads.cancel(); result = { update: updateState(), cancelled: answer.cancelled }; break; }
+          // The owner has read what the last update left (lib/update-applied.mjs): the note is cleared in memory. The file was consumed when the Hub started, so nothing is written and nothing is asked.
+          case '/api/update/applied-dismiss': if (!applied) throw updateUnavailable(); applied.dismiss(); result = { update: updateState() }; break;
           case '/api/hub/shutdown': result = { ok: true }; setTimeout(() => void onShutdown(), 150); break;
           default: return unknownAction();
         }
@@ -799,6 +802,8 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     ...(updateHooks.platform ? { platform: updateHooks.platform } : {}),
   });
   updates.onChecked(() => downloads.reconcile());
+  // What the last update left (the installer's result file): read once the Hub holds the instance lock, below, and shown by the page until it is dismissed.
+  const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line) });
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
   const { ConcurrentApiAgent } = await import('./lib/concurrent-api-agent.mjs');
@@ -833,7 +838,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   let initialized=false,closing=false;
   let releaseInstance=async()=>{};
   let session=null;
-  const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,updates,downloads,
+  const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,updates,downloads,applied,
     isInitialized:()=>initialized});
   const url=`http://127.0.0.1:${options.port}`;
   try {
@@ -854,6 +859,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     // Finding what a killed Hub left in the folder of updates DELETES it, so only the Hub that holds the data folder may do it: a second start of the launcher gets as far as the code above before it
     // finds out that another Hub runs, and must not remove the first one's half-written download.
     await downloads.load();
+    await applied.load();
     // Published only once this process holds the instance lock, and before /api/health reports "initialized".
     session = await writeSession(manager.hubDirectory, { port: options.port, secret });
     await browser.load();

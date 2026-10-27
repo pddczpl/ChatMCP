@@ -1,0 +1,4535 @@
+{
+ "about": "Mutations of the native side of the in-app updater, run by run-mutations.mjs: one exact replacement at a time in a throw-away copy; the native tests (or, for run \"gate\", CHATMCP-HUB/tests/verify-update-apply.mjs) must notice each. See docs/DEVELOPMENT.md.",
+ "mutations": [
+  {
+   "name": "link-no-length-limit",
+   "what": "an address of any length is looked at",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (string.IsNullOrEmpty(uri) || uri.Length > 2048) return false;",
+     "new": "if (string.IsNullOrEmpty(uri)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-controls-allowed",
+   "what": "a control character or a space in the address is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (c < 0x21 || c > 0x7E || c == '\\\\') return false;",
+     "new": "if (c > 0x7E || c == '\\\\') return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-non-ascii-allowed",
+   "what": "a character outside printable ASCII (look-alike letters, a right-to-left mark) is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (c < 0x21 || c > 0x7E || c == '\\\\') return false;",
+     "new": "if (c < 0x21 || c == '\\\\') return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-backslash-allowed",
+   "what": "a backslash in the address is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (c < 0x21 || c > 0x7E || c == '\\\\') return false;",
+     "new": "if (c < 0x21 || c > 0x7E) return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-single-slash",
+   "what": "https:/github.com (one slash) is read as an address",
+   "equivalent": "Uri.TryCreate does not read \"https:/host\" or \"https:host\" as an address at all, so such a text never gets past it.",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (!uri.StartsWith(\"https://\", StringComparison.OrdinalIgnoreCase)) return false;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "link-any-host",
+   "what": "a host that is not github.com is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": " || parsed.Host != ExternalHost",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "link-port-allowed",
+   "what": "an address with a port is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (authority.Contains(':') || authority.Contains('@')) return false;",
+     "new": "if (authority.Contains('@')) return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-userinfo-in-text-allowed",
+   "what": "an @ in the authority is not looked for in the text as written",
+   "equivalent": "The parsed user name is refused as well (parsed.UserInfo), and a user name cannot be written without the @ that this line looks for.",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (authority.Contains(':') || authority.Contains('@')) return false;",
+     "new": "if (authority.Contains(':')) return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-userinfo-parsed-allowed",
+   "what": "the parsed user name is not looked at",
+   "equivalent": "A user name cannot be written without an @ in the authority, which the check on the text as written refuses.",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": " || !string.IsNullOrEmpty(parsed.UserInfo)) return false;",
+     "new": ") return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-encoded-slash-allowed",
+   "what": "an encoded slash (%2f) in the path is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "rawPath.Contains(\"%2f\", StringComparison.OrdinalIgnoreCase) || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "link-encoded-backslash-allowed",
+   "what": "an encoded backslash (%5c) in the path is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": " || rawPath.Contains(\"%5c\", StringComparison.OrdinalIgnoreCase)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "link-dot-segments-allowed",
+   "what": "a path with . or .. segments is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (plain == \".\" || plain == \"..\" || plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;",
+     "new": "if (plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-encoded-dots-allowed",
+   "what": "a dot segment written as %2e is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "var plain = Uri.UnescapeDataString(segment);",
+     "new": "var plain = segment;"
+    }
+   ]
+  },
+  {
+   "name": "link-prefix-unchecked",
+   "what": "any path on github.com is allowed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "if (!parsed.AbsolutePath.StartsWith(ExternalPathPrefix, StringComparison.Ordinal)) return false;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "link-prefix-ignores-case",
+   "what": "the owner and the repository may be written in any letter case",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "parsed.AbsolutePath.StartsWith(ExternalPathPrefix, StringComparison.Ordinal)",
+     "new": "parsed.AbsolutePath.StartsWith(ExternalPathPrefix, StringComparison.OrdinalIgnoreCase)"
+    }
+   ]
+  },
+  {
+   "name": "link-prefix-widened",
+   "what": "the whole repository is allowed, not only its release pages",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "internal const string ExternalPathPrefix = \"/pddczpl/ChatMCP/releases/\";",
+     "new": "internal const string ExternalPathPrefix = \"/pddczpl/ChatMCP/\";"
+    }
+   ]
+  },
+  {
+   "name": "link-opens-the-text-as-written",
+   "what": "the shell opens the text that came in, not the address that was parsed",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "absoluteUri = parsed.AbsoluteUri;",
+     "new": "absoluteUri = uri;"
+    }
+   ]
+  },
+  {
+   "name": "page-any-port",
+   "what": "a document on another port of 127.0.0.1 is taken for the dashboard",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "origin.Port == port && ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-https-origin",
+   "what": "an https document is taken for the dashboard",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "origin.Scheme == Uri.UriSchemeHttp && ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-any-host",
+   "what": "a document of another host is taken for the dashboard",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "origin.Host == \"127.0.0.1\" && ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-any-path",
+   "what": "a document at another path is taken for the dashboard",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": " && origin.AbsolutePath == \"/\"",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-userinfo-origin",
+   "what": "an address with a user name is taken for the dashboard",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": " && string.IsNullOrEmpty(origin.UserInfo)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-message-no-limit",
+   "what": "a message of any size is read",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "type = \"\"; id = \"\";\n        if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;",
+     "new": "type = \"\"; id = \"\";\n        if (string.IsNullOrEmpty(json)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "page-message-not-an-object",
+   "what": "a message that is not an object is looked at",
+   "equivalent": "TryGetProperty on a value that is not an object throws InvalidOperationException, which the broad catch of TryParse (JsonException or InvalidOperationException) turns into false: the same answer by another road",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "if (root.ValueKind != JsonValueKind.Object) return false;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-any-type",
+   "what": "a message of a type the shell does not know is answered",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": " || !Types.Contains(kindText)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-any-id",
+   "what": "a message with any id is answered",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": " || !RequestId.IsMatch(idText)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "page-id-line-break",
+   "what": "an id may end with a line break",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "{16,64}\\z",
+     "new": "{16,64}$"
+    }
+   ]
+  },
+  {
+   "name": "page-short-id",
+   "what": "an id of one character is taken",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "{16,64}\\z",
+     "new": "{1,64}\\z"
+    }
+   ]
+  },
+  {
+   "name": "page-unknown-code-passed-on",
+   "what": "a code that is not on the closed list reaches the page",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "code = UpdateCodes.IsKnown(code) ? code : \"launch_failed\"",
+     "new": "code = code"
+    }
+   ]
+  },
+  {
+   "name": "page-codes-without-stale",
+   "what": "the shell no longer knows the code stale",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "\"bad_installer\", \"stale\", \"launch_failed\",",
+     "new": "\"bad_installer\", \"launch_failed\","
+    }
+   ]
+  },
+  {
+   "name": "name-shape-unchecked",
+   "what": "any file name is taken for the installer",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!Shape.IsMatch(name)) return \"shape\";",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "name-start-unchecked",
+   "what": "a name that starts with a dot or a dash is taken",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!char.IsAsciiLetterOrDigit(name[0])) return \"start\";",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "name-dots-unchecked",
+   "what": "a name with two dots in a row is taken",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (name.Contains(\"..\", StringComparison.Ordinal)) return \"dots\";",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "name-device-unchecked",
+   "what": "a name that starts with the name of a device (CON, NUL, COM1 ...) is taken",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (Device.IsMatch(name.Split('.')[0])) return \"device\";",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "name-line-break",
+   "what": "a name may end with a line break",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "{1,100}\\.exe\\z",
+     "new": "{1,100}\\.exe$"
+    }
+   ]
+  },
+  {
+   "name": "name-capital-exe",
+   "what": "a name may end in .EXE",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "@\"^[A-Za-z0-9._-]{1,100}\\.exe\\z\", RegexOptions.CultureInvariant);",
+     "new": "@\"^[A-Za-z0-9._-]{1,100}\\.exe\\z\", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);"
+    }
+   ]
+  },
+  {
+   "name": "name-too-long",
+   "what": "a name of 1000 characters is taken",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "{1,100}\\.exe\\z",
+     "new": "{1,1000}\\.exe\\z"
+    }
+   ]
+  },
+  {
+   "name": "keys-version-2",
+   "what": "a key list of version 2 is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "|| number != 1) {",
+     "new": "|| number < 1) {"
+    }
+   ]
+  },
+  {
+   "name": "keys-algorithm-unchecked",
+   "what": "a key list for another algorithm is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "&& Json.TextOf(algorithm) != \"ES256\")",
+     "new": "&& false)"
+    }
+   ]
+  },
+  {
+   "name": "keys-any-use",
+   "what": "an entry with any use is a release key",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (use != \"release\") { Skip(index, \"use\", entry); continue; }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-no-limit",
+   "what": "any number of keys is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (keys.Count >= MaxKeys) { Skip(index, \"too_many\", entry); continue; }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-five",
+   "what": "five keys are read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "internal const int MaxKeys = 4;",
+     "new": "internal const int MaxKeys = 5;"
+    }
+   ]
+  },
+  {
+   "name": "keys-loose-base64",
+   "what": "the key is decoded by the library, which skips white space",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "Json.DecodeBase64(Json.TextOf(encoded)) : null;\n                if (spki == null)",
+     "new": "Convert.FromBase64String(Json.TextOf(encoded)!.Trim()) : null;\n                if (spki == null)"
+    }
+   ]
+  },
+  {
+   "name": "sig-loose-base64",
+   "what": "the signature is decoded by the library, which skips white space and spare bits",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "Json.DecodeBase64(Json.TextOf(encoded)) : null;\n                if (signature == null)",
+     "new": "Convert.FromBase64String(Json.TextOf(encoded)!.Trim()) : null;\n                if (signature == null)"
+    }
+   ]
+  },
+  {
+   "name": "keys-kid-unchecked",
+   "what": "the id of a key is not compared with the key",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!entry.TryGetProperty(\"kid\", out var claimed) || Json.TextOf(claimed) != kid) { Skip(index, \"kid_mismatch\", entry); continue; }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-duplicates",
+   "what": "the same key twice is two keys",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!seen.Add(kid)) { Skip(index, \"duplicate\", entry); continue; }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-form-unchecked",
+   "what": "a key in a form other than the canonical one is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!IsCanonicalP256(spki)) { Skip(index, \"key_der\", entry); continue; }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-length-unchecked",
+   "what": "the length of the key is not checked",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (spki.Length != SpkiBytes || ",
+     "new": "if ("
+    }
+   ]
+  },
+  {
+   "name": "keys-header-unchecked",
+   "what": "the fixed header of the key is not checked",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "!spki.AsSpan(0, SpkiHeader.Length).SequenceEqual(SpkiHeader) || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-compressed-point",
+   "what": "a point that does not start with 0x04 is taken",
+   "equivalent": "The library probe at the end refuses a point that does not start with 0x04 (keys-point-marker-and-library-probe shows that the vector for it kills the pair of them).",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || spki[SpkiHeader.Length] != 0x04) return false;",
+     "new": ") return false;"
+    }
+   ]
+  },
+  {
+   "name": "keys-field-range",
+   "what": "coordinates beyond the field are taken",
+   "equivalent": "A key with a coordinate beyond the field cannot be made with a private key we can sign with (the coordinate would have to be below 2^224 to add the prime without overflowing 256 bits), so no vector can carry a signature that verifies under it; the Hub refuses it too, by its canonical re-export.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (x >= FieldPrime || y >= FieldPrime) return false;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-off-curve",
+   "what": "a point that is not on the curve is taken",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!onCurve) return false;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "keys-wrong-curve-b",
+   "what": "the curve constant b is wrong",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "27d2604b\"",
+     "new": "27d2604a\""
+    }
+   ]
+  },
+  {
+   "name": "keys-wrong-prime",
+   "what": "the field prime is wrong",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "00000000ffffffffffffffffffffffff\", NumberStyles",
+     "new": "00000000fffffffffffffffffffffffe\", NumberStyles"
+    }
+   ]
+  },
+  {
+   "name": "keys-wrong-curve-a",
+   "what": "the curve term -3x is 2x",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "- 3 * x + CurveB",
+     "new": "- 2 * x + CurveB"
+    }
+   ]
+  },
+  {
+   "name": "keys-library-probe",
+   "what": "the library is not asked whether it reads the key",
+   "equivalent": "A point that is on the curve and canonical is read by the library; the probe is a last defence for a library that disagrees with the arithmetic above.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { using var probe = ECDsa.Create(); probe.ImportSubjectPublicKeyInfo(spki, out _); return true; } catch (CryptographicException) { return false; }",
+     "new": "return true;"
+    }
+   ]
+  },
+  {
+   "name": "keys-point-marker-and-library-probe",
+   "what": "neither the 0x04 marker of the point nor the library is asked about it",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || spki[SpkiHeader.Length] != 0x04) return false;",
+     "new": ") return false;"
+    },
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { using var probe = ECDsa.Create(); probe.ImportSubjectPublicKeyInfo(spki, out _); return true; } catch (CryptographicException) { return false; }",
+     "new": "return true;"
+    }
+   ]
+  },
+  {
+   "name": "keys-long-kid",
+   "what": "the id of a key is 16 characters of its digest",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "Convert.ToHexString(SHA256.HashData(spki))[..8]",
+     "new": "Convert.ToHexString(SHA256.HashData(spki))[..16]"
+    }
+   ]
+  },
+  {
+   "name": "sig-any-key",
+   "what": "the first key is tried whatever id the signature names",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "keys.FirstOrDefault(candidate => candidate.Kid == kid) ?? throw new SignatureRefused(\"unknown_kid\")",
+     "new": "keys.FirstOrDefault() ?? throw new SignatureRefused(\"unknown_kid\")"
+    }
+   ]
+  },
+  {
+   "name": "sig-der-format",
+   "what": "the signature is read as DER and not as r||s",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "DSASignatureFormat.IeeeP1363FixedFieldConcatenation",
+     "new": "DSASignatureFormat.Rfc3279DerSequence"
+    }
+   ]
+  },
+  {
+   "name": "sig-sha384",
+   "what": "the manifest is hashed with SHA-384",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "ecdsa.VerifyData(manifestBytes, signature, HashAlgorithmName.SHA256,",
+     "new": "ecdsa.VerifyData(manifestBytes, signature, HashAlgorithmName.SHA384,"
+    }
+   ]
+  },
+  {
+   "name": "sig-error-is-good",
+   "what": "a cryptographic error counts as a good signature",
+   "equivalent": "The keys in the list were read as canonical P-256 keys already, so importing one and verifying with it does not throw.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "catch (CryptographicException) { good = false; }",
+     "new": "catch (CryptographicException) { good = true; }"
+    }
+   ]
+  },
+  {
+   "name": "sig-file-size",
+   "what": "a signature file of any size is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (bytes.Length > MaxFileBytes) throw new SignatureRefused(\"size\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "sig-bad-utf8",
+   "what": "bytes that are not UTF-8 are read as text",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "new UTF8Encoding(false, throwOnInvalidBytes: true)",
+     "new": "new UTF8Encoding(false, throwOnInvalidBytes: false)"
+    }
+   ]
+  },
+  {
+   "name": "sig-alg-unchecked",
+   "what": "a signature of another algorithm is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || Json.TextOf(alg) != \"ES256\") throw new SignatureRefused(\"alg\");",
+     "new": ") throw new SignatureRefused(\"alg\");"
+    }
+   ]
+  },
+  {
+   "name": "sig-kid-line-break",
+   "what": "the id of the key may end with a line break",
+   "equivalent": "The key id is compared exactly with the ids of the keys in the list right after, so an id with a line break at the end finds none and is refused as unknown_kid.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "@\"^[0-9a-f]{8}\\z\"",
+     "new": "@\"^[0-9a-f]{8}$\""
+    }
+   ]
+  },
+  {
+   "name": "sig-kid-capitals",
+   "what": "the id of the key may be written in capitals",
+   "equivalent": "The key id is compared exactly with the ids of the keys in the list right after (lower case, from the digest), so an id in capitals finds none and is refused as unknown_kid.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "@\"^[0-9a-f]{8}\\z\"",
+     "new": "@\"^[0-9a-fA-F]{8}\\z\""
+    }
+   ]
+  },
+  {
+   "name": "sig-length-unchecked",
+   "what": "a signature of another length is tried",
+   "equivalent": "VerifyData returns false for a signature of another length, so the file is refused as a mismatch instead of sig_length: the outcome is the same, only the reason differs.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (signature.Length != SignatureBytes) throw new SignatureRefused(\"sig_length\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "sig-missing-field",
+   "what": "a signature file without sig is read as an empty signature",
+   "equivalent": "A missing or malformed sig is replaced by 64 zero bytes, which no key verifies, so the file is refused as a mismatch instead of sig_encoding: same outcome, another reason.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (signature == null) throw new SignatureRefused(\"sig_encoding\");",
+     "new": "signature ??= new byte[64];"
+    }
+   ]
+  },
+  {
+   "name": "b64-not-canonical",
+   "what": "base64 with spare bits is taken",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "return Convert.ToBase64String(bytes) == value ? bytes : null;",
+     "new": "return bytes;"
+    }
+   ]
+  },
+  {
+   "name": "b64-length-multiple",
+   "what": "base64 whose length is not a multiple of 4 is tried",
+   "equivalent": "Convert.FromBase64String throws a FormatException for a text whose length is not a multiple of 4, and the catch below answers null.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "value.Length % 4 != 0 || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "b64-alphabet",
+   "what": "characters outside the base64 alphabet are tried",
+   "equivalent": "A character outside the alphabet either makes Convert.FromBase64String throw (answered null) or is skipped as white space, and then the round trip (Convert.ToBase64String must give the text back) fails.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || !Base64Alphabet.IsMatch(value)) return null;",
+     "new": ") return null;"
+    }
+   ]
+  },
+  {
+   "name": "b64-size",
+   "what": "base64 of any size is decoded",
+   "equivalent": "Whatever the size, the callers refuse what is not 64 bytes (a signature) or 91 bytes (a key) right after, and the files that carry the text are cut at 4 KiB (signature) or come from the build (key list).",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "value.Length > 16384 || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "b64-line-break",
+   "what": "base64 may end with a line break",
+   "equivalent": "A line break at the end makes the text one character longer than a multiple of 4 or leaves a quantum short, so Convert.FromBase64String throws or the round trip fails, whichever way the pattern ends.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "@\"^[A-Za-z0-9+/]*={0,2}\\z\"",
+     "new": "@\"^[A-Za-z0-9+/]*={0,2}$\""
+    }
+   ]
+  },
+  {
+   "name": "json-duplicate-names",
+   "what": "an object with the same name twice is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "AllowDuplicateProperties = false",
+     "new": "AllowDuplicateProperties = true"
+    }
+   ]
+  },
+  {
+   "name": "json-trailing-comma",
+   "what": "a trailing comma is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "AllowTrailingCommas = false",
+     "new": "AllowTrailingCommas = true"
+    }
+   ]
+  },
+  {
+   "name": "json-comments",
+   "what": "comments in JSON are read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "CommentHandling = JsonCommentHandling.Disallow",
+     "new": "CommentHandling = JsonCommentHandling.Skip"
+    }
+   ]
+  },
+  {
+   "name": "json-depth",
+   "what": "JSON of any depth is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "MaxDepth = 32",
+     "new": "MaxDepth = 4096"
+    }
+   ]
+  },
+  {
+   "name": "bom-text-kept",
+   "what": "a byte order mark in front of text is kept",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "internal static string StripBom(string text) => text.Length > 0 &&",
+     "new": "internal static string StripBom(string text) => text.Length > 1000000000 &&"
+    }
+   ]
+  },
+  {
+   "name": "bom-bytes-kept",
+   "what": "a byte order mark in front of the bytes is kept",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? bytes.AsMemory(3) : bytes.AsMemory()",
+     "new": "bytes.AsMemory()"
+    }
+   ]
+  },
+  {
+   "name": "manifest-version-unchecked",
+   "what": "a manifest whose version is not a release version is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!ReleaseVersion.TryParse(versionText, out _)) throw new ManifestRefused(\"the version is not a release x.y.z\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "manifest-commit-unchecked",
+   "what": "a manifest whose commit is not 40 hex characters is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || !Commit40.IsMatch(commitText)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "manifest-commit-line-break",
+   "what": "the commit may end with a line break",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "@\"^[0-9a-fA-F]{40}\\z\"",
+     "new": "@\"^[0-9a-fA-F]{40}$\""
+    }
+   ]
+  },
+  {
+   "name": "manifest-too-many-assets",
+   "what": "a manifest with any number of assets is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || list.GetArrayLength() > MaxAssets",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "manifest-asset-name",
+   "what": "an asset may have any name",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || !AssetName.IsMatch(name)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "manifest-negative-size",
+   "what": "an asset may have a negative size, or one JavaScript cannot hold",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || count < 0 || count > MaxSafe",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "manifest-digest-unchecked",
+   "what": "an asset may have any digest",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": " || !Digest.IsMatch(digest)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "manifest-digest-line-break",
+   "what": "a digest may end with a line break",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "@\"^[0-9a-fA-F]{64}\\z\"",
+     "new": "@\"^[0-9a-fA-F]{64}$\""
+    }
+   ]
+  },
+  {
+   "name": "manifest-asset-name-line-break",
+   "what": "an asset name may end with a line break",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "@\"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\z\"",
+     "new": "@\"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$\""
+    }
+   ]
+  },
+  {
+   "name": "manifest-duplicate-assets",
+   "what": "two assets may have one name",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "if (!names.Add(name.ToLowerInvariant())) throw new ManifestRefused(\"two assets have one name\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "manifest-names-case-sensitive",
+   "what": "two assets whose names differ in letter case are two assets",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "names.Add(name.ToLowerInvariant())",
+     "new": "names.Add(name)"
+    }
+   ]
+  },
+  {
+   "name": "manifest-first-installer",
+   "what": "when two assets are programs the first is the installer",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "programs.Count == 1 ? programs[0] : null",
+     "new": "programs.Count >= 1 ? programs[0] : null"
+    }
+   ]
+  },
+  {
+   "name": "manifest-exe-case",
+   "what": "only a name ending in .exe in small letters is a program",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "asset.Name.EndsWith(\".exe\", StringComparison.OrdinalIgnoreCase)",
+     "new": "asset.Name.EndsWith(\".exe\", StringComparison.Ordinal)"
+    }
+   ]
+  },
+  {
+   "name": "manifest-digest-kept-as-written",
+   "what": "the digest keeps the letter case it was written in",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "digest.ToLowerInvariant()",
+     "new": "digest"
+    }
+   ]
+  },
+  {
+   "name": "manifest-commit-kept-as-written",
+   "what": "the commit keeps the letter case it was written in",
+   "equivalent": "No check of the shell reads the commit of the manifest again; it is carried only to be kept.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "commitText.ToLowerInvariant()",
+     "new": "commitText"
+    }
+   ]
+  },
+  {
+   "name": "version-leading-zero",
+   "what": "a part with a leading zero is a number",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": "(part.Length > 1 && part[0] == '0')",
+     "new": "false"
+    }
+   ]
+  },
+  {
+   "name": "version-empty-part",
+   "what": "an empty part is a number",
+   "equivalent": "long.TryParse of an empty part answers false right after.",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": "part.Length == 0 || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "version-unicode-digits",
+   "what": "any Unicode digit is a digit",
+   "equivalent": "long.TryParse with NumberStyles.None reads nothing but the ASCII digits 0 to 9 either, and answers false for any other digit.",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": "if (c < '0' || c > '9') return false;",
+     "new": "if (!char.IsDigit(c)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "version-too-large",
+   "what": "a part JavaScript cannot hold is a number",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": " || numbers[index] > MaxSafe)",
+     "new": ")"
+    }
+   ]
+  },
+  {
+   "name": "version-too-long",
+   "what": "a version of any length is read",
+   "equivalent": "A version of three parts that JavaScript can hold has at most 16 digits in each (50 characters at most), so a text over 64 characters fails the number checks anyway.",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": "text.Length > MaxLength",
+     "new": "false"
+    }
+   ]
+  },
+  {
+   "name": "version-four-parts",
+   "what": "a fourth part is ignored",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": "if (parts.Length != 3) return false;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "version-minor-reversed",
+   "what": "a higher minor version is lower",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": "Minor != other.Minor ? Minor.CompareTo(other.Minor)",
+     "new": "Minor != other.Minor ? other.Minor.CompareTo(Minor)"
+    }
+   ]
+  },
+  {
+   "name": "version-patch-ignored",
+   "what": "versions that differ in the patch are equal",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": ": Patch.CompareTo(other.Patch);",
+     "new": ": 0;"
+    }
+   ]
+  },
+  {
+   "name": "version-major-ignored",
+   "what": "a higher major version is not higher",
+   "patches": [
+    {
+     "file": "native-shared/ReleaseVersion.cs",
+     "old": "Major != other.Major ? Major.CompareTo(other.Major) : ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-no-keys",
+   "what": "an update is looked at although the shell trusts no key",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (keys.Keys.Count == 0) throw new UpdateRefused(\"no_trusted_key\", \"the key list this shell was built with holds no release key\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-root-link",
+   "what": "a folder of updates that is a link is entered",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if ((attributes & FileAttributes.ReparsePoint) != 0 || (attributes & FileAttributes.Directory) == 0)",
+     "new": "if ((attributes & FileAttributes.Directory) == 0)"
+    }
+   ]
+  },
+  {
+   "name": "staging-root-file",
+   "what": "a file where the folder of updates should be is listed",
+   "equivalent": "Listing a file as a folder throws an IOException, which is told as the same staging_unsafe code.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": " || (attributes & FileAttributes.Directory) == 0) throw",
+     "new": ") throw"
+    }
+   ]
+  },
+  {
+   "name": "staging-picks-first",
+   "what": "when several folders prove themselves the first is taken",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (proven.Count == 1) return proven[0];",
+     "new": "if (proven.Count >= 1) return proven[0];"
+    }
+   ]
+  },
+  {
+   "name": "staging-ambiguous-leaks",
+   "what": "the files of folders that were not taken stay held",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "        if (proven.Count == 1) return proven[0];\n        foreach (var update in proven) update.Dispose();",
+     "new": "        if (proven.Count == 1) return proven[0];"
+    }
+   ]
+  },
+  {
+   "name": "staging-unlimited-folders",
+   "what": "any number of folders is looked at",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "candidates.Take(MaxCandidates)",
+     "new": "candidates"
+    }
+   ]
+  },
+  {
+   "name": "staging-oldest-first",
+   "what": "the folders are looked at oldest first (the reason given is the oldest failure)",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "candidates.Sort((a, b) => b.Version.CompareTo(a.Version));",
+     "new": "candidates.Sort((a, b) => a.Version.CompareTo(b.Version));"
+    }
+   ]
+  },
+  {
+   "name": "staging-last-failure",
+   "what": "the reason given is the last failure and not the first",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "catch (UpdateRefused refused) { newestFailure ??= refused; }",
+     "new": "catch (UpdateRefused refused) { newestFailure = refused; }"
+    }
+   ]
+  },
+  {
+   "name": "staging-manifest-link",
+   "what": "a manifest that is a link is read",
+   "needs": [
+    "symlink"
+   ],
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if ((info.Attributes & FileAttributes.ReparsePoint) != 0) throw new UpdateRefused(\"staging_unsafe\", name + \" is a link\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-manifest-size",
+   "what": "a manifest of any size is read",
+   "equivalent": "The read stops at one byte over the limit and the check after it refuses the same file with the same code.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (info.Length > limit) throw new UpdateRefused(code, name + \" is larger than \" + limit + \" bytes\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-manifest-grows",
+   "what": "a file that grew after its size was looked at is read whole",
+   "equivalent": "It only differs for a file that grows between the check of its size and its read, which a test cannot arrange without a race; the size check before it is the one that is tested.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (count > limit) throw new UpdateRefused(code, name + \" is larger than \" + limit + \" bytes\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-release-folder-link",
+   "what": "a release folder that is a link is entered",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0) throw new UpdateRefused(\"staging_unsafe\", \"the release folder \" + name + \" is a link\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-folder-name",
+   "what": "the manifest may be another release than the folder says",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (manifest.Version != name) throw new UpdateRefused(\"bad_manifest\", \"the manifest in \" + name + \" is the release \" + manifest.Version);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-same-version",
+   "what": "the version that already runs is a newer one",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (version.CompareTo(running) <= 0) throw new UpdateRefused(\"not_newer\"",
+     "new": "if (version.CompareTo(running) < 0) throw new UpdateRefused(\"not_newer\""
+    }
+   ]
+  },
+  {
+   "name": "staging-older-version",
+   "what": "an older version than the one that runs is accepted",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (version.CompareTo(running) <= 0) throw new UpdateRefused(\"not_newer\", manifest.Version + \" is not newer than \" + running);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-name-problem",
+   "what": "the name of the installer is not checked",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (problem != null) throw new UpdateRefused(\"bad_installer\", \"the name of the installer is not accepted (\" + problem + \")\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-size-range",
+   "what": "an installer of any size is accepted",
+   "equivalent": "A size of 0 is refused later (a setup of no bytes carries no version resource) and a size over 2 GiB means a file of that size, which does not match the file in the folder; both end in bad_installer. The limit only bounds the cost of hashing.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (installer.Bytes < 1 || installer.Bytes > MaxInstallerBytes) throw new UpdateRefused(\"bad_installer\", \"the size of the installer is out of range\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-zero-size",
+   "what": "an installer of 0 bytes is accepted",
+   "equivalent": "A file of no bytes carries no version resource, so the identity check refuses it right after with the same code (bad_installer).",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "installer.Bytes < 1 ||",
+     "new": "installer.Bytes < 0 ||"
+    }
+   ]
+  },
+  {
+   "name": "staging-size-limit",
+   "what": "an installer of 100 GB is accepted",
+   "equivalent": "A test cannot make a file over 2 GiB cheaply, and a smaller file does not match the size the manifest says; the limit only bounds the cost of hashing.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "MaxInstallerBytes = 2L * 1024 * 1024 * 1024;",
+     "new": "MaxInstallerBytes = 100L * 1024 * 1024 * 1024;"
+    }
+   ]
+  },
+  {
+   "name": "staging-missing-installer",
+   "what": "the installer need not be in the folder",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (!file.Exists) throw new UpdateRefused(\"bad_installer\", \"the installer is not in the folder\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-installer-link",
+   "what": "an installer that is a link is read",
+   "needs": [
+    "symlink"
+   ],
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if ((file.Attributes & FileAttributes.ReparsePoint) != 0) throw new UpdateRefused(\"staging_unsafe\", \"the installer is a link\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-size-before-open",
+   "what": "the size of the installer is not compared before it is opened",
+   "equivalent": "The size is compared again on the open handle right after, with the same code.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (file.Length != installer.Bytes) throw new UpdateRefused(\"bad_installer\", \"the size of the file is not the signed size\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-size-on-handle",
+   "what": "the size of the installer is not compared on the open handle",
+   "equivalent": "The same comparison was made on the path just before; the handle matters only if the file changed in between, and the hash that follows would catch it.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (stream.Length != installer.Bytes) throw new UpdateRefused(\"bad_installer\", \"the size of the file is not the signed size\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-hash-unchecked",
+   "what": "the digest of the installer is not compared",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant() != installer.Sha256) throw new UpdateRefused(\"bad_installer\", \"the SHA-256 of the file is not the signed one\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-hash-case",
+   "what": "the digest is compared in the letter case it was computed in",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant() != installer.Sha256",
+     "new": "Convert.ToHexString(SHA256.HashData(stream)) != installer.Sha256"
+    }
+   ]
+  },
+  {
+   "name": "staging-product-unchecked",
+   "what": "any product name is the DatGold setup",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "identity.ProductName != expectedProduct || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-description-unchecked",
+   "what": "any file description is the DatGold setup",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": " || identity.FileDescription != expectedDescription",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-file-version-unchecked",
+   "what": "the version the file says it is need not be the signed one",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (identity.ProductVersion?.Split('+')[0] != manifest.Version) throw new UpdateRefused(\"bad_installer\", \"the file says it is another version than the signed manifest\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-share-write",
+   "what": "the installer may be written while it is held",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan);",
+     "new": "stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 16, FileOptions.SequentialScan);"
+    }
+   ]
+  },
+  {
+   "name": "staging-share-delete",
+   "what": "the installer may be deleted or renamed while it is held",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan);",
+     "new": "stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1 << 16, FileOptions.SequentialScan);"
+    }
+   ]
+  },
+  {
+   "name": "staging-hold-dropped",
+   "what": "the installer is let go as soon as it has been checked",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "stream = null; // the update owns it now",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-release-keeps-hold",
+   "what": "Release does not let the installer go",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "internal void Release() { var handle = held; held = null; handle?.Dispose(); }",
+     "new": "internal void Release() { held = null; }"
+    }
+   ]
+  },
+  {
+   "name": "apply-not-installed",
+   "what": "a copy that was not made by the installer applies updates",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "if (!environment.IsInstalledCopy(environment.InstalledDirectory)) throw new UpdateRefused(\"not_installed\", \"this copy of DatGold was not made by the installer\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "apply-first-idle-check",
+   "what": "the Hub is asked once only, after the file is hashed",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "        await CheckHubIsIdle(environment);\n        // the work happens",
+     "new": "        // the work happens"
+    }
+   ]
+  },
+  {
+   "name": "apply-second-idle-check",
+   "what": "the Hub is not asked again after the file is hashed",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "var offered = await CheckHubIsIdle(environment);",
+     "new": "var offered = update.Version.ToString();"
+    }
+   ]
+  },
+  {
+   "name": "apply-stale-unchecked",
+   "what": "what the Hub offered need not be what the folder holds",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "if (offered != update.Version.ToString()) throw new UpdateRefused(\"stale\", \"the Hub offers \" + (offered ?? \"nothing\") + \" and the folder holds \" + update.Version);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "apply-work-ignored",
+   "what": "the Hub is asked, and its work is ignored",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "if (answer.BlockingWork != null) throw new UpdateRefused(\"tasks_running\", answer.BlockingWork);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "apply-hub-error-escapes",
+   "what": "a Hub that cannot be asked ends the sequence with its own exception",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "catch (Exception error) when (error is not UpdateRefused) { throw new UpdateRefused(\"hub_unreachable\", error.GetType().Name); }",
+     "new": "catch (Exception error) when (error is not UpdateRefused) { throw; }"
+    }
+   ]
+  },
+  {
+   "name": "apply-shell-execute",
+   "what": "the installer is started through the shell",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!",
+     "new": "UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!"
+    }
+   ]
+  },
+  {
+   "name": "apply-start-error-escapes",
+   "what": "a program that cannot be started ends the sequence with its own exception",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "catch (Exception error) when (error is not UpdateRefused) { throw new UpdateRefused(\"launch_failed\", error.GetType().Name); }",
+     "new": "catch (Exception error) when (error is not UpdateRefused) { throw; }"
+    }
+   ]
+  },
+  {
+   "name": "apply-released-before-start",
+   "what": "the installer is let go before it is started",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "try { return await Task.Run(() => environment.Start(start)); }",
+     "new": "try { update.Release(); return await Task.Run(() => environment.Start(start)); }"
+    }
+   ]
+  },
+  {
+   "name": "apply-wrong-state-folder",
+   "what": "the result file is left in the folder of the installation",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "Path.Combine(environment.StateDirectory, ResultFileName)",
+     "new": "Path.Combine(environment.InstalledDirectory, ResultFileName)"
+    }
+   ]
+  },
+  {
+   "name": "apply-result-name",
+   "what": "the shell names another result file than the Hub reads",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "internal const string ResultFileName = \"update-result.json\";",
+     "new": "internal const string ResultFileName = \"result.json\";"
+    }
+   ]
+  },
+  {
+   "name": "apply-before-start-too-early",
+   "what": "the caller is never told to stop the monitor of the Hub before the installer is started",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "            beforeStart();\n            // Off the thread",
+     "new": "            // Off the thread"
+    }
+   ]
+  },
+  {
+   "name": "args-order",
+   "what": "the shell sends the flags in another order",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "\"--wait-pid\", waitPid.ToString(CultureInfo.InvariantCulture), \"--relaunch\", \"--result\", resultFile",
+     "new": "\"--relaunch\", \"--wait-pid\", waitPid.ToString(CultureInfo.InvariantCulture), \"--result\", resultFile"
+    }
+   ]
+  },
+  {
+   "name": "args-no-quiet",
+   "what": "the shell does not send --quiet",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "new[] { \"--quiet\", \"--update\",",
+     "new": "new[] { \"--update\","
+    }
+   ]
+  },
+  {
+   "name": "args-no-relaunch",
+   "what": "the shell does not ask for the relaunch",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "\"--wait-pid\", waitPid.ToString(CultureInfo.InvariantCulture), \"--relaunch\", \"--result\"",
+     "new": "\"--wait-pid\", waitPid.ToString(CultureInfo.InvariantCulture), \"--result\""
+    }
+   ]
+  },
+  {
+   "name": "parse-update-and-uninstall",
+   "what": "an update that is also an uninstall is read",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "            if (uninstall) throw new ArgumentException(UpdateUsage);\n            return ParseUpdate(args);",
+     "new": "            return ParseUpdate(args);"
+    }
+   ]
+  },
+  {
+   "name": "parse-quiet-install-extra-arguments",
+   "what": "the quiet install takes more arguments than it did",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (args.Length != 3 || index < 0",
+     "new": "if (index < 0"
+    }
+   ]
+  },
+  {
+   "name": "parse-quiet-uninstall-extra-arguments",
+   "what": "the quiet uninstall takes more arguments than it did",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (args.Length != 2 || !Array.Exists(args, arg => arg == \"--uninstall\")) throw new ArgumentException(UninstallUsage);",
+     "new": "if (!Array.Exists(args, arg => arg == \"--uninstall\")) throw new ArgumentException(UninstallUsage);"
+    }
+   ]
+  },
+  {
+   "name": "parse-quiet-install-relative",
+   "what": "the quiet install takes a relative directory",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "|| !Path.IsPathFullyQualified(args[index + 1])) throw new ArgumentException(QuietUsage);",
+     "new": ") throw new ArgumentException(QuietUsage);"
+    }
+   ]
+  },
+  {
+   "name": "parse-update-repeats",
+   "what": "a flag of an update may be given twice",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "case \"--update\": if (update) throw new ArgumentException(UpdateUsage); update = true; break;",
+     "new": "case \"--update\": update = true; break;"
+    }
+   ]
+  },
+  {
+   "name": "parse-quiet-repeats",
+   "what": "--quiet may be given twice",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "case \"--quiet\": if (quiet) throw new ArgumentException(UpdateUsage); quiet = true; break;",
+     "new": "case \"--quiet\": quiet = true; break;"
+    }
+   ]
+  },
+  {
+   "name": "parse-relaunch-repeats",
+   "what": "--relaunch may be given twice",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "case \"--relaunch\": if (relaunch) throw new ArgumentException(UpdateUsage); relaunch = true; break;",
+     "new": "case \"--relaunch\": relaunch = true; break;"
+    }
+   ]
+  },
+  {
+   "name": "parse-dir-repeats",
+   "what": "--install-dir may be given twice",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (dir != null || !Path.IsPathFullyQualified(value)) throw new ArgumentException(UpdateUsage);",
+     "new": "if (!Path.IsPathFullyQualified(value)) throw new ArgumentException(UpdateUsage);"
+    }
+   ]
+  },
+  {
+   "name": "parse-dir-relative",
+   "what": "--install-dir may be a relative directory",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (dir != null || !Path.IsPathFullyQualified(value)) throw",
+     "new": "if (dir != null) throw"
+    }
+   ]
+  },
+  {
+   "name": "parse-pid-repeats",
+   "what": "--wait-pid may be given twice",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (pid != null || value.Length == 0",
+     "new": "if (value.Length == 0"
+    }
+   ]
+  },
+  {
+   "name": "parse-pid-zero",
+   "what": "process 0 may be waited for",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "|| number < 1) throw new ArgumentException(UpdateUsage);",
+     "new": "|| number < 0) throw new ArgumentException(UpdateUsage);"
+    }
+   ]
+  },
+  {
+   "name": "parse-pid-digits",
+   "what": "a process id may be written with other characters than digits",
+   "equivalent": "int.TryParse with NumberStyles.None accepts nothing but the digits 0 to 9 either.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "!value.All(char.IsAsciiDigit) || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "parse-pid-empty",
+   "what": "an empty process id is read",
+   "equivalent": "int.TryParse of an empty text fails right after.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (pid != null || value.Length == 0 || ",
+     "new": "if (pid != null || "
+    }
+   ]
+  },
+  {
+   "name": "parse-result-repeats",
+   "what": "--result may be given twice",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (result != null || !onDrive",
+     "new": "if (!onDrive"
+    }
+   ]
+  },
+  {
+   "name": "parse-result-any-path",
+   "what": "the result file may be on a network path or a device",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "var onDrive = value.Length > 3",
+     "new": "var onDrive = true || value.Length > 3"
+    }
+   ]
+  },
+  {
+   "name": "parse-result-any-extension",
+   "what": "the result file may have any extension",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": " || !value.EndsWith(\".json\", StringComparison.OrdinalIgnoreCase)) throw",
+     "new": ") throw"
+    }
+   ]
+  },
+  {
+   "name": "parse-update-needs-quiet",
+   "what": "an update does not need --quiet",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (!quiet || dir == null) throw new ArgumentException(UpdateUsage);",
+     "new": "if (dir == null) throw new ArgumentException(UpdateUsage);"
+    }
+   ]
+  },
+  {
+   "name": "parse-update-needs-dir",
+   "what": "an update does not need a directory",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (!quiet || dir == null) throw new ArgumentException(UpdateUsage);",
+     "new": "if (!quiet) throw new ArgumentException(UpdateUsage);"
+    }
+   ]
+  },
+  {
+   "name": "parse-unknown-flag",
+   "what": "an unknown flag in an update is ignored",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "default: throw new ArgumentException(UpdateUsage);",
+     "new": "default: break;"
+    }
+   ]
+  },
+  {
+   "name": "result-format",
+   "what": "the result file says format 2",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "internal const int Format = 1;",
+     "new": "internal const int Format = 2;"
+    }
+   ]
+  },
+  {
+   "name": "result-order",
+   "what": "the result file lists its fields in another order",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "format = Format, ok = outcome.Ok, version = outcome.Version,",
+     "new": "ok = outcome.Ok, format = Format, version = outcome.Version,"
+    }
+   ]
+  },
+  {
+   "name": "result-rolledback",
+   "what": "every failure is a rollback",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "internal bool RolledBack => State == \"rolled_back\";",
+     "new": "internal bool RolledBack => State != \"installed\";"
+    }
+   ]
+  },
+  {
+   "name": "result-link-followed",
+   "what": "a result file that is a link is written through",
+   "needs": [
+    "symlink"
+   ],
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw new IOException(\"The result file is a link.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "result-relative-path",
+   "what": "a relative path for the result file is written",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (!Path.IsPathFullyQualified(path)) throw new ArgumentException(\"The result file must be given as a full path.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "result-missing-folder",
+   "what": "a folder for the result file is made",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (!Directory.Exists(folder)) throw new DirectoryNotFoundException(\"The folder of the result file does not exist.\");",
+     "new": "Directory.CreateDirectory(folder);"
+    }
+   ]
+  },
+  {
+   "name": "result-temporary-left",
+   "what": "the temporary file of the result is left behind",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "finally { if (File.Exists(temporary)) File.Delete(temporary); }",
+     "new": "finally { }"
+    }
+   ]
+  },
+  {
+   "name": "result-write-fatal",
+   "what": "a result that cannot be written is an exception",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "try { Write(path, outcome); return true; }",
+     "new": "try { Write(path, outcome); return true; } catch (UnauthorizedAccessException) { throw; }"
+    }
+   ]
+  },
+  {
+   "name": "run-wait-skipped",
+   "what": "the setup does not wait for the shell",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (!environment.WaitForShellExit(pid, program, ShellExitLimit)) return End(false, \"unchanged\", \"shell_not_exited\");",
+     "new": "environment.WaitForShellExit(pid, program, ShellExitLimit);"
+    }
+   ]
+  },
+  {
+   "name": "run-wait-forever",
+   "what": "the wait for the shell has a limit of ten hours",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "TimeSpan.FromSeconds(30)",
+     "new": "TimeSpan.FromHours(10)"
+    }
+   ]
+  },
+  {
+   "name": "run-wait-after-checks",
+   "what": "the setup decides that there is no installation before it has waited for the shell (with both true at once the answer must be shell_not_exited, after a wait)",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "        if (command.WaitPid is { } pid)\n        {\n            progress(2, \"Waiting for DatGold to close...\");\n            if (!environment.WaitForShellExit(pid, program, ShellExitLimit)) return End(false, \"unchanged\", \"shell_not_exited\");\n        }\n        if (previous == null) return End(false, \"unchanged\", \"no_installation\");",
+     "new": "        if (previous == null) return End(false, \"unchanged\", \"no_installation\");\n        if (command.WaitPid is { } pid)\n        {\n            progress(2, \"Waiting for DatGold to close...\");\n            if (!environment.WaitForShellExit(pid, program, ShellExitLimit)) return End(false, \"unchanged\", \"shell_not_exited\");\n        }"
+    }
+   ]
+  },
+  {
+   "name": "run-no-installation",
+   "what": "an update of an installation that is not there goes on",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (previous == null) return End(false, \"unchanged\", \"no_installation\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "run-same-version",
+   "what": "the same version is installed again",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (target.CompareTo(previous.Value) <= 0) return End(false, \"unchanged\", \"not_newer\");",
+     "new": "if (target.CompareTo(previous.Value) < 0) return End(false, \"unchanged\", \"not_newer\");"
+    }
+   ]
+  },
+  {
+   "name": "run-older-version",
+   "what": "an older version is installed over a newer one",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (target.CompareTo(previous.Value) <= 0) return End(false, \"unchanged\", \"not_newer\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "run-pending-marker",
+   "what": "an installation that needs recovery is updated",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (MarkerExists(environment, directory)) return End(false, \"needs_recovery\", \"pending_recovery\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "run-disk-full",
+   "what": "the room on the disk is not asked for",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (free != null && free.Value < RequiredBytes(payload)) return End(false, \"unchanged\", \"disk_full\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "run-required-without-margin",
+   "what": "the room asked for is the payload and nothing more",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "payloadBytes + Math.Max(MinimumRoom, payloadBytes / 4)",
+     "new": "payloadBytes"
+    }
+   ]
+  },
+  {
+   "name": "run-required-small-margin",
+   "what": "the margin asked for is one byte",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "MinimumRoom = 128L * 1024 * 1024;",
+     "new": "MinimumRoom = 1;"
+    }
+   ]
+  },
+  {
+   "name": "run-required-no-quarter",
+   "what": "the margin is never a quarter of the payload",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "Math.Max(MinimumRoom, payloadBytes / 4)",
+     "new": "MinimumRoom"
+    }
+   ]
+  },
+  {
+   "name": "run-shortcut-error-loses-shortcuts",
+   "what": "when the shortcuts cannot be looked at none are made",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "catch (Exception) { plan = ShortcutPlan.All; }",
+     "new": "catch (Exception) { plan = ShortcutPlan.From(false, false); }"
+    }
+   ]
+  },
+  {
+   "name": "run-late-failure-is-failure",
+   "what": "a failure after the new files are in place is told as a failure",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (now != null && now.Value.CompareTo(target) == 0) return End(true, \"installed\", null);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "run-no-rollback-state",
+   "what": "a rollback is told as nothing changed",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "return End(false, WasRolledBack(error) ? \"rolled_back\" : \"unchanged\", code);",
+     "new": "return End(false, \"unchanged\", code);"
+    }
+   ]
+  },
+  {
+   "name": "run-marker-after-failure",
+   "what": "an unfinished update is told as a plain failure",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (MarkerExists(environment, directory)) return End(false, \"needs_recovery\", code);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "run-untagged-code",
+   "what": "any code an exception carries is passed on",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "StepCode.Of(error) is { } tagged && StepCode.IsKnown(tagged) ? tagged : \"install_failed\"",
+     "new": "StepCode.Of(error) ?? \"install_failed\""
+    }
+   ]
+  },
+  {
+   "name": "run-always-relaunch",
+   "what": "the app is opened again without being asked",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (command.Relaunch && outcome.State != \"needs_recovery\"",
+     "new": "if (outcome.State != \"needs_recovery\""
+    }
+   ]
+  },
+  {
+   "name": "run-relaunch-when-recovery",
+   "what": "the app is opened again although the outcome says the installation needs recovery and the second look at the marker finds none (defence in depth: a real disk seldom changes between the two looks)",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "command.Relaunch && outcome.State != \"needs_recovery\" && ",
+     "new": "command.Relaunch && "
+    }
+   ]
+  },
+  {
+   "name": "run-relaunch-behind-marker",
+   "what": "the app is opened again behind a marker that appeared after the outcome was decided (the update went through, and a marker is there when it is done)",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": " && !MarkerExists(environment, directory))\n        {\n            try { environment.Relaunch(program); relaunched = true; }",
+     "new": ")\n        {\n            try { environment.Relaunch(program); relaunched = true; }"
+    }
+   ]
+  },
+  {
+   "name": "run-marker-error-allows-relaunch",
+   "what": "when the marker cannot be looked for the app is opened",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { return environment.PendingMarkerExists(directory); } catch (Exception) { return true; }",
+     "new": "try { return environment.PendingMarkerExists(directory); } catch (Exception) { return false; }"
+    }
+   ]
+  },
+  {
+   "name": "run-result-error-fatal",
+   "what": "a result file that cannot be written makes the update fail",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { environment.WriteResult(command.ResultFile, outcome); } catch (Exception) { /* a result that cannot be left is not worth failing for */ }",
+     "new": "environment.WriteResult(command.ResultFile, outcome);"
+    }
+   ]
+  },
+  {
+   "name": "run-relaunch-error-fatal",
+   "what": "an app that cannot be opened makes the update fail",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { environment.Relaunch(program); relaunched = true; } catch (Exception) { /* the person can open the app themselves */ }",
+     "new": "environment.Relaunch(program); relaunched = true;"
+    }
+   ]
+  },
+  {
+   "name": "run-version-plus",
+   "what": "a version with a build suffix is read as it is",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "ReleaseVersion.TryParse(text.Split('+')[0], out var version) ? version : null;",
+     "new": "ReleaseVersion.TryParse(text, out var version) ? version : null;"
+    }
+   ]
+  },
+  {
+   "name": "shell-gone-unknown",
+   "what": "a process that cannot be looked at is taken for gone",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "catch (Exception) { return false; }\n        }\n    }",
+     "new": "catch (Exception) { return true; }\n        }\n    }"
+    }
+   ]
+  },
+  {
+   "name": "shell-other-program",
+   "what": "a process id handed on to another program is waited for",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (image != null && !string.Equals(Path.GetFullPath(image), Path.GetFullPath(expectedImage), StringComparison.OrdinalIgnoreCase)) return true;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "shell-image-case-sensitive",
+   "what": "the program of the shell is compared with its letter case",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "Path.GetFullPath(expectedImage), StringComparison.OrdinalIgnoreCase)) return true;",
+     "new": "Path.GetFullPath(expectedImage), StringComparison.Ordinal)) return true;"
+    }
+   ]
+  },
+  {
+   "name": "shell-gone-ignored",
+   "what": "a process id no process has is waited for",
+   "equivalent": "A process id that no process has makes Process.GetProcessById throw an ArgumentException a few lines later, which is answered true as well.",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (gone) return true;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "words-recovery",
+   "what": "the window does not say that the installation needs repair",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "\"needs_recovery\" => RecoveryFor(outcome),",
+     "new": "\"needs_recovery\" => head,"
+    }
+   ]
+  },
+  {
+   "name": "words-rolled-back",
+   "what": "the window does not say that the files were put back",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "\" The files that had been replaced were put back. \"",
+     "new": "\" \""
+    }
+   ]
+  },
+  {
+   "name": "words-opened-again",
+   "what": "the window says the app was opened again when it was not asked to",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "\"rolled_back\" => head + \" The files that had been replaced were put back. \" + still + (relaunched ? \" It was opened again.\" : \"\"),",
+     "new": "\"rolled_back\" => head + \" The files that had been replaced were put back. \" + still + \" It was opened again.\","
+    }
+   ]
+  },
+  {
+   "name": "words-still-installed",
+   "what": "the window does not say which version is still installed",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "var still = outcome.Previous == null ? \"The installed version has not been changed.\" : \"DatGold \" + outcome.Previous + \" is still installed.\";",
+     "new": "var still = \"\";"
+    }
+   ]
+  },
+  {
+   "name": "words-foreign-port",
+   "what": "the window gives the wrong port",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "the port that DatGold needs (3007).",
+     "new": "the port that DatGold needs (3008)."
+    }
+   ]
+  },
+  {
+   "name": "words-tasks",
+   "what": "the window does not tell the person to stop their tasks",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "\"tasks_running\" => \"DatGold is still running tasks. Stop them and try again.\",",
+     "new": "\"tasks_running\" => \"The files could not be replaced.\","
+    }
+   ]
+  },
+  {
+   "name": "words-title",
+   "what": "the window is not about the version it installs",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "\"Updating DatGold to \" + version",
+     "new": "\"Updating DatGold\""
+    }
+   ]
+  },
+  {
+   "name": "work-no-agent-is-idle",
+   "what": "a state without agent is a Hub with no work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "!data.TryGetProperty(\"agent\", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))",
+     "new": "data.TryGetProperty(\"agent\", out var agent) && HasWork(agent))"
+    }
+   ]
+  },
+  {
+   "name": "work-state-not-object",
+   "what": "a state that is not an object is a Hub with no work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty(\"agent\", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))",
+     "new": "        if (data.ValueKind != JsonValueKind.Object) return null;\n        if (!data.TryGetProperty(\"agent\", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))"
+    }
+   ]
+  },
+  {
+   "name": "work-terminals-ignored",
+   "what": "running terminals do not count as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "new[] { \"terminals\", \"delegates\", \"dynamicDelegates\" }",
+     "new": "new[] { \"delegates\", \"dynamicDelegates\" }"
+    }
+   ]
+  },
+  {
+   "name": "work-delegates-ignored",
+   "what": "running workers do not count as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "new[] { \"terminals\", \"delegates\", \"dynamicDelegates\" }",
+     "new": "new[] { \"terminals\", \"dynamicDelegates\" }"
+    }
+   ]
+  },
+  {
+   "name": "work-dynamic-delegates-ignored",
+   "what": "running dynamic workers do not count as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "new[] { \"terminals\", \"delegates\", \"dynamicDelegates\" }",
+     "new": "new[] { \"terminals\", \"delegates\" }"
+    }
+   ]
+  },
+  {
+   "name": "work-studio-not-object",
+   "what": "a studio that is not an object is searched for work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (data.TryGetProperty(\"studio\", out var studio) && studio.ValueKind == JsonValueKind.Object)",
+     "new": "if (data.TryGetProperty(\"studio\", out var studio))"
+    }
+   ]
+  },
+  {
+   "name": "work-array-first-only",
+   "what": "only the first element of a list is looked at for work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (value.ValueKind == JsonValueKind.Array) return value.EnumerateArray().Any(HasWork);",
+     "new": "if (value.ValueKind == JsonValueKind.Array) return value.GetArrayLength() > 0 && HasWork(value[0]);"
+    }
+   ]
+  },
+  {
+   "name": "work-nested-objects",
+   "what": "work inside a nested object is looked for",
+   "equivalent": "A Hub never nests work inside another object in the places the rule looks at; this would be a different rule, and the shared list of cases holds the rule as it is. (A mutation that adds a rule, not one that removes one.)",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "        foreach (var property in value.EnumerateObject())\n        {\n            if ((property.Name is \"activeTaskId\"",
+     "new": "        foreach (var property in value.EnumerateObject())\n        {\n            if (property.Value.ValueKind == JsonValueKind.Object && HasWork(property.Value)) return true;\n            if ((property.Name is \"activeTaskId\""
+    }
+   ]
+  },
+  {
+   "name": "work-empty-task-id",
+   "what": "an empty active task id counts as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "property.Value.ValueKind == JsonValueKind.String &&\n                !string.IsNullOrEmpty(property.Value.GetString())) return true;",
+     "new": "property.Value.ValueKind == JsonValueKind.String) return true;"
+    }
+   ]
+  },
+  {
+   "name": "work-active-task-ids",
+   "what": "a list of active task ids does not count as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (property.Name == \"activeTaskIds\" && property.Value.ValueKind == JsonValueKind.Array && property.Value.GetArrayLength() > 0) return true;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "work-running-flag",
+   "what": "running: true does not count as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if ((property.Name is \"running\" or \"integrating\") && property.Value.ValueKind == JsonValueKind.True) return true;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "work-integrating-flag",
+   "what": "integrating: true does not count as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "(property.Name is \"running\" or \"integrating\")",
+     "new": "(property.Name is \"running\")"
+    }
+   ]
+  },
+  {
+   "name": "work-waiting-approval",
+   "what": "a task that waits for approval is not work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "\"planning\", \"verifying\", \"waiting_approval\" }",
+     "new": "\"planning\", \"verifying\" }"
+    }
+   ]
+  },
+  {
+   "name": "work-queued",
+   "what": "a queued task is not work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "\"running\", \"preparing\", \"queued\", \"planning\"",
+     "new": "\"running\", \"preparing\", \"planning\""
+    }
+   ]
+  },
+  {
+   "name": "work-state-key",
+   "what": "a state that says running under the name state is not work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "(property.Name is \"status\" or \"state\")",
+     "new": "(property.Name is \"status\")"
+    }
+   ]
+  },
+  {
+   "name": "work-coding-ignored",
+   "what": "a coding run does not count as work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal static string? WorkInCoding(JsonElement coding) => HasWork(coding) ? \"Stop background coding jobs before upgrading.\" : null;",
+     "new": "internal static string? WorkInCoding(JsonElement coding) => null;"
+    }
+   ]
+  },
+  {
+   "name": "preflight-coding-not-asked",
+   "what": "the coding runs are not asked about",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "return new UpdatePreflight(WorkInCoding(coding.RootElement), offered);",
+     "new": "return new UpdatePreflight(null, offered);"
+    }
+   ]
+  },
+  {
+   "name": "preflight-state-work-ignored",
+   "what": "the work in the state is not reported",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (inState != null) return new UpdatePreflight(inState, offered);\n        using var coding = await GetJson(client, \"/api/studio/coding\", secret, origin);\n        return new UpdatePreflight(WorkInCoding",
+     "new": "using var coding = await GetJson(client, \"/api/studio/coding\", secret, origin);\n        return new UpdatePreflight(WorkInCoding"
+    }
+   ]
+  },
+  {
+   "name": "preflight-offer-not-ready",
+   "what": "a download that is not ready is the one on offer",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "phase.GetString() == \"ready\"",
+     "new": "phase.GetString() != \"idle\""
+    }
+   ]
+  },
+  {
+   "name": "preflight-offer-version-type",
+   "what": "the offered version is read from the wrong place",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "download.TryGetProperty(\"version\", out var version)",
+     "new": "download.TryGetProperty(\"latest\", out var version)"
+    }
+   ]
+  },
+  {
+   "name": "stepcode-unknown",
+   "what": "a code that is not on the list is known",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal static bool IsKnown(string? code) => code != null && Known.Contains(code);",
+     "new": "internal static bool IsKnown(string? code) => code != null;"
+    }
+   ]
+  },
+  {
+   "name": "stepcode-empty",
+   "what": "an empty code counts as a code",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (error.Data[Key] is string code && code.Length > 0) return code;",
+     "new": "if (error.Data[Key] is string code) return code;"
+    }
+   ]
+  },
+  {
+   "name": "stepcode-aggregate",
+   "what": "the code inside an aggregate exception is not found",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "        if (error is AggregateException many)\n            foreach (var inner in many.InnerExceptions)\n                if (Of(inner) is { } found) return found;\n        return Of(error.InnerException);",
+     "new": "        return Of(error.InnerException);"
+    }
+   ]
+  },
+  {
+   "name": "stepcode-inner",
+   "what": "the code inside an inner exception is not found",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "        return Of(error.InnerException);\n    }",
+     "new": "        return null;\n    }"
+    }
+   ]
+  },
+  {
+   "name": "stepcode-list-short",
+   "what": "a reason the installer writes is not on the list",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "\"foreign_listener\", \"hub_stop_failed\", \"window_open\", \"another_update\", \"payload_invalid\", \"install_failed\",\n    };\n\n    internal static bool IsKnown",
+     "new": "\"foreign_listener\", \"hub_stop_failed\", \"window_open\", \"another_update\", \"payload_invalid\",\n    };\n\n    internal static bool IsKnown"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-desktop-always",
+   "what": "the Desktop shortcut is made although the person deleted it",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "Has(desktopDir, AppName, false, launcher) || Has(desktopDir, LegacyAppName, false, launcher),",
+     "new": "true,"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-old-name-desktop",
+   "what": "a Desktop shortcut under the old name is not noticed",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "Has(desktopDir, AppName, false, launcher) || Has(desktopDir, LegacyAppName, false, launcher),",
+     "new": "Has(desktopDir, AppName, false, launcher),"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-new-name-desktop",
+   "what": "a Desktop shortcut under the new name is not noticed",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "Has(desktopDir, AppName, false, launcher) || Has(desktopDir, LegacyAppName, false, launcher),",
+     "new": "Has(desktopDir, LegacyAppName, false, launcher),"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-old-menu-launcher",
+   "what": "a Start menu launcher under the old name is not noticed",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "Has(Path.Combine(programsDir, StartMenuFolder), AppName, false, launcher) || Has(Path.Combine(programsDir, LegacyStartMenuFolder), LegacyAppName, false, launcher),",
+     "new": "Has(Path.Combine(programsDir, StartMenuFolder), AppName, false, launcher),"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-old-menu-uninstaller",
+   "what": "a Start menu uninstaller under the old name is not noticed",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "Has(Path.Combine(programsDir, StartMenuFolder), AppName, true, uninstaller) || Has(Path.Combine(programsDir, LegacyStartMenuFolder), LegacyAppName, true, uninstaller));",
+     "new": "Has(Path.Combine(programsDir, StartMenuFolder), AppName, true, uninstaller));"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-menu-launcher-as-uninstaller",
+   "what": "the launcher and the uninstaller in the Start menu are one choice",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "Has(Path.Combine(programsDir, StartMenuFolder), AppName, true, uninstaller) || Has(Path.Combine(programsDir, LegacyStartMenuFolder), LegacyAppName, true, uninstaller));",
+     "new": "false);"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-other-installation",
+   "what": "a shortcut of another installation counts as this one",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "return string.IsNullOrWhiteSpace(target) || string.Equals(Path.GetFullPath(target), Path.GetFullPath(expectedTarget), StringComparison.OrdinalIgnoreCase);",
+     "new": "return true;"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-missing-file",
+   "what": "a shortcut that is not there counts",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!File.Exists(shortcutPath)) return false;\n            try",
+     "new": "try"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-plan-desktop",
+   "what": "the plan does not decide the Desktop shortcut",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "            if (plan.Desktop)\n                CreateShortcut(",
+     "new": "            if (true)\n                CreateShortcut("
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-plan-launcher",
+   "what": "the plan does not decide the Start menu launcher",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "            if (plan.StartMenuLauncher)\n                CreateShortcut(",
+     "new": "            if (true)\n                CreateShortcut("
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-plan-uninstaller",
+   "what": "the plan does not decide the Start menu uninstaller",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "            if (plan.StartMenuUninstall)\n                CreateShortcut(",
+     "new": "            if (true)\n                CreateShortcut("
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-old-kept",
+   "what": "the shortcuts under the old name are kept",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "            RemoveShortcutSet(installDir, desktopDir, programsDir, LegacyAppName, LegacyStartMenuFolder, note);\n            CreateShortcuts(installDir, iconPath, desktopDir, programsDir, plan);",
+     "new": "            CreateShortcuts(installDir, iconPath, desktopDir, programsDir, plan);"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-best-effort-throws",
+   "what": "a shortcut that cannot be made fails the update",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "catch (Exception error) { note(\"Could not make every shortcut (\" + error.GetType().Name + \"). The installation itself is complete.\"); }",
+     "new": "catch (Exception error) { throw; }"
+    }
+   ]
+  },
+  {
+   "name": "shortcuts-note-has-path",
+   "what": "the note about a shortcut names the exception text",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "note(\"Could not make every shortcut (\" + error.GetType().Name + \"). The installation itself is complete.\");",
+     "new": "note(\"Could not make every shortcut (\" + error.Message + \"). The installation itself is complete.\");"
+    }
+   ]
+  },
+  {
+   "name": "gate-second-property-group-shell",
+   "what": "the shell project gets a second PropertyGroup (the shape that broke CI)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/ChatMCP.csproj",
+     "old": "  </PropertyGroup>\n\n  <ItemGroup>\n    <PackageReference",
+     "new": "  </PropertyGroup>\n\n  <PropertyGroup>\n    <Other>1</Other>\n  </PropertyGroup>\n\n  <ItemGroup>\n    <PackageReference"
+    }
+   ]
+  },
+  {
+   "name": "gate-second-property-group-installer",
+   "what": "the installer project gets a second PropertyGroup",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/ChatMCP.Installer.csproj",
+     "old": "  </PropertyGroup>\n\n  <ItemGroup Condition=\"Exists('payload.zip')\">",
+     "new": "  </PropertyGroup>\n\n  <PropertyGroup>\n    <Other>1</Other>\n  </PropertyGroup>\n\n  <ItemGroup Condition=\"Exists('payload.zip')\">"
+    }
+   ]
+  },
+  {
+   "name": "gate-installer-package",
+   "what": "the installer takes in a NuGet package",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/ChatMCP.Installer.csproj",
+     "old": "  <ItemGroup Condition=\"Exists('payload.zip')\">",
+     "new": "  <ItemGroup>\n    <PackageReference Include=\"Some.Package\" Version=\"1.0.0\" />\n  </ItemGroup>\n\n  <ItemGroup Condition=\"Exists('payload.zip')\">"
+    }
+   ]
+  },
+  {
+   "name": "gate-shell-package",
+   "what": "the shell takes in a second NuGet package",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/ChatMCP.csproj",
+     "old": "    <PackageReference Include=\"Microsoft.Web.WebView2\" Version=\"1.0.4258.31\" />",
+     "new": "    <PackageReference Include=\"Microsoft.Web.WebView2\" Version=\"1.0.4258.31\" />\n    <PackageReference Include=\"Some.Package\" Version=\"1.0.0\" />"
+    }
+   ]
+  },
+  {
+   "name": "gate-key-resource-name",
+   "what": "the shell reads its keys under another name than the project embeds them",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/ShellKeys.cs",
+     "old": "internal const string ResourceName = \"ChatMCP.Desktop.release-keys.json\";",
+     "new": "internal const string ResourceName = \"ChatMCP.Desktop.keys.json\";"
+    }
+   ]
+  },
+  {
+   "name": "gate-key-default-file",
+   "what": "by default the shell embeds another file than the Hub reads",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/ChatMCP.csproj",
+     "old": "lib\\release-keys.json</ReleaseKeysFile>",
+     "new": "lib\\keys.json</ReleaseKeysFile>"
+    }
+   ]
+  },
+  {
+   "name": "gate-key-not-overridable",
+   "what": "a build cannot name another key file",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/ChatMCP.csproj",
+     "old": "<ReleaseKeysFile Condition=\"'$(ReleaseKeysFile)' == ''\">",
+     "new": "<ReleaseKeysFile>"
+    }
+   ]
+  },
+  {
+   "name": "gate-key-from-disk",
+   "what": "the shell reads its keys from a file next to the program",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/ShellKeys.cs",
+     "old": "using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(ResourceName);",
+     "new": "using var stream = File.OpenRead(Path.Combine(AppContext.BaseDirectory, \"release-keys.json\"));"
+    }
+   ]
+  },
+  {
+   "name": "gate-form-close-box",
+   "what": "the window of an update has a close box",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "ControlBox = false;",
+     "new": "ControlBox = true;"
+    }
+   ]
+  },
+  {
+   "name": "gate-form-button-while-working",
+   "what": "the window of an update has a button while it works",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "            Controls.Add(_title);",
+     "new": "            Controls.Add(new Button { Text = \"Cancel\" });\n            Controls.Add(_title);"
+    }
+   ]
+  },
+  {
+   "name": "gate-form-closable",
+   "what": "the person can close the window while it works",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "if (!_allowClose && e.CloseReason == CloseReason.UserClosing) e.Cancel = true;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "gate-form-percentage",
+   "what": "the bar of the window claims a percentage",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30,",
+     "new": "Style = ProgressBarStyle.Continuous, Value = 50,"
+    }
+   ]
+  },
+  {
+   "name": "gate-form-never-closes",
+   "what": "the window does not close by itself after a success",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "if (outcome.Ok) { _allowClose = true; Close(); return; }",
+     "new": "if (outcome.Ok) { Close(); return; }"
+    }
+   ]
+  },
+  {
+   "name": "gate-product-name",
+   "what": "the setup is called something else than the shell expects",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/ChatMCP.Installer.csproj",
+     "old": "<Product>DatGold Studio Setup</Product>",
+     "new": "<Product>DatGold Setup</Product>"
+    }
+   ]
+  },
+  {
+   "name": "gate-title-name",
+   "what": "the setup has another title than the shell expects",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/ChatMCP.Installer.csproj",
+     "old": "<AssemblyTitle>DatGold Studio Setup</AssemblyTitle>",
+     "new": "<AssemblyTitle>DatGold Setup</AssemblyTitle>"
+    }
+   ]
+  },
+  {
+   "name": "gate-expected-product",
+   "what": "the shell expects another product name than the setup carries",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "ExpectedProduct = \"DatGold Studio Setup\";",
+     "new": "ExpectedProduct = \"DatGold Setup\";"
+    }
+   ]
+  },
+  {
+   "name": "gate-shell-execute",
+   "what": "the installer is started through the shell",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!",
+     "new": "UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!"
+    }
+   ]
+  },
+  {
+   "name": "gate-arguments-joined",
+   "what": "the arguments of the installer are one joined string",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "foreach (var argument in UpdateArguments.Build(environment.InstalledDirectory, environment.ShellPid, Path.Combine(environment.StateDirectory, ResultFileName))) start.ArgumentList.Add(argument);",
+     "new": "start.Arguments = string.Join(\" \", UpdateArguments.Build(environment.InstalledDirectory, environment.ShellPid, Path.Combine(environment.StateDirectory, ResultFileName)));"
+    }
+   ]
+  },
+  {
+   "name": "gate-cmd",
+   "what": "the shell goes through cmd",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "        private bool _applyingUpdate;",
+     "new": "        private bool _applyingUpdate;\n        private const string Interpreter = \"cmd.exe\";"
+    }
+   ]
+  },
+  {
+   "name": "gate-lifecycle-extra-flag",
+   "what": "the lifecycle script sends a flag the contract does not have",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/tests/Test-NativeLifecycle.ps1",
+     "old": "if ($Relaunch) { $arguments += '--relaunch' }",
+     "new": "if ($Relaunch) { $arguments += '--relaunch', '--force' }"
+    }
+   ]
+  },
+  {
+   "name": "gate-lifecycle-names",
+   "what": "the lifecycle script asks for another setup name than the shell expects",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/tests/Test-NativeLifecycle.ps1",
+     "old": "$candidateNames.ProductName -ceq 'DatGold Studio Setup'",
+     "new": "$candidateNames.ProductName -ceq 'DatGold Setup'"
+    }
+   ]
+  },
+  {
+   "name": "gate-builder-not-strict",
+   "what": "the build script no longer runs in strict mode (so the next check no longer explains the failure)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Set-StrictMode -Version 2.0",
+     "new": "Set-StrictMode -Off"
+    }
+   ]
+  },
+  {
+   "name": "gate-builder-other-version-source",
+   "what": "the build script reads the shell version from somewhere else",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "$shellManifest.Project.PropertyGroup.Version",
+     "new": "$shellManifest.Project.PropertyGroup[0].Version"
+    }
+   ]
+  },
+  {
+   "name": "json-text-of-throws",
+   "what": "a value that .NET cannot give as text is not caught: the exception leaves the reader",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { return element.GetString(); } catch (InvalidOperationException) { return null; }",
+     "new": "return element.GetString();"
+    }
+   ]
+  },
+  {
+   "name": "page-lone-surrogate-name-thrown",
+   "what": "a message with a field named by a lone surrogate throws out of the handler",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "catch (Exception error) when (error is JsonException or InvalidOperationException) { return false; }",
+     "new": "catch (JsonException) { return false; }"
+    }
+   ]
+  },
+  {
+   "name": "page-text-of-removed",
+   "what": "the type of a message is asked for as text without the guard of TextOf",
+   "equivalent": "The same handler already catches InvalidOperationException (a lone surrogate), so the guard of TextOf and the handler give the same answer for the message: dropped.",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "Json.TextOf(kind) is not { } kindText",
+     "new": "kind.GetString() is not { } kindText"
+    }
+   ]
+  },
+  {
+   "name": "keys-lone-surrogate-name-thrown",
+   "what": "a key list with a field named by a lone surrogate throws out of Parse, which must never throw",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "catch (Exception error) when (error is JsonException or InvalidOperationException)\n        {\n            // JSON that .NET parses",
+     "new": "catch (JsonException)\n        {\n            // JSON that .NET parses"
+    }
+   ]
+  },
+  {
+   "name": "keys-use-as-text-unguarded",
+   "what": "the use of a key is asked for as text without the guard: one entry with a lone surrogate costs the whole list",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "var use = entry.TryGetProperty(\"use\", out var usage) ? Json.TextOf(usage) : null;",
+     "new": "var use = entry.TryGetProperty(\"use\", out var usage) && usage.ValueKind == JsonValueKind.String ? usage.GetString() : null;"
+    }
+   ]
+  },
+  {
+   "name": "sig-lone-surrogate-name-thrown",
+   "what": "a signature file with a field named by a lone surrogate throws instead of being refused",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { document = JsonDocument.Parse(Json.StripBom(text), Json.Strict); } catch (Exception error) when (error is JsonException or InvalidOperationException) { throw new SignatureRefused(\"json\"); }",
+     "new": "try { document = JsonDocument.Parse(Json.StripBom(text), Json.Strict); } catch (JsonException) { throw new SignatureRefused(\"json\"); }"
+    }
+   ]
+  },
+  {
+   "name": "sig-read-fault-rethrown",
+   "what": "a fault of .NET while the signature file is read leaves as it is",
+   "equivalent": "Defence in depth: every InvalidOperationException .NET can raise here (a lone surrogate in a value or a name) is stopped earlier, by Json.TextOf or by the parse; no input reaches this handler.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "catch (InvalidOperationException) { throw new SignatureRefused(\"json\"); } // a property",
+     "new": "catch (InvalidOperationException) { throw; } // a property"
+    }
+   ]
+  },
+  {
+   "name": "manifest-lone-surrogate-name-thrown",
+   "what": "a manifest with a field named by a lone surrogate throws instead of being refused",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { document = JsonDocument.Parse(Json.StripBom(bytes), Json.Strict); } catch (Exception error) when (error is JsonException or InvalidOperationException) { throw new ManifestRefused(\"the file is not JSON\"); }",
+     "new": "try { document = JsonDocument.Parse(Json.StripBom(bytes), Json.Strict); } catch (JsonException) { throw new ManifestRefused(\"the file is not JSON\"); }"
+    }
+   ]
+  },
+  {
+   "name": "manifest-read-fault-rethrown",
+   "what": "a fault of .NET while the manifest is read leaves as it is",
+   "equivalent": "Defence in depth, as for the signature file: no input reaches this handler, because Json.TextOf and the parse stop every lone surrogate before it.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "catch (InvalidOperationException) { throw new ManifestRefused(\"the file cannot be read as JSON\"); }",
+     "new": "catch (InvalidOperationException) { throw; }"
+    }
+   ]
+  },
+  {
+   "name": "staging-unforeseen-escapes",
+   "what": "a folder that fails in an unforeseen way lets its exception out of the shell",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "catch (Exception error) when (error is not OutOfMemoryException) { newestFailure ??= new UpdateRefused(\"staging_unsafe\", \"the release folder \" + name + \" could not be checked (\" + error.GetType().Name + \")\"); }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-unforeseen-code",
+   "what": "a folder that fails in an unforeseen way is told as another code than staging_unsafe",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "newestFailure ??= new UpdateRefused(\"staging_unsafe\", \"the release folder \" + name + \" could not be checked (",
+     "new": "newestFailure ??= new UpdateRefused(\"bad_installer\", \"the release folder \" + name + \" could not be checked ("
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-not-read",
+   "what": "the arguments are not read the way the installer will read them before anything is started",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "            RequireReadableByInstaller(start);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-read-with-another-name",
+   "what": "the arguments are read with a name of the file that is not the file that is started",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "InstallerCommandLine.Parse(start.ArgumentList.ToArray(), Path.GetFileNameWithoutExtension(start.FileName))",
+     "new": "InstallerCommandLine.Parse(start.ArgumentList.ToArray(), \"DatGoldSetup\")"
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-refusal-code",
+   "what": "arguments the installer cannot read are told as another code than launch_failed",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "throw new UpdateRefused(\"launch_failed\", \"the installer would not read the arguments it is given\");",
+     "new": "throw new UpdateRefused(\"bad_installer\", \"the installer would not read the arguments it is given\");"
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-mode-unchecked",
+   "what": "arguments that are not those of an update are started all the same",
+   "equivalent": "InstallerCommandLine.Parse returns an update command or throws for every argument list that holds --update, and UpdateArguments.Build always gives it: no input reaches this check.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "if (command.Mode != InstallerMode.Update) throw new UpdateRefused(\"launch_failed\", \"the arguments are not those of an update\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "apply-start-on-the-window-thread",
+   "what": "the installer is started on the thread that draws the window",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "return await Task.Run(() => environment.Start(start));",
+     "new": "return environment.Start(start);"
+    }
+   ]
+  },
+  {
+   "name": "wait-one-look-too-many",
+   "what": "the wait for the installer looks and waits once more than the time it was given",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "waited < limit; waited += step",
+     "new": "waited <= limit; waited += step"
+    }
+   ]
+  },
+  {
+   "name": "wait-no-last-look",
+   "what": "the installer that shows its window in the last moment is not seen",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "return look() ?? InstallerSighting.Silent;",
+     "new": "return InstallerSighting.Silent;"
+    }
+   ]
+  },
+  {
+   "name": "wait-ignores-the-end",
+   "what": "an installer that has ended is not told",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "if (look() is { } seen) return seen;",
+     "new": "if (look() is { } seen && seen == InstallerSighting.Window) return seen;"
+    }
+   ]
+  },
+  {
+   "name": "run-result-beside-a-hub",
+   "what": "the result file is left whatever listens on the port of the Hub",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (command.ResultFile != null && !HubListens(environment))",
+     "new": "if (command.ResultFile != null)"
+    }
+   ]
+  },
+  {
+   "name": "run-hub-check-fatal",
+   "what": "a port that cannot be looked at makes the update throw",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { return environment.HubIsRunning(); } catch (Exception) { return false; }",
+     "new": "return environment.HubIsRunning();"
+    }
+   ]
+  },
+  {
+   "name": "run-hub-check-unknown-means-running",
+   "what": "a port that cannot be looked at is taken as a Hub that is up, and no note is left",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { return environment.HubIsRunning(); } catch (Exception) { return false; }",
+     "new": "try { return environment.HubIsRunning(); } catch (Exception) { return true; }"
+    }
+   ]
+  },
+  {
+   "name": "run-relaunched-before-it-worked",
+   "what": "the update says the app was opened before it has tried to open it",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { environment.Relaunch(program); relaunched = true; }",
+     "new": "try { relaunched = true; environment.Relaunch(program); }"
+    }
+   ]
+  },
+  {
+   "name": "open-app-missing-is-silent",
+   "what": "opening an app that is not there is no failure",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (!File.Exists(program)) throw new FileNotFoundException(\"There is no ChatMCP.exe to open.\");",
+     "new": "if (!File.Exists(program)) return;"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-earlier-update-unseen",
+   "what": "the marker of an earlier update is told as this update stopping halfway",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "return outcome.Reason == \"pending_recovery\"",
+     "new": "return false"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-setup-again",
+   "what": "the words send the person to the setup, which refuses behind the marker",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "DatGoldSetup.exe will not install again while that file is there. \"",
+     "new": "Run DatGoldSetup.exe again. \""
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-no-backup-named",
+   "what": "the words do not name the file that holds the backup or say it is not to be deleted",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "Keep the backup that .chatmcp-update-pending.json in the DatGold folder points to (do not delete it) and look",
+     "new": "Look"
+    }
+   ]
+  },
+  {
+   "name": "tx-marker-overwrites",
+   "what": "a marker that another update made is replaced",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "File.Move(temporary, marker);",
+     "new": "File.Move(temporary, marker, overwrite: true);"
+    }
+   ]
+  },
+  {
+   "name": "tx-marker-stale-name-kept",
+   "what": "the file the marker is written under first is not cleared before it is made",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "File.Delete(temporary); // a leftover of an earlier run that died is replaced, not trusted\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "tx-marker-name-kept-on-failure",
+   "what": "a failure to write the marker leaves the file it was written under",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "try { File.Delete(temporary); } catch (Exception) { /* nothing more can be done about it */ }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "tx-path-untagged",
+   "what": "a payload path that is not safe is not told as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "throw new IOException(\"Unsafe or non-canonical payload path.\").Tag(\"payload_invalid\");",
+     "new": "throw new IOException(\"Unsafe or non-canonical payload path.\");"
+    }
+   ]
+  },
+  {
+   "name": "tx-duplicate-untagged",
+   "what": "a payload that names a file twice is not told as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "throw new IOException(\"Duplicate or oversized installer manifest.\").Tag(\"payload_invalid\");",
+     "new": "throw new IOException(\"Duplicate or oversized installer manifest.\");"
+    }
+   ]
+  },
+  {
+   "name": "tx-missing-component-untagged",
+   "what": "a component the payload does not have is not told as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "throw new IOException(\"Missing required staged component.\").Tag(\"payload_invalid\");",
+     "new": "throw new IOException(\"Missing required staged component.\");"
+    }
+   ]
+  },
+  {
+   "name": "tx-missing-component-lookup",
+   "what": "a component the payload does not have makes a lookup fail (KeyNotFoundException)",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "changes.TryGetValue(Normalize(relative), out var change) && change.Staged != null\n        ? change.Staged\n        : throw new IOException(\"Missing required staged component.\").Tag(\"payload_invalid\");",
+     "new": "changes[Normalize(relative)].Staged!;"
+    }
+   ]
+  },
+  {
+   "name": "work-agent-not-object-is-idle",
+   "what": "an agent that is null, a string or a list is a Hub with no work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": " || agent.ValueKind != JsonValueKind.Object || HasWork(agent))",
+     "new": " || HasWork(agent))"
+    }
+   ]
+  },
+  {
+   "name": "link-download-allowed",
+   "what": "a link into releases/download or releases/latest/download is opened",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": " || plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;",
+     "new": ") return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-download-case-sensitive",
+   "what": "a segment named DOWNLOAD (capitals) is not a download",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;",
+     "new": "plain.Equals(\"download\", StringComparison.Ordinal)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "gate-window-tag-lost",
+   "what": "the step that refuses for a window that would not close carries no code, so window_open is listed and worded and nobody ever sees it",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\").Tag(\"window_open\");",
+     "new": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\");"
+    }
+   ]
+  },
+  {
+   "name": "gate-window-keeps-itself-open-lost",
+   "what": "the window of the shell closes although the installer has ended",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "if (seen == InstallerSighting.Exited) throw new UpdateRefused(\"launch_failed\", \"the installer ended before this window closed\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "gate-window-told-before-the-look",
+   "what": "the page is told `launched` before the installer was looked at",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "                var seen = await UpdateApplier.WaitForInstaller(",
+     "new": "                ReplyToPage(requestId, true, \"launched\");\n                var seen = await UpdateApplier.WaitForInstaller("
+    }
+   ]
+  },
+  {
+   "name": "gate-key-list-left-to-the-project-default",
+   "what": "the build of the shell is not given its key list on the command line",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": " \"-p:ReleaseKeysFile=$shellKeysArgument\" |",
+     "new": " |"
+    }
+   ]
+  },
+  {
+   "name": "gate-arguments-read-after-the-monitor-stops",
+   "what": "the arguments are read after the monitor of the Hub has been stopped",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "            RequireReadableByInstaller(start);\n            beforeStart();",
+     "new": "            beforeStart();\n            RequireReadableByInstaller(start);"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-wrong-workflow-name",
+   "what": "a publish workflow is not recognised by its name",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if ($env:GITHUB_WORKFLOW -like 'Publisher*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-refused-everywhere",
+   "what": "the variable is refused in every workflow, not only a publish one",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if (-not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-publish-always-refused",
+   "what": "a publish workflow is refused whether the variable is set or not",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if ($env:GITHUB_WORKFLOW -like 'Publish*') {"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-or-instead-of-and",
+   "what": "the refusal needs a publish workflow OR the variable",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -or -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-carries-one-byte-short",
+   "what": "a block carries one byte too few into the next, so a match that a block ends in the middle of is lost",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$carried = $Needle.Length - 1",
+     "new": "$carried = $Needle.Length - 2"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-reads-over-the-carry",
+   "what": "the next block is read over the bytes that were carried",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$stream.Read($buffer, $held, $BlockSize)",
+     "new": "$stream.Read($buffer, 0, $BlockSize)"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-end-of-file-is-found",
+   "what": "the end of the file counts as a match",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($read -le 0) { return $false }",
+     "new": "if ($read -le 0) { return $true }"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-start-of-block-missed",
+   "what": "a match at the very start of a block is not counted",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ".IndexOf($needleText, [StringComparison]::Ordinal) -ge 0",
+     "new": ".IndexOf($needleText, [StringComparison]::Ordinal) -gt 0"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-culture-compare",
+   "what": "the bytes are compared as text of a culture (which ignores some characters) and not one to one",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ".IndexOf($needleText, [StringComparison]::Ordinal)",
+     "new": ".IndexOf($needleText, [StringComparison]::InvariantCultureIgnoreCase)"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-carry-longer-than-read",
+   "what": "more bytes are carried than the block holds",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$held = [Math]::Min($carried, $length)",
+     "new": "$held = $carried"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-empty-needle-allowed",
+   "what": "an empty list of bytes is looked for (it is in every file)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($Needle.Length -lt 1) {",
+     "new": "if ($Needle.Length -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-empty-block-allowed",
+   "what": "a block of no bytes is allowed",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($BlockSize -lt 1) {",
+     "new": "if ($BlockSize -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-latin1-becomes-utf8",
+   "what": "the bytes are turned into text as UTF-8, which is not one to one",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$latin1 = [Text.Encoding]::GetEncoding(28591)",
+     "new": "$latin1 = [Text.Encoding]::UTF8"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-inverted",
+   "what": "a program passes when it does NOT carry the list",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-InstallerFileContains -Path $Executable -Needle $keys)) {",
+     "new": "if (Test-InstallerFileContains -Path $Executable -Needle $keys) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-empty-list-allowed",
+   "what": "an empty key list is not refused by the proof",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($keys.Length -lt 1) {",
+     "new": "if ($keys.Length -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-missing-program-unchecked",
+   "what": "a program that is not there is not named",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { throw \"The program that should carry",
+     "new": "if ($false) { throw \"The program that should carry"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-missing-list-unchecked",
+   "what": "a key list that is not there is not named",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-Path -LiteralPath $KeysFile -PathType Leaf)) { throw \"The key list that was meant to be built in is not a file",
+     "new": "if ($false) { throw \"The key list that was meant to be built in is not a file"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-never-throws",
+   "what": "the proof throws for nothing",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "        throw \"$Executable does not carry the key list that was meant to be built into it",
+     "new": "        return # \"$Executable does not carry the key list that was meant to be built into it"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-inverted",
+   "what": "a payload passes when its list DIFFERS",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ".Hash -ne (Get-FileHash -LiteralPath $KeysFile",
+     "new": ".Hash -eq (Get-FileHash -LiteralPath $KeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-wrong-file",
+   "what": "the Hub of the payload is looked for under another name",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\\lib\\release-keys.json'",
+     "new": "$shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\\lib\\release-key.json'"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-never-compares",
+   "what": "the two lists are not compared",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ((Get-FileHash -LiteralPath $shipped -Algorithm SHA256).Hash -ne (Get-FileHash",
+     "new": "if ($false -and (Get-FileHash -LiteralPath $shipped -Algorithm SHA256).Hash -ne (Get-FileHash"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-missing-hub-list-unchecked",
+   "what": "a payload with no key list for the Hub is not named",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-Path -LiteralPath $shipped -PathType Leaf)) { throw \"The Hub of the payload has no key list",
+     "new": "if ($false) { throw \"The Hub of the payload has no key list"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-ambient-not-asserted",
+   "what": "the build does not ask for the variable to be absent",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerNoAmbientReleaseKeysFile\nif ($ReleaseKeysFile -ne '') {",
+     "new": "if ($ReleaseKeysFile -ne '') {"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-ambient-after-first-step",
+   "what": "the variable is looked at only after the prerequisites",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerNoAmbientReleaseKeysFile\nif ($ReleaseKeysFile -ne '') {",
+     "new": "if ($ReleaseKeysFile -ne '') {"
+    },
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "# 1. Prerequisite checks\n",
+     "new": "# 1. Prerequisite checks\nAssert-InstallerNoAmbientReleaseKeysFile\n"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-not-asserted",
+   "what": "the program that is built is not searched for its list",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-other-program",
+   "what": "another file than the published shell is searched",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile",
+     "new": "Assert-InstallerReleaseKeysBuiltIn -Executable $shellCsproj -KeysFile $shellKeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-other-list",
+   "what": "the program is searched for another list than the one it was built with",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile",
+     "new": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $ReleaseKeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-after-payload-copy",
+   "what": "the program is searched only after it went into the payload",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile\n",
+     "new": ""
+    },
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadDir\n",
+     "new": "Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadDir\nAssert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile\n"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-shipped-not-asserted",
+   "what": "the list in the payload is not compared with the one the shell was built with",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-build-shipped-other-list",
+   "what": "the payload is compared with another list than the one the shell was built with",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile",
+     "new": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $ReleaseKeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-shipped-before-the-copy",
+   "what": "the payload is compared before the list of a test build is copied into it",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile\n",
+     "new": ""
+    },
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir\nif ($ReleaseKeysFile -ne '') {",
+     "new": "Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir\nAssert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile\nif ($ReleaseKeysFile -ne '') {"
+    }
+   ]
+  },
+  {
+   "name": "staging-start-path-is-found-path",
+   "what": "the start path of a verified update is the path that was walked to find the file",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "new VerifiedUpdate(version, folder, path, FinalPathOf(stream.SafeFileHandle), kid, installer.Bytes, stream)",
+     "new": "new VerifiedUpdate(version, folder, path, path, kid, installer.Bytes, stream)"
+    }
+   ]
+  },
+  {
+   "name": "applier-starts-from-found-path",
+   "what": "the installer is started from the path that was found, not from the real place of the file that was hashed",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "new ProcessStartInfo(update.StartPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }",
+     "new": "new ProcessStartInfo(update.InstallerPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }"
+    }
+   ]
+  },
+  {
+   "name": "applier-working-directory-is-found-folder",
+   "what": "the installer runs in the folder that was found, not in the one the file really is in",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }",
+     "new": "WorkingDirectory = update.Folder }"
+    }
+   ]
+  },
+  {
+   "name": "gate-applier-starts-from-found-path",
+   "what": "the installer is started from the path that was found (judged by the static gate)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "new ProcessStartInfo(update.StartPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }",
+     "new": "new ProcessStartInfo(update.InstallerPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }"
+    }
+   ]
+  },
+  {
+   "name": "gate-staging-start-path-is-found-path",
+   "what": "the start path of a verified update is the path that was walked to find the file (judged by the static gate)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "new VerifiedUpdate(version, folder, path, FinalPathOf(stream.SafeFileHandle), kid, installer.Bytes, stream)",
+     "new": "new VerifiedUpdate(version, folder, path, path, kid, installer.Bytes, stream)"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-unc-case-sensitive",
+   "what": "Windows spelling UNC in lower case is not understood",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "StringComparison.OrdinalIgnoreCase)) plain = @\"\\\\\" + path[8..];",
+     "new": "StringComparison.Ordinal)) plain = @\"\\\\\" + path[8..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-unc-offset",
+   "what": "a network path loses one character too few after the prefix",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "plain = @\"\\\\\" + path[8..];",
+     "new": "plain = @\"\\\\\" + path[7..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-drive-letter-unchecked",
+   "what": "any character is taken for the letter of a drive",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": " && char.IsAsciiLetter(path[4]) && path[5] == ':'",
+     "new": " && path[5] == ':'"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-colon-unchecked",
+   "what": "the colon after the letter of a drive is not looked for",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "path[5] == ':' && path[6] == '\\\\') plain = path[4..];",
+     "new": "path[6] == '\\\\') plain = path[4..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-separator-unchecked",
+   "what": "the separator after the colon is not looked for",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "path[5] == ':' && path[6] == '\\\\') plain = path[4..];",
+     "new": "path[5] == ':') plain = path[4..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-short-string-guard",
+   "what": "a string that is just the prefix and a drive is indexed past its end",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "path.Length > 6 && path.StartsWith(@\"\\\\?\\\", StringComparison.Ordinal)",
+     "new": "path.Length > 5 && path.StartsWith(@\"\\\\?\\\", StringComparison.Ordinal)"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-bound-inclusive",
+   "what": "a plain path of 260 characters is used",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "return plain.Length < MaxPlainPath ? plain : path;",
+     "new": "return plain.Length <= MaxPlainPath ? plain : path;"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-bound-constant",
+   "what": "the longest plain path is one character more",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "private const int MaxPlainPath = 260;",
+     "new": "private const int MaxPlainPath = 261;"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-never-plain",
+   "what": "the extended form is always kept",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "return plain.Length < MaxPlainPath ? plain : path;",
+     "new": "return path;"
+    }
+   ]
+  },
+  {
+   "name": "final-path-failure-ignored",
+   "what": "a handle whose place cannot be told gives an empty place and no refusal",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (needed == 0 || needed >= buffer.Capacity) throw new UpdateRefused",
+     "new": "if (needed >= buffer.Capacity) throw new UpdateRefused"
+    }
+   ]
+  },
+  {
+   "name": "final-path-no-second-try",
+   "what": "a place longer than the first buffer is refused instead of asked again with room",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (needed >= buffer.Capacity) { buffer = new StringBuilder((int)needed + 1); needed = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0); }\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "install-files-missing-payload-untagged",
+   "what": "a setup with no payload refuses without saying so (the code of the step is lost)",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "?? throw new InvalidOperationException(\"The standalone installer payload is missing. No files were replaced.\").Tag(\"payload_invalid\");",
+     "new": "?? throw new InvalidOperationException(\"The standalone installer payload is missing. No files were replaced.\");"
+    }
+   ]
+  },
+  {
+   "name": "close-window-untagged",
+   "what": "the window that does not close is refused without saying so",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\").Tag(\"window_open\");",
+     "new": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\");"
+    }
+   ]
+  },
+  {
+   "name": "close-window-wait-skipped",
+   "what": "the app is not given any time to close",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!proc.WaitForExit(waitMilliseconds))",
+     "new": "if (!proc.WaitForExit(0))"
+    }
+   ]
+  },
+  {
+   "name": "close-window-wait-fixed",
+   "what": "the app is always given five seconds, whatever it was told",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!proc.WaitForExit(waitMilliseconds))",
+     "new": "if (!proc.WaitForExit(5000))"
+    }
+   ]
+  },
+  {
+   "name": "close-window-never-refuses",
+   "what": "the app that does not close is not refused",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!proc.WaitForExit(waitMilliseconds))",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "gate-bridge-no-gesture",
+   "what": "script in the page can start the system browser (no user gesture asked for)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/WebViewBridge.cs",
+     "old": "if (e.IsUserInitiated && OpenLink.TryGetExternalLink(e.Uri, out var external))",
+     "new": "if (OpenLink.TryGetExternalLink(e.Uri, out var external))"
+    }
+   ]
+  },
+  {
+   "name": "gate-bridge-gesture-or",
+   "what": "the system browser opens for a person or for a release page",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/WebViewBridge.cs",
+     "old": "e.IsUserInitiated && OpenLink",
+     "new": "e.IsUserInitiated || OpenLink"
+    }
+   ]
+  },
+  {
+   "name": "gate-bridge-gesture-negated",
+   "what": "the system browser opens only for what a person did NOT make",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/WebViewBridge.cs",
+     "old": "e.IsUserInitiated && OpenLink",
+     "new": "!e.IsUserInitiated && OpenLink"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-no-guide",
+   "what": "the words of an update that needs recovery do not name the way out that exists",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "\"To put the files back by hand, follow Recovering an installation by hand in docs/WINDOWS-SETUP.md in the DatGold project on GitHub.\";",
+     "new": "\"\";"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-guide-wrong-file",
+   "what": "and name another file than the guide",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "in docs/WINDOWS-SETUP.md in the DatGold project",
+     "new": "in docs/README.md in the DatGold project"
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-percent-not-escaped",
+   "what": "a percent sign goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$escaped = $Value.Replace('%', '%25')",
+     "new": "$escaped = $Value"
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-percent-escaped-last",
+   "what": "the percent sign is escaped after the others, so that their escapes are escaped again",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$escaped = $Value.Replace('%', '%25')",
+     "new": "$escaped = $Value"
+    },
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "    return $escaped\n",
+     "new": "    $escaped = $escaped.Replace('%', '%25')\n    return $escaped\n"
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-star-not-escaped",
+   "what": "a star goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('*', '%2A'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-question-not-escaped",
+   "what": "a question goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('?', '%3F'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-at-not-escaped",
+   "what": "a at goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('@', '%40'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-dollar-not-escaped",
+   "what": "a dollar goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('$', '%24'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-open-parenthesis-not-escaped",
+   "what": "a open parenthesis goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('(', '%28'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-close-parenthesis-not-escaped",
+   "what": "a close parenthesis goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@(')', '%29'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-semicolon-not-escaped",
+   "what": "a semicolon goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@(';', '%3B'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-quote-not-escaped",
+   "what": "a quote goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@(\"'\", '%27'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-comma-not-escaped",
+   "what": "a comma goes to MSBuild as it is",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ", @(',', '%2C')",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "gate-key-argument-unescaped",
+   "what": "the path of the key list goes to MSBuild as it is (a repository with a semicolon or a comma in its path cannot be built)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value $shellKeysFile",
+     "new": "$shellKeysArgument = $shellKeysFile"
+    }
+   ]
+  },
+  {
+   "name": "gate-installer-looked-at-by-id",
+   "what": "the installer is looked at through its id and the handle is closed at once",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "_installer = Process.Start(info) ?? throw new IOException(\"The installer did not start.\");\n                        return _installer.Id;",
+     "new": "using var installer = Process.Start(info) ?? throw new IOException(\"The installer did not start.\");\n                        return installer.Id;"
+    }
+   ]
+  },
+  {
+   "name": "gate-installer-handle-kept-after-look",
+   "what": "the handle of the installer is not closed after the look",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "                _installer?.Dispose(); _installer = null;\n                if (seen == InstallerSighting.Exited)",
+     "new": "                if (seen == InstallerSighting.Exited)"
+    }
+   ]
+  },
+  {
+   "name": "gate-installer-handle-kept-after-refusal",
+   "what": "the handle of the installer is not closed when the update is refused",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "            catch (UpdateRefused refused)\n            {\n                _installer?.Dispose(); _installer = null;\n",
+     "new": "            catch (UpdateRefused refused)\n            {\n"
+    }
+   ]
+  },
+  {
+   "name": "gate-journal-written-with-writealltext",
+   "what": "the journal is written with File.WriteAllText, not flushed",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "        using (var journal = new FileStream(Path.Combine(workspace, \"journal.json\"), FileMode.CreateNew, FileAccess.Write, FileShare.None))\n        {\n            JsonSerializer.Serialize(journal, changes.Values);\n            journal.Flush(true);\n        }",
+     "new": "        File.WriteAllText(Path.Combine(workspace, \"journal.json\"), JsonSerializer.Serialize(changes.Values));"
+    }
+   ]
+  },
+  {
+   "name": "gate-journal-not-flushed",
+   "what": "the journal is written through a stream that is not flushed to the disk",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "            journal.Flush(true);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "marker-race-untagged",
+   "what": "a marker that appeared meanwhile is reported without the code of an earlier update that did not finish",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "No files were changed.\").Tag(\"pending_recovery\"); }",
+     "new": "No files were changed.\"); }"
+    }
+   ]
+  },
+  {
+   "name": "marker-race-any-move-failure",
+   "what": "any failure to put the marker in place is said to be an earlier update that did not finish",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "catch (IOException) when (File.Exists(marker)) { throw new IOException(\"An update that did not finish",
+     "new": "catch (IOException) { throw new IOException(\"An update that did not finish"
+    }
+   ]
+  },
+  {
+   "name": "receipt-path-blamed-on-the-installer",
+   "what": "a path of the installation receipt that breaks the rules is reported as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "                try { key = InstallTransaction.Normalize(item.Key); }\n                catch (IOException) { throw new InvalidOperationException(\"Installation manifest path is invalid: \" + item.Key); }",
+     "new": "                key = InstallTransaction.Normalize(item.Key);"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-text-unchecked",
+   "what": "the folder the picker starts in is taken as a string without asking whether .NET can give it as text (a lone surrogate, or a value that is not a string, throws and the request is dropped)",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "initialPath = Json.TextOf(start);",
+     "new": "initialPath = start.GetString();"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-unreadable-suggestion-drops-request",
+   "what": "a suggestion that cannot be read drops the whole pick-folder request (the picker does not open and the page waits three minutes)",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "initialPath = Json.TextOf(start);",
+     "new": "{ if (Json.TextOf(start) is not { } read) return false; initialPath = read; }"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-catch-only-json",
+   "what": "a message .NET cannot compare a name of is not dropped but thrown at the window",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "catch (Exception error) when (error is JsonException or InvalidOperationException) { initialPath = null; return false; }",
+     "new": "catch (JsonException) { initialPath = null; return false; }"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-not-an-object-accepted",
+   "what": "a message that is not an object is looked into for the field",
+   "equivalent": "TryGetProperty on a value that is not an object throws InvalidOperationException, which the catch of the method turns into false: the same answer, by another road",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "if (document.RootElement.ValueKind != JsonValueKind.Object) return false;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "initialpath-size-unchecked",
+   "what": "a pick-folder message of any size is read",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;",
+     "new": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json)) return false;"
+    }
+   ]
+  }
+ ]
+}

@@ -1,7 +1,14 @@
+using ChatMCP.Native;
 using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace ChatMCP.Installer;
+
+/// <summary>The upgrade failed and every file that it had changed was put back: the old version is in place. (A rollback that is not whole throws an AggregateException and leaves the marker.)</summary>
+internal sealed class UpgradeRolledBackException : IOException
+{
+    internal UpgradeRolledBackException(string message, Exception inner) : base(message, inner) { }
+}
 
 // Stages and hashes all bytes, preflights every destination, then changes only
 // owned application files. Failure rolls back touched files; power interruption
@@ -24,7 +31,7 @@ internal sealed class InstallTransaction : IDisposable
     {
         root = Path.GetFullPath(directory).TrimEnd('\\', '/');
         marker = InstallerEngine.SafePath(root, PendingName);
-        if (File.Exists(marker)) throw new InvalidOperationException("An interrupted update has a retained backup. Inspect .chatmcp-update-pending.json and the installer log before retrying; no files were changed.");
+        if (File.Exists(marker)) throw new InvalidOperationException("An interrupted update has a retained backup. Inspect .chatmcp-update-pending.json and the installer log before retrying; no files were changed.").Tag("pending_recovery");
         workspace = InstallerEngine.SafePath(root, ".ChatMCP-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(workspace, "new"));
         Directory.CreateDirectory(Path.Combine(workspace, "old"));
@@ -34,7 +41,7 @@ internal sealed class InstallTransaction : IDisposable
         var value = relative.Replace('\\', '/');
         if (value.Length == 0 || Path.IsPathRooted(value) || value.Split('/').Any(p =>
             p.Length == 0 || p is "." or ".." || p.EndsWith('.') || p.EndsWith(' ') || p.Any(c => c < 32 || ":*?\"<>|".Contains(c))))
-            throw new IOException("Unsafe or non-canonical payload path.");
+            throw new IOException("Unsafe or non-canonical payload path.").Tag("payload_invalid");
         return value;
     }
     private static string Hash(string path)
@@ -46,7 +53,7 @@ internal sealed class InstallTransaction : IDisposable
     {
         relative = Normalize(relative);
         InstallerEngine.SafePath(root, relative);
-        if (changes.Count >= 100000 || changes.ContainsKey(relative)) throw new IOException("Duplicate or oversized installer manifest.");
+        if (changes.Count >= 100000 || changes.ContainsKey(relative)) throw new IOException("Duplicate or oversized installer manifest.").Tag("payload_invalid");
         var staged = Path.Combine(workspace, "new", changes.Count.ToString("D6"));
         using (var output = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
@@ -54,15 +61,16 @@ internal sealed class InstallTransaction : IDisposable
             while ((count = source.Read(buffer, 0, buffer.Length)) != 0)
             {
                 stagedBytes += count;
-                if (stagedBytes > 4L * 1024 * 1024 * 1024) throw new IOException("Installer payload exceeds the staging limit.");
+                if (stagedBytes > 4L * 1024 * 1024 * 1024) throw new IOException("Installer payload exceeds the staging limit.").Tag("payload_invalid");
                 output.Write(buffer, 0, count);
             }
             output.Flush(true);
         }
         changes.Add(relative, new Change(relative, staged, Hash(staged), null, null));
     }
-    internal string StagedPath(string relative) => changes[Normalize(relative)].Staged
-        ?? throw new IOException("Missing required staged component.");
+    internal string StagedPath(string relative) => changes.TryGetValue(Normalize(relative), out var change) && change.Staged != null
+        ? change.Staged
+        : throw new IOException("Missing required staged component.").Tag("payload_invalid");
     internal void RemoveObsolete(string relative)
     {
         relative = Normalize(relative);
@@ -96,12 +104,14 @@ internal sealed class InstallTransaction : IDisposable
             if (Hash(backup) != oldHash) throw new IOException("Upgrade backup checksum mismatch.");
             changes[item.Relative] = item with { Backup = backup, OldHash = oldHash };
         }
-        File.WriteAllText(Path.Combine(workspace, "journal.json"), JsonSerializer.Serialize(changes.Values));
-        using (var pending = new FileStream(marker, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        // The journal says which file was backed up where, and the marker says "keep the backup": both are on the disk, flushed, before the first file changes (after a power cut a marker with a journal that is
+        // empty or zeros is a backup that nobody can map back to its files).
+        using (var journal = new FileStream(Path.Combine(workspace, "journal.json"), FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
-            JsonSerializer.Serialize(pending, new { version = 1, backupDirectory = workspace });
-            pending.Flush(true);
+            JsonSerializer.Serialize(journal, changes.Values);
+            journal.Flush(true);
         }
+        WritePendingMarker();
         retain = true;
         try
         {
@@ -158,9 +168,36 @@ internal sealed class InstallTransaction : IDisposable
             }
             if (rollbackFailures.Count == 0) { File.Delete(marker); retain = false; }
             if (retain) throw new AggregateException("Upgrade failed; keep the retained backup at " + workspace + ". The launcher is blocked until recovery.", new[] { failure }.Concat(rollbackFailures));
-            throw new IOException("Upgrade failed; all changed application files were rolled back. " + failure.Message, failure);
+            throw new UpgradeRolledBackException("Upgrade failed; all changed application files were rolled back. " + failure.Message, failure);
         }
     }
+    /// <summary>
+    /// The marker says "an update is half done: keep the backup, the launcher must not start". It is written under another name and moved into place, so it is never there empty or half written (a marker like
+    /// that blocks the launcher, setup and the uninstaller with nothing to recover from). The move refuses to replace a marker that is already there (another update began), and whatever fails removes
+    /// the file it was written under.
+    /// </summary>
+    private void WritePendingMarker()
+    {
+        var temporary = marker + ".new";
+        try
+        {
+            File.Delete(temporary); // a leftover of an earlier run that died is replaced, not trusted
+            using (var pending = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(pending, new { version = 1, backupDirectory = workspace });
+                pending.Flush(true);
+            }
+            try { File.Move(temporary, marker); }
+            // another update began between the check of the constructor and now: nothing of this one has been touched, and the words must say that and not that this update stopped halfway
+            catch (IOException) when (File.Exists(marker)) { throw new IOException("An update that did not finish has left " + PendingName + " here. No files were changed.").Tag("pending_recovery"); }
+        }
+        catch
+        {
+            try { File.Delete(temporary); } catch (Exception) { /* nothing more can be done about it */ }
+            throw;
+        }
+    }
+
     public void Dispose()
     {
         if (retain || !Directory.Exists(workspace)) return;

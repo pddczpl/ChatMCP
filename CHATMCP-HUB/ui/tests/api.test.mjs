@@ -135,6 +135,8 @@ test('the update notice is one GET that asks nobody and five POSTs (the download
     assert.equal(typeof started.update, 'object');
     await api.cancelUpdateDownload();
     assert.deepEqual([seen[6].route, seen[6].method, seen[6].body], ['/api/update/download-cancel', 'POST', '{}']);
+    await api.dismissAppliedUpdate();
+    assert.deepEqual([seen[7].route, seen[7].method, seen[7].body], ['/api/update/applied-dismiss', 'POST', '{}'], 'dismissing what the last update left sends an empty body: nothing in it is read');
     for (const call of seen) assert.equal(call.headers.Authorization, 'Bearer ' + 'u'.repeat(40), `${call.route}: behind the bearer like every route`);
     for (const call of seen.filter((entry) => entry.method === 'POST')) {
       assert.equal(call.headers['X-ChatMCP-Request'], 'local-dashboard', `${call.route}: with the marker of the page`);
@@ -144,5 +146,23 @@ test('the update notice is one GET that asks nobody and five POSTs (the download
     assert.equal(seen[5].headers['X-ChatMCP-CSRF'], 'fresh-token');
     await assert.rejects(api.skipUpdate('3.10.3'), { status: 409, code: 'update_skip_stale', message: /không còn là bản mới/ });
     await assert.rejects(api.downloadUpdate('3.10.3'), { status: 409, code: 'update_download_unsigned', message: /not signed with a valid signature/ });
+  } finally { globalThis.fetch = original; setHubSecret(''); }
+});
+
+test('"Download again" is the same call with again: true; the plain call carries the version and nothing else', async () => {
+  const original = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (route, init = {}) => {
+    seen.push({ route, method: init.method ?? 'GET', body: init.body });
+    return Response.json({ csrfToken: 'fresh-token', update: { current: '3.10.2' }, started: true });
+  };
+  setHubSecret('u'.repeat(40));
+  try {
+    await api.downloadUpdate('3.10.3');
+    await api.downloadUpdate('3.10.3', false);
+    await api.downloadUpdate('3.10.3', true);
+    assert.deepEqual(seen.map((call) => [call.route, call.method, call.body]), [
+      ['/api/update/download', 'POST', '{"version":"3.10.3"}'], ['/api/update/download', 'POST', '{"version":"3.10.3"}'], ['/api/update/download', 'POST', '{"version":"3.10.3","again":true}'],
+    ], 'only a download that is asked for again says so');
   } finally { globalThis.fetch = original; setHubSecret(''); }
 });

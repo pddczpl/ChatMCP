@@ -171,7 +171,7 @@ for (const [surface, files] of Object.entries(real)) {
   /** A script or a workflow without its comments (PowerShell `<# ... #>` blocks and whole comment lines): a comment may say what a file used to be called. */
   const code = (text) => text.replace(/<#[\s\S]*?#>/g, '').split('\n').filter((line) => !/^\s*(?:#|\/\/)/.test(line)).join('\n');
   const DOWNLOAD_FILES = {
-    project: 'installer/ChatMCP.Installer.csproj', usage: 'installer/Program.cs', build: 'scripts/Build-Installer.ps1', companion: 'scripts/Build-BrowserCompanion.ps1',
+    project: 'installer/ChatMCP.Installer.csproj', usage: 'native-shared/UpdateContract.cs', build: 'scripts/Build-Installer.ps1', companion: 'scripts/Build-BrowserCompanion.ps1',
     ci: '.github/workflows/ci.yml', package: '.github/workflows/browser-companion-package.yml', gate: 'scripts/verify-release-source.py',
     upgrade: 'scripts/tests/legacy-hub-upgrade/run.mjs', link: 'CHATMCP-HUB/ui/src/components/settings/AgentChannelSection.tsx',
   };

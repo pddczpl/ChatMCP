@@ -9,10 +9,16 @@
   2. Compiles native desktop executable (ChatMCP.exe)
   3. Prepares distribution payload and compresses to installer/payload.zip
   4. Compiles and embeds payload into standalone dist/DatGoldSetup.exe
+
+.PARAMETER ReleaseKeysFile
+  TEST BUILDS ONLY. The full path of a key list that the desktop shell is built with and that the Hub it installs reads, instead of the committed
+  CHATMCP-HUB\lib\release-keys.json (the end-to-end test of the updater builds two versions that trust a key made for the run). A release is built without it
+  and a publish workflow refuses it.
 #>
 [CmdletBinding()]
 param(
-    [switch]$Force
+    [switch]$Force,
+    [string]$ReleaseKeysFile = ''
 )
 
 Set-StrictMode -Version 2.0
@@ -29,6 +35,12 @@ $distDir = Join-Path $repoRoot 'dist'
 $installerDir = Join-Path $repoRoot 'installer'
 $temporaryRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\', '/')
 Assert-InstallerNoReparsePath -Path $temporaryRoot
+# A release is built from the committed key list and from nothing else: a publish workflow whose environment names another one (MSBuild reads such a variable as a property) is stopped here.
+Assert-InstallerNoAmbientReleaseKeysFile
+if ($ReleaseKeysFile -ne '') {
+    $ReleaseKeysFile = Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile
+    Write-Host "  [TEST BUILD] The release keys of this build are the ones in $ReleaseKeysFile, not the committed CHATMCP-HUB\lib\release-keys.json. Never publish what this builds." -ForegroundColor Yellow
+}
 $stagingDir = Join-Path $temporaryRoot ('ChatMCP-Staging-' + [guid]::NewGuid().ToString('N'))
 
 # 1. Prerequisite checks
@@ -99,13 +111,22 @@ try {
 $shellCsproj = Join-Path $repoRoot 'desktop-shell\ChatMCP.csproj'
 $shellDist = Join-Path $stagingDir 'desktop-publish'
 $payloadDir = Join-Path $stagingDir 'payload'
-& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true | Out-Null
+# The key list is built into the program (desktop-shell/ShellKeys.cs): the one that is committed, unless this is a test build that names another. It is ALWAYS named on the command line and never
+# left to the default of the project: MSBuild reads environment variables as properties, so a variable called ReleaseKeysFile in the environment of a release build would otherwise be the list the program trusts.
+$shellKeysFile = if ($ReleaseKeysFile -ne '') { $ReleaseKeysFile } else { Join-Path $repoRoot 'CHATMCP-HUB\lib\release-keys.json' }
+if (-not (Test-Path -LiteralPath $shellKeysFile -PathType Leaf)) { throw "The release key list is not a file: $shellKeysFile" }
+# (written so that MSBuild reads the path back as it is: a repository in C:\My Repos, Inc\ or C:\a;b\ must build as well)
+$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value $shellKeysFile
+& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true "-p:ReleaseKeysFile=$shellKeysArgument" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
 $desktopExe = Join-Path $shellDist 'ChatMCP.exe'
 if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {
     throw "Failed to compile desktop shell: $desktopExe not found."
 }
 Write-Host "  [OK] Compiled ChatMCP.exe: $([Math]::Round((Get-Item $desktopExe).Length / 1MB, 2)) MB" -ForegroundColor Green
+# Not believed, proved: the program that came out holds the exact bytes of the key list this build meant to give it (the resource is the file, byte for byte), whatever the way it was asked for.
+Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile
+Write-Host "  [OK] ChatMCP.exe carries the key list $shellKeysFile, byte for byte." -ForegroundColor Green
 
 # 4. Prepare Staging & Build Payload Zip
 Write-Host "`n[4/5] Packaging payload archive..." -ForegroundColor Yellow
@@ -116,6 +137,13 @@ Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadD
 # Copy tracked runtime source files and the freshly generated UI only. Never
 # recurse over source folders: ignored files may contain private user state.
 Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir
+if ($ReleaseKeysFile -ne '') {
+    # The Hub reads its keys from the installed files, the shell has them built in: both must trust the same list (this copy comes after the tracked files, which it replaces).
+    Copy-Item -LiteralPath $ReleaseKeysFile -Destination (Join-Path $payloadDir 'CHATMCP-HUB\lib\release-keys.json') -Force
+}
+# and proved again after the last copy that could change it: the Hub of the payload reads the same list as the shell.
+Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile
+Write-Host "  [OK] The Hub in the payload reads the same key list." -ForegroundColor Green
 
 # Trusted Sandbox Supervisor: publish from checked source into a fresh private
 # staging directory. Never recursively package GuestSupervisor bin/obj/source.

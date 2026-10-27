@@ -641,8 +641,41 @@
       "patches": [
         {
           "file": "lib/update-download.mjs",
-          "old": "if (state.state === 'ready' && state.version === version) return { started: false, status: snapshot() };",
+          "old": "if (state.state === 'ready' && state.version === version && !again) return { started: false, status: snapshot() };",
           "new": ""
+        }
+      ]
+    },
+    {
+      "name": "download-again-ignored",
+      "what": "\"Download again\" (again: true) on a download that is ready starts nothing",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const again = body.again === true;",
+          "new": "const again = false;"
+        }
+      ]
+    },
+    {
+      "name": "download-again-any-truthy-value",
+      "what": "anything that is truthy (the text 'true', 1, a list) asks for a download again",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const again = body.again === true;",
+          "new": "const again = Boolean(body.again);"
+        }
+      ]
+    },
+    {
+      "name": "download-again-is-always-again",
+      "what": "every click on a download that is ready is a click for it again",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const again = body.again === true;",
+          "new": "const again = true;"
         }
       ]
     },

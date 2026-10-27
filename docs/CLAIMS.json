@@ -545,7 +545,7 @@
     },
     {
       "id": "update-download-only-on-a-click",
-      "claim": "The Hub downloads an installer only when the owner clicks Download: not at start-up, not by a timer, not after a check that found a signed release and not after a yes to automatic checks. Nothing it downloads is installed or run.",
+      "claim": "The Hub downloads an installer only when the owner clicks Download: not at start-up, not by a timer, not after a check that found a signed release and not after a yes to automatic checks. Nothing it downloads is installed or run by the Hub; installing is a separate click, in the desktop app.",
       "source": {
         "file": "README.md",
         "line": 50,
@@ -609,6 +609,23 @@
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Checker|Feed|Manifest)",
         "\\bfetch(?:Fn|Impl)\\s*[:=]"
+      ]
+    },
+    {
+      "id": "update-result-shown-after-restart",
+      "claim": "After an update, the next start of the app tells the owner what happened: that DatGold was updated to the new version, or why the update did not go through and which version still runs. The installer leaves the result file only when no program listens on the port of the Hub (a refusal that stopped nothing is told in the update window only), and the Hub reads it once, at start, and removes it.",
+      "source": {
+        "file": "README.md",
+        "line": 50,
+        "quote": "the next start of the app tells you **Updated to DatGold x.y.z**, or why the update did not go through and which version still runs"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-update-applied.mjs",
+      "seamNote": "A real Hub process over HTTP and a result file in its data folder written the way the installer writes it (the literal texts of tests/fixtures/update-result-vectors.json, which the native tests hold the installer to): the Hub finds it at start, shows it in /api/state, keeps it out of a second Hub's hands and removes it. The installer that writes the file runs in the native test project (UpdateRunTests.cs: no file while a program listens on the port, one when none does) and, on a disposable machine, in the lifecycle script (no file beside another program on port 3007); this test does not run it.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Applied",
+        "\\bcreateAppliedNote\\s*=\\s*(?:async\\s*)?(?:\\(|function|class)"
       ]
     }
   ]

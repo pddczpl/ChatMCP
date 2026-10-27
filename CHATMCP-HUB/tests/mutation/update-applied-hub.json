@@ -1,0 +1,43 @@
+{
+  "suite": "verify-e2e-update-applied.mjs",
+  "mutations": [
+    {
+      "name": "applied-never-loaded",
+      "what": "the Hub never looks for the result file the installer left",
+      "patches": [{ "file": "hub.mjs", "old": "await applied.load();", "new": "" }]
+    },
+    {
+      "name": "applied-loaded-before-the-lock",
+      "what": "the result file is read and removed before the Hub holds the data folder, so a second start of the launcher takes it from the first Hub",
+      "patches": [
+        { "file": "hub.mjs", "old": "await applied.load();", "new": "" },
+        { "file": "hub.mjs", "old": "const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line) });", "new": "const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line) }); await applied.load();" }
+      ]
+    },
+    {
+      "name": "state-without-applied",
+      "what": "the state of the Hub never says what the last update left",
+      "patches": [{ "file": "hub.mjs", "old": "applied: applied ? applied.status() : null", "new": "applied: null" }]
+    },
+    {
+      "name": "dismiss-route-does-nothing",
+      "what": "Dismiss answers but leaves the note",
+      "patches": [{ "file": "hub.mjs", "old": "applied.dismiss(); result = { update: updateState() }; break;", "new": "result = { update: updateState() }; break;" }]
+    },
+    {
+      "name": "dismiss-route-not-declared",
+      "what": "the dismiss route is not one of the POST routes",
+      "patches": [{ "file": "hub.mjs", "old": ",'/api/update/applied-dismiss']);", "new": "]);" }]
+    },
+    {
+      "name": "applied-in-another-folder",
+      "what": "the Hub looks for the result file in a folder that is not its data folder",
+      "patches": [{ "file": "hub.mjs", "old": "createAppliedNote({ directory: manager.hubDirectory,", "new": "createAppliedNote({ directory: path.join(manager.hubDirectory, 'other')," }]
+    },
+    {
+      "name": "applied-judged-by-another-version",
+      "what": "the note is judged against a version that is not the one the Hub is",
+      "patches": [{ "file": "hub.mjs", "old": "createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION,", "new": "createAppliedNote({ directory: manager.hubDirectory, currentVersion: '0.0.1'," }]
+    }
+  ]
+}

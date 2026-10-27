@@ -28,7 +28,7 @@ internal static class HubLifecycle
         {
             bool acquired;
             try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
-            if (!acquired) throw new InvalidOperationException("Another DatGold installation/update is in progress. Wait for it to finish.");
+            if (!acquired) throw new InvalidOperationException("Another DatGold installation/update is in progress. Wait for it to finish.").Tag("another_update");
             return mutex;
         }
         catch { mutex.Dispose(); throw; }
@@ -58,7 +58,7 @@ internal static class HubLifecycle
     {
         if (health.ValueKind != JsonValueKind.Object || !health.TryGetProperty("app", out var app) ||
             app.ValueKind != JsonValueKind.String || app.GetString() != "chatmcp-local-hub")
-            throw new InvalidOperationException("Port 3007 is not a verified DatGold Hub. No process was stopped.");
+            throw new InvalidOperationException("Port 3007 is not a verified DatGold Hub. No process was stopped.").Tag("foreign_listener");
         if (expectedVersion != null)
         {
             var actual = health.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "unknown";
@@ -163,24 +163,64 @@ internal static class HubLifecycle
         {
             var expected = Path.GetFullPath(Path.Combine(root, "runtimes", "node", "node.exe"));
             if (!string.Equals(process.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Port 3007 belongs to a different installation or process. It was not stopped.");
+                throw new InvalidOperationException("Port 3007 belongs to a different installation or process. It was not stopped.").Tag("foreign_listener");
             // Confirm the exact script as well as the bundled executable. WMI is
             // read-only; the only generated query argument is an integer PID.
             var psi = WindowsPowerShell($"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid.Value}').CommandLine | ConvertTo-Json -Compress");
             psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-            using var probe = Process.Start(psi) ?? throw new IOException("Cannot verify the Hub command line.");
+            using var probe = Process.Start(psi) ?? throw new IOException("Cannot verify the Hub command line.").Tag("hub_stop_failed");
             var output = probe.StandardOutput.ReadToEndAsync(); var errors = probe.StandardError.ReadToEndAsync();
-            if (!probe.WaitForExit(10000)) { probe.Kill(); throw new IOException("Hub ownership query timed out."); }
-            if (probe.ExitCode != 0) throw new IOException("Hub ownership query failed.");
+            if (!probe.WaitForExit(10000)) { probe.Kill(); throw new IOException("Hub ownership query timed out.").Tag("hub_stop_failed"); }
+            if (probe.ExitCode != 0) throw new IOException("Hub ownership query failed.").Tag("hub_stop_failed");
             var command = JsonSerializer.Deserialize<string>(output.GetAwaiter().GetResult()) ?? "";
             var script = Path.GetFullPath(Path.Combine(root, "CHATMCP-HUB", "hub.mjs"));
             if (!IsHubCommand(command, script))
-                throw new InvalidOperationException("The listener is not the installed Hub script. It was not stopped.");
-            if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed during inspection; retry.");
+                throw new InvalidOperationException("The listener is not the installed Hub script. It was not stopped.").Tag("foreign_listener");
+            if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed during inspection; retry.").Tag("hub_stop_failed");
             return process;
         }
         catch { process.Dispose(); throw; }
     }
+    /// <summary>
+    /// The words that say why the Hub's state (GET /api/state) holds work that an update would cut off, or null when it holds none: an agent that is not idle, or terminals and workers that run. A state with no
+    /// `agent`, or one that is not an object (null, a string, a list), is work too (the Hub has not loaded its agent, or is not a Hub: fail closed). The rule the installer applies before it stops the Hub and
+    /// the shell applies before it exits, held to one list of cases with the page's port of it (CHATMCP-HUB/tests/fixtures/active-work-cases.json).
+    /// </summary>
+    internal static string? WorkInState(JsonElement data)
+    {
+        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("agent", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))
+            return "Stop active DatGold tasks before installing or uninstalling. Nothing was cancelled.";
+        if (data.TryGetProperty("studio", out var studio) && studio.ValueKind == JsonValueKind.Object)
+            foreach (var name in new[] { "terminals", "delegates", "dynamicDelegates" })
+                if (studio.TryGetProperty(name, out var work) && HasWork(work))
+                    return "Stop DatGold terminals and background workers before upgrading.";
+        return null;
+    }
+
+    /// <summary>The words that say why the answer of GET /api/studio/coding holds a coding run that an update would cut off, or null.</summary>
+    internal static string? WorkInCoding(JsonElement coding) => HasWork(coding) ? "Stop background coding jobs before upgrading." : null;
+
+    /// <summary>
+    /// Asks the Hub at <paramref name="origin"/> (with its session secret when it has one) what the shell must know before it exits for an update, with the same two requests and the same rule as StopInstalledHub:
+    /// the words that say why the Hub is doing work, or null when it is idle (the installer's own refusal comes after the window is already gone, so the shell asks first), and the version that the Hub says
+    /// it has downloaded and checked (`update.download` with state ready), which the page showed the owner. Throws when the Hub cannot be asked or does not answer as a Hub: that is no answer, never "idle".
+    /// </summary>
+    internal static async Task<UpdatePreflight> PreflightForUpdate(HttpClient client, string origin, string? secret)
+    {
+        using var state = await GetJson(client, "/api/state", secret, origin);
+        var offered = OfferedVersion(state.RootElement);
+        var inState = WorkInState(state.RootElement);
+        if (inState != null) return new UpdatePreflight(inState, offered);
+        using var coding = await GetJson(client, "/api/studio/coding", secret, origin);
+        return new UpdatePreflight(WorkInCoding(coding.RootElement), offered);
+    }
+
+    private static string? OfferedVersion(JsonElement state) =>
+        state.ValueKind == JsonValueKind.Object && state.TryGetProperty("update", out var update) && update.ValueKind == JsonValueKind.Object &&
+        update.TryGetProperty("download", out var download) && download.ValueKind == JsonValueKind.Object &&
+        download.TryGetProperty("state", out var phase) && phase.ValueKind == JsonValueKind.String && phase.GetString() == "ready" &&
+        download.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String ? version.GetString() : null;
+
     private static bool HasWork(JsonElement value)
     {
         if (value.ValueKind == JsonValueKind.Array) return value.EnumerateArray().Any(HasWork);
@@ -208,21 +248,18 @@ internal static class HubLifecycle
         // No secret and a Hub that says it needs one: it is a current build whose session cannot be read, so refuse. Only a
         // Hub that predates the secret (v3.9.0 and older, no "auth" in its health) is stopped with the older session-token flow.
         if (secret == null && RequiresBearer(health.RootElement))
-            throw new InvalidOperationException("The running Hub requires its session file, which is missing or unreadable. Nothing was stopped; close DatGold, run STOP-CHATMCP-HUB.cmd and retry.");
+            throw new InvalidOperationException("The running Hub requires its session file, which is missing or unreadable. Nothing was stopped; close DatGold, run STOP-CHATMCP-HUB.cmd and retry.").Tag("hub_stop_failed");
         using var state = await GetJson(client, "/api/state", secret);
         var data = state.RootElement;
-        if (!data.TryGetProperty("agent", out var agent) || HasWork(agent))
-            throw new InvalidOperationException("Stop active DatGold tasks before installing or uninstalling. Nothing was cancelled.");
-        if (data.TryGetProperty("studio", out var studio) && studio.ValueKind == JsonValueKind.Object)
-            foreach (var name in new[] { "terminals", "delegates", "dynamicDelegates" })
-                if (studio.TryGetProperty(name, out var work) && HasWork(work))
-                    throw new InvalidOperationException("Stop DatGold terminals and background workers before upgrading.");
+        var inState = WorkInState(data);
+        if (inState != null) throw new InvalidOperationException(inState).Tag("tasks_running");
         using var coding = await GetJson(client, "/api/studio/coding", secret);
-        if (HasWork(coding.RootElement)) throw new InvalidOperationException("Stop background coding jobs before upgrading.");
+        var inCoding = WorkInCoding(coding.RootElement);
+        if (inCoding != null) throw new InvalidOperationException(inCoding).Tag("tasks_running");
         if (!data.TryGetProperty("csrfToken", out var token) || token.ValueKind != JsonValueKind.String ||
             !System.Text.RegularExpressions.Regex.IsMatch(token.GetString() ?? "", "^[A-Za-z0-9_-]{16,256}$"))
-            throw new InvalidOperationException("Hub shutdown session is invalid.");
-        if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed before shutdown; retry.");
+            throw new InvalidOperationException("Hub shutdown session is invalid.").Tag("hub_stop_failed");
+        if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed before shutdown; retry.").Tag("hub_stop_failed");
         using var request = secret == null ? new HttpRequestMessage(HttpMethod.Post, Origin + "/api/hub/shutdown") : HubSession.Authorized(HttpMethod.Post, Origin + "/api/hub/shutdown", secret);
         request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
         request.Headers.Add("Origin", Origin); request.Headers.Add("X-ChatMCP-Request", "local-dashboard");
@@ -230,11 +267,44 @@ internal static class HubLifecycle
         try
         {
             using var response = await client.SendAsync(request);
-            if (!response.IsSuccessStatusCode) throw new InvalidOperationException("The installed Hub refused shutdown.");
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException("The installed Hub refused shutdown.").Tag("hub_stop_failed");
         }
         catch (HttpRequestException) { /* ACK can be lost. Do not resend; verify exit. */ }
         catch (TaskCanceledException) { /* Same rule on a lost/timed-out ACK. */ }
         if (!process.WaitForExit(15000) || ListenerPid() != null)
-            throw new IOException("Hub shutdown could not be confirmed. No files were replaced; wait and retry.");
+            throw new IOException("Hub shutdown could not be confirmed. No files were replaced; wait and retry.").Tag("hub_stop_failed");
+    }
+}
+
+/// <summary>What the Hub says before an update is applied: why it cannot be (null when it can), and the version it has downloaded and checked and the page therefore offered (null when it has none).</summary>
+internal sealed record UpdatePreflight(string? BlockingWork, string? OfferedVersion);
+
+/// <summary>
+/// The code that a step of an installation carries when it refuses or fails, so that the result file (and through it the page) can say WHY in words of its own without reading the text of an exception, which can
+/// hold a path. It is put in Exception.Data, so it works on any type of exception and changes none (a catch that looks for an IOException still finds it). The codes are a closed list.
+/// </summary>
+internal static class StepCode
+{
+    private const string Key = "datgold.step-code";
+
+    /// <summary>The reasons an update can end without the new version: shell_not_exited, no_installation, not_newer, disk_full, pending_recovery, tasks_running, foreign_listener, hub_stop_failed, window_open, another_update, payload_invalid, install_failed.</summary>
+    internal static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "shell_not_exited", "no_installation", "not_newer", "disk_full", "pending_recovery", "tasks_running", "foreign_listener", "hub_stop_failed", "window_open", "another_update", "payload_invalid", "install_failed",
+    };
+
+    internal static bool IsKnown(string? code) => code != null && Known.Contains(code);
+
+    internal static T Tag<T>(this T error, string code) where T : Exception { error.Data[Key] = code; return error; }
+
+    /// <summary>The code of <paramref name="error"/> or of the first exception inside it that has one; null for none (an empty code is none).</summary>
+    internal static string? Of(Exception? error)
+    {
+        if (error == null) return null;
+        if (error.Data[Key] is string code && code.Length > 0) return code;
+        if (error is AggregateException many)
+            foreach (var inner in many.InnerExceptions)
+                if (Of(inner) is { } found) return found;
+        return Of(error.InnerException);
     }
 }

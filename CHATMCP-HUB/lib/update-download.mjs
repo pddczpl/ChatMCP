@@ -239,14 +239,17 @@ export function createUpdateDownloader({
   }
 
   /**
-   * The owner's click. `body` holds the version the page showed and nothing else is read. Resolves {started, status}: `started` is false when a download is already running or finished for this
-   * version (a second click changes nothing). Rejects with a DownloadError for a refusal; the status is not changed by a refusal.
+   * The owner's click. `body` holds the version the page showed and, for "Download again", `again: true`; nothing else is read. Resolves {started, status}: `started` is false when a download is already
+   * running or finished for this version (a second click changes nothing). `again: true` (only a boolean true) is the owner's click after the desktop app found that what the Hub calls ready is gone or does not
+   * prove itself ("ready" is the Hub's statement from when the files arrived): a download that is ready is dropped and fetched anew, and every other check of a click is still made. Rejects with a
+   * DownloadError for a refusal; the status is not changed by a refusal.
    */
   async function start(body) {
     const version = isPlainObject(body) ? body.version : undefined;
     if (!isReleaseVersion(version)) throw refusal('update_download_invalid', 'version must be a release x.y.z.', 400);
+    const again = body.again === true;
     if (starting || job) return { started: false, status: snapshot() };
-    if (state.state === 'ready' && state.version === version) return { started: false, status: snapshot() };
+    if (state.state === 'ready' && state.version === version && !again) return { started: false, status: snapshot() };
     const known = offer() ?? {};
     if (known.latest !== version) throw refusal('update_download_stale', 'That is not the release that is on offer.', 409);
     if (known.signature !== 'valid') throw refusal('update_download_unsigned', 'The release is not signed with a valid signature, so nothing is downloaded.', 409);

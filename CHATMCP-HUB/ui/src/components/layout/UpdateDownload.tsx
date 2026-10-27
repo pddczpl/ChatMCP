@@ -1,44 +1,81 @@
-import { CircleCheck, Download, TriangleAlert } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { CircleCheck, Download, RotateCw, TriangleAlert } from 'lucide-react';
 import { translate } from '@/lib/i18n';
-import { downloadView, formatBytes, type DownloadView, type Lang } from '@/lib/updates';
+import { applyView, downloadView, formatBytes, type ApplyKind, type ApplyPhase, type ApplyView, type DownloadView, type Lang } from '@/lib/updates';
 import { Button } from '@/components/ui/Button';
 import type { UpdateInfo } from '@/types';
 
 /** The test ids of one place that shows the download (the strip under the header and Settings → Updates show the same controls under different ids). */
 export interface DownloadIds {
   download: string; progress: string; progressText: string; cancel: string; verifying: string; ready: string; readyNote: string; error: string; signatureNote: string; recheck: string;
+  apply: string; applyBrowser: string; applyBlocked: string; confirm: string; confirmText: string; confirmYes: string; confirmNo: string; applying: string; applyError: string; applyAgain: string; applyDismiss: string; applyLive: string;
 }
 export const STRIP_IDS: DownloadIds = {
   download: 'update-download', progress: 'update-download-progress', progressText: 'update-download-progress-text', cancel: 'update-cancel', verifying: 'update-download-verifying',
   ready: 'update-download-ready', readyNote: 'update-download-ready-note', error: 'update-download-error', signatureNote: 'update-signature-note', recheck: 'update-recheck',
+  apply: 'update-apply', applyBrowser: 'update-apply-browser', applyBlocked: 'update-apply-blocked', confirm: 'update-apply-confirm', confirmText: 'update-apply-confirm-text',
+  confirmYes: 'update-apply-yes', confirmNo: 'update-apply-no', applying: 'update-apply-sending', applyError: 'update-apply-error', applyAgain: 'update-apply-again', applyDismiss: 'update-apply-dismiss', applyLive: 'update-apply-live',
 };
 export const PANEL_IDS: DownloadIds = {
   download: 'updates-download', progress: 'updates-download-progress', progressText: 'updates-download-progress-text', cancel: 'updates-cancel', verifying: 'updates-download-verifying',
   ready: 'updates-download-ready', readyNote: 'updates-download-ready-note', error: 'updates-download-error', signatureNote: 'updates-signature-note', recheck: 'updates-recheck',
+  apply: 'updates-apply', applyBrowser: 'updates-apply-browser', applyBlocked: 'updates-apply-blocked', confirm: 'updates-apply-confirm', confirmText: 'updates-apply-confirm-text',
+  confirmYes: 'updates-apply-yes', confirmNo: 'updates-apply-no', applying: 'updates-apply-sending', applyError: 'updates-apply-error', applyAgain: 'updates-apply-again', applyDismiss: 'updates-apply-dismiss', applyLive: 'updates-apply-live',
 };
 
 /**
- * What the owner can do about the installer of the release on offer, and what the Hub has done: a Download button (only for a release whose signature checked and that names one installer), the
- * progress with Cancel, the checking of the file, "Downloaded and checked", a failure in words, or why there is no button (the release is not signed, the signature does not check, it could not be
- * read, its manifest names no single installer). Presentational: the containers talk to the Hub. There is no way to install here, and none is drawn: installing is not something this version of the app does.
- * `busy` holds back the buttons that start something while a request is out; Cancel waits only for a Cancel of its own (`cancelling`), because the Hub already reports a download that is still being
- * looked at, and the person who started it must be able to stop it.
+ * What the page knows about installing the update that is ready, handed down from the container: whether this page runs inside the desktop shell (the only place the shell can be asked), the state of the
+ * Hub (to hold the button back while work runs), the step of the owner's click, and what each step does (each is about the release that is ready, which the control says). `live` adds a live region of its
+ * own, for a screen reader only, that holds the words of the wait and of a refusal: the strip under the header already is one, Settings is not, and the region has to be there BEFORE the words are (a region
+ * that is inserted already holding them is not announced by every screen reader). Without it the page behaves as in a plain browser.
  */
-export function DownloadControls({ update, lang, busy = false, cancelling = false, ids, onDownload, onCancel, onCheck }: {
-  update: UpdateInfo | null | undefined; lang: Lang; busy?: boolean; cancelling?: boolean; ids: DownloadIds;
+export interface InstallProps {
+  shell: boolean;
+  hub: unknown;
+  phase: ApplyPhase;
+  onAsk: (version: string) => void;
+  onConfirm: (version: string) => void | Promise<void>;
+  onBack: () => void;
+  /** "Download again", offered with a refusal that says the downloaded update is gone or does not prove itself. */
+  onAgain: (version: string) => void;
+  live?: boolean;
+}
+
+/** Whether the focus was left on nothing, which is where a button that disappears leaves it: a person who has moved on (a field they are typing in, a dialog) keeps theirs. */
+const focusIsFree = () => { const active = document.activeElement; return !active || active === document.body; };
+
+/**
+ * What the owner can do about the installer of the release on offer, and what the Hub has done: a Download button (only for a release whose signature checked and that names one installer), the
+ * progress with Cancel, the checking of the file, "Downloaded and checked" and, for a download that is ready, what can be done with it: in the desktop app the button "Install and restart" (held back, with the
+ * reason, while work runs; a question that says the app closes and opens again before anything starts; the shell's refusal in words), and in a plain browser where it can be done. Presentational: the containers
+ * talk to the Hub and to the shell. `busy` holds back the buttons that start something while a request is out; Cancel waits only for a Cancel of its own (`cancelling`), because the Hub already reports a
+ * download that is still being looked at, and the person who started it must be able to stop it.
+ */
+export function DownloadControls({ update, lang, busy = false, cancelling = false, ids, install, onDownload, onCancel, onCheck }: {
+  update: UpdateInfo | null | undefined; lang: Lang; busy?: boolean; cancelling?: boolean; ids: DownloadIds; install?: InstallProps;
   onDownload: (version: string) => void; onCancel: () => void; onCheck: () => void;
 }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(lang, key, params);
   const view = downloadView(update);
   const version = view.version ?? '';
   const size = formatBytes(view.bytes, lang);
+  // The button that starts a download (Download, or Download again after a refusal) is replaced by the progress and its Cancel button, and the focus that was on it falls to the top of the page. When the owner
+  // pressed it, the focus goes to Cancel, the button that now controls the download, if it was left on nothing. A download that starts without a press (another window of the owner's) does not take the focus.
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const pressedStart = useRef(false);
+  useEffect(() => {
+    if ((view.kind === 'progress' || view.kind === 'verifying') && pressedStart.current && focusIsFree()) cancelRef.current?.focus();
+    if (view.kind !== 'offer') pressedStart.current = false; // 'offer' can be seen once more between the press and the first progress
+  }, [view.kind]);
+  const start = (press: () => void) => { pressedStart.current = true; press(); };
+  const installControls = install ? { ...install, onAgain: (again: string) => start(() => install.onAgain(again)) } : undefined;
   const downloadButton = (
-    <Button data-testid={ids.download} size="sm" variant="primary" disabled={busy} onClick={() => onDownload(version)}>
+    <Button data-testid={ids.download} size="sm" variant="primary" disabled={busy} onClick={() => start(() => onDownload(version))}>
       <Download className="h-3.5 w-3.5" aria-hidden="true" />
       <span>{view.bytes === null ? t('upd_n_download_plain') : t('upd_n_download', { size })}</span>
     </Button>
   );
-  const cancelButton = <Button data-testid={ids.cancel} size="sm" variant="secondary" disabled={cancelling} onClick={onCancel}>{t('upd_dl_cancel')}</Button>;
+  const cancelButton = <Button ref={cancelRef} data-testid={ids.cancel} size="sm" variant="secondary" disabled={cancelling} onClick={onCancel}>{t('upd_dl_cancel')}</Button>;
   /** Why there is no Download button: the signature (it is missing, does not check, was not read) or the manifest (it names no single installer). */
   const why = (current: DownloadView) => (
     <p data-testid={ids.signatureNote} data-signature={current.signature} data-reason={current.reason ?? ''} className="min-w-[12rem] flex-1 text-[12px] leading-5 text-muted">
@@ -79,12 +116,15 @@ export function DownloadControls({ update, lang, busy = false, cancelling = fals
       );
     case 'ready':
       return (
-        <div className="flex w-full items-start gap-2">
-          <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-          <div className="min-w-0">
-            <p data-testid={ids.ready} className="text-[13px] font-medium text-fg">{t('upd_dl_ready')}</p>
-            <p data-testid={ids.readyNote} className="mt-0.5 text-[12px] leading-5 text-muted">{t('upd_dl_ready_note', { version, size: formatBytes(view.bytes, lang) })}</p>
+        <div className="flex w-full flex-col gap-2">
+          <div className="flex w-full items-start gap-2">
+            <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+            <div className="min-w-0">
+              <p data-testid={ids.ready} className="text-[13px] font-medium text-fg">{t('upd_dl_ready')}</p>
+              <p data-testid={ids.readyNote} className="mt-0.5 text-[12px] leading-5 text-muted">{t('upd_dl_ready_note', { version, size: formatBytes(view.bytes, lang) })}</p>
+            </div>
           </div>
+          <InstallControls view={applyView(update, install?.hub, install?.shell ?? false, install?.phase ?? { phase: 'idle' })} ids={ids} t={t} busy={busy} install={installControls} version={version} />
         </div>
       );
     case 'failed':
@@ -106,6 +146,88 @@ export function DownloadControls({ update, lang, busy = false, cancelling = fals
           {why(view)}
           {again && <Button data-testid={ids.recheck} size="sm" variant="secondary" disabled={busy} onClick={onCheck}>{t('upd_check_now')}</Button>}
         </div>
+      );
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Installing the download that is ready. In a plain browser there is nothing to press and the page says where it can be done. In the desktop shell: the button; the same button held back, with its reason tied to
+ * it, while work runs; a question that says the app closes and opens again (the shell, not the Hub, then checks the file again and starts the installer); the wait; and a refusal of the shell in words with the
+ * button back. A refusal is not drawn as a danger and nothing in it is the text of an exception: the page chooses its own words by the shell's code.
+ */
+function InstallControls({ view, ids, t, busy, install, version }: {
+  view: ApplyView; ids: DownloadIds; t: (key: string, params?: Record<string, string | number>) => string; busy: boolean; install?: InstallProps; version: string;
+}) {
+  const applyButton = useRef<HTMLButtonElement>(null);
+  const before = useRef<ApplyKind>(view.kind);
+  useEffect(() => {
+    // The question or the refusal that had the focus is gone (Not now, Dismiss, or the shell answered a refusal): the focus goes back to the button that asks, and not to the top of the page. Only when the focus
+    // was left on nothing, which is where a button that disappears leaves it: a person who has moved on (the field they were typing in, a dialog) keeps it, and a refusal that arrives 90 seconds later does
+    // not take it away mid-sentence.
+    if ((before.current === 'confirm' || before.current === 'refused') && view.kind === 'offer' && focusIsFree()) applyButton.current?.focus();
+    if (before.current === 'sending' && view.kind === 'refused' && focusIsFree()) applyButton.current?.focus();
+    before.current = view.kind;
+  }, [view.kind]);
+  const live = install?.live === true;
+  // An answer that never came is not "not started": the page does not know whether it started, and says that without the label that would claim it.
+  const refusedWords = view.kind === 'refused' ? (view.group === 'no_answer' ? '' : `${t('upd_apply_err_label')} `) + t(`upd_apply_err_${view.group ?? 'other'}`) : '';
+  // what a screen reader is told in Settings: the wait, or the very words of a refusal (drawn below); nothing otherwise
+  const announcement = view.kind === 'sending' ? t('upd_apply_sending') : refusedWords;
+  const announcer = live ? <p role="status" aria-atomic="true" data-testid={ids.applyLive} className="sr-only">{announcement}</p> : null;
+  const button = (disabled: boolean, describedBy?: string) => (
+    <Button ref={applyButton} data-testid={ids.apply} size="sm" variant="primary" disabled={disabled} aria-describedby={describedBy} onClick={() => install?.onAsk(version)}>
+      <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+      <span>{t('upd_apply_button')}</span>
+    </Button>
+  );
+  switch (view.kind) {
+    case 'hidden':
+      return null;
+    case 'browser':
+      return <p data-testid={ids.applyBrowser} className="text-[12px] leading-5 text-muted">{t('upd_apply_browser')}</p>;
+    case 'offer':
+      return <>{announcer}<div>{button(busy)}</div></>;
+    case 'blocked':
+      return (
+        <>{announcer}<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {button(true, ids.applyBlocked)}
+          <p id={ids.applyBlocked} data-testid={ids.applyBlocked} className="min-w-[12rem] flex-1 text-[12px] leading-5 text-muted">{t('upd_apply_blocked')}</p>
+        </div></>
+      );
+    case 'confirm':
+      return (
+        <>{announcer}<div data-testid={ids.confirm} role="group" aria-labelledby={ids.confirmText} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p id={ids.confirmText} data-testid={ids.confirmText} className="min-w-[12rem] flex-1 text-[13px] leading-5 text-fg">{t('upd_apply_confirm', { version })}</p>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button data-testid={ids.confirmYes} size="sm" variant="primary" onClick={() => void install?.onConfirm(version)}>{t('upd_apply_confirm_yes')}</Button>
+            <Button data-testid={ids.confirmNo} size="sm" variant="secondary" autoFocus onClick={install?.onBack}>{t('upd_apply_confirm_no')}</Button>
+          </div>
+        </div></>
+      );
+    case 'sending':
+      // the strip around it is a live region; in Settings the announcer is
+      return <>{announcer}<p data-testid={ids.applying} {...(live ? {} : { role: 'status' })} className="text-[13px] leading-5 text-fg">{t('upd_apply_sending')}</p></>;
+    case 'refused': {
+      return (
+        <>{announcer}<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex min-w-[12rem] flex-1 items-start gap-2">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+            <p data-testid={ids.applyError} className="text-[13px] leading-5 text-fg">{refusedWords}</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {button(busy)}
+            {view.again && (
+              <Button data-testid={ids.applyAgain} size="sm" variant="secondary" disabled={busy} onClick={() => install?.onAgain(version)}>
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{t('upd_apply_again')}</span>
+              </Button>
+            )}
+            <Button data-testid={ids.applyDismiss} size="sm" variant="secondary" onClick={install?.onBack}>{t('upd_applied_dismiss')}</Button>
+          </div>
+        </div></>
       );
     }
     default:

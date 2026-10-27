@@ -16,6 +16,7 @@ void Throws(Action action, string message)
 Stream Bytes(string text) => new MemoryStream(Encoding.UTF8.GetBytes(text));
 var scratch = Path.Combine(Path.GetTempPath(), "ChatMCP-native-unit-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(scratch);
+var kit = new TestKit(scratch); // the tests of the update steps are in their own files and count themselves
 try
 {
     using var good = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.2\",\"uiBuild\":\"3.10.2-react-agent\"}");
@@ -115,6 +116,15 @@ try
     foreach (var blocked in new[] { "javascript:window.__pwned=1", "about:blank", "file:///C:/Windows/win.ini", "data:text/html,<script>1</script>", "ftp://127.0.0.1/", "chrome://settings", "relative/path", "", "http://" + new string('a', 9000) })
         Check(!OpenLink.TryCreateMessage(blocked, out _), "dropped: " + (blocked.Length > 40 ? blocked[..40] + "..." : blocked));
     Check(OpenLink.TryCreateMessage("HTTPS://Example.com/a?b=c#d", out _), "https is accepted");
+    LinkTests.Run(kit);
+    ReleaseVectorTests.Run(kit);
+    StagingTests.Run(kit);
+    ContractTests.Run(kit);
+    WorkTests.Run(kit);
+    ShortcutTests.Run(kit);
+    UpdateRunTests.Run(kit);
+    UpdateWordsTests.Run(kit);
+    ApplyTests.Run(kit);
 
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);
     File.WriteAllText(Path.Combine(root, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(root, "b.txt"), "old-b");
@@ -201,6 +211,185 @@ try
     File.WriteAllText(Path.Combine(root, InstallTransaction.PendingName), "{}");
     Throws(() => { using var tx = new InstallTransaction(root); }, "interrupted update marker blocks a blind second update");
     File.Delete(Path.Combine(root, InstallTransaction.PendingName));
+
+    // An installation that needs recovery has no tool that recovers it; docs/WINDOWS-SETUP.md gives the steps by hand, as a PowerShell block. Here that block is taken from the guide and RUN, on the marker, the
+    // journal and the backups that a transaction really leaves when its rollback cannot put every file back (the files were edited by somebody else while it worked). The text of the guide is what is tested.
+    {
+        var folder = Path.Combine(scratch, "recovery by hand"); Directory.CreateDirectory(Path.Combine(folder, "sub"));
+        File.WriteAllText(Path.Combine(folder, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(folder, "b.txt"), "old-b"); File.WriteAllText(Path.Combine(folder, "same.txt"), "same"); File.WriteAllText(Path.Combine(folder, "keep.txt"), "the owner's own file");
+        using (var tx = new InstallTransaction(folder))
+        {
+            tx.Add("a.txt", Bytes("new-a")); tx.Add("sub/new.txt", Bytes("created by the update")); tx.Add("same.txt", Bytes("same")); tx.RemoveObsolete("b.txt");
+            var step = 0;
+            Throws(() => tx.Commit((_, _) =>
+            {
+                step++;
+                if (step == 1) File.WriteAllText(Path.Combine(folder, "a.txt"), "edited by someone else while the update worked");
+                if (step == 2) File.WriteAllText(Path.Combine(folder, "sub", "new.txt"), "edited by someone else too");
+                if (step == 3) throw new IOException("the update stops halfway");
+            }), "premise: an update that stops halfway, with two files edited by somebody else, cannot be rolled back whole");
+        }
+        var marker = Path.Combine(folder, InstallTransaction.PendingName);
+        Check(File.Exists(marker) && Directory.GetDirectories(folder, ".ChatMCP-update-*").Length == 1, "premise: the marker and the retained backup are on disk");
+        Check(File.ReadAllText(Path.Combine(folder, "a.txt")) != "old-a" && File.Exists(Path.Combine(folder, "sub", "new.txt")), "premise: the installation is in a mixed state");
+        var guide = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "WINDOWS-SETUP.md")).Replace("\r\n", "\n");
+        var block = System.Text.RegularExpressions.Regex.Matches(guide, "~~~powershell\n(.*?)\n~~~", System.Text.RegularExpressions.RegexOptions.Singleline).Select(match => match.Groups[1].Value).FirstOrDefault(text => text.Contains("# recovery-from-retained-backup"));
+        Check(block != null, "the setup guide has the block that recovers an installation by hand (docs/WINDOWS-SETUP.md, marked recovery-from-retained-backup)");
+        var recoveryScript = System.Text.RegularExpressions.Regex.Replace(block!, @"^\$install = .*$", "$$install = '" + folder.Replace("'", "''") + "'", System.Text.RegularExpressions.RegexOptions.Multiline);
+        Check(recoveryScript.Contains(folder), "premise: the block is pointed at the scratch installation");
+        var recovery = HubLifecycle.WindowsPowerShell(recoveryScript);
+        recovery.RedirectStandardOutput = true; recovery.RedirectStandardError = true;
+        using (var shell = Process.Start(recovery)!)
+        {
+            var output = shell.StandardOutput.ReadToEndAsync(); var errors = shell.StandardError.ReadToEndAsync();
+            Check(shell.WaitForExit(120000) && shell.ExitCode == 0, "the block runs to its end without an error" + (shell.HasExited && shell.ExitCode != 0 ? ": " + errors.GetAwaiter().GetResult() : ""));
+        }
+        Check(File.ReadAllText(Path.Combine(folder, "a.txt")) == "old-a", "it puts back a file that the update had replaced, over what somebody else wrote");
+        Check(File.ReadAllText(Path.Combine(folder, "b.txt")) == "old-b" && File.ReadAllText(Path.Combine(folder, "same.txt")) == "same", "a file the update removes or leaves alone is as it was");
+        Check(!File.Exists(Path.Combine(folder, "sub", "new.txt")), "a file the update created is removed");
+        Check(File.ReadAllText(Path.Combine(folder, "keep.txt")) == "the owner's own file", "and a file of the owner's that the update never knew is not touched");
+        Check(!File.Exists(marker) && Directory.GetDirectories(folder, ".ChatMCP-update-*").Length == 0, "the marker and the backup are gone once everything is back, so the launcher and the setup work again");
+        using (var again = new InstallTransaction(folder)) Check(true, "and the setup accepts the folder (no marker)");
+    }
+
+    // What a damaged installer looks like to the outcome: the payload checks of the transaction carry the code payload_invalid, so that the window says "This installer is damaged" instead of "The files
+    // could not be replaced". (The page hears it only when the result file is written, and that happens only when no Hub is running: a damaged payload is found before the Hub is stopped, so there it is the
+    // window that says it; a window that would not close is found after.)
+    {
+        Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
+        foreach (var unsafePath in new[] { "../escape.txt", "..\\escape.txt", "a/../../b", "/rooted.txt", "C:\\Windows\\x.txt", "bad:name.txt", "trailing.", "dir//file", "" })
+            Check(StepCode.Of(Caught(() => InstallTransaction.Normalize(unsafePath))) == "payload_invalid", "a payload path that is not safe is a damaged installer (payload_invalid): " + (unsafePath == "" ? "(empty)" : unsafePath));
+        Check(InstallTransaction.Normalize("CHATMCP-HUB\\lib/x.mjs") == "CHATMCP-HUB/lib/x.mjs", "while a good path is normalized and passes");
+        using var tx = new InstallTransaction(Path.Combine(scratch, "payload checks"));
+        tx.Add("one.txt", Bytes("one"));
+        Check(StepCode.Of(Caught(() => tx.Add("ONE.txt", Bytes("two")))) == "payload_invalid", "a payload that names a file twice (in any letter case) is a damaged installer");
+        Check(StepCode.Of(Caught(() => tx.Add("../x", Bytes("x")))) == "payload_invalid", "so is one that adds a path that leaves the folder");
+        Check(StepCode.Of(Caught(() => tx.StagedPath("missing.txt"))) == "payload_invalid" && Caught(() => tx.StagedPath("missing.txt")) is IOException, "and a component that the setup needs and the payload does not have (an IOException, not a lookup that failed)");
+        Check(tx.StagedPath("one.txt").Length > 0, "while a component that is there is found");
+    }
+
+    // The receipt of the INSTALLATION is read with the same path rules as the payload of a setup; a receipt that breaks them is a damaged installation, and it must not be said as "This installer is damaged"
+    // (payload_invalid is the code of the payload of the setup that is running).
+    {
+        Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
+        var receiptFolder = Path.Combine(scratch, "receipt"); Directory.CreateDirectory(receiptFolder);
+        string Receipt(string key) => "{\"" + key + "\":\"" + new string('a', 64) + "\"}";
+        File.WriteAllText(Path.Combine(receiptFolder, InstalledCopy.ReceiptName), Receipt("good/file.txt"));
+        Check(InstallerEngine.ReadManifest(receiptFolder).ContainsKey("good/file.txt"), "a good receipt of the installation is read");
+        foreach (var key in new[] { "trailing.", "dir//file", "a/../b", "ends-with-space " })
+        {
+            File.WriteAllText(Path.Combine(receiptFolder, InstalledCopy.ReceiptName), Receipt(key));
+            var broken = Caught(() => InstallerEngine.ReadManifest(receiptFolder));
+            Check(broken is InvalidOperationException && StepCode.Of(broken) == null, "a receipt of the installation with the path \"" + key + "\" is a failed install and is not blamed on the installer (" + broken?.GetType().Name + ", code " + (StepCode.Of(broken) ?? "none") + ")");
+        }
+    }
+
+    // The two codes that a step of the update must really carry, tried through the code that refuses and not through an exception that the test tags itself: payload_invalid by the install step of a
+    // program that holds no payload, and window_open by the closing of the installed window with a real program that does not close. The program is a copy of ping.exe called ChatMCP.exe in a folder of
+    // its own: only a process whose program is exactly the file of that folder is asked to close, so the app that is installed on this machine is never touched (and no mutation may remove that filter).
+    {
+        Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
+        var empty = Path.Combine(scratch, "no payload"); Directory.CreateDirectory(empty);
+        var refusal = Caught(() => InstallerEngine.InstallFiles(empty, null, false, (_, _) => { }));
+        Check(refusal is InvalidOperationException && StepCode.Of(refusal) == "payload_invalid", "a setup that carries no payload refuses with payload_invalid, through the install step itself (" + refusal?.GetType().Name + ")");
+        Check(!Directory.EnumerateFileSystemEntries(empty).Any(), "and it left nothing behind: no working folder, no marker");
+
+        var home = Path.Combine(scratch, "window stays open"); Directory.CreateDirectory(home);
+        var elsewhere = Path.Combine(scratch, "another folder"); Directory.CreateDirectory(elsewhere);
+        File.Copy(Path.Combine(Environment.SystemDirectory, "ping.exe"), Path.Combine(home, "ChatMCP.exe"));
+        File.Copy(Path.Combine(Environment.SystemDirectory, "ping.exe"), Path.Combine(elsewhere, "ChatMCP.exe"));
+        Process Run(string folder) => Process.Start(new ProcessStartInfo(Path.Combine(folder, "ChatMCP.exe"), "-n 120 127.0.0.1") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+        var imageTrouble = "";
+        string? ImageOf(Process program)
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                try { if (program.MainModule?.FileName is { } image) return image; imageTrouble = "MainModule was null"; }
+                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { imageTrouble = error.GetType().Name + ": " + error.Message; } // the image is not mapped yet
+                Thread.Sleep(50);
+            }
+            return null;
+        }
+        var stuck = Run(home); var neighbour = Run(elsewhere);
+        try
+        {
+            var stuckImage = ImageOf(stuck); var neighbourImage = ImageOf(neighbour);
+            Check(stuckImage != null && neighbourImage != null && !string.Equals(stuckImage, neighbourImage, StringComparison.OrdinalIgnoreCase), "premise: two running programs called ChatMCP.exe, in two folders of the scratch area (" + (stuckImage ?? "none") + " / " + (neighbourImage ?? "none") + ", exited: " + stuck.HasExited + " / " + neighbour.HasExited + "; last trouble: " + imageTrouble + ")");
+            var installation = Path.GetDirectoryName(stuckImage)!; // the folder as Windows spells it
+            var clock = Stopwatch.StartNew();
+            var neverCloses = Caught(() => InstallerEngine.CloseRunningProcesses(installation, 300));
+            clock.Stop();
+            Check(neverCloses is IOException && StepCode.Of(neverCloses) == "window_open", "the installed program that does not close is refused with window_open, through the closing step itself (" + neverCloses?.GetType().Name + ")");
+            Check(clock.ElapsedMilliseconds >= 250 && clock.ElapsedMilliseconds < 4000, "after the time it was given to close, which is neither skipped nor the whole five seconds of a real setup (" + clock.ElapsedMilliseconds + " ms)");
+            Check(neverCloses!.Message.Contains("No files were replaced"), "and the words say that nothing was replaced");
+            var untouched = Caught(() => InstallerEngine.CloseRunningProcesses(Path.Combine(scratch, "no program lives here"), 300));
+            Check(untouched == null && !stuck.HasExited && !neighbour.HasExited, "an installation with no running program of its own is neither refused nor does it close anything: programs of the same name elsewhere run on");
+        }
+        finally
+        {
+            foreach (var program in new[] { stuck, neighbour })
+            {
+                try { if (!program.HasExited) program.Kill(true); program.WaitForExit(10000); } catch (InvalidOperationException) { /* already gone */ }
+                program.Dispose();
+            }
+        }
+    }
+
+    // The marker of an update in progress ("keep the backup, the launcher must not start") is made whole or not at all: it is written under another name and moved into place, so it is never
+    // there empty or half written (a marker like that blocks the launcher, setup and the uninstaller with nothing to recover from).
+    {
+        var pendingMarker = (string folder) => Path.Combine(folder, InstallTransaction.PendingName);
+        var guarded = Path.Combine(scratch, "marker cannot be written"); Directory.CreateDirectory(guarded);
+        File.WriteAllText(Path.Combine(guarded, "a.txt"), "old-a");
+        Directory.CreateDirectory(pendingMarker(guarded) + ".new"); // the name the marker is written under first is taken by a folder
+        using (var tx = new InstallTransaction(guarded))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            Throws(() => tx.Commit((_, _) => { }), "when the marker cannot be written the update does not start");
+        }
+        Check(File.ReadAllText(Path.Combine(guarded, "a.txt")) == "old-a" && !File.Exists(pendingMarker(guarded)), "and no file was replaced and no marker was left behind");
+        Check(!Directory.EnumerateDirectories(guarded).Any(folder => Path.GetFileName(folder).StartsWith(".ChatMCP-update-", StringComparison.Ordinal)), "and the working folder of the transaction was removed (nothing to recover was kept)");
+
+        var whole = Path.Combine(scratch, "marker whole"); Directory.CreateDirectory(whole);
+        File.WriteAllText(Path.Combine(whole, "a.txt"), "old-a");
+        File.WriteAllText(pendingMarker(whole) + ".new", "left by an earlier run that died"); // a leftover under that name is replaced, not trusted
+        string? duringCommit = null;
+        using (var tx = new InstallTransaction(whole))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            tx.Commit((_, _) => { duringCommit ??= File.ReadAllText(pendingMarker(whole)); });
+        }
+        using (var marked = JsonDocument.Parse(duringCommit ?? "null"))
+            Check(marked.RootElement.GetProperty("version").GetInt32() == 1 && Path.GetFileName(marked.RootElement.GetProperty("backupDirectory").GetString()!).StartsWith(".ChatMCP-update-", StringComparison.Ordinal),
+                "while the files are replaced the marker is whole JSON that names the folder of the backup");
+        Check(File.ReadAllText(Path.Combine(whole, "a.txt")) == "new-a" && !File.Exists(pendingMarker(whole)) && !File.Exists(pendingMarker(whole) + ".new"), "and after a good update neither the marker nor the name it is written under is left");
+
+        var raced = Path.Combine(scratch, "marker raced"); Directory.CreateDirectory(raced);
+        File.WriteAllText(Path.Combine(raced, "a.txt"), "old-a");
+        using (var tx = new InstallTransaction(raced))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            File.WriteAllText(pendingMarker(raced), "{\"from\":\"another update\"}"); // an update that began between the check and the commit
+            Exception? stopped = null;
+            try { tx.Commit((_, _) => { }); } catch (Exception error) { stopped = error; }
+            Check(stopped != null, "a marker that appears after the transaction was made is not overwritten: the commit stops");
+            Check(StepCode.Of(stopped) == "pending_recovery", "and it says what is true, an update that did not finish and that this one found (pending_recovery: nothing of this one was touched), and not that this update stopped halfway (" + (StepCode.Of(stopped) ?? "no code") + ")");
+        }
+        Check(File.ReadAllText(pendingMarker(raced)) == "{\"from\":\"another update\"}" && File.ReadAllText(Path.Combine(raced, "a.txt")) == "old-a" && !File.Exists(pendingMarker(raced) + ".new"), "and that marker is as it was, nothing was replaced and nothing of ours is left");
+
+        // a marker that cannot be put in place for another reason (here a folder has its name: no marker FILE is there) is not an earlier update that did not finish, and is not said to be one
+        var blocked = Path.Combine(scratch, "marker place taken"); Directory.CreateDirectory(blocked);
+        File.WriteAllText(Path.Combine(blocked, "a.txt"), "old-a");
+        Directory.CreateDirectory(pendingMarker(blocked));
+        using (var tx = new InstallTransaction(blocked))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            Exception? taken = null;
+            try { tx.Commit((_, _) => { }); } catch (Exception error) { taken = error; }
+            Check(taken != null && StepCode.Of(taken) != "pending_recovery", "a marker that cannot be written because its name is taken by a folder stops the commit without claiming that an earlier update did not finish (" + (taken?.GetType().Name ?? "no error") + ")");
+        }
+        Check(File.ReadAllText(Path.Combine(blocked, "a.txt")) == "old-a" && !File.Exists(pendingMarker(blocked) + ".new"), "and nothing was replaced and nothing of ours is left");
+    }
     using (var gate = HubLifecycle.AcquireUpdateLock(root))
     {
         try
@@ -360,6 +549,6 @@ try
         InstallerEngine.RemoveShortcuts(app, foreign.Desktop, foreign.Programs);
         Check(File.Exists(Path.Combine(foreign.Desktop, "ChatMCP Studio.lnk")) && Directory.GetFiles(Path.Combine(foreign.Programs, "ChatMCP")).Length == 2, "and leaves the shortcuts of another installation");
     }
-    Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", checks, scope = "real shared native classes; Windows filesystem" }));
+    Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", checks = checks + kit.Count, scope = "real shared native classes; Windows filesystem" }));
 }
 finally { Directory.Delete(scratch, recursive: true); }

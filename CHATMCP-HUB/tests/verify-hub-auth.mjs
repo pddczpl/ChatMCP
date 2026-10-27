@@ -65,10 +65,11 @@ check(PUBLIC_API_ROUTES.every((route) => GET_ROUTES.includes(route)) && EXTENSIO
 equal([...PUBLIC_API_ROUTES], ['/api/health', '/api/capabilities'], 'the unauthenticated probes are exactly health and capabilities');
 equal([...EXTENSION_READ_ROUTES], ['/api/extension-state', '/api/instructions'], 'the Companion read routes are exactly extension-state and instructions');
 // The update notice (lib/update-check.mjs) and the download of the installer (lib/update-download.mjs): one GET that reads what the Hub already knows (the state of the download is in it, as memory), five POSTs
-// that are the owner's acts (a check, a skip, the choice, a download, a cancel). All behind the bearer; none is a named exception, and what changes state is never a GET.
+// that are the owner's acts (a check, a skip, the choice, a download, a cancel), and the sixth POST of what the last update left (the owner has read it: the Hub forgets it). All behind the bearer; none is a
+// named exception, and what changes state is never a GET.
 const UPDATE_GET = ['/api/update/status'];
-const UPDATE_POST = ['/api/update/check', '/api/update/skip', '/api/update/auto-check', '/api/update/download', '/api/update/download-cancel'];
-check(UPDATE_GET.every((route) => GET_ROUTES.includes(route)) && UPDATE_POST.every((route) => POST_ROUTES.includes(route)), 'the six routes of the update notice and its download are declared (one GET, five POSTs)');
+const UPDATE_POST = ['/api/update/check', '/api/update/skip', '/api/update/auto-check', '/api/update/download', '/api/update/download-cancel', '/api/update/applied-dismiss'];
+check(UPDATE_GET.every((route) => GET_ROUTES.includes(route)) && UPDATE_POST.every((route) => POST_ROUTES.includes(route)), 'the seven routes of the update notice, its download and what the last update left are declared (one GET, six POSTs)');
 check(UPDATE_GET.concat(UPDATE_POST).every((route) => !PUBLIC_API_ROUTES.includes(route) && !EXTENSION_READ_ROUTES.includes(route)), 'and none of them is a named exception to the bearer');
 
 // ---------------------------------------------------------------------------------------------------------------------
