@@ -2027,8 +2027,7 @@
   },
   {
    "name": "run-wait-after-checks",
-   "what": "the setup looks at the installation before it waits for the shell",
-   "equivalent": "With a pretend machine the installed version does not change while the shell exits, so the order of the two reads cannot be seen; on a real machine the version is read once at the start either way.",
+   "what": "the setup decides that there is no installation before it has waited for the shell (with both true at once the answer must be shell_not_exited, after a wait)",
    "patches": [
     {
      "file": "installer/UpdateRun.cs",
@@ -2193,8 +2192,7 @@
   },
   {
    "name": "run-relaunch-when-recovery",
-   "what": "the app is opened again although the installation needs recovery",
-   "equivalent": "The state needs_recovery is only given while the marker of an unfinished update is on disk, and the condition after it refuses to relaunch for that marker too.",
+   "what": "the app is opened again although the outcome says the installation needs recovery and the second look at the marker finds none (defence in depth: a real disk seldom changes between the two looks)",
    "patches": [
     {
      "file": "installer/UpdateRun.cs",
@@ -2205,8 +2203,7 @@
   },
   {
    "name": "run-relaunch-behind-marker",
-   "what": "the app is opened again behind the marker of an unfinished update",
-   "equivalent": "A marker that is on disk is told as needs_recovery by Execute already, so the outcome check before this one refuses first; the second check is for a marker that appears after the outcome was decided.",
+   "what": "the app is opened again behind a marker that appeared after the outcome was decided (the update went through, and a marker is there when it is done)",
    "patches": [
     {
      "file": "installer/UpdateRun.cs",
@@ -4480,13 +4477,23 @@
   },
   {
    "name": "initialpath-text-unchecked",
-   "what": "the folder the picker starts in is taken as a string without asking whether .NET can give it as text (a lone surrogate throws)",
-   "equivalent": "GetString throws InvalidOperationException for a lone surrogate, and the catch of the method turns that into the same false that Json.TextOf gives by returning null: the same answer by another road",
+   "what": "the folder the picker starts in is taken as a string without asking whether .NET can give it as text (a lone surrogate, or a value that is not a string, throws and the request is dropped)",
    "patches": [
     {
      "file": "native-shared/PageMessage.cs",
-     "old": "if (Json.TextOf(start) is not { } text) return false;\n                initialPath = text;",
+     "old": "initialPath = Json.TextOf(start);",
      "new": "initialPath = start.GetString();"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-unreadable-suggestion-drops-request",
+   "what": "a suggestion that cannot be read drops the whole pick-folder request (the picker does not open and the page waits three minutes)",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "initialPath = Json.TextOf(start);",
+     "new": "{ if (Json.TextOf(start) is not { } read) return false; initialPath = read; }"
     }
    ]
   },
@@ -4508,8 +4515,8 @@
    "patches": [
     {
      "file": "native-shared/PageMessage.cs",
-     "old": "            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;\n            if (document.RootElement.TryGetProperty(\"initialPath\"",
-     "new": "            if (document.RootElement.TryGetProperty(\"initialPath\""
+     "old": "if (document.RootElement.ValueKind != JsonValueKind.Object) return false;",
+     "new": ""
     }
    ]
   },
@@ -4521,17 +4528,6 @@
      "file": "native-shared/PageMessage.cs",
      "old": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;",
      "new": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json)) return false;"
-    }
-   ]
-  },
-  {
-   "name": "initialpath-non-string-read-as-text",
-   "what": "a field that is not a string is read as if it were one",
-   "patches": [
-    {
-     "file": "native-shared/PageMessage.cs",
-     "old": "out var start) && start.ValueKind == JsonValueKind.String)\n            {\n                if (Json.TextOf(start)",
-     "new": "out var start))\n            {\n                if (Json.TextOf(start)"
     }
    ]
   }

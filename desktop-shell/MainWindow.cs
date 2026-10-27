@@ -191,7 +191,7 @@ namespace ChatMCP.Desktop
 
         private void HandleFolderRequest(string json, string requestId)
         {
-            // read by PageMessage, which the native tests run: a value .NET cannot give as text (a lone surrogate) is a message that is dropped, and never an exception in this handler
+            // read by PageMessage, which the native tests run: a suggestion .NET cannot give as text (a lone surrogate) is a picker that opens without one; a message that cannot be read at all is dropped; neither is ever an exception in this handler
             if (!PageMessage.TryReadInitialPath(json, out var suggested)) return;
             string? initial = null;
             if (!string.IsNullOrWhiteSpace(suggested) && suggested.Length <= 4096 &&

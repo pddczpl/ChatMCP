@@ -55,14 +55,22 @@ internal static class ApplyTests
         kit.Check(Parses("{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\"}", out var t1, out var i1) && t1 == "chatmcp.apply-update" && i1 == id, "an apply-update message has a type and an id and nothing else is read");
         kit.Check(Parses("{\"type\":\"chatmcp.pick-folder\",\"id\":\"" + id + "\",\"initialPath\":\"C:\\\\x\"}", out var t2, out _) && t2 == "chatmcp.pick-folder", "a pick-folder message keeps working (its folder is read by the folder code, not here)");
         kit.Check(Parses("{\"type\":\"chatmcp.pick-folder\",\"id\":\"" + id + "\",\"initialPath\":\"" + string.Concat(Enumerable.Repeat("\\\\", 4096)) + "\"}", out _, out _), "even with the longest path the folder picker takes (4096 characters, every one a backslash that JSON writes as two: over 8 KiB of text)");
-        // the one field of a pick-folder message that is read (the folder the picker starts in) is read here, with the same care: a value .NET cannot give as text is a message that is dropped, never an exception
+        // the one field of a pick-folder message that is read (the folder the picker starts in) is read here, with the same care: a suggestion .NET cannot give as text (a lone surrogate, which a file name on
+        // Windows may hold, and so the folder a person picked once) is a picker that opens WITHOUT a suggestion, and a message that cannot be read at all is dropped; neither is ever an exception
         bool Suggests(string json, out string? path) => PageMessage.TryReadInitialPath(json, out path);
         string Pick(string fields) => "{\"type\":\"chatmcp.pick-folder\",\"id\":\"" + id + "\"" + fields + "}";
         kit.Check(Suggests(Pick(",\"initialPath\":\"C:\\\\Work\\\\App\""), out var suggested) && suggested == @"C:\Work\App", "the folder the picker starts in is the string of the field initialPath");
         kit.Check(Suggests(Pick(",\"initialPath\":\"C:\\\\caf\\u00e9 \\ud83d\\ude00\""), out suggested) && suggested == "C:\\caf\u00e9 \U0001F600", "also with letters that are not ASCII, and a surrogate PAIR (which is text)");
         kit.Check(Suggests(Pick(""), out suggested) && suggested == null, "a message with no suggestion has none");
         kit.Check(Suggests(Pick(",\"initialPath\":5"), out suggested) && suggested == null && Suggests(Pick(",\"initialPath\":null"), out suggested) && suggested == null && Suggests(Pick(",\"initialPath\":[\"C:\\\\x\"]"), out suggested) && suggested == null, "and so does one whose field is not a string");
+        // a suggestion that cannot be read is no reason to drop the request: the page waits three minutes for an answer that never comes (native-folder-picker.ts), so the picker opens without one
         foreach (var (why, json) in new (string, string)[] { ("a lone surrogate in it", Pick(",\"initialPath\":\"\\ud800\"")), ("a lone low surrogate in it", Pick(",\"initialPath\":\"C:\\\\x\\udc00\"")), ("a reversed pair in it", Pick(",\"initialPath\":\"\\udc00\\ud800\"")),
+                     ("a lone surrogate after a real folder", Pick(",\"initialPath\":\"C:\\\\Work\\\\\\ud800\"")) })
+        {
+            kit.Check(Parses(json, out var kind, out _) && kind == "chatmcp.pick-folder", "a pick-folder message whose suggestion holds " + why + " is still a pick-folder message (it reaches the code that opens the picker)");
+            kit.Check(SafeSuggests(json) == "read" && Suggests(json, out suggested) && suggested == null, "and it is read, with no suggestion: " + why);
+        }
+        foreach (var (why, json) in new (string, string)[] {
                      ("a field named by a lone surrogate", Pick(",\"\\ud800\":1")),
                      // .NET compares a name that is written with an escape only when it can be as long as the name it looks for (initialPath, 11 characters): this one can, and then it throws
                      ("a field named by a lone surrogate and as long as the field looked for", Pick(",\"\\ud800abcdefghijklmnop\":1")), ("a message that is not JSON", "not json"), ("a message that is an array", "[1]"), ("nothing", ""), ("a message over 32 KiB", Pick(",\"initialPath\":\"" + new string('x', 40000) + "\"")) })

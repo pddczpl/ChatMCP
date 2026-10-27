@@ -25,6 +25,8 @@ internal static class UpdateRunTests
         internal long Payload = 700L * 1024 * 1024;
         internal bool ShellGone = true;
         internal bool Marker;
+        /// <summary>The answers to "is the marker there?" in the order they are asked, used up before <see cref="Marker"/> is read again: a marker that appears or goes away between two looks of one run.</summary>
+        internal Queue<bool>? MarkerScript;
         internal bool WriteWorks = true;
         internal bool WriteThrows, MarkerThrows, DetectThrows;
         /// <summary>Whether a program listens on the port of the Hub when the result is about to be left, and whether asking fails.</summary>
@@ -45,7 +47,7 @@ internal static class UpdateRunTests
             WaitForShellExit = (pid, image, limit) => { Events.Add("wait"); WaitedPid = pid; WaitedImage = image; WaitedLimit = limit; return ShellGone; },
             DetectShortcuts = dir => { Events.Add("detect-shortcuts"); if (DetectThrows) throw new IOException("no shell"); return Shortcuts; },
             Install = (dir, plan, progress) => { Events.Add("install"); InstalledWith = plan; Install?.Invoke(plan, progress); },
-            PendingMarkerExists = dir => MarkerThrows ? throw new IOException("locked") : Marker,
+            PendingMarkerExists = dir => MarkerThrows ? throw new IOException("locked") : MarkerScript is { Count: > 0 } script ? script.Dequeue() : Marker,
             Relaunch = exe => { Events.Add("relaunch"); Relaunched = exe; OnRelaunch?.Invoke(); },
             WriteResult = (path, outcome) => { Events.Add("write-result"); if (WriteThrows) throw new IOException("disk"); Written = outcome; WrittenTo = path; return WriteWorks; },
             HubIsRunning = () => { Events.Add("hub-running"); if (HubCheckThrows) throw new IOException("table"); return HubRunning; },
@@ -98,6 +100,14 @@ internal static class UpdateRunTests
         }
         Refused("the shell does not go", machine => machine.ShellGone = false, "shell_not_exited");
         Refused("no installation is there", machine => machine.Installed = null, "no_installation");
+        // the shell is waited for BEFORE anything else is decided: each of the two refusals above is tried alone, and here both are true at once. The answer is the shell, and it was waited for; the setup does not
+        // look at the installation (or decide that there is none) while the app that lives in it may still be closing.
+        {
+            var machine = new Machine { ShellGone = false, Installed = null };
+            var result = machine.Run(Command());
+            kit.Check(result == new UpdateOutcome(false, machine.Target, null, "unchanged", "shell_not_exited") && machine.Events.Contains("wait"), "a shell that does not go and an installation that cannot be read, at once: the answer is shell_not_exited, and the shell was waited for (got " + result.State + ", " + result.Reason + "; events " + string.Join(",", machine.Events) + ")");
+            kit.Check(!machine.Events.Contains("install") && machine.Written == result, "and nothing was installed, and the result file says the same");
+        }
         Refused("the same version", machine => machine.Target = "3.10.2", "not_newer");
         Refused("an older version", machine => machine.Target = "3.9.0", "not_newer");
         Refused("a patch release that is older", machine => { machine.Target = "3.10.1"; }, "not_newer");
@@ -189,6 +199,22 @@ internal static class UpdateRunTests
             kit.Check(!relaunched, "nor one that is not opened because the installation needs recovery");
             machine = new Machine { Target = "3.9.0" }; machine.Run(Command(), out relaunched);
             kit.Check(relaunched, "after a refusal the OLD app is opened and that is said too");
+
+            // The marker is looked for again right before the app would be opened. Two ways it can differ from what the run saw before, both told to the setup by a pretend disk (a real disk does not often do either,
+            // which is why this is a second look: the launcher refuses to start behind the marker, and a window that said "opened again" for an app that closes at once would be a lie).
+            // 1. The update went through and a marker is there when it is done, though none was there when it began: the outcome was decided before the marker, and the app is still not opened.
+            machine = new Machine(); machine.Install = (plan, progress) => machine.Marker = true;
+            var late = machine.Run(Command(), out relaunched);
+            kit.Check(late.Ok && late.State == "installed" && !relaunched && !machine.Events.Contains("relaunch"), "a marker that appears once the update is done (the outcome says installed, decided before it) still keeps the app from being opened, and relaunched says so (got " + late.State + ", relaunched " + relaunched + ")");
+            // 2. The outcome says the installation needs recovery and the second look no longer finds the marker (somebody took it away in between): the outcome alone keeps the app closed.
+            machine = new Machine { MarkerScript = new Queue<bool>(new[] { true, false }) };
+            var gone = machine.Run(Command(), out relaunched);
+            kit.Check(gone.State == "needs_recovery" && gone.Reason == "pending_recovery" && !relaunched && !machine.Events.Contains("relaunch"), "an outcome of needs_recovery keeps the app closed although the second look at the marker finds none (got " + gone.State + ", " + gone.Reason + ", relaunched " + relaunched + ")");
+            // the same after a failure of the engine: the marker is there when the failure is looked at, and not when the app would be opened
+            machine = new Machine { MarkerScript = new Queue<bool>(new[] { false, true, false }) };
+            machine.Install = (plan, progress) => throw new IOException("Install failed");
+            gone = machine.Run(Command(), out relaunched);
+            kit.Check(gone.State == "needs_recovery" && gone.Reason == "install_failed" && !relaunched && !machine.Events.Contains("relaunch"), "and the same after a failure of the engine that leaves the marker (got " + gone.State + ", " + gone.Reason + ", relaunched " + relaunched + ")");
         }
         kit.Throws(() => UpdateRun.Real().Relaunch(Path.Combine(kit.Folder("no app here"), "ChatMCP.exe")), "the real way to open the app fails when there is no ChatMCP.exe to open (the window must not say it was opened)");
         // the port of the Hub as the real machine answers: a port that nothing listens on, then the same port with a listener of this test on it

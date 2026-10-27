@@ -56,8 +56,10 @@ internal static class PageMessage
     }
 
     /// <summary>
-    /// The one field of a pick-folder message that is read: the folder the picker starts in (`initialPath`), null when the message has none or it is not a string. False when the message cannot be read at all, a
-    /// lone surrogate in it, say (see <see cref="Json.TextOf"/>): the message is then dropped like any other that is not of the known shape, and nothing is thrown at the window.
+    /// The one field of a pick-folder message that is read: the folder the picker starts in (`initialPath`). It is null when the message has none, when it is not a string, and when it is a string .NET cannot
+    /// give as text (a lone surrogate, which a file name on Windows may hold, so the folder a person picked once may): the picker then opens without a suggestion, which is better than no picker, because the
+    /// page waits three minutes for an answer that would never come. False when the message cannot be read at all (not JSON, not an object, over the limit, a field named by a lone surrogate): it is then dropped
+    /// like any other that is not of the known shape, and nothing is thrown at the window.
     /// </summary>
     internal static bool TryReadInitialPath(string? json, out string? initialPath)
     {
@@ -67,11 +69,8 @@ internal static class PageMessage
         {
             using var document = JsonDocument.Parse(json);
             if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
-            if (document.RootElement.TryGetProperty("initialPath", out var start) && start.ValueKind == JsonValueKind.String)
-            {
-                if (Json.TextOf(start) is not { } text) return false;
-                initialPath = text;
-            }
+            // Json.TextOf gives null for a value that is not a string and for one that cannot be had as text (see there): either way there is no suggestion, and the request is still read
+            if (document.RootElement.TryGetProperty("initialPath", out var start)) initialPath = Json.TextOf(start);
             return true;
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException) { initialPath = null; return false; }
