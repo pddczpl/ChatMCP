@@ -11,7 +11,8 @@
 // `old` must occur exactly once in it (an ambiguous or stale pattern is an ERROR, never guessed at). `run` says what judges the mutation: "native" (the default) builds the native test project and runs it,
 // "gate" runs CHATMCP-HUB/tests/verify-update-apply.mjs, the static gate for the build and the source, "payload" runs scripts/tests/Test-InstallerPayload.ps1, the PowerShell tests of the build's own helpers
 // (the proof of the key list the build embeds). A mutation that does not COMPILE is INVALID, not killed: a compiler error is not a test that noticed
-// something, so the list must hold only mutations that build. `"equivalent": "why"` marks a mutation that provably changes no behaviour; if it survives it is EQUIVALENT and does not fail the run, and if it
+// something, so the list must hold only mutations that build. The same goes for a mutation of a script that does not PARSE ("gate" and "payload": a ParserError of PowerShell or a SyntaxError of node in the
+// output): the judge failed because the file is not source any more, not because a check noticed what the mutation did. `"equivalent": "why"` marks a mutation that provably changes no behaviour; if it survives it is EQUIVALENT and does not fail the run, and if it
 // is killed after all the annotation is stale and the note says so. `"needs": ["symlink"]` marks a mutation that only a machine able to make a link to a file can judge (on Windows that takes a privilege): where it
 // cannot, the test says so and passes, and the mutation is N/A there, never counted as survived.
 //
@@ -48,6 +49,8 @@ const CAPABILITIES = {
   },
 };
 const TAIL = 6000;
+/** The line of a judge's output that says the mutated file is not valid source (PowerShell: ParserError / ParseException; node: SyntaxError), or undefined when it does not say so. */
+const parseError = (output) => output.split(/\r?\n/).find((line) => /\bParserError\b|\bParseException\b|^SyntaxError: /.test(line));
 
 function options(argv) {
   const found = { only: null, json: '', timeout: 300, keep: false, check: false, list: path.join(REPO, HERE, 'mutations.json') };
@@ -198,12 +201,14 @@ async function main() {
         if (mutation.run === 'gate') {
           const judged = await gate();
           if (judged.timedOut) result = { status: 'KILLED', note: 'the gate hung and was stopped' };
+          else if (judged.code !== 0 && parseError(judged.output)) result = { status: 'INVALID', note: `does not parse: ${parseError(judged.output).trim().slice(0, 160)}` };
           else if (judged.code === 0) result = mutation.equivalent ? { status: 'EQUIVALENT', note: mutation.equivalent } : { status: 'SURVIVED', note: 'the gate passed on the broken source' };
           else result = { status: 'KILLED', note: `exit ${judged.code}: ${(judged.output.split(/\r?\n/).find((line) => /AssertionError/.test(line)) ?? '').replace(/^AssertionError \[ERR_ASSERTION\]: /, '').slice(0, 180)}${mutation.equivalent ? ' (annotated as equivalent, yet killed: the annotation is stale)' : ''}` };
           result.seconds = judged.seconds;
         } else if (mutation.run === 'payload') {
           const judged = await payload();
           if (judged.timedOut) result = { status: 'KILLED', note: 'the tests hung and were stopped' };
+          else if (judged.code !== 0 && parseError(judged.output)) result = { status: 'INVALID', note: `does not parse: ${parseError(judged.output).trim().slice(0, 160)}` };
           else if (judged.code === 0) result = mutation.equivalent ? { status: 'EQUIVALENT', note: mutation.equivalent } : { status: 'SURVIVED', note: 'the PowerShell tests passed on the broken script' };
           else result = { status: 'KILLED', note: `exit ${judged.code}: ${(judged.output.split(/\r?\n/).find((line) => /FAIL:/.test(line)) ?? judged.output.split(/\r?\n/).find((line) => /\b(?:Exception|error)\b|is not recognized|cannot be/i.test(line)) ?? judged.output.trim().split(/\r?\n/).at(-1) ?? '').replace(/^.*?(?=FAIL:)/, '').slice(0, 180)}${mutation.equivalent ? ' (annotated as equivalent, yet killed: the annotation is stale)' : ''}` };
           result.seconds = judged.seconds;
