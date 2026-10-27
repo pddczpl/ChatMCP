@@ -1,8 +1,9 @@
 {
   "version": 1,
   "algorithm": "ES256",
-  "about": "The public keys that sign RELEASE-MANIFEST.json (ECDSA P-256, SHA-256, signature in IEEE P1363 form). The Hub reads this file from its own files; the desktop shell embeds the same file. Only an entry that says use \"release\" is a key. The entry below is a PLACEHOLDER: it holds no key, it verifies nothing, and scripts/verify-release-source.py refuses to release while a placeholder or a test key is in this file. To fill it in, run scripts/new-release-key.mjs with a path OUTSIDE the repository, replace the entry with the one it prints, and keep a second entry for the next key so that a rotation does not need a new installer first.",
+  "about": "The public keys that sign RELEASE-MANIFEST.json (ECDSA P-256, SHA-256, signature in IEEE P1363 form). The Hub reads this file from its own files; the desktop shell embeds the same file. Only an entry that says use \"release\" is a key. Releases are signed with the first key; the second is the next key, kept offline as well, so that a rotation does not need a new installer first. scripts/verify-release-source.py refuses to release while a placeholder or a test key is in this file. To change a key: run scripts/new-release-key.mjs with a path OUTSIDE the repository and put the entry it prints here, in a small pull request.",
   "keys": [
-    { "kid": "00000000", "use": "placeholder", "spki": null }
+    { "kid": "a8e7e343", "use": "release", "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElFvtUu9TfUqrzeFhqonHYo4iE3rEp5obhw6ab/InmpR6uhatHrwF2nqmuNeNHn5Qxwa+cEACAw960SSdKDR2ig==" },
+    { "kid": "b4c5056d", "use": "release", "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmLKgFaFF2wq2Cvq0UpZdw6cru+OhV1Ad6RdD6mu/36co4KHj09mNIB+mE84N6tqDZjBrPlgkp6NMjyqAwh0MNQ==" }
   ]
 }
