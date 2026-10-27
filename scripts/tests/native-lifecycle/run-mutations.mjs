@@ -25,6 +25,8 @@ import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// A PowerShell child that a script starts from node gets the environment of this helper (tests/verify-source-lint.mjs holds every such script to it): without PSModulePath of the PowerShell 7 that may have started node.
+import { powerShellChildEnvironment } from '../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const HERE = path.relative(REPO, path.dirname(fileURLToPath(import.meta.url))).replaceAll('\\', '/');
@@ -33,6 +35,7 @@ const COPIED = [
   'scripts/Build-Installer.ps1', 'scripts/tests/Test-NativeLifecycle.ps1',
   'scripts/InstallerPayload.ps1', 'scripts/tests/Test-InstallerPayload.ps1', 'scripts/intelligence-runtime/licenses/ripgrep', 'CHATMCP-HUB/lib/assemble.mjs', // what the PowerShell tests of the build read
   'CHATMCP-HUB/lib/release-keys.json', 'CHATMCP-HUB/tests/verify-update-apply.mjs',
+  'CHATMCP-HUB/tests/support/powershell-environment.mjs', 'CHATMCP-HUB/lib/powershell-environment.mjs', // which that gate imports
   'CHATMCP-HUB/tests/fixtures/release-verify-vectors.json', 'CHATMCP-HUB/tests/fixtures/update-result-vectors.json', 'CHATMCP-HUB/tests/fixtures/active-work-cases.json',
   'docs/WINDOWS-SETUP.md', // the recovery by hand that the guide gives is run by Program.cs from this text
 ];
@@ -165,7 +168,7 @@ async function main() {
     // the gate must not compare the list of mutations with a copy that has a mutation in it: it is told so
     const gate = () => run(process.execPath, [path.join(copy, 'CHATMCP-HUB', 'tests', 'verify-update-apply.mjs')], { cwd: copy, timeout: opts.timeout, env: { ...process.env, CHATMCP_NATIVE_MUTATION_COPY: '1' } });
     // the PowerShell tests of the build's helpers: they read the copy of the scripts next to them
-    const payload = () => run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(copy, 'scripts', 'tests', 'Test-InstallerPayload.ps1')], { cwd: copy, timeout: opts.timeout });
+    const payload = () => run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(copy, 'scripts', 'tests', 'Test-InstallerPayload.ps1')], { cwd: copy, timeout: opts.timeout, env: powerShellChildEnvironment() });
 
     console.log(`Native mutation run: ${mutations.length} mutation(s) - ${HERE}/${path.basename(opts.list)} - node ${process.version} on ${process.platform}`);
     const first = await build();

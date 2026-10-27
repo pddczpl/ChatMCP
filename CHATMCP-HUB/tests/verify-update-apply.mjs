@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { powerShellChildEnvironment } from './support/powershell-environment.mjs';
 
 const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repo = path.resolve(hubRoot, '..');
@@ -92,7 +93,7 @@ if (!sdk) {
     // A repository can be anywhere: in C:\My Repos, Inc\ or C:\a;b\. MSBuild splits a property on the command line at ';' and ',' and reads '%' as an escape, so the build script writes the path the way its
     // helper does (the real helper is asked here), and MSBuild must give the very same path back. Unescaped it refuses (MSB1006): the regression a review found, kept as a negative control.
     const strange = path.join(fs.realpathSync.native(scratch), "a;b, c%d (e) $f 'g' @h", 'keys made for a run.json');
-    const escaped = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `. '${path.join(repo, 'scripts', 'InstallerPayload.ps1').replaceAll("'", "''")}'; ConvertTo-InstallerMsbuildValue -Value '${strange.replaceAll("'", "''")}'`], { encoding: 'utf8', timeout: 60000 }).trim();
+    const escaped = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `. '${path.join(repo, 'scripts', 'InstallerPayload.ps1').replaceAll("'", "''")}'; ConvertTo-InstallerMsbuildValue -Value '${strange.replaceAll("'", "''")}'`], { encoding: 'utf8', timeout: 60000, env: powerShellChildEnvironment() }).trim();
     check(escaped !== strange && !/[;,]/.test(escaped), 'the helper of the build script escapes the characters MSBuild splits at', escaped);
     const viaBuildScript = evaluate([`-p:ReleaseKeysFile=${escaped}`]);
     check(viaBuildScript.items.length === 1 && same(viaBuildScript.items[0].FullPath, strange) && viaBuildScript.items[0].LogicalName === resourceName, 'MSBuild: a key file in a folder with ; , % ( ) $ \' and @ in its name is read back as the same path through the escaping of the build script', viaBuildScript.items.map((item) => item.FullPath).join());
