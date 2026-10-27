@@ -197,6 +197,18 @@ try {
       ok('a load looks at the marker every time');
     }
     {
+      // behind the marker the result file is not even looked at: a link where it should be is not removed, a file that cannot be read is not read. The disk is asked about the marker and about nothing else.
+      const { directory, installation, file, marker } = fresh();
+      fs.writeFileSync(marker, '{}');
+      const asked = [];
+      const spy = { ...fs, promises: new Proxy(fs.promises, { get: (target, property) => (typeof target[property] === 'function' ? async (...args) => { if (args.some((argument) => String(argument).endsWith(RESULT_FILE))) asked.push(String(property)); return target[property](...args); } : target[property]) }) };
+      const note = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation, fsApi: spy });
+      await note.load();
+      assert.deepEqual(asked, [], `behind the marker the result file is not looked at, read or removed (the disk was asked: ${asked.join(', ')})`);
+      assert.equal(fs.readFileSync(file, 'utf8'), newer, 'and it is exactly what it was');
+      ok('behind the marker the disk is asked about the marker and about nothing else: the result file is not even looked at');
+    }
+    {
       // anything with that name counts, and the disk saying nothing useful counts as there
       const { directory, installation, file, marker } = fresh();
       fs.mkdirSync(marker);

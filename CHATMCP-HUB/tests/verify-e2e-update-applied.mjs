@@ -125,7 +125,7 @@ await runScenario({
   // <installation>\.chatmcp-update-pending.json). The module holds the guard to its promises (verify-update-applied.mjs); this holds the Hub's wiring of it to the right folder. (A Hub that is run from a source
   // checkout looks in the checkout's own folder, which never holds the marker: the note is read there as before.)
   t.check(/const BUNDLE_ROOT = path\.dirname\(fileURLToPath\(import\.meta\.url\)\);/.test(hubSource), 'the folder the Hub lives in is the one hub.mjs is in (CHATMCP-HUB)');
-  t.check(/createAppliedNote\(\{[^}]*\binstallDirectory: path\.dirname\(BUNDLE_ROOT\),/.test(hubSource), 'and the note is told that the installation is the folder above it, where the marker of an update that stopped halfway is, so a Hub started by hand behind it leaves the result file alone');
+  t.check(/createAppliedNote\(\{[^}]*\binstallDirectory: (?:path\.dirname\(BUNDLE_ROOT\)|path\.resolve\(BUNDLE_ROOT, ['"]\.\.['"]\)),/.test(hubSource), 'and the note is told that the installation is the folder above it, where the marker of an update that stopped halfway is, so a Hub started by hand behind it leaves the result file alone');
   const dismissCase = hubSource.split('\n').filter((line) => line.includes(`case '${ROUTE}'`)).join('\n');
   t.check(dismissCase.length > 0 && !/requireNoTask|activeTaskId|writeFile|unlink|spawn|fetch/.test(dismissCase), 'and the route reads no body, asks no task, writes no file and starts nothing');
 });
