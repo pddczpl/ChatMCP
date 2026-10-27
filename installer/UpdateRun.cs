@@ -51,7 +51,7 @@ internal static class ShellProcess
     private const int InvalidParameter = 87; // OpenProcess says this for an identifier that no process has
 
     /// <summary>The program a process runs, asked of the operating system (Process.MainModule reads the module list of the process, which is not there yet for a process that has just started). Null when it cannot be told; `gone` when no process has this identifier.</summary>
-    private static string? ImageOf(int pid, out bool gone)
+    internal static string? ImageOf(int pid, out bool gone)
     {
         gone = false;
         var handle = OpenProcess(QueryLimitedInformation, false, pid);

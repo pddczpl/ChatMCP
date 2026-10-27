@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -462,21 +463,29 @@ namespace ChatMCP.Installer
                 File.Delete(shortcutPath);
         }
 
+        private const int ErrorAccessDenied = 5;
+
         /// <summary>
         /// Asks the installed app (the program called ChatMCP.exe that lives in <paramref name="installDir"/>, and no other program of that name) to close, and gives it <paramref name="waitMilliseconds"/>;
         /// one that is still there then stops the setup with window_open before any file is replaced. The wait is a parameter so that the test of the refusal does not have to sit through five seconds.
+        /// <paramref name="running"/> is the list of programs to look at: the processes of the system with this name when it is null, pretend ones in a test.
         /// </summary>
-        internal static void CloseRunningProcesses(string installDir, int waitMilliseconds = 5000)
+        internal static void CloseRunningProcesses(string installDir, int waitMilliseconds = 5000, Func<IEnumerable<IRunningProgram>>? running = null)
         {
             var expected = Path.Combine(installDir, "ChatMCP.exe");
-            foreach (var proc in Process.GetProcessesByName("ChatMCP"))
+            foreach (var proc in (running ?? (() => Programs(Process.GetProcessesByName("ChatMCP"))))())
             {
                 using (proc)
                 {
                     try
                     {
-                        if (!string.Equals(proc.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase)) continue;
-                        proc.CloseMainWindow();
+                        string? image;
+                        // A program that will not say what it runs, not even by the name of its file ("Access is denied": one of another user, a protected one), is not ours to close and does not stop the
+                        // setup. Only this answer is passed over: a program that is unreadable for another reason, or an installed app that cannot be asked to close, still stops it.
+                        try { image = proc.ImageFile(); }
+                        catch (Win32Exception error) when (error.NativeErrorCode == ErrorAccessDenied) { continue; }
+                        if (!string.Equals(image, expected, StringComparison.OrdinalIgnoreCase)) continue;
+                        proc.RequestClose();
                         if (!proc.WaitForExit(waitMilliseconds))
                             throw new IOException("Close the installed DatGold window before upgrading. No files were replaced.").Tag("window_open");
                     }
@@ -484,6 +493,39 @@ namespace ChatMCP.Installer
                 }
             }
         }
+
+        /// <summary>A program that runs, as the closing step looks at it: the file it runs, a request to close its window, and a wait for its end. The real ones are processes; a test hands in pretend ones.</summary>
+        internal interface IRunningProgram : IDisposable
+        {
+            /// <summary>The file the program runs, or null. Throws what the operating system throws when it will not say (access denied for a program of another user, a protected one).</summary>
+            string? ImageFile();
+            void RequestClose();
+            bool WaitForExit(int milliseconds);
+        }
+
+        private sealed class SystemProgram : IRunningProgram
+        {
+            private readonly Process process;
+            internal SystemProgram(Process process) { this.process = process; }
+            public string? ImageFile()
+            {
+                try { return process.MainModule?.FileName; }
+                catch (Win32Exception error) when (error.NativeErrorCode == ErrorAccessDenied)
+                {
+                    // The module list needs the right to read the memory of the program, which a program that runs elevated, or as another user, refuses. The name of its file needs much less: asked for that way,
+                    // an elevated installed app is still known for what it is. Only a program that refuses even that (a protected one, another user's) stays "access denied", and is passed over.
+                    var named = ShellProcess.ImageOf(process.Id, out _);
+                    if (named == null) throw;
+                    return named;
+                }
+            }
+            public void RequestClose() => process.CloseMainWindow();
+            public bool WaitForExit(int milliseconds) => process.WaitForExit(milliseconds);
+            public void Dispose() => process.Dispose();
+        }
+
+        /// <summary>Processes of the system, as the programs the closing step looks at.</summary>
+        internal static IEnumerable<IRunningProgram> Programs(IEnumerable<Process> processes) => processes.Select(process => (IRunningProgram)new SystemProgram(process));
 
         /// <summary>Whether a file is one of this product's own binaries, by the four fields Windows shows under Properties > Details.</summary>
         private static bool IsOwnBinary(string path)
