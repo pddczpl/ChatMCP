@@ -11,11 +11,16 @@
 //     runs now. Anything else is a file from another time and is thrown away.
 //   * with words of the page's own. `reason` is one of a closed list of codes (the same the installer writes: native-shared/HubLifecycle.cs StepCode.Known); a code a later installer adds, a text and a
 //     path are all shown as "the files could not be replaced". No text of the file is ever shown.
+//   * not behind the marker of an update that stopped halfway. While `.chatmcp-update-pending.json` is in the folder of the installation the note is not about a finished thing: the installation is waiting
+//     to be repaired (the setup does it, see installer/InstallRecovery.cs). The launcher starts no Hub then, but a Hub that someone started by hand does, and it must leave the file where it is: the Hub
+//     that starts after the repair reads it. (A Hub started from a source checkout shares the data folder and looks at the checkout's own folder, which never holds the marker.)
 import fs from 'node:fs';
 import path from 'node:path';
 import { compareVersions, isReleaseVersion } from './update-check.mjs';
 
 export const RESULT_FILE = 'update-result.json';
+/** The marker that an update which stopped halfway leaves in the folder of the installation (installer/InstallTransaction.cs PendingName). */
+export const PENDING_MARKER = '.chatmcp-update-pending.json';
 export const FORMAT = 1;
 /** What is on disk after the installer: the new files in place, nothing replaced, everything replaced and put back, or an unfinished update the launcher refuses to start behind. */
 export const STATES = Object.freeze(['installed', 'unchanged', 'rolled_back', 'needs_recovery']);
@@ -51,10 +56,12 @@ function concerns(note, running) {
 }
 
 /**
- * @param {{directory: string, currentVersion: string, log?: (line: string) => void, fsApi?: object}} options `directory` is the Hub's data folder (the one update-check.json is in); `fsApi` is for tests.
+ * @param {{directory: string, currentVersion: string, log?: (line: string) => void, fsApi?: object, installDirectory?: string}} options `directory` is the Hub's data folder (the one update-check.json is in);
+ *   `installDirectory` is the folder of the installation (the parent of the folder this Hub lives in), where the marker of an update that stopped halfway would be: without it there is no guard; `fsApi` is for tests.
  */
-export function createAppliedNote({ directory, currentVersion, log = () => {}, fsApi = fs } = {}) {
+export function createAppliedNote({ directory, currentVersion, log = () => {}, fsApi = fs, installDirectory } = {}) {
   if (typeof directory !== 'string' || !directory) throw new TypeError('The note of an update needs the data folder of the Hub.');
+  if (installDirectory !== undefined && (typeof installDirectory !== 'string' || !installDirectory)) throw new TypeError('The folder of the installation must be a path.');
   const fsp = fsApi.promises;
   const file = path.join(directory, RESULT_FILE);
   let note = null;
@@ -64,9 +71,16 @@ export function createAppliedNote({ directory, currentVersion, log = () => {}, f
     try { await fsp.unlink(file); } catch (error) { if (error?.code !== 'ENOENT') log(`Không xóa được tệp kết quả của lần cập nhật (${error?.code ?? 'lỗi'}).`); }
   }
 
+  /** Whether the installation is waiting to be repaired: anything with the name of the marker is there, and so is a disk that cannot say (only "no such file" and "not a folder" are no marker). */
+  async function waitingForRepair() {
+    if (installDirectory === undefined) return false;
+    try { await fsp.lstat(path.join(installDirectory, PENDING_MARKER)); return true; } catch (error) { return error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR'; }
+  }
+
   /** At start, once this process holds the instance lock: reads the file the installer left, keeps the note if it is about this version, and removes the file. Never throws. */
   async function load() {
     note = null;
+    if (await waitingForRepair()) { log('Có một lần cập nhật dừng giữa chừng chưa được sửa (.chatmcp-update-pending.json) nên chưa đọc kết quả cập nhật; tệp kết quả được giữ nguyên cho lần khởi động sau khi đã sửa.'); return; }
     let stat;
     try { stat = await fsp.lstat(file); } catch { return; }
     if (stat.isSymbolicLink()) { await consume(); return; }

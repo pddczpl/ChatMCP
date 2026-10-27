@@ -11,8 +11,23 @@
       "what": "the result file is read and removed before the Hub holds the data folder, so a second start of the launcher takes it from the first Hub",
       "patches": [
         { "file": "hub.mjs", "old": "await applied.load();", "new": "" },
-        { "file": "hub.mjs", "old": "const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line) });", "new": "const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line) }); await applied.load();" }
+        { "file": "hub.mjs", "old": "const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, installDirectory: path.dirname(BUNDLE_ROOT), log: (line) => manager.log(line) });", "new": "const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, installDirectory: path.dirname(BUNDLE_ROOT), log: (line) => manager.log(line) }); await applied.load();" }
       ]
+    },
+    {
+      "name": "applied-without-the-installation-folder",
+      "what": "the Hub does not tell the note where the installation is, so a Hub started by hand behind the marker of an update that stopped halfway reads the result file early",
+      "patches": [{ "file": "hub.mjs", "old": " installDirectory: path.dirname(BUNDLE_ROOT),", "new": "" }]
+    },
+    {
+      "name": "applied-installation-folder-is-the-bundle",
+      "what": "the Hub looks for the marker in the folder it lives in (CHATMCP-HUB), where the installer never puts it, and not in the folder above",
+      "patches": [{ "file": "hub.mjs", "old": "installDirectory: path.dirname(BUNDLE_ROOT),", "new": "installDirectory: BUNDLE_ROOT," }]
+    },
+    {
+      "name": "applied-installation-folder-is-the-data-folder",
+      "what": "the Hub looks for the marker in its data folder",
+      "patches": [{ "file": "hub.mjs", "old": "installDirectory: path.dirname(BUNDLE_ROOT),", "new": "installDirectory: manager.hubDirectory," }]
     },
     {
       "name": "state-without-applied",

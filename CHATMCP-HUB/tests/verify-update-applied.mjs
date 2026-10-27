@@ -7,13 +7,15 @@
 //   * what it says counts only for the version that runs: "updated" only in the version it updated to, "did not go through" only in a version older than the one it tried;
 //   * the reason is a code of a closed list (the same twelve the installer writes); a code it does not know is shown as a failure to install, and no text of the file is ever shown;
 //   * the file is read as data: at most 4 KiB, a regular file (a link is not followed), strict shape, consistent (ok, state and rolledBack must agree);
-//   * the status is memory: reading it asks nothing of the disk or the network.
+//   * the status is memory: reading it asks nothing of the disk or the network;
+//   * behind the marker of an update that stopped halfway the file is left alone (read by nobody, removed by nobody) until the installation is repaired.
+// CLAIM: update-note-waits-for-the-repair
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createAppliedNote, REASONS, RESULT_FILE, STATES } from '../lib/update-applied.mjs';
+import { createAppliedNote, PENDING_MARKER, REASONS, RESULT_FILE, STATES } from '../lib/update-applied.mjs';
 
 const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const vectors = JSON.parse(fs.readFileSync(path.join(HUB, 'tests', 'fixtures', 'update-result-vectors.json'), 'utf8'));
@@ -155,6 +157,98 @@ try {
     for (const directory of [undefined, '', 5, null, {}]) assert.throws(() => createAppliedNote({ directory, currentVersion: '3.11.0' }), TypeError, `a note needs the data folder of the Hub (${String(directory)})`);
     assert.throws(() => createAppliedNote(), TypeError, 'and the arguments');
     ok('a note without the data folder of the Hub is not made');
+  }
+  // ---- an installation that is not whole: the marker of an update that stopped halfway (.chatmcp-update-pending.json, in the folder the Hub lives in) keeps the result file where it is.
+  // The launcher starts no Hub behind that marker, but a Hub started by hand does; it must not read (and so consume) the note of an update that has not been repaired, and the Hub that starts after
+  // the repair finds it. The marker is "there" for anything on the disk with that name, and when the disk cannot say.
+  {
+    assert.equal(PENDING_MARKER, '.chatmcp-update-pending.json', 'the marker is named as the installer names it');
+    const installer = path.resolve(HUB, '..', 'installer', 'InstallTransaction.cs');
+    if (fs.existsSync(installer)) assert.equal(/internal const string PendingName = "([^"]+)";/.exec(fs.readFileSync(installer, 'utf8'))?.[1], PENDING_MARKER, 'and it is the one the installer writes (InstallTransaction.PendingName)');
+    const newer = vectors.written[0].text;
+    const fresh = () => { const directory = freshDirectory(); const installation = freshDirectory(); fs.writeFileSync(path.join(directory, RESULT_FILE), newer); return { directory, installation, file: path.join(directory, RESULT_FILE), marker: path.join(installation, PENDING_MARKER) }; };
+    {
+      const { directory, installation, file, marker } = fresh();
+      fs.writeFileSync(marker, '{"version":1,"backupDirectory":"x"}');
+      const lines = [];
+      const note = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation, log: (line) => lines.push(line) });
+      await note.load();
+      assert.equal(note.status(), null, 'behind the marker there is no note');
+      assert.equal(fs.readFileSync(file, 'utf8'), newer, 'and the result file is exactly where and what it was: not read into the note, not removed');
+      assert.ok(lines.length === 1 && !lines[0].includes(directory) && !lines[0].includes(installation), 'one line is logged, and it holds no path');
+      fs.rmSync(marker);
+      const after = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation });
+      await after.load();
+      assert.ok(after.status() && after.status().version === JSON.parse(newer).version, 'the Hub that starts after the repair (no marker) reads it and tells the page');
+      assert.equal(fs.existsSync(file), false, 'and consumes it');
+      ok('behind the marker the result file is left alone, and the next start after the repair reads it');
+    }
+    {
+      // the same instance, the marker gone between two loads
+      const { directory, installation, file, marker } = fresh();
+      fs.writeFileSync(marker, '{}');
+      const note = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation });
+      await note.load();
+      assert.equal(note.status(), null);
+      fs.rmSync(marker);
+      await note.load();
+      assert.ok(note.status(), 'a load that finds no marker reads the file');
+      assert.equal(fs.existsSync(file), false);
+      ok('a load looks at the marker every time');
+    }
+    {
+      // anything with that name counts, and the disk saying nothing useful counts as there
+      const { directory, installation, file, marker } = fresh();
+      fs.mkdirSync(marker);
+      const note = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation });
+      await note.load();
+      assert.equal(note.status(), null);
+      assert.equal(fs.existsSync(file), true, 'a folder with the name of the marker keeps the file as well');
+      fs.rmdirSync(marker);
+      const faulty = (code) => ({ ...fs, promises: new Proxy(fs.promises, { get: (target, property) => (property === 'lstat' ? async (checked) => { if (String(checked).endsWith(PENDING_MARKER)) throw Object.assign(new Error('x'), { code }); return target.lstat(checked); } : target[property]) }) });
+      for (const code of ['EACCES', 'EPERM', 'EIO', 'ELOOP']) {
+        const unsure = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation, fsApi: faulty(code) });
+        await unsure.load();
+        assert.equal(unsure.status(), null, `a disk that answers ${code} when asked about the marker: the file is left alone`);
+        assert.equal(fs.existsSync(file), true);
+      }
+      for (const code of ['ENOENT', 'ENOTDIR']) {
+        const clear = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation, fsApi: faulty(code) });
+        await clear.load();
+        assert.ok(clear.status(), `${code} is "no marker": the file is read`);
+        fs.writeFileSync(file, newer);
+      }
+      ok('a folder or a disk that cannot say counts as the marker; no file and no folder (ENOENT, ENOTDIR) do not');
+    }
+    {
+      // it is not even looked at: nothing is read and nothing is removed while the marker is there
+      const { directory, installation, marker } = fresh();
+      fs.writeFileSync(marker, '{}');
+      const calls = [];
+      const spy = { ...fs, promises: new Proxy(fs.promises, { get: (target, property) => (['readFile', 'unlink', 'rm', 'rename', 'writeFile'].includes(property) ? async () => { calls.push(property); throw new Error('must not be called'); } : target[property]) }) };
+      const note = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation, fsApi: spy });
+      await note.load();
+      assert.deepEqual(calls, [], 'no read, no removal, no write');
+      ok('behind the marker the result file is not read, removed or written');
+    }
+    {
+      // no folder of the installation given: no guard (a note made in a test, or by a caller that does not know), and a folder that is not a path is a mistake
+      const { directory, file } = fresh();
+      const note = createAppliedNote({ directory, currentVersion: '3.11.0' });
+      await note.load();
+      assert.ok(note.status() && !fs.existsSync(file), 'without the folder of the installation the file is read as before');
+      for (const installDirectory of ['', 5, null, {}, []]) assert.throws(() => createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory }), TypeError, `the folder of the installation must be a path (${JSON.stringify(installDirectory)})`);
+      ok('the folder of the installation is optional, and a value that is not a path is refused');
+    }
+    {
+      // a marker in the DATA folder, or next to the Hub's other files, is not the marker of the installation
+      const { directory, installation, file } = fresh();
+      fs.writeFileSync(path.join(directory, PENDING_MARKER), '{}');
+      const note = createAppliedNote({ directory, currentVersion: '3.11.0', installDirectory: installation });
+      await note.load();
+      assert.ok(note.status() && !fs.existsSync(file), 'only the installation folder is looked in');
+      ok('a file of that name in the data folder does not hold the note back');
+    }
   }
   // ---- what the module is not, and that its twelve reasons are the installer's
   {
