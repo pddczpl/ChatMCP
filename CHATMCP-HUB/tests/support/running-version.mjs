@@ -11,6 +11,8 @@ export const RUNNING = VERSION;
 /** The next patch release, and the one after it (3.11.0: 3.11.1 and 3.11.2). */
 export const NEXT_PATCH = `${major}.${minor}.${patch + 1}`;
 export const NEXT_PATCH_2 = `${major}.${minor}.${patch + 2}`;
+/** The patch release that is `count` after the running one (3.11.0, 9: 3.11.9). */
+export const patchAfter = (count) => `${major}.${minor}.${patch + count}`;
 /** The next minor release (3.11.0: 3.12.0). */
 export const NEXT_MINOR = `${major}.${minor + 1}.0`;
 /** The text with every character that a regular expression reads as a pattern escaped (a version has dots). */

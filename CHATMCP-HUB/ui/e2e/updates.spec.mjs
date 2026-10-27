@@ -8,13 +8,17 @@
 import { test as base, expect, openSettings, closeSettings, setTheme } from './fixtures.mjs';
 import { startUpdateFeed, feedManifest } from '../../tests/e2e/update-feed-server.mjs';
 import { throwawayKey } from '../../tests/support/release-keys.mjs';
+import { RUNNING, NEXT_PATCH, patchAfter } from '../../tests/support/running-version.mjs';
+
+// a release later than the one on offer, which a test injects into the page
+const PATCH_9 = patchAfter(9);
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const test = base.extend({
   feed: async ({}, use) => { // eslint-disable-line no-empty-pattern
-    const feed = await startUpdateFeed();
+    const feed = await startUpdateFeed({ manifest: feedManifest({ version: NEXT_PATCH }) });
     try { await use(feed); } finally { await feed.close(); }
   },
   // The Hub reads the stand-in instead of GitHub (the one hook, and it takes a loopback address only), and its first look after "yes" comes after 0.3 s instead of half a minute.
@@ -62,7 +66,7 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await expect(question).toBeVisible();
   await expect(question).toHaveAttribute('role', 'status');
   await expect(page.getByTestId('update-question-title')).toHaveText('DatGold có thể báo khi có bản mới. Bạn có muốn không?');
-  await expect(page.getByTestId('update-question-body')).toContainText('GitHub thấy địa chỉ IP của bạn và dòng "DatGold/3.10.2"');
+  await expect(page.getByTestId('update-question-body')).toContainText(`GitHub thấy địa chỉ IP của bạn và dòng "DatGold/${RUNNING}"`);
   await expect(page.getByTestId('update-question-body')).toContainText('không tải gì về trừ khi bạn bấm Tải về, và không cài gì');
   await expect(page.getByTestId('update-notice')).toHaveCount(0);
   expect((await app.hub.state()).update.autoCheck).toEqual({ enabled: false, saved: null, needsChoice: true });
@@ -95,10 +99,10 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   const notice = page.getByTestId('update-notice');
   await expect(notice).toBeVisible();
   await expect(question).toHaveCount(0);
-  await expect(page.getByTestId('update-notice-text')).toHaveText('Đã có DatGold 3.10.3.');
-  await expect(notice).toHaveAttribute('data-version', '3.10.3');
+  await expect(page.getByTestId('update-notice-text')).toHaveText(`Đã có DatGold ${NEXT_PATCH}.`);
+  await expect(notice).toHaveAttribute('data-version', NEXT_PATCH);
   expect(feed.checks(), 'POSITIVE CONTROL: after a yes the Hub asked, once').toBe(1);
-  expect((await app.hub.state()).update).toMatchObject({ current: '3.10.2', latest: '3.10.3', available: true, installerName: 'DatGoldSetup.exe', skippedVersion: null, error: null, signature: 'missing', autoCheck: { enabled: true, saved: true, needsChoice: false } });
+  expect((await app.hub.state()).update).toMatchObject({ current: RUNNING, latest: NEXT_PATCH, available: true, installerName: 'DatGoldSetup.exe', skippedVersion: null, error: null, signature: 'missing', autoCheck: { enabled: true, saved: true, needsChoice: false } });
   // the stand-in has no signature for it (the owner has not signed): the release is announced, and the strip says why there is no button
   await expect(page.getByTestId('update-signature-note')).toContainText('Bản này chưa được ký nên DatGold sẽ không tải');
   await expect(page.getByTestId('update-download')).toHaveCount(0);
@@ -107,7 +111,7 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   // the link to the notes: GitHub's tag page of that release, opened outside the page (read, not clicked: it is the internet)
   const notes = page.getByTestId('update-notes');
   await expect(notes).toHaveText('Có gì mới');
-  await expect(notes).toHaveAttribute('href', 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.3');
+  await expect(notes).toHaveAttribute('href', `https://github.com/pddczpl/ChatMCP/releases/tag/v${NEXT_PATCH}`);
   await expect(notes).toHaveAttribute('target', '_blank');
   await expect(notes).toHaveAttribute('rel', 'noopener noreferrer');
   // inside the desktop shell the link may open nothing (the preview tab cannot show github.com): the address can always be copied
@@ -135,9 +139,9 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await page.getByTestId('update-skip').click();
   const skipAnswer = await skipped;
   expect(skipAnswer.status()).toBe(200);
-  expect(skipAnswer.request().postDataJSON()).toEqual({ version: '3.10.3' });
+  expect(skipAnswer.request().postDataJSON()).toEqual({ version: NEXT_PATCH });
   await expect(notice).toHaveCount(0);
-  expect(JSON.parse(await fs.readFile(STATE(app), 'utf8')).skippedVersion).toBe('3.10.3');
+  expect(JSON.parse(await fs.readFile(STATE(app), 'utf8')).skippedVersion).toBe(NEXT_PATCH);
   await browserErrors.flush(page);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Cài đặt', exact: true })).toBeVisible();
@@ -151,18 +155,18 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await open(next, app);
   await expect(next.getByTestId('update-notice'), 'skipped before the restart: not shown after it').toHaveCount(0);
   await expect(next.getByTestId('update-question')).toHaveCount(0);
-  expect((await app.hub.state()).update).toMatchObject({ latest: '3.10.3', available: true, skippedVersion: '3.10.3' });
+  expect((await app.hub.state()).update).toMatchObject({ latest: NEXT_PATCH, available: true, skippedVersion: NEXT_PATCH });
   await next.waitForTimeout(1500);
   expect(feed.checks(), 'the restarted Hub, allowed to ask but inside the floor of the last attempt, asked nothing').toBe(1);
   const dialog = await openSettings(next, 'Cập nhật');
-  await expect(dialog.getByTestId('updates-current')).toHaveText('v3.10.2');
-  await expect(dialog.getByTestId('updates-latest')).toHaveText('v3.10.3');
-  await expect(dialog.getByTestId('updates-status')).toHaveText('Có DatGold 3.10.3, nhưng bạn đã bỏ qua bản này.');
+  await expect(dialog.getByTestId('updates-current')).toHaveText(`v${RUNNING}`);
+  await expect(dialog.getByTestId('updates-latest')).toHaveText(`v${NEXT_PATCH}`);
+  await expect(dialog.getByTestId('updates-status')).toHaveText(`Có DatGold ${NEXT_PATCH}, nhưng bạn đã bỏ qua bản này.`);
   await expect(dialog.getByTestId('updates-skip')).toHaveCount(0);
   const remind = next.waitForResponse(post(SKIP));
   await dialog.getByTestId('updates-unskip').click();
   expect((await remind).request().postDataJSON()).toEqual({ version: null });
-  await expect(dialog.getByTestId('updates-status')).toHaveText('Có DatGold 3.10.3.');
+  await expect(dialog.getByTestId('updates-status')).toHaveText(`Có DatGold ${NEXT_PATCH}.`);
   await closeSettings(next);
   await expect(next.getByTestId('update-notice'), 'taking the skip back shows the notice again').toBeVisible();
   expect(feed.requests.every((request) => !/\.exe|\.zip/i.test(request.url.split('?')[0])), 'the feed was never asked for an installer: nobody pressed Download').toBe(true);
@@ -185,7 +189,7 @@ test('No: nothing is asked; "Check now" in Settings finds the release, a second 
 
   const dialog = await openSettings(page, 'Cập nhật');
   await expect(dialog.getByRole('heading', { name: 'Cập nhật DatGold', exact: true })).toBeVisible();
-  await expect(dialog.getByTestId('updates-current')).toHaveText('v3.10.2');
+  await expect(dialog.getByTestId('updates-current')).toHaveText(`v${RUNNING}`);
   await expect(dialog.getByTestId('updates-latest')).toHaveText('–');
   await expect(dialog.getByTestId('updates-checked')).toHaveText('Chưa kiểm tra');
   await expect(dialog.getByTestId('updates-status')).toHaveText('Chưa biết bản mới nhất.');
@@ -197,13 +201,13 @@ test('No: nothing is asked; "Check now" in Settings finds the release, a second 
   const checked = page.waitForResponse(post(CHECK));
   await dialog.getByTestId('updates-check').click();
   expect((await checked).status()).toBe(200);
-  await expect(dialog.getByTestId('updates-latest')).toHaveText('v3.10.3');
-  await expect(dialog.getByTestId('updates-status')).toHaveText('Có DatGold 3.10.3.');
+  await expect(dialog.getByTestId('updates-latest')).toHaveText(`v${NEXT_PATCH}`);
+  await expect(dialog.getByTestId('updates-status')).toHaveText(`Có DatGold ${NEXT_PATCH}.`);
   await expect(dialog.getByTestId('updates-checked')).not.toHaveText('Chưa kiểm tra');
   await expect(dialog.getByTestId('updates-check'), 'a second press is held back for the minute the Hub keeps').toBeDisabled();
   await expect(dialog.getByTestId('updates-wait')).toHaveText(/^Vừa kiểm tra xong\. Kiểm tra lại được sau \d+ giây\.$/);
   expect(feed.checks(), 'one look, made because the owner pressed the button').toBe(1);
-  await expect(dialog.getByTestId('updates-notes')).toHaveAttribute('href', 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.3');
+  await expect(dialog.getByTestId('updates-notes')).toHaveAttribute('href', `https://github.com/pddczpl/ChatMCP/releases/tag/v${NEXT_PATCH}`);
   await expect(dialog.getByTestId('updates-copy')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('settings-after.png'), animations: 'disabled' });
   await closeSettings(page);
@@ -215,12 +219,12 @@ test('No: nothing is asked; "Check now" in Settings finds the release, a second 
   const english = page.getByRole('dialog', { name: 'Settings', exact: true });
   await english.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates', exact: true }).click();
   await expect(english.getByRole('heading', { name: 'DatGold updates', exact: true })).toBeVisible();
-  await expect(english.getByTestId('updates-status')).toHaveText('DatGold 3.10.3 is available.');
+  await expect(english.getByTestId('updates-status')).toHaveText(`DatGold ${NEXT_PATCH} is available.`);
   await expect(english.getByTestId('updates-auto-status')).toContainText('Off (your choice).');
   expect(await english.innerText(), 'Settings → Updates reads English').not.toMatch(VIETNAMESE);
   await page.keyboard.press('Escape');
   await expect(english).toHaveCount(0);
-  await expect(page.getByTestId('update-notice-text')).toHaveText('DatGold 3.10.3 is available.');
+  await expect(page.getByTestId('update-notice-text')).toHaveText(`DatGold ${NEXT_PATCH} is available.`);
   await expect(page.getByTestId('update-skip')).toHaveText('Skip this version');
   await expect(page.getByTestId('update-notes')).toHaveText("What's new");
   expect(await page.getByTestId('update-notice').innerText(), 'the strip reads English').not.toMatch(VIETNAMESE);
@@ -242,7 +246,7 @@ test('a look that does not work is said in words, keeps the page up, and a feed 
   await closeSettings(page);
   await expect(page.getByTestId('update-notice')).toHaveCount(0);
   feed.mode('chain');
-  feed.publish(feedManifest({ version: '3.10.2' }));
+  feed.publish(feedManifest({ version: RUNNING }));
   expect((await fetch(`${app.hub.origin}/api/health`)).ok, 'the Hub is up').toBe(true);
 });
 
@@ -260,12 +264,12 @@ test('Settings → Updates: a look the page hears of late does not leave "Check 
     const body = await response.json();
     await new Promise((resolve) => setTimeout(resolve, 400)); // the page hears of it a little after it opened: by then the minute (it ends 200 ms after `opened`) is over
     body.update = {
-      ...body.update, latest: '3.10.9', available: true, notesUrl: 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.9',
+      ...body.update, latest: PATCH_9, available: true, notesUrl: `https://github.com/pddczpl/ChatMCP/releases/tag/v${PATCH_9}`,
       checkedAt: new Date(opened - 59_800).toISOString(), lastAttemptAt: new Date(opened - 59_800).toISOString(), manualCheckAfter: new Date(opened + 200).toISOString(),
     };
     await route.fulfill({ response, json: body });
   });
-  await expect(dialog.getByTestId('updates-latest'), 'the page took in the state it was given').toHaveText('v3.10.9', { timeout: 10_000 });
+  await expect(dialog.getByTestId('updates-latest'), 'the page took in the state it was given').toHaveText(`v${PATCH_9}`, { timeout: 10_000 });
   await expect(dialog.getByTestId('updates-check'), 'and the minute of that look is over: Check now is not held back').toBeEnabled();
   await expect(dialog.getByTestId('updates-wait')).toHaveCount(0);
 });
@@ -281,7 +285,7 @@ const signedTest = base.extend({
     await use({ bytes, sha256: createHash('sha256').update(bytes).digest('hex') });
   },
   feed: async ({ owner, installer }, use) => {
-    const feed = await startUpdateFeed({ key: owner, manifest: feedManifest({ assets: [{ name: 'DatGoldSetup.exe', sha256: installer.sha256, bytes: installer.bytes.length }] }) });
+    const feed = await startUpdateFeed({ key: owner, manifest: feedManifest({ version: NEXT_PATCH, assets: [{ name: 'DatGoldSetup.exe', sha256: installer.sha256, bytes: installer.bytes.length }] }) });
     feed.installer.set({ name: 'DatGoldSetup.exe', bytes: installer.bytes });
     try { await use(feed); } finally { await feed.close(); }
   },
@@ -301,7 +305,7 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
   const button = page.getByTestId('update-download');
   await expect(button, 'a release whose signature checked can be downloaded').toHaveText('Tải về (6,0 MB)');
   await expect(page.getByTestId('update-signature-note')).toHaveCount(0);
-  expect((await app.hub.state()).update).toMatchObject({ latest: '3.10.3', signature: 'valid', installerBytes: 6 * MiB, download: { state: 'idle' } });
+  expect((await app.hub.state()).update).toMatchObject({ latest: NEXT_PATCH, signature: 'valid', installerBytes: 6 * MiB, download: { state: 'idle' } });
   await page.waitForTimeout(1500);
   expect(feed.installer.hits(), 'ZERO requests for the installer before the click, although the first automatic look found a signed release').toBe(0);
   const updates = path.join(app.hub.stateDir, 'updates');
@@ -311,7 +315,7 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
   const clicked = page.waitForResponse(post(DOWNLOAD));
   await button.click();
   const started = await clicked;
-  expect(started.request().postDataJSON(), 'the click carries the version the page showed and nothing else').toEqual({ version: '3.10.3' });
+  expect(started.request().postDataJSON(), 'the click carries the version the page showed and nothing else').toEqual({ version: NEXT_PATCH });
   expect(started.status()).toBe(200);
   expect((await started.json()).started).toBe(true);
   const bar = page.getByTestId('update-download-progress');
@@ -362,8 +366,8 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
   const ready = page.getByTestId('update-download-ready');
   await expect(ready).toHaveText('Đã tải xong và đã kiểm tra.', { timeout: 30_000 });
   await expect(page.getByTestId('update-download-ready-note')).toContainText('ứng dụng trên máy tính kiểm tra lại tệp và chữ ký bằng mã của chính nó');
-  expect(await fs.readFile(path.join(updates, '3.10.3', 'DatGoldSetup.exe')), 'the installer on disk is the bytes the stand-in served').toEqual(installer.bytes);
-  expect(await fs.readdir(path.join(updates, '3.10.3'))).toEqual(expect.arrayContaining(['DatGoldSetup.exe', 'RELEASE-MANIFEST.json', 'RELEASE-MANIFEST.json.sig', 'state.json']));
+  expect(await fs.readFile(path.join(updates, NEXT_PATCH, 'DatGoldSetup.exe')), 'the installer on disk is the bytes the stand-in served').toEqual(installer.bytes);
+  expect(await fs.readdir(path.join(updates, NEXT_PATCH))).toEqual(expect.arrayContaining(['DatGoldSetup.exe', 'RELEASE-MANIFEST.json', 'RELEASE-MANIFEST.json.sig', 'state.json']));
   await expect(page.locator('button[data-testid*="apply"], button[data-testid*="install"], button[data-testid*="restart"]'), 'a plain browser has no shell to ask: nothing to press to install it, not even a hidden button').toHaveCount(0);
   await expect(page.getByTestId('update-apply-browser'), 'it says where the update can be installed').toContainText('hãy mở ứng dụng DatGold trên máy tính');
   for (const theme of ['light', 'dark']) {
@@ -390,7 +394,7 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
   await open(next, app);
   await expect(next.getByTestId('update-download-ready')).toBeVisible();
   expect(feed.installer.hits(), 'nothing was fetched again').toBe(before);
-  expect((await app.hub.state()).update).toMatchObject({ signature: null, download: { state: 'ready', version: '3.10.3', bytes: 6 * MiB } });
+  expect((await app.hub.state()).update).toMatchObject({ signature: null, download: { state: 'ready', version: NEXT_PATCH, bytes: 6 * MiB } });
 
   // ---- the same words in English, from the real language switch -----------------------------------------------------------------------------------------
   const vietnamese = await openSettings(next, 'Giao diện & ngôn ngữ');
@@ -414,7 +418,7 @@ signedTest('a download that fails says why in words and can be tried again; an u
   feed.installer.set({ name: 'DatGoldSetup.exe', bytes: Buffer.concat([installer.bytes.subarray(0, installer.bytes.length - 1), Buffer.from([installer.bytes[installer.bytes.length - 1] ^ 1])]) });
   await button.click();
   await expect(page.getByTestId('update-download-error')).toContainText('Tải về không thành công: Tệp tải về không phải tệp mà danh sách đã ký mô tả', { timeout: 30_000 });
-  expect((await app.hub.state()).update.download).toEqual({ state: 'failed', version: '3.10.3', code: 'update_download_hash' });
+  expect((await app.hub.state()).update.download).toEqual({ state: 'failed', version: NEXT_PATCH, code: 'update_download_hash' });
   await expect.poll(async () => fs.readdir(path.join(app.hub.stateDir, 'updates')).catch(() => []), { message: 'nothing is left of the file that did not match' }).toEqual([]);
   // the words of the failure read at 4.5:1 or better in both themes (they are in the colour of the text; amber text on the strip does not reach it in the light theme), and do not scroll the page at 375px
   const unreadable = [];
@@ -492,7 +496,7 @@ signedTest('inside the desktop shell a downloaded update is installed on a secon
   await apply.click();
   const confirm = page.getByTestId('update-apply-confirm');
   await expect(confirm).toBeVisible();
-  await expect(page.getByTestId('update-apply-confirm-text')).toHaveText('DatGold sẽ đóng lại, cài phiên bản 3.10.3 rồi mở lại. Cài đặt và dự án của bạn nằm ngoài các tệp chương trình nên không bị thay thế.');
+  await expect(page.getByTestId('update-apply-confirm-text')).toHaveText(`DatGold sẽ đóng lại, cài phiên bản ${NEXT_PATCH} rồi mở lại. Cài đặt và dự án của bạn nằm ngoài các tệp chương trình nên không bị thay thế.`);
   await expect(page.getByTestId('update-apply-no'), 'focus starts on the safe answer').toBeFocused();
   expect(await posted(page), 'asking sends nothing').toEqual([]);
   await page.getByTestId('update-apply-no').click();
@@ -578,7 +582,7 @@ signedTest('inside the desktop shell a downloaded update is installed on a secon
   const dialog = await openSettings(page, 'Cập nhật');
   await expect(dialog.getByTestId('updates-apply')).toHaveText('Cài đặt và khởi động lại');
   await dialog.getByTestId('updates-apply').click();
-  await expect(dialog.getByTestId('updates-apply-confirm-text')).toContainText('DatGold sẽ đóng lại, cài phiên bản 3.10.3');
+  await expect(dialog.getByTestId('updates-apply-confirm-text')).toContainText(`DatGold sẽ đóng lại, cài phiên bản ${NEXT_PATCH}`);
   await dialog.getByTestId('updates-apply-no').click();
   await closeSettings(page);
 
@@ -654,7 +658,7 @@ signedTest('a refusal can be put away, a release the shell cannot find can be do
   await page.getByTestId('update-apply-dismiss').click();
 
   // ---- the folder is gone: the shell says so, the words advise a new download, and the button does it --------------------------------------------------------------
-  await fs.rm(path.join(updates, '3.10.3'), { recursive: true, force: true });
+  await fs.rm(path.join(updates, NEXT_PATCH), { recursive: true, force: true });
   await refuse('no_update');
   await expect(page.getByTestId('update-apply-error')).toContainText('Hãy tải lại.');
   const again = page.getByTestId('update-apply-again');
@@ -664,14 +668,14 @@ signedTest('a refusal can be put away, a release the shell cannot find can be do
   const clicked = page.waitForResponse(post(DOWNLOAD));
   await again.click();
   const answer = await clicked;
-  expect(answer.request().postDataJSON(), 'the same click as Download, with again').toEqual({ version: '3.10.3', again: true });
+  expect(answer.request().postDataJSON(), 'the same click as Download, with again').toEqual({ version: NEXT_PATCH, again: true });
   expect((await answer.json()).started, 'the Hub fetched it anew although it had called it ready').toBe(true);
   await expect(page.getByTestId('update-download-progress'), 'the download runs anew').toBeVisible();
   await expect(page.getByTestId('update-cancel'), 'the button that was pressed went away with the rest of the install controls: the focus is on the button that now controls the download, not on the top of the page').toBeFocused();
   feed.installer.resume();
   await expect(page.getByTestId('update-download-ready'), 'and it is ready again').toBeVisible({ timeout: 30_000 });
   expect(feed.installer.hits(), 'the installer was asked for once more').toBeGreaterThan(hitsBefore);
-  expect(await fs.readFile(path.join(updates, '3.10.3', 'DatGoldSetup.exe')), 'whole again').toEqual(installer.bytes);
+  expect(await fs.readFile(path.join(updates, NEXT_PATCH, 'DatGoldSetup.exe')), 'whole again').toEqual(installer.bytes);
   await expect(page.getByTestId('update-apply-error'), 'and the refusal is gone').toHaveCount(0);
   await expect(apply).toBeEnabled();
 
@@ -742,7 +746,7 @@ signedTest('in a plain browser a downloaded update says where it can be installe
 // Hub again, as the shell does after an update.
 
 const resultFile = (app) => path.join(app.hub.stateDir, 'update-result.json');
-const note = (over = {}) => ({ format: 1, ok: true, version: '3.10.2', previous: '3.10.1', state: 'installed', reason: null, rolledBack: false, ...over });
+const note = (over = {}) => ({ format: 1, ok: true, version: RUNNING, previous: '3.10.1', state: 'installed', reason: null, rolledBack: false, ...over });
 
 test('after an update the page says which version it updated to, once, with its notes, and the owner can dismiss it', async ({ page, app }, testInfo) => {
   await fs.writeFile(resultFile(app), JSON.stringify(note()));
@@ -752,14 +756,14 @@ test('after an update the page says which version it updated to, once, with its 
   await expect(strip).toBeVisible();
   await expect(strip).toHaveAttribute('data-kind', 'updated');
   await expect(strip).toHaveAttribute('role', 'status');
-  await expect(page.getByTestId('update-applied-text')).toHaveText('Đã cập nhật lên DatGold 3.10.2.');
+  await expect(page.getByTestId('update-applied-text')).toHaveText(`Đã cập nhật lên DatGold ${RUNNING}.`);
   const notes = page.getByTestId('update-applied-notes');
   await expect(notes).toHaveText('Có gì mới');
-  await expect(notes).toHaveAttribute('href', 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2');
+  await expect(notes).toHaveAttribute('href', `https://github.com/pddczpl/ChatMCP/releases/tag/v${RUNNING}`);
   await expect(notes).toHaveAttribute('target', '_blank');
   await expect(notes).toHaveAttribute('rel', 'noopener noreferrer');
   expect(await fs.stat(resultFile(app)).catch(() => null), 'the Hub consumed the file when it read it').toBeNull();
-  expect((await app.hub.state()).update.applied).toEqual({ ok: true, version: '3.10.2', previous: '3.10.1', state: 'installed', reason: null, rolledBack: false });
+  expect((await app.hub.state()).update.applied).toEqual({ ok: true, version: RUNNING, previous: '3.10.1', state: 'installed', reason: null, rolledBack: false });
   const unreadable = [];
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
@@ -785,12 +789,12 @@ test('after an update the page says which version it updated to, once, with its 
 });
 
 test('an update that did not go through says why, in words, and which version still runs; a file about another time says nothing', async ({ page, app }) => {
-  await fs.writeFile(resultFile(app), JSON.stringify(note({ ok: false, version: '3.10.3', previous: '3.10.2', state: 'unchanged', reason: 'tasks_running' })));
+  await fs.writeFile(resultFile(app), JSON.stringify(note({ ok: false, version: NEXT_PATCH, previous: RUNNING, state: 'unchanged', reason: 'tasks_running' })));
   await app.restart();
   await open(page, app);
   const strip = page.getByTestId('update-applied');
   await expect(strip).toHaveAttribute('data-kind', 'not_updated');
-  await expect(page.getByTestId('update-applied-text')).toHaveText('Lần cập nhật lên DatGold 3.10.3 không xong. Vẫn còn tác vụ đang chạy. DatGold 3.10.2 vẫn là phiên bản đang chạy.');
+  await expect(page.getByTestId('update-applied-text')).toHaveText(`Lần cập nhật lên DatGold ${NEXT_PATCH} không xong. Vẫn còn tác vụ đang chạy. DatGold ${RUNNING} vẫn là phiên bản đang chạy.`);
   await expect(page.getByTestId('update-applied-notes'), 'no notes link for a release that was not installed').toHaveCount(0);
   await page.getByTestId('update-applied-dismiss').click();
   await expect(strip).toHaveCount(0);
