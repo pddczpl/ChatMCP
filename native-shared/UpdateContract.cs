@@ -9,9 +9,9 @@ namespace ChatMCP.Native;
 // version wrote. Both halves live in this one file, compiled into the shell and the installer, and scripts/tests/native-lifecycle/ContractTests.cs holds them to literal text: every vector a shell
 // has sent stays accepted (the list only grows), and a change that breaks one breaks an installed copy.
 
-internal enum InstallerMode { Wizard, WizardUninstall, QuietInstall, QuietUninstall, Update }
+internal enum InstallerMode { Wizard, WizardUninstall, QuietInstall, QuietUninstall, Update, Recover }
 
-/// <summary>What the command line of the installer asks for. Only <see cref="InstallerMode.Update"/> has a wait, a relaunch and a result file.</summary>
+/// <summary>What the command line of the installer asks for. Only <see cref="InstallerMode.Update"/> has a wait, a relaunch and a result file; <see cref="InstallerMode.Recover"/> takes the installation directory and nothing else.</summary>
 internal sealed record InstallerCommand(InstallerMode Mode, string? InstallDir = null, int? WaitPid = null, bool Relaunch = false, string? ResultFile = null);
 
 /// <summary>The arguments that the shell gives the installer of the update it has verified.</summary>
@@ -31,6 +31,7 @@ internal static class InstallerCommandLine
     private const string QuietUsage = "Use DatGoldSetup.exe --quiet --install-dir <absolute directory>.";
     private const string UninstallUsage = "Use Uninstall.exe --quiet --uninstall.";
     private const string UpdateUsage = "Use DatGoldSetup.exe --quiet --update --install-dir <absolute directory> [--wait-pid <process id>] [--relaunch] [--result <absolute path of a .json file>].";
+    private const string RecoverUsage = "Use DatGoldSetup.exe --quiet --recover --install-dir <absolute directory>.";
 
     /// <summary>
     /// The command for <paramref name="args"/> given the name of the running file (without its extension). The quiet forms take EXACTLY what they took before the update existed, and an update takes
@@ -45,6 +46,13 @@ internal static class InstallerCommandLine
             if (uninstall) throw new ArgumentException(UpdateUsage);
             return ParseUpdate(args);
         }
+        // the repair of an installation behind the marker of an update that stopped halfway: exactly --quiet --recover --install-dir <directory>, in any order, never from the uninstaller's own file
+        if (Array.Exists(args, arg => arg == "--recover"))
+        {
+            var directory = Array.IndexOf(args, "--install-dir");
+            if (uninstall || args.Length != 4 || !Array.Exists(args, arg => arg == "--quiet") || directory < 0 || directory + 1 >= args.Length || !IsRepairableDirectory(args[directory + 1])) throw new ArgumentException(RecoverUsage);
+            return new InstallerCommand(InstallerMode.Recover, args[directory + 1]);
+        }
         if (Array.Exists(args, arg => arg == "--quiet"))
         {
             if (uninstall)
@@ -57,6 +65,39 @@ internal static class InstallerCommandLine
             return new InstallerCommand(InstallerMode.QuietInstall, args[index + 1]);
         }
         return new InstallerCommand(uninstall ? InstallerMode.WizardUninstall : InstallerMode.Wizard);
+    }
+
+    /// <summary>The characters no folder name has. (Path.GetInvalidPathChars() lists only the pipe and the control characters on this runtime: a quote, which a path that ends in a backslash becomes inside quotes, passes it.)</summary>
+    private static readonly char[] NotInAFolder = { '"', '<', '>', '|', '*', '?' };
+
+    /// <summary>A directory the repair can be asked about: fully qualified, none of the characters no folder name has, a colon only after the drive letter (no stream), and not a device path.</summary>
+    private static bool IsRepairableDirectory(string value)
+    {
+        if (!Path.IsPathFullyQualified(value) || value.IndexOfAny(NotInAFolder) >= 0 || value.Any(char.IsControl)) return false;
+        if (value.StartsWith(@"\\?\", StringComparison.Ordinal) || value.StartsWith(@"\\.\", StringComparison.Ordinal)) return false;
+        var colon = value.IndexOf(':');
+        return colon < 0 || (colon == 1 && value.IndexOf(':', 2) < 0);
+    }
+
+    /// <summary>The arguments of the repair as a person types them after DatGoldSetup.exe: the folder in quotes, with no backslash left to escape the closing quote. Read back by <see cref="Parse"/> as the same folder.</summary>
+    internal static string RecoverArgumentText(string installDir) => "--quiet --recover --install-dir " + Quote(Path.TrimEndingDirectorySeparator(installDir));
+
+    /// <summary>The whole command, for the words the launcher shows when an update stopped halfway.</summary>
+    internal static string RecoverCommandText(string installDir) => "DatGoldSetup.exe " + RecoverArgumentText(installDir);
+
+    /// <summary>One argument as the runtime splits a command line: in quotes, a quote inside it escaped, and the backslashes before a quote (or before the closing one) doubled.</summary>
+    private static string Quote(string argument)
+    {
+        var quoted = new StringBuilder("\"");
+        var backslashes = 0;
+        foreach (var letter in argument)
+        {
+            if (letter == '\\') { backslashes++; continue; }
+            if (letter == '"') { quoted.Append('\\', backslashes * 2 + 1).Append('"'); backslashes = 0; continue; }
+            quoted.Append('\\', backslashes).Append(letter);
+            backslashes = 0;
+        }
+        return quoted.Append('\\', backslashes * 2).Append('"').ToString();
     }
 
     private static InstallerCommand ParseUpdate(string[] args)
@@ -109,8 +150,8 @@ internal static class InstallerCommandLine
 
 /// <summary>
 /// How an update ended, for the Hub that runs next (format 1). `state` says what is on disk: `installed` (the new files are in place), `unchanged` (it stopped before a file was replaced: the old
-/// version is as it was), `rolled_back` (files were replaced and all of them were put back) or `needs_recovery` (the rollback is incomplete: the retained backup and the marker are still there and the
-/// launcher refuses to start). `reason` is a short code, never text of an exception, because that can hold a path.
+/// version is as it was), `rolled_back` (files were replaced and all of them were put back, by the rollback or by the repair that followed it) or `needs_recovery` (the rollback is incomplete and no repair
+/// has finished: the retained backup and the marker are still there and the launcher refuses to start). `reason` is a short code, never text of an exception, because that can hold a path.
 /// </summary>
 internal sealed record UpdateOutcome(bool Ok, string Version, string? Previous, string State, string? Reason)
 {

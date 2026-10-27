@@ -16,6 +16,7 @@
     <Compile Include="../../../native-shared/InstalledCopy.cs" Link="InstalledCopy.cs" />
     <Compile Include="../../../installer/InstallerEngine.cs" Link="InstallerEngine.cs" />
     <Compile Include="../../../installer/InstallTransaction.cs" Link="InstallTransaction.cs" />
+    <Compile Include="../../../installer/InstallRecovery.cs" Link="InstallRecovery.cs" />
     <Compile Include="../../../installer/UpdateRun.cs" Link="UpdateRun.cs" />
     <Compile Include="../../../installer/UpdateWords.cs" Link="UpdateWords.cs" />
   </ItemGroup>
@@ -30,5 +31,7 @@
     <None Include="../../../CHATMCP-HUB/tests/fixtures/active-work-cases.json" Link="active-work-cases.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- The recovery that the setup guide describes for an installation that needs it is run for real by Program.cs, from the text of the guide. -->
     <None Include="../../../docs/WINDOWS-SETUP.md" Link="WINDOWS-SETUP.md" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The retained update that the lifecycle script makes on a hosted runner is made here too, by its own function, and repaired by the real repair (RecoverRefusalTests.cs). -->
+    <None Include="../Test-NativeLifecycle.ps1" Link="Test-NativeLifecycle.ps1" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

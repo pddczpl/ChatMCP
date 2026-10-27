@@ -613,7 +613,7 @@
     },
     {
       "id": "update-result-shown-after-restart",
-      "claim": "After an update, the next start of the app tells the owner what happened: that DatGold was updated to the new version, or why the update did not go through and which version still runs. The installer leaves the result file only when no program listens on the port of the Hub (a refusal that stopped nothing is told in the update window only), and the Hub reads it once, at start, and removes it.",
+      "claim": "After an update, the next start of the app tells the owner what happened: that DatGold was updated to the new version, or why the update did not go through and which version still runs. The installer leaves the result file only when no program listens on the port of the Hub (a refusal that stopped nothing is told in the update window only), and the Hub reads it once, at start, and removes it; while the marker of an update that stopped halfway is in the installation folder it leaves the file where it is (the claim below).",
       "source": {
         "file": "README.md",
         "line": 50,
@@ -622,7 +622,24 @@
       "kind": "claim",
       "seam": "real",
       "test": "CHATMCP-HUB/tests/verify-e2e-update-applied.mjs",
-      "seamNote": "A real Hub process over HTTP and a result file in its data folder written the way the installer writes it (the literal texts of tests/fixtures/update-result-vectors.json, which the native tests hold the installer to): the Hub finds it at start, shows it in /api/state, keeps it out of a second Hub's hands and removes it. The installer that writes the file runs in the native test project (UpdateRunTests.cs: no file while a program listens on the port, one when none does) and, on a disposable machine, in the lifecycle script (no file beside another program on port 3007); this test does not run it.",
+      "seamNote": "A real Hub process over HTTP and a result file in its data folder written the way the installer writes it (the literal texts of tests/fixtures/update-result-vectors.json, which the native tests hold the installer to): the Hub finds it at start, shows it in /api/state, keeps it out of a second Hub's hands and removes it (the Hub is run from the repository, whose own folder never holds the marker of an update that stopped halfway, so the note is read here as before). The installer that writes the file runs in the native test project (UpdateRunTests.cs: no file while a program listens on the port, one when none does) and, on a disposable machine, in the lifecycle script (no file beside another program on port 3007); this test does not run it.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Applied",
+        "\\bcreateAppliedNote\\s*=\\s*(?:async\\s*)?(?:\\(|function|class)"
+      ]
+    },
+    {
+      "id": "update-note-waits-for-the-repair",
+      "claim": "While an update that stopped halfway has not been repaired (the marker .chatmcp-update-pending.json is in the installation folder, or the disk cannot say whether it is), a Hub that is started by hand leaves the result file of that update where it is, unread and not removed; the Hub that starts after the repair reads it.",
+      "source": {
+        "file": "README.md",
+        "line": 50,
+        "quote": "a Hub that you start by hand leaves the note of that update unread"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-update-applied.mjs",
+      "seamNote": "The real module over a real folder: a marker file, a folder with its name, a disk that answers with each error code. Nothing is read, removed or written while the marker is there, and the next load, after the repair, reads and removes the file. How the Hub finds the installation folder (the parent of the folder hub.mjs is in) is held by verify-e2e-update-applied.mjs, which reads the source of the Hub; a Hub that someone started by hand behind a real marker was not run.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Applied",
         "\\bcreateAppliedNote\\s*=\\s*(?:async\\s*)?(?:\\(|function|class)"

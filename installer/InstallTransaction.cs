@@ -31,7 +31,7 @@ internal sealed class InstallTransaction : IDisposable
     {
         root = Path.GetFullPath(directory).TrimEnd('\\', '/');
         marker = InstallerEngine.SafePath(root, PendingName);
-        if (File.Exists(marker)) throw new InvalidOperationException("An interrupted update has a retained backup. Inspect .chatmcp-update-pending.json and the installer log before retrying; no files were changed.").Tag("pending_recovery");
+        if (File.Exists(marker)) throw new InvalidOperationException("An update that stopped halfway has left a backup (.chatmcp-update-pending.json). Repair it first, with DatGoldSetup.exe --quiet --recover --install-dir <the DatGold folder> or with the setup wizard, which offers to; no files were changed.").Tag("pending_recovery");
         workspace = InstallerEngine.SafePath(root, ".ChatMCP-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(workspace, "new"));
         Directory.CreateDirectory(Path.Combine(workspace, "old"));

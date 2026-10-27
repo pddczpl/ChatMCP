@@ -109,14 +109,69 @@ if (!sdk) {
 const form = strip(read('installer/UpdateProgressForm.cs'));
 check(/\bControlBox\s*=\s*false\s*;/.test(form) && /\bMaximizeBox\s*=\s*false\s*;/.test(form) && /\bMinimizeBox\s*=\s*false\s*;/.test(form), 'the window has no close box, no maximize and no minimize');
 check(/ProgressBarStyle\.Marquee/.test(form) && !/\.(?:Value|Maximum|Minimum|Step)\s*=/.test(form) && !/PerformStep|Percent|%/.test(form), 'its bar keeps moving and claims no percentage');
-const buttons = [...form.matchAll(/new\s+Button\b/g)].map((match) => match.index);
 const constructorEnd = form.indexOf('internal void Report(');
-const failureBranch = form.indexOf('if (outcome.Ok)');
-check(constructorEnd > 0 && failureBranch > constructorEnd, 'the source has the shape the next checks read (constructor, Report, Finish)');
-check(buttons.length === 1 && buttons[0] > failureBranch, 'the one button, Close, is made only when the update did not go through (no button while it works)', `buttons at ${buttons.join(',')}`);
+const failureShown = form.indexOf('private void ShowFailure(');
+const repairStarted = form.indexOf('private void StartRepair(');
+const closingAt = form.indexOf('protected override void OnFormClosing');
+check(constructorEnd > 0 && failureShown > constructorEnd && repairStarted > failureShown && closingAt > repairStarted, 'the source has the shape the next checks read (constructor, Report, Finish, ShowFailure, StartRepair, OnFormClosing)');
+// The window has no button while it works. After a failure it has Close and, only when the installation needs repair and has not been repaired, Repair now; pressing that puts the window back to working
+// (the buttons are taken away first), and never lets it go. Each of those is read from the source; the checks are tried on sources that break them.
+const windowKeepsItsPromises = (text) => {
+  const buttons = [...text.matchAll(/new\s+Button\b/g)].map((match) => match.index);
+  const shown = text.indexOf('private void ShowFailure(');
+  const started = text.indexOf('private void StartRepair(');
+  const startBody = text.slice(started, text.indexOf('protected override void OnFormClosing'));
+  return buttons.length === 2 && buttons.every((at) => at > shown && at < started)
+    && /Text = "Close"/.test(text) && (text.match(/Text = "Repair now"/g) ?? []).length === 1
+    && /if \(end\.Outcome\.State == "needs_recovery" && !end\.Repaired\)\s*\{\s*var again = new Button \{ Text = "Repair now"/.test(text)
+    && /^private void StartRepair\([^)]*\)\s*\{\s*RemoveButtons\(\);/.test(startBody)
+    && !/_allowClose\s*=\s*true/.test(startBody) && /Task\.Run\(/.test(startBody);
+};
+check(windowKeepsItsPromises(form), 'the window makes its buttons only when the update did not go through (Close, and Repair now only for an installation that needs repair and has not been repaired), takes them away again while a repair runs, and a repair never lets the window go');
+check(!windowKeepsItsPromises(form.replace('AcceptButton = close;', 'Controls.Add(new Button()); AcceptButton = close;')), 'negative control: a third button is not accepted');
+check(!windowKeepsItsPromises(form.replace('if (end.Outcome.State == "needs_recovery" && !end.Repaired)', 'if (true)')), 'negative control: Repair now for every failure is not accepted');
+check(!windowKeepsItsPromises(form.replace(/(private void StartRepair\([^)]*\)\s*\{\s*)RemoveButtons\(\);/, '$1')), 'negative control: a repair that leaves the buttons on the window while it works is not accepted');
+check(!windowKeepsItsPromises(form.replace('AcceptButton = null;', 'AcceptButton = null; _allowClose = true;')), 'negative control: a repair that lets the window go is not accepted');
+check(!windowKeepsItsPromises(form.replace('var close = new Button', 'var closer = new Button { Text = "Done" }; var close = new Button')), 'negative control: another button before them is not accepted');
 check(/protected override void OnFormClosing\(FormClosingEventArgs e\)\s*\{[^}]*!_allowClose\s*&&\s*e\.CloseReason\s*==\s*CloseReason\.UserClosing\)\s*e\.Cancel\s*=\s*true/.test(form), 'the person cannot close it while it works (windows shutting down are not stopped)');
-check(/if \(outcome\.Ok\)\s*\{\s*_allowClose\s*=\s*true;\s*Close\(\);/.test(form), 'after a success it closes by itself');
+check(/if \(end\.Outcome\.Ok\)\s*\{\s*_allowClose\s*=\s*true;\s*Close\(\);/.test(form), 'after a success it closes by itself');
 check((form.match(/_allowClose\s*=\s*true/g) ?? []).length === 2 && !/Hide\(\)|Visible\s*=\s*false\s*;\s*\n\s*Close/.test(form.replace(/_bar\.Visible\s*=\s*false/g, '')), 'it is let go only after a success and by the Close button');
+
+// ---- the repair of an update that stopped halfway (installer/InstallRecovery.cs, InstallerEngine.Recover, UpdateRun, the launcher) ----------------------------------------------------------------------
+// What the native tests prove by running it, and what they cannot see in the order of a source: the repair decides everything before it changes a file (a refusal changes nothing), puts each file back through a
+// flushed copy, removes the marker only after the last file and the backup only after the marker; the engine looks for the marker before it asks about a Hub and decides before it stops one; the window of the
+// update repairs by itself through the one entry (RunToEnd) and by the button through the other (RepairNow); the launcher looks for the marker BEFORE it compares versions, and says what to run.
+const ordered = (text, ...needles) => { let at = -1; for (const needle of needles) { at = text.indexOf(needle, at + 1); if (at < 0) return false; } return true; };
+const recovery = strip(read('installer/InstallRecovery.cs'));
+const runBody = recovery.slice(recovery.indexOf('internal static RecoveryResult Run('));
+check(ordered(runBody, 'MakePlan(directory, runningProgram ?? Environment.ProcessPath)', 'InstallerEngine.ReplaceFile(', 'Flush(true)', 'File.Delete(plan.Marker)', 'RemoveWorkspace(plan.Workspace)'), 'the repair makes its whole plan before it changes a file, flushes each file it puts back, removes the marker after the last one and the backup after the marker');
+check(!ordered(runBody.replace('File.Delete(plan.Marker);', '').replace('RemoveWorkspace(plan.Workspace);', 'File.Delete(plan.Marker); RemoveWorkspace(plan.Workspace);'), 'MakePlan(', 'InstallerEngine.ReplaceFile(', 'Flush(true)', 'RemoveWorkspace(plan.Workspace)', 'File.Delete(plan.Marker)'), 'negative control: the backup removed before the marker is not accepted');
+check(/if \(output is FileStream file\) file\.Flush\(true\);/.test(runBody) && (runBody.match(/\.Flush\(true\)/g) ?? []).length === 1 && !/Directory\.Delete\([^)]*,\s*true\)/.test(recovery), 'a file that is put back is flushed to the disk (one Flush(true)), and nothing is deleted with a recursive Directory.Delete');
+check(!/File\.WriteAllText|File\.WriteAllBytes|Process\.Start|ProcessStartInfo|Registry\./.test(recovery), 'the repair writes no file of its own, starts no program and touches no registry key');
+const engine = strip(read('installer/InstallerEngine.cs'));
+const recoverBody = engine.slice(engine.indexOf('internal static RecoveryResult Recover('), engine.indexOf('/// <summary>The shortcuts the wizard asks for'));
+check(ordered(recoverBody, 'HubLifecycle.AcquireUpdateLock', 'InstallRecovery.MarkerPending(targetDir)', 'InstallRecovery.Check(targetDir)', 'HubLifecycle.StopInstalledHub(targetDir)', 'CloseRunningProcesses(targetDir)', 'InstallRecovery.Run(targetDir, Say)'), 'the engine takes the lock, looks for the marker, lets the repair decide (Check) and only then stops a Hub, closes the window of the app and repairs');
+check(!ordered(recoverBody.replace('InstallRecovery.Check(targetDir);', '').replace('HubLifecycle.StopInstalledHub(targetDir).GetAwaiter().GetResult();', 'HubLifecycle.StopInstalledHub(targetDir).GetAwaiter().GetResult(); InstallRecovery.Check(targetDir);'), 'HubLifecycle.AcquireUpdateLock', 'InstallRecovery.MarkerPending(targetDir)', 'InstallRecovery.Check(targetDir)', 'HubLifecycle.StopInstalledHub(targetDir)'), 'negative control: a Hub stopped before the repair is decided is not accepted');
+const setupProgram = strip(read('installer/Program.cs'));
+check(/case InstallerMode\.Recover:\s*Environment\.ExitCode = RunRecover\(command\);\s*return;/.test(setupProgram) && /InstallerEngine\.Recover\(command\.InstallDir!/.test(setupProgram) && /UpdateRun\.RunToEnd\(command, environment/.test(setupProgram) && /UpdateRun\.RepairNow\(command, environment, failed/.test(setupProgram) && /form\.Finish\(end, Repair\)/.test(setupProgram), 'the setup runs the explicit form through the engine, the update through RunToEnd (which repairs by itself once), and the button of the window through RepairNow');
+const launcher = strip(read('desktop-shell/MainWindow.cs'));
+const initialize = launcher.slice(launcher.indexOf('private async Task InitializeStudioAsync()'), launcher.indexOf('private void HandleWebMessage'));
+const launcherSaysWhatToRun = (text) => ordered(text, '.chatmcp-update-pending.json', 'DatGoldSetup.exe', 'InstallerCommandLine.RecoverCommandText(_repoRoot)', 'different versions');
+check(launcherSaysWhatToRun(initialize), 'the launcher looks for the marker of an update that stopped halfway BEFORE it compares versions (a mix of two versions is not "different versions, run the installer again", which refuses behind the marker), and says to run DatGoldSetup.exe or its --recover form');
+check(!/--install-dir/.test(initialize) && /public static string RecoverCommandText|internal static string RecoverCommandText/.test(strip(read('native-shared/UpdateContract.cs'))), 'and the command it prints is built by the contract that reads it (it quotes the folder so that a backslash at its end does not escape the closing quote), not spelled out by hand in the launcher');
+{
+  const markerFrom = initialize.indexOf('if (File.Exists(Path.Combine(_repoRoot, ".chatmcp-update-pending.json")))');
+  const versionsFrom = initialize.indexOf('using (var manifest');
+  const versionsTo = initialize.indexOf('_statusLabel.Text = "Connecting');
+  const swapped = markerFrom > 0 && versionsFrom > markerFrom && versionsTo > versionsFrom
+    ? initialize.slice(0, markerFrom) + initialize.slice(versionsFrom, versionsTo) + initialize.slice(markerFrom, versionsFrom) + initialize.slice(versionsTo) : '';
+  check(swapped.length > 0 && swapped.length === initialize.length && !launcherSaysWhatToRun(swapped), 'negative control: the marker looked for after the versions is not accepted');
+}
+const updateRun = strip(read('installer/UpdateRun.cs'));
+check(/if \(StoppedHalfway\(outcome\)\)\s*\{\s*progress\(0, UpdateWords\.WaitingToRepair\);\s*try \{ environment\.Pause\(RepairPause\); \}[^}]*\}\s*var attempt = Repair\(command, environment, outcome, progress\);/.test(updateRun), 'an update repairs itself once, after a pause, only when its own rollback left the marker (not for the marker of an earlier update)');
+check(/internal static bool StoppedHalfway\(UpdateOutcome outcome\) => outcome\.State == "needs_recovery" && outcome\.Reason == "install_failed";/.test(updateRun), 'and "its own rollback" is the generic reason only: a marker that is there after a refusal of a step before the install (another setup working on the folder, a task that runs) was not made by this update');
+check(/if \(MarkerExists\(environment, directory\)\) return new RepairAttempt\(failed, false, InstallRecovery\.RestoreFailed\);/.test(updateRun), 'and a repair is called done only when the marker is gone afterwards');
+check(/RefusalOf\(Exception error\) =>\s*error is RecoveryException refused \? refused\.Code : StepCode\.Of\(error\) is \{ \} code && StepCode\.IsKnown\(code\) \? code : InstallRecovery\.RestoreFailed;/.test(updateRun), 'and a refusal is told by one of the repair\'s own codes or a known reason, and never by text that came from an exception');
 
 // ---- the names a setup carries -----------------------------------------------------------------------------------------------------------------------------------------------------------
 const staging = strip(read('native-shared/UpdateStaging.cs'));

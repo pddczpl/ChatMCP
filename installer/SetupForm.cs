@@ -226,6 +226,10 @@ namespace ChatMCP.Installer
             var makeDesktop = _chkDesktop.Checked;
             var makeStartMenu = _chkStartMenu.Checked;
 
+            // An update that stopped halfway leaves a marker, and the install refuses behind it. Say so now and offer the repair (InstallRecovery), instead of an error after the files were staged.
+            var repairFirst = InstallRecovery.MarkerExists(targetDir);
+            if (repairFirst && MessageBox.Show(UpdateWords.RepairQuestion, "DatGold Studio Setup", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
             _contentPanel.Controls.Clear();
 
             var installingTitle = new Label
@@ -262,21 +266,21 @@ namespace ChatMCP.Installer
             {
                 await Task.Run(() =>
                 {
-                    InstallerEngine.Install(targetDir, makeDesktop, makeStartMenu, (pct, status) =>
+                    void Show(int pct, string status) => Invoke(new Action(() =>
                     {
-                        Invoke(new Action(() =>
-                        {
-                            _progressBar.Value = Math.Clamp(pct, 0, 100);
-                            _progressLabel.Text = status;
-                        }));
-                    });
+                        _progressBar.Value = Math.Clamp(pct, 0, 100);
+                        _progressLabel.Text = status;
+                    }));
+                    if (repairFirst) InstallerEngine.Recover(targetDir, Show);
+                    InstallerEngine.Install(targetDir, makeDesktop, makeStartMenu, Show);
                 });
 
                 ShowCompletedPage(targetDir);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Installation encountered an error: {ex.Message}", "Installation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                var words = ex is RecoveryException ? UpdateWords.RepairFailureFor(ex) : ex.Message;
+                MessageBox.Show($"Installation encountered an error: {words}", "Installation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 ShowConfigPage();
             }
         }

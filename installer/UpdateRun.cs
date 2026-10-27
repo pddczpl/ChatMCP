@@ -11,9 +11,10 @@ namespace ChatMCP.Installer;
 
 // What the installer does when the shell starts it in update mode (--quiet --update ...): the shell has verified the file and exited, and from here on nobody is watching but the progress window.
 // The order is the point. Wait for the shell to go (a bounded wait, and only for the shell: a pid that has been handed on to another program is not waited for). Refuse an installation that is not
-// older, and one that has not the room. Look at the shortcuts the installation has, BEFORE anything is replaced. Install. Say how it ended in the result file BEFORE the app is opened, because the Hub
-// that starts reads it. Open the right app: the new one after an update, the old one after a refusal or a clean rollback (it is intact), none while the installation needs recovery (the launcher would
-// refuse to start). Whatever goes wrong is turned into an outcome; nothing here throws.
+// older, and one that has not the room. Look at the shortcuts the installation has, BEFORE anything is replaced. Install. When the rollback of this very update could not put every file back (the marker is on
+// the disk), repair the installation once, after a short pause, from the backup (InstallRecovery); the person can ask again with the button of the window (RepairNow). Say how it ended in the result file BEFORE
+// the app is opened, because the Hub that starts reads it. Open the right app: the new one after an update, the old one after a refusal, a clean rollback or a repair (it is intact), none while the installation
+// still needs repair (the launcher would refuse to start). Whatever goes wrong is turned into an outcome; nothing here throws.
 
 /// <summary>Everything that <see cref="UpdateRun"/> touches outside itself, as functions: the installer hands in the real ones (<see cref="UpdateRun.Real"/>), a test hands in a pretend machine.</summary>
 internal sealed class UpdateEnvironment
@@ -39,7 +40,17 @@ internal sealed class UpdateEnvironment
     internal required Func<string, UpdateOutcome, bool> WriteResult { get; init; }
     /// <summary>Whether any program is listening on the port of the Hub. Throws when that cannot be told.</summary>
     internal required Func<bool> HubIsRunning { get; init; }
+    /// <summary>The repair (InstallerEngine.Recover): puts back the installation in a folder behind the marker of an update that did not finish, reporting progress. Throws when it cannot.</summary>
+    internal required Func<string, Action<int, string>, RecoveryResult> Recover { get; init; }
+    /// <summary>Waits this long. The repair that follows a failed update waits first, so that a file that a scanner or an indexer holds for a moment is let go.</summary>
+    internal required Action<TimeSpan> Pause { get; init; }
 }
+
+/// <summary>
+/// How an update ended, for the window and for the exit code: the outcome, whether the app was opened again, whether the installation had to be repaired and was (the outcome is then `rolled_back`, the
+/// update's own reason kept), and, when a repair was tried and refused, why (a code of the installer's window: <see cref="InstallRecovery"/> or one of the reasons of <see cref="StepCode"/>).
+/// </summary>
+internal sealed record UpdateEnd(UpdateOutcome Outcome, bool Relaunched, bool Repaired, string? RepairRefusal);
 
 /// <summary>Waiting for the shell that started the installer.</summary>
 internal static class ShellProcess
@@ -88,6 +99,8 @@ internal static class UpdateRun
     /// <summary>The shell closes itself within a second or two; a window that is still open after this has not been told to close, or is stuck.</summary>
     internal static readonly TimeSpan ShellExitLimit = TimeSpan.FromSeconds(30);
     private const long MinimumRoom = 128L * 1024 * 1024;
+    /// <summary>The wait before the setup repairs, by itself, an update of its own that left the marker: a file that a scanner holds is let go within moments, and the rollback that has just failed asked too early.</summary>
+    internal static readonly TimeSpan RepairPause = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// The room to ask for before anything is stopped: the payload (the setup stages the whole of it inside the installation folder) and 128 MiB, or a quarter of it when that is more, for the files that change and their backups.
@@ -116,6 +129,8 @@ internal static class UpdateRun
         PendingMarkerExists = directory => File.Exists(Path.Combine(directory, InstallTransaction.PendingName)),
         Relaunch = OpenApp,
         WriteResult = (path, outcome) => UpdateResultFile.TryWrite(path, outcome),
+        Recover = InstallerEngine.Recover,
+        Pause = System.Threading.Thread.Sleep,
     };
 
     private static long? FreeBytesOf(string directory)
@@ -146,27 +161,90 @@ internal static class UpdateRun
     }
 
     /// <summary>Runs the update and says how it ended. Never throws.</summary>
-    internal static UpdateOutcome Run(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress) => Run(command, environment, progress, out _);
+    internal static UpdateOutcome Run(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress) => RunToEnd(command, environment, progress).Outcome;
 
     internal static UpdateOutcome Run(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress, out bool relaunched)
     {
-        relaunched = false;
+        var end = RunToEnd(command, environment, progress);
+        relaunched = end.Relaunched;
+        return end.Outcome;
+    }
+
+    /// <summary>
+    /// The update, and what it left: when the rollback of THIS update could not put every file back (the marker is on the disk and the reason is not an earlier update's), the setup repairs the installation itself,
+    /// once, after a short pause. The window offers the repair again when it was refused, and for the marker of an earlier update, which is not repaired unasked (<see cref="RepairNow"/>).
+    /// </summary>
+    internal static UpdateEnd RunToEnd(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress)
+    {
         var directory = command.InstallDir ?? throw new ArgumentException("An update needs the installation directory.");
         var program = Path.Combine(directory, "ChatMCP.exe");
         ReleaseVersion? previous = null;
         try { previous = environment.InstalledVersion(directory); } catch (Exception) { /* no installation that can be read */ }
         var outcome = Execute(command, environment, progress, directory, program, previous);
+        var repaired = false;
+        string? refusal = null;
+        if (StoppedHalfway(outcome))
+        {
+            progress(0, UpdateWords.WaitingToRepair);
+            try { environment.Pause(RepairPause); } catch (Exception) { /* a pause that fails is a pause that did not happen */ }
+            var attempt = Repair(command, environment, outcome, progress);
+            outcome = attempt.Outcome; repaired = attempt.Repaired; refusal = attempt.Refusal;
+        }
+        return Conclude(command, environment, outcome, repaired, refusal, writeResult: true);
+    }
+
+    /// <summary>
+    /// The marker is on the disk after this update's OWN install failed (the reason is the generic one): the only way to get there is a commit whose rollback could not finish. Every refusal of a step before the
+    /// commit (another setup working on the folder, tasks that run, a Hub that does not stop, ...) carries a code of its own, and a marker that is there after one of those was not made by this update, so it is
+    /// not repaired unasked.
+    /// </summary>
+    internal static bool StoppedHalfway(UpdateOutcome outcome) => outcome.State == "needs_recovery" && outcome.Reason == "install_failed";
+
+    /// <summary>The person asked for the repair (the button of the window): the same repair, with no pause. A repair that is refused changes nothing, writes nothing and opens nothing.</summary>
+    internal static UpdateEnd RepairNow(InstallerCommand command, UpdateEnvironment environment, UpdateOutcome failed, Action<int, string> progress)
+    {
+        var attempt = Repair(command, environment, failed, progress);
+        return Conclude(command, environment, attempt.Outcome, attempt.Repaired, attempt.Refusal, writeResult: attempt.Repaired);
+    }
+
+    private sealed record RepairAttempt(UpdateOutcome Outcome, bool Repaired, string? Refusal);
+
+    /// <summary>
+    /// Repairs the installation. When it works the installation is the one from before the update, so the outcome is `rolled_back` (files were replaced and all of them are back) with the reason the update
+    /// failed for, and the version that is installed is read again from the disk. When it does not, the outcome is the one it was, and the code says why.
+    /// </summary>
+    private static RepairAttempt Repair(InstallerCommand command, UpdateEnvironment environment, UpdateOutcome failed, Action<int, string> progress)
+    {
+        var directory = command.InstallDir ?? throw new ArgumentException("A repair needs the installation directory.");
+        try { environment.Recover(directory, progress); }
+        catch (Exception error) { return new RepairAttempt(failed, false, RefusalOf(error)); }
+        // "repaired" is said only when the marker is gone afterwards: a repair that answered with the marker still on the disk (or where it cannot be looked at, which is taken as there) has not finished
+        if (MarkerExists(environment, directory)) return new RepairAttempt(failed, false, InstallRecovery.RestoreFailed);
+        ReleaseVersion? now = null;
+        try { now = environment.InstalledVersion(directory); } catch (Exception) { /* unknown: the version from before stays */ }
+        return new RepairAttempt(new UpdateOutcome(false, failed.Version, now?.ToString() ?? failed.Previous, "rolled_back", failed.Reason), true, null);
+    }
+
+    /// <summary>The code that says why a repair did not happen: the repair's own, a reason of the steps before it (tasks that run, a window that stays open), or a file that could not be put back.</summary>
+    private static string RefusalOf(Exception error) =>
+        error is RecoveryException refused ? refused.Code : StepCode.Of(error) is { } code && StepCode.IsKnown(code) ? code : InstallRecovery.RestoreFailed;
+
+    private static UpdateEnd Conclude(InstallerCommand command, UpdateEnvironment environment, UpdateOutcome outcome, bool repaired, string? refusal, bool writeResult)
+    {
+        var directory = command.InstallDir ?? throw new ArgumentException("An update needs the installation directory.");
+        var program = Path.Combine(directory, "ChatMCP.exe");
         // The Hub reads the result file ONCE, when it starts. A note left while a Hub is already up (the refusal stopped nothing, or a program holds the port) is read by nobody until some later start, and would then
         // tell the person about an update they have forgotten; the window already said why. So it is left only when no program listens on the port: the Hub that starts next reads it.
-        if (command.ResultFile != null && !HubListens(environment))
+        if (writeResult && command.ResultFile != null && !HubListens(environment))
         {
             try { environment.WriteResult(command.ResultFile, outcome); } catch (Exception) { /* a result that cannot be left is not worth failing for */ }
         }
+        var relaunched = false;
         if (command.Relaunch && outcome.State != "needs_recovery" && !MarkerExists(environment, directory))
         {
             try { environment.Relaunch(program); relaunched = true; } catch (Exception) { /* the person can open the app themselves */ }
         }
-        return outcome;
+        return new UpdateEnd(outcome, relaunched, repaired, refusal);
     }
 
     /// <summary>Whether a program listens on the port of the Hub. Where that cannot be told the answer is no: the note is left, because one that nobody reads is better than a failure that nobody hears of.</summary>

@@ -133,10 +133,19 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
     const waitSeconds = constantOf('installer/UpdateRun.cs', /ShellExitLimit = TimeSpan\.FromSeconds\((\d+)\)/, 'the wait for the app to close (ShellExitLimit)');
     const releaseFolders = constantOf('native-shared/UpdateStaging.cs', /MaxCandidates = (\d+);/, 'the number of release folders that are looked at (MaxCandidates)');
     const resultBytes = constantOf('CHATMCP-HUB/lib/update-applied.mjs', /MAX_BYTES = (\d+);/, 'the size limit of the result file (MAX_BYTES)');
+    // The repair of an update that stopped halfway (installer/InstallRecovery.cs, UpdateRun.cs): what it reads is bounded, and it waits before its first attempt.
+    const repairSeconds = constantOf('installer/UpdateRun.cs', /RepairPause = TimeSpan\.FromSeconds\((\d+)\)/, 'the pause before the setup repairs by itself (RepairPause)');
+    const markerBytes = constantOf('installer/InstallRecovery.cs', /MarkerLimit = (\d+);/, 'the size limit of the marker the repair reads (MarkerLimit)');
+    const journalMiB = constantOf('installer/InstallRecovery.cs', /JournalLimit = (\d+)L \* 1024 \* 1024;/, 'the size limit of the journal the repair reads (JournalLimit)');
     const installNumbers = [
       [`at most ${messageKiB} KiB`, 'the size limit of a message of the page'],
       [`waits at most ${waitSeconds} seconds for the app to close`, 'the wait for the app to close'],
       [`at most ${releaseFolders} release folders`, 'the number of release folders that are looked at'],
+      [`once, after a pause of ${repairSeconds} seconds`, 'the pause before the setup repairs by itself'],
+      [`a marker of at most ${markerBytes} bytes`, 'the size limit of the marker the repair reads'],
+      [`a journal of at most ${journalMiB} MiB`, 'the size limit of the journal the repair reads'],
+      ['refuses, and changes nothing,', 'that a repair that cannot prove the installation changes nothing'],
+      ['**Repair now**', 'the button that asks for the repair again'],
     ];
     const stated = [
       [`\`${FEED_URL}\``, 'the address of the feed (FEED_URL)'],
@@ -183,6 +192,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
     for (const [needle, what] of [['github.com', 'the host it asks'], ['until you answer, the app makes no request of its own', 'that nothing is asked before the owner answers'],
       ['A download starts only when you click **Download**', 'that a download starts only on the owner\'s click'], ['Nothing is installed or run until you click **Install and restart**', 'that nothing is installed or run until the owner clicks Install and restart'],
       ['offers **Download** only for a release whose signature checks', 'that Download needs a signature that checks'], ['The installer has no Authenticode signature', 'that the installer has no Authenticode signature'],
+      ['the setup puts them back itself from the backup', 'that the setup repairs an update that stopped halfway'], ['a Hub that you start by hand leaves the note of that update unread', 'that a Hub started by hand leaves the note of an unrepaired update unread'],
     ]) if (!readme.includes(needle)) fail(`README.md does not state ${what} (update notice): ${needle}`);
     if (!/Surface 8/.test(security8)) fail('SECURITY.md (Update notice) does not point at Surface 8 of the threat model');
     if (!/update check of Surface 8/.test(model.slice(model.indexOf('## Surface 7'), model.indexOf('## Surface 8')))) fail('Surface 7 still says that nothing but the owner\'s button makes the Hub ask: it does not name the update check of Surface 8');
@@ -395,6 +405,14 @@ try {
     ['Surface 8 with another wait for the app', model, (text) => text.replaceAll('waits at most 30 seconds for the app to close', 'waits at most 5 minutes for the app to close'), /Surface 8 does not state the wait for the app to close/],
     ['Surface 8 with another number of release folders', model, (text) => text.replaceAll('at most 16 release folders', 'at most 99 release folders'), /Surface 8 does not state the number of release folders that are looked at/],
     ['Surface 8 with another size for the result file', model, (text) => text.replaceAll('a result file of at most 4096 bytes', 'a result file of any size'), /Surface 8 does not state the size limit of the result file/],
+    ['Surface 8 with another pause before the repair', model, (text) => text.replaceAll('once, after a pause of 3 seconds', 'once, after a pause of 30 seconds'), /Surface 8 does not state the pause before the setup repairs by itself/],
+    ['Surface 8 with another size for the marker', model, (text) => text.replaceAll('a marker of at most 4096 bytes', 'a marker of any size'), /Surface 8 does not state the size limit of the marker the repair reads/],
+    ['Surface 8 with another size for the journal', model, (text) => text.replaceAll('a journal of at most 128 MiB', 'a journal of at most 1 GiB'), /Surface 8 does not state the size limit of the journal the repair reads/],
+    ['Surface 8 no longer saying that a repair that cannot prove anything changes nothing', model, (text) => text.replaceAll('refuses, and changes nothing,', 'goes on,'), /Surface 8 does not state that a repair that cannot prove the installation changes nothing/],
+    ['SECURITY.md with another size for the journal', 'SECURITY.md', (text) => text.replace('a journal of at most 128 MiB', 'a journal of at most 1 GiB'), /SECURITY\.md \(Update notice\) does not state the size limit of the journal the repair reads/],
+    ['SECURITY.md no longer naming the button of the repair', 'SECURITY.md', (text) => text.replaceAll('**Repair now**', 'a button'), /SECURITY\.md \(Update notice\) does not state the button that asks for the repair again/],
+    ['the README no longer saying that the setup repairs an update that stopped halfway', 'README.md', (text) => text.replace('the setup puts them back itself from the backup', 'nothing puts them back'), /README\.md does not state that the setup repairs an update that stopped halfway/],
+    ['the README no longer saying that a Hub started by hand leaves the note unread', 'README.md', (text) => text.replace('a Hub that you start by hand leaves the note of that update unread', 'a Hub that you start by hand tells you at once'), /README\.md does not state that a Hub started by hand leaves the note/],
     ['Surface 8 no longer saying that an installation starts only from the click', model, (text) => text.replaceAll('An installation starts only from the owner\'s click on Install and restart', 'An installation starts on its own'), /Surface 8 does not state that an installation starts only from the owner's click on Install and restart/],
     ['the threat model no longer in the index', 'docs/INDEX.md', (text) => text.replace('(THREAT-MODEL.md)', '(ARCHITECTURE.md)'), /INDEX\.md does not link THREAT-MODEL\.md/],
     ['a threat row without a test', model, (text) => text.replace('comparison is exercised by `verify-hub-auth.mjs`; no timing measurement', 'nothing'), /H3: the Test column/],

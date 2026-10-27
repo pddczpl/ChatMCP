@@ -6,6 +6,10 @@ using System.Text.Json;
 using ChatMCP.Native;
 using ChatMCP.Installer;
 
+// A child of this program for the tests of the repair (RecoverTests): it runs a real commit and kills itself in the middle, as a power cut does, and so leaves the marker, the journal and the half-replaced files.
+if (args.Length == 3 && args[0] == "--crash-commit") { CrashChild.Run(args[1], int.Parse(args[2])); return; }
+// Another child, for the test of the command the launcher prints: it says how the runtime split the command line it was started with (ContractTests.EchoedBy), so that the text is held to the real rules and not to a copy of them.
+if (args.Length >= 1 && args[0] == "--echo-args") { Console.Out.Write(string.Join('\u0001', args.Skip(1))); return; }
 int checks = 0;
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); checks++; Console.WriteLine("PASS " + message); }
 void Throws(Action action, string message)
@@ -124,6 +128,7 @@ try
     ShortcutTests.Run(kit);
     UpdateRunTests.Run(kit);
     UpdateWordsTests.Run(kit);
+    RecoverTests.Run(kit);
     ApplyTests.Run(kit);
     OwnerQueryTests.Run(kit);
     CloseTests.Run(kit);
