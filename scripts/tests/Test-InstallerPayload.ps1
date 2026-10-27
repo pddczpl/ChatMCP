@@ -230,6 +230,10 @@ try {
         [IO.File]::WriteAllText($file, $Text)
         return $file
     }
+    # This script is also run by the publish workflow, where GITHUB_WORKFLOW starts with "Publish" and the helper refuses every key list. What is tested from here to the end of this section is the helper in a
+    # build that is not a publish one (the publish case has its own test at the end of the section), so the name is set for it here and the real one is put back at the end.
+    $savedWorkflow = $env:GITHUB_WORKFLOW
+    $env:GITHUB_WORKFLOW = 'CI'
     $validFile = Write-KeyList 'valid.json' $validKeys
     Assert-Payload ((Resolve-InstallerReleaseKeysFile -Path $validFile) -eq $validFile) 'a key list for a test build is accepted as a full path and returned as one'
     Assert-Payload ((Resolve-InstallerReleaseKeysFile -Path ($keysFolder + '/sub/../valid.json')) -eq $validFile) 'and is returned in its plain form (one kind of separator, no dot segments)'
@@ -251,7 +255,6 @@ try {
     try {
         Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Join-Path $junction 'valid.json') } 'symlink or junction' 'a key file reached through a junction is refused'
     } finally { [IO.Directory]::Delete($junction) }
-    $savedWorkflow = $env:GITHUB_WORKFLOW
     try {
         $env:GITHUB_WORKFLOW = 'Publish ChatMCP v9.9.9'
         Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path $validFile } 'test builds' 'a publish workflow never builds with a key list of its own (a release is built from the committed one)'
