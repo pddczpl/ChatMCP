@@ -312,6 +312,14 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
+      # Seconds, and first, so that a page the driver can no longer read (a test id that moved, a flow that changed) costs 20 seconds and not the 10 minutes of the builds: the same driver, against the Hub of
+      # this tree and a headless Edge, with the desktop shell pretended (nothing is installed).
+      - name: Rehearse the page driver against this tree's Hub and a headless Edge (no install, the shell is pretended)
+        run: node scripts/tests/updater-e2e/rehearse-page.mjs
+      # Then the one thing a runner can get wrong that nothing before it has tried: a debugging port that the WebView2 policy opens for a program of an ELEVATED account (a newer WebView2 ignores the
+      # environment variable for one), with a real WebView2 window, a small stand-in host for the shell, and the same driver. It is the mechanism the job uses on the installed shell, in 30 seconds.
+      - name: Rehearse it against a real WebView2 window, its debugging port opened by the WebView2 policy (no install, a stand-in host)
+        run: node scripts/tests/updater-e2e/rehearse-page.mjs --webview2 --policy
       - name: Throwaway signing keys of the run (scripts/new-release-key.mjs), outside the repository
         shell: powershell
         run: |

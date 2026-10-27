@@ -90,14 +90,14 @@ const POLICY_KEY = 'HKLM\\Software\\Policies\\Microsoft\\Edge\\WebView2\\Additio
  * elevated (a hosted runner's account does), and honours this policy; scripts/tests/windows-installer/guest-lifecycle.ps1 does the same in its Windows Sandbox. It is a setting of the disposable runner,
  * removed again by clearDebugPolicy when the proof ends.
  */
-export function setDebugPolicy(port) {
-  const done = reg(['add', POLICY_KEY, '/v', 'ChatMCP.exe', '/t', 'REG_SZ', '/d', `--remote-debugging-port=${port}`, '/f']);
+export function setDebugPolicy(port, program = 'ChatMCP.exe') {
+  const done = reg(['add', POLICY_KEY, '/v', program, '/t', 'REG_SZ', '/d', `--remote-debugging-port=${port}`, '/f']);
   if (done.status !== 0) throw new Error(`The WebView2 policy could not be written (${done.stderr.trim().slice(0, 200)}). Is this account an administrator?`);
 }
-export function clearDebugPolicy() {
-  reg(['delete', POLICY_KEY, '/v', 'ChatMCP.exe', '/f']);
+export function clearDebugPolicy(program = 'ChatMCP.exe') {
+  reg(['delete', POLICY_KEY, '/v', program, '/f']);
 }
-export const debugPolicyValue = () => registryValue(POLICY_KEY, 'ChatMCP.exe');
+export const debugPolicyValue = (program = 'ChatMCP.exe') => registryValue(POLICY_KEY, program);
 
 // ------------------------------------------------------------------------------------------------------------------------------- programs
 

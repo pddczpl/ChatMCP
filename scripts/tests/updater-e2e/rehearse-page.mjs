@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // A rehearsal of the page-driving half of the end-to-end proof of the in-app updater, on any machine, WITHOUT the desktop shell and WITHOUT installing anything:
 //
-//     node scripts/tests/updater-e2e/rehearse-page.mjs [--keep]
+//     node scripts/tests/updater-e2e/rehearse-page.mjs [--keep] [--webview2 [--policy]]
+//
+// With --webview2 the window is a REAL WebView2 (a small stand-in for the shell, scripts/tests/updater-e2e/WebView2Host, built here with dotnet), reached through a debugging port; with --policy (the CI job,
+// a Windows account that may write HKLM) the port is opened the way the job opens it for the installed shell, by the WebView2 policy for the program, so that the same mechanism is tried in seconds before
+// 10 minutes of builds.
 //
 // It starts the Hub of this work tree on a free port (never 3007), a stand-in for GitHub on another one, makes a throwaway key with scripts/new-release-key.mjs, signs a manifest for a stand-in
 // installer with scripts/sign-release.mjs, opens the Studio in a Chromium-based browser (Edge or Playwright's Chromium, headless) with a debugging port, and drives it with lib/page-driver.mjs the way
@@ -26,11 +30,19 @@ import { buildReleaseManifest, flipByte, makeTestKeys, signWithTool } from './re
 import { connectPage, sleep } from './lib/cdp.mjs';
 import { PageDriver } from './lib/page-driver.mjs';
 import { HubClient } from './lib/hub-client.mjs';
+import { clearDebugPolicy, setDebugPolicy } from './lib/windows.mjs';
 import { startRunningWork } from './lib/work.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB_ROOT = path.resolve(HERE, '..', '..', '..', 'CHATMCP-HUB');
 const keep = process.argv.includes('--keep');
+// --webview2: the window is a REAL WebView2 (scripts/tests/updater-e2e/WebView2Host, a stand-in for the shell that is built here), reached through a debugging port, as the installed shell is in the job;
+// --policy (Windows, an account that may write HKLM): the port is opened the way the job opens it for the installed shell, by the WebView2 policy of the host's program name, which a newer WebView2
+// honours for an elevated account where it ignores the environment variable. Without --webview2 the window is a headless Edge or Chromium and the shell is a script in the page.
+const webview2 = process.argv.includes('--webview2');
+const policy = process.argv.includes('--policy');
+if (policy && !webview2) { console.error('--policy goes with --webview2'); process.exit(2); }
+const HOST_PROGRAM = 'WebView2Host.exe';
 const started = Date.now();
 const log = (line) => console.log(`[${((Date.now() - started) / 1000).toFixed(1).padStart(6)}s] ${line}`);
 let failures = 0;
@@ -87,6 +99,7 @@ let feed = null;
 let browser = null;
 let cdp = null;
 let mock = null;
+let policySet = false;
 try {
   // ---- what the proof makes: a key, a manifest, a signature, a stand-in installer ---------------------------------------------------------------
   const keys = await makeTestKeys(path.join(scratch, 'keys'));
@@ -114,20 +127,51 @@ try {
   check(hub.port !== 3007, `the Hub is on port ${hub.port}, not 3007`);
   log(`Hub on ${hub.origin}, stand-in on ${feed.origin}`);
 
-  // ---- a browser with a debugging port, and the shell pretended -------------------------------------------------------------------------------------
+  // ---- a window with a debugging port, and the shell pretended ---------------------------------------------------------------------------------------
   const debugPort = await freePort();
-  const exe = findBrowser();
   const profile = path.join(scratch, 'profile');
-  browser = spawn(exe, ['--headless=new', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1366,850', 'about:blank'], { stdio: 'ignore', windowsHide: true });
-  log(`browser ${path.basename(exe)} with debugging port ${debugPort}`);
-  cdp = await connectPage({ port: debugPort, match: () => true, timeoutMs: 30_000, label: 'the browser' });
-  const driver = new PageDriver(cdp, { log });
-  await cdp.send('Page.enable');
-  await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: PRETEND_SHELL });
   const session = await hub.session();
-  await cdp.send('Page.navigate', { url: dashboardUrl(hub.origin, await requestTicket(hub.origin, session.secret)) });
+  const address = dashboardUrl(hub.origin, await requestTicket(hub.origin, session.secret));
+  let driver;
+  // what the pretended shell has been told to answer and what it has been sent, the same two things in either kind of window
+  let shell;
+  if (webview2) {
+    const hostOutput = path.join(scratch, 'host');
+    const built = spawnSync('dotnet', ['build', path.join(HERE, 'WebView2Host', 'WebView2Host.csproj'), '-c', 'Release', '-o', hostOutput, '--nologo', '-v', 'q'], { encoding: 'utf8', timeout: 300_000, windowsHide: true });
+    if (built.status !== 0) throw new Error(`The WebView2 host did not build:\n${String(built.stdout).slice(-1500)}${String(built.stderr).slice(-500)}`);
+    const replies = path.join(scratch, 'replies.txt');
+    const receivedFile = path.join(scratch, 'received.jsonl');
+    fs.writeFileSync(replies, '');
+    fs.writeFileSync(receivedFile, '');
+    if (policy) {
+      setDebugPolicy(debugPort, HOST_PROGRAM);
+      policySet = true;
+      log(`WebView2 policy: ${HOST_PROGRAM} gets --remote-debugging-port=${debugPort}`);
+    }
+    browser = spawn(path.join(hostOutput, HOST_PROGRAM), [address, profile, replies, receivedFile], { env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` }, stdio: 'ignore' });
+    log(`WebView2 host pid ${browser.pid} with debugging port ${debugPort}`);
+    cdp = await connectPage({ port: debugPort, match: (url) => url.startsWith(`${hub.origin}/`), timeoutMs: 120_000, label: 'the WebView2 window of the host' });
+    driver = new PageDriver(cdp, { log });
+    shell = {
+      pushReply: async (...codes) => { fs.appendFileSync(replies, `${codes.join('\n')}\n`); },
+      received: async () => fs.readFileSync(receivedFile, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)),
+    };
+  } else {
+    const exe = findBrowser();
+    browser = spawn(exe, ['--headless=new', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), '--window-size=1366,850', 'about:blank'], { stdio: 'ignore', windowsHide: true });
+    log(`browser ${path.basename(exe)} with debugging port ${debugPort}`);
+    cdp = await connectPage({ port: debugPort, match: () => true, timeoutMs: 30_000, label: 'the browser' });
+    driver = new PageDriver(cdp, { log });
+    await cdp.send('Page.enable');
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: PRETEND_SHELL });
+    await cdp.send('Page.navigate', { url: address });
+    shell = {
+      pushReply: (...codes) => driver.evaluate(`window.__pretend.script.push(...${JSON.stringify(codes)}); true`),
+      received: () => driver.evaluate('window.__pretend.received'),
+    };
+  }
   const page = await driver.prepare({ language: 'en' });
-  check(page.shell === true && page.language === 'en' && page.address === hub.origin, 'the Studio is open in English, the shell is pretended, the page has its Hub session');
+  check(page.shell === true && page.language === 'en' && page.address === hub.origin, `the Studio is open in English in ${webview2 ? 'a real WebView2 window' : 'a headless browser'}, the shell is ${webview2 ? 'a stand-in host' : 'pretended'}, the page has its Hub session`);
   await driver.recordShellMessages();
 
   // ---- the question, Check now, Download -----------------------------------------------------------------------------------------------------
@@ -158,12 +202,12 @@ try {
   await driver.waitForVisible('update-apply-confirm');
   await driver.pressTestId('update-apply-no');
   await driver.waitForGone('update-apply-confirm');
-  check((await driver.evaluate('window.__pretend.received.length')) === 0, 'Not now sent nothing to the shell');
-  await driver.evaluate("window.__pretend.script.push('bad_installer'); true");
+  check((await shell.received()).length === 0, 'Not now sent nothing to the shell');
+  await shell.pushReply('bad_installer');
   await driver.pressTestId('update-apply');
   await driver.pressTestId('update-apply-yes');
   await driver.waitForVisible('update-apply-error');
-  const received = await driver.evaluate('window.__pretend.received');
+  const received = await shell.received();
   check(received.length === 1 && received[0].type === 'chatmcp.apply-update' && /^[a-f0-9-]{16,64}$/i.test(received[0].id) && Object.keys(received[0]).sort().join() === 'id,type', 'the page sent ONE message to the shell: its type and an id, nothing else');
   await driver.waitForVisible('update-apply-again');
   await driver.pressTestId('update-apply-again');
@@ -179,22 +223,22 @@ try {
   const work = await startRunningWork({ hub: client, mock, workspace });
   await driver.waitForVisible('update-apply-blocked', { timeoutMs: 30_000 });
   check(await driver.isDisabled('update-apply'), 'a task that is running disables Install and restart in the page, with its reason beside it');
-  const sentBefore = await driver.evaluate('window.__pretend.received.length');
+  const sentBefore = (await shell.received()).length;
   await driver.pressDisabled('update-apply');
   await sleep(300);
-  check((await driver.evaluate('window.__pretend.received.length')) === sentBefore && (await driver.count('update-apply-confirm')) === 0, 'and a press on the disabled button asks nothing and sends nothing');
+  check((await shell.received()).length === sentBefore && (await driver.count('update-apply-confirm')) === 0, 'and a press on the disabled button asks nothing and sends nothing');
   await work.release();
   await driver.waitForGone('update-apply-blocked', { timeoutMs: 30_000 });
   check(!(await driver.isDisabled('update-apply')), 'the button is back when the work is over');
 
-  await driver.evaluate("window.__pretend.script.push('launched'); true");
+  await shell.pushReply('launched');
   await driver.pressTestId('update-apply');
   await driver.pressTestId('update-apply-yes');
   await driver.waitForVisible('update-apply-sending');
-  check((await driver.evaluate('window.__pretend.received.length')) === 2, 'and the second message is the next click, not a repeat');
+  check((await shell.received()).length === 2, 'and the second message is the next click, not a repeat');
 
   // ---- messages posted by script, which the page itself never sends -----------------------------------------------------------------------------------
-  await driver.evaluate("window.__pretend.script.push('busy', 'tasks_running'); true");
+  await shell.pushReply('busy', 'tasks_running');
   const ids = await driver.postApplyRequests(2);
   const answers = [await driver.shellAnswer(ids[0]), await driver.shellAnswer(ids[1])];
   check(answers[0].code === 'busy' && answers[1].code === 'tasks_running' && ids[0] !== ids[1], 'two requests posted by script in one go are two messages with two ids, and each gets its own answer');
@@ -221,6 +265,7 @@ try {
     if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(browser.pid), '/T', '/F'], { stdio: 'ignore', timeout: 10_000 }); else browser.kill('SIGKILL');
   }
   await hub?.stop().catch(() => {});
+  if (policySet) clearDebugPolicy(HOST_PROGRAM);
   await mock?.close().catch(() => {});
   await feed?.close().catch(() => {});
   if (!keep && failures === 0) await sleep(500).then(() => fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }));
