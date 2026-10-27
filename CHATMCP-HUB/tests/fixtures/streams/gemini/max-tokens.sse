@@ -1,4 +1,0 @@
-data: {"candidates":[{"content":{"parts":[{"text":"Một câu trả lời rất dài bị cắt "}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":60,"candidatesTokenCount":4096,"totalTokenCount":60},"modelVersion":"gemini-2.5-flash","responseId":"r-max-0001"}
-
-data: {"candidates":[{"content":{"parts":[{"text":"giữa chừng"}],"role":"model"},"finishReason":"MAX_TOKENS","index":0}],"usageMetadata":{"promptTokenCount":60,"candidatesTokenCount":8192,"totalTokenCount":8252},"modelVersion":"gemini-2.5-flash","responseId":"r-max-0001"}
-

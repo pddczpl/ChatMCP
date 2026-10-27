@@ -1,2 +1,0 @@
-data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"git_status"}}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":44,"candidatesTokenCount":6,"totalTokenCount":50},"modelVersion":"gemini-2.5-flash","responseId":"r-noargs-0001"}
-

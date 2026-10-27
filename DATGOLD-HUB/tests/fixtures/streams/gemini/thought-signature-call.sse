@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"parts":[{"text":"**Đọc README**\n\nCần mở tệp README.md trước.","thought":true}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":310,"candidatesTokenCount":15,"thoughtsTokenCount":120,"totalTokenCount":310},"modelVersion":"gemini-3-pro-preview","responseId":"r-sig-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"text":" Sau đó tóm tắt.","thought":true}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":310,"candidatesTokenCount":15,"thoughtsTokenCount":120,"totalTokenCount":310},"modelVersion":"gemini-3-pro-preview","responseId":"r-sig-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"README.md"}},"thoughtSignature":"CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":310,"candidatesTokenCount":30,"thoughtsTokenCount":120,"totalTokenCount":460},"modelVersion":"gemini-3-pro-preview","responseId":"r-sig-0001"}
+

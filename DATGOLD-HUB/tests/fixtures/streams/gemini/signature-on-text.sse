@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Kết quả là "}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":50,"candidatesTokenCount":7,"thoughtsTokenCount":40,"totalTokenCount":50},"modelVersion":"gemini-3-flash-preview","responseId":"r-sigtext-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"42."}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":50,"candidatesTokenCount":7,"thoughtsTokenCount":40,"totalTokenCount":50},"modelVersion":"gemini-3-flash-preview","responseId":"r-sigtext-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":50,"candidatesTokenCount":14,"thoughtsTokenCount":40,"totalTokenCount":104},"modelVersion":"gemini-3-flash-preview","responseId":"r-sigtext-0001"}
+

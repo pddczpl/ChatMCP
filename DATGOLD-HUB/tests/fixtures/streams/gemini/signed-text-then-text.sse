@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Một. ","thoughtSignature":"CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":33,"candidatesTokenCount":4,"totalTokenCount":33},"modelVersion":"gemini-3-pro-preview","responseId":"r-sealed-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"Hai."}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":33,"candidatesTokenCount":9,"totalTokenCount":42},"modelVersion":"gemini-3-pro-preview","responseId":"r-sealed-0001"}
+

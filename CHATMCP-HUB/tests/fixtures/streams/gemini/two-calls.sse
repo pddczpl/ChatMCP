@@ -1,2 +1,0 @@
-data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"a.txt"}},"thoughtSignature":"CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="},{"functionCall":{"name":"read_file","args":{"path":"b.txt"}}}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":200,"candidatesTokenCount":40,"totalTokenCount":240},"modelVersion":"gemini-3-pro-preview","responseId":"r-two-0001"}
-

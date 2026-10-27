@@ -1,0 +1,10 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Trước: "}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":77,"candidatesTokenCount":12,"totalTokenCount":77},"modelVersion":"gemini-2.5-flash","responseId":"r-mixed-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"đọc tệp."}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":77,"candidatesTokenCount":12,"totalTokenCount":77},"modelVersion":"gemini-2.5-flash","responseId":"r-mixed-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"x.md"}}}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":77,"candidatesTokenCount":12,"totalTokenCount":77},"modelVersion":"gemini-2.5-flash","responseId":"r-mixed-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"Sau: "}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":77,"candidatesTokenCount":12,"totalTokenCount":77},"modelVersion":"gemini-2.5-flash","responseId":"r-mixed-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"báo cáo."}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":77,"candidatesTokenCount":25,"totalTokenCount":102},"modelVersion":"gemini-2.5-flash","responseId":"r-mixed-0001"}
+

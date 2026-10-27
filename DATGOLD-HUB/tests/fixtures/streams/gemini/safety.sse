@@ -1,0 +1,2 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Tôi"}],"role":"model"},"finishReason":"SAFETY","index":0}],"usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":1,"totalTokenCount":21},"modelVersion":"gemini-2.5-flash","responseId":"r-safety-0001"}
+
