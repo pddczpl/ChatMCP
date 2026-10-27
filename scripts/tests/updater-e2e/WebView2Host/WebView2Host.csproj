@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A small stand-in for the desktop shell, for the REHEARSAL of the page driver only (scripts/tests/updater-e2e/rehearse-page.mjs, with its webview2 option): a WebView2 window that loads an address and
+       answers the apply-update message from a file of codes. It is not the shell and shares no code with it; it never installs or starts anything. The package is the one the shell uses. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>0.0.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+  </ItemGroup>
+</Project>

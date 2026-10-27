@@ -295,6 +295,65 @@ jobs:
           path: ${{ runner.temp }}/native-lifecycle-evidence
           if-no-files-found: ignore
 
+  windows-updater-e2e:
+    # The in-app updater, seen working as a whole: a press of the mouse in the WebView2 window of an installed app (a trusted click that the browser takes for a person's, injected through the DevTools protocol:
+    # not the operating system's mouse) downloads a signed update, the desktop shell checks it with its own C#, starts the setup in update mode (with its own pid in --wait-pid) and closes, and the setup replaces the files and opens
+    # the new app; and the refusals (a tampered setup, a signature by another key, work that is running, a second request) leave the old app installed and working.
+    # Test builds only: the setups are built from this commit with versions given at build time and a throwaway key list (nothing is committed, tagged, released or published), GitHub is a stand-in on a loopback
+    # port, the key is made for the run. Not proved here, and said in the pull request: a release signed with the real key, GitHub itself, SmartScreen with an unsigned setup, a download of 230 MB over the internet.
+    # Disposable hosted runner only (scripts/tests/updater-e2e/run.mjs refuses anything else). docs/DEVELOPMENT.md says what each phase proves.
+    name: Windows in-app updater, end to end (real click, signed update)
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+      # Seconds, and first, so that a page the driver can no longer read (a test id that moved, a flow that changed) costs 20 seconds and not the 10 minutes of the builds: the same driver, against the Hub of
+      # this tree and a headless Edge, with the desktop shell pretended (nothing is installed).
+      - name: Rehearse the page driver against this tree's Hub and a headless Edge (no install, the shell is pretended)
+        run: node scripts/tests/updater-e2e/rehearse-page.mjs --evidence "$env:RUNNER_TEMP/updater-e2e-evidence"
+      # Then the one thing a runner can get wrong that nothing before it has tried: a debugging port that the WebView2 policy opens for a program of an ELEVATED account (a newer WebView2 ignores the
+      # environment variable for one), with a real WebView2 window, a small stand-in host for the shell, and the same driver. It is the mechanism the job uses on the installed shell, in 30 seconds, and the host is started without the environment variable that WebView2 also reads, so only the policy can have opened the port.
+      - name: Rehearse it against a real WebView2 window, its debugging port opened by the WebView2 policy (no install, a stand-in host)
+        run: node scripts/tests/updater-e2e/rehearse-page.mjs --webview2 --policy --evidence "$env:RUNNER_TEMP/updater-e2e-evidence"
+      - name: Throwaway signing keys of the run (scripts/new-release-key.mjs), outside the repository
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/tests/updater-e2e/make-keys.mjs (Join-Path $env:RUNNER_TEMP 'updater-e2e-keys')
+          if ($LASTEXITCODE -ne 0) { throw 'The throwaway keys could not be made.' }
+      - name: Build an old and a newer setup of this commit, both trusting that key (test builds, nothing published)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $current = [version](Get-Content CHATMCP-HUB/package.json -Raw | ConvertFrom-Json).version
+          $old = '{0}.{1}.{2}' -f $current.Major, $current.Minor, ($current.Build + 1)
+          $new = '{0}.{1}.{2}' -f $current.Major, $current.Minor, ($current.Build + 2)
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/updater-e2e/Build-TestPair.ps1 -Work (Join-Path $env:RUNNER_TEMP 'updater-e2e') -KeysFile (Join-Path $env:RUNNER_TEMP 'updater-e2e-keys\run-release-keys.json') -OldVersion $old -NewVersion $new -KeepWorkTrees
+          if ($LASTEXITCODE -ne 0) { throw 'The two setups could not be built.' }
+      - name: Install the old setup, update it from the page with presses of the mouse (trusted clicks), make the refusals happen
+        run: node scripts/tests/updater-e2e/run.mjs --work "$env:RUNNER_TEMP/updater-e2e" --keys "$env:RUNNER_TEMP/updater-e2e-keys" --evidence "$env:RUNNER_TEMP/updater-e2e-evidence"
+      - name: Upload the evidence of the proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: updater-e2e-evidence
+          path: |
+            ${{ runner.temp }}/updater-e2e-evidence
+            ${{ runner.temp }}/updater-e2e/build-report.json
+            ${{ runner.temp }}/updater-e2e/build-old.log
+            ${{ runner.temp }}/updater-e2e/build-new.log
+            ${{ runner.temp }}/updater-e2e/build-old.err.log
+            ${{ runner.temp }}/updater-e2e/build-new.err.log
+          if-no-files-found: ignore
+
   claims-map:
     # Claims-test rule (docs/CLAIMS.md): every headline claim is bound to a test that exercises the production path, or listed as unmapped,
     # and the number of unmapped claims may not grow. On a pull request the ratchet is also compared with the base branch.
