@@ -5096,7 +5096,8 @@
      "old": "journal.RootElement.ValueKind != JsonValueKind.Array || ",
      "new": ""
     }
-   ]
+   ],
+   "equivalent": "Without this test the first phase asks the length of something that is not a list, and .NET throws an InvalidOperationException; the catch around the whole first phase (MakePlan) turns it into the same refusal, not_recoverable, with nothing changed. Only the text of the message differs, and no text of an exception reaches the window or the result file."
   },
   {
    "name": "recover-entry-not-an-object-ok",
@@ -5107,7 +5108,8 @@
      "old": "if (entry.ValueKind != JsonValueKind.Object) throw Refuse(NotRecoverable, \"An entry of the journal is not an object.\");",
      "new": ""
     }
-   ]
+   ],
+   "equivalent": "Without the test, reading a field of an entry that is not an object throws an InvalidOperationException; the catch around the whole first phase (MakePlan) turns it into the same refusal, not_recoverable, with nothing changed. Only the text of the message differs."
   },
   {
    "name": "recover-field-optional",
@@ -5630,7 +5632,8 @@
      "old": "if (!File.Exists(path) || (File.GetAttributes(path)",
      "new": "if ((File.GetAttributes(path)"
     }
-   ]
+   ],
+   "equivalent": "Without the test for a file that is not there, File.GetAttributes throws a FileNotFoundException, and the catch around the whole first phase (MakePlan) turns it into the same refusal, not_recoverable, with nothing changed. Only the text of the message differs."
   },
   {
    "name": "recover-unreadable-says-damaged",
@@ -5674,7 +5677,8 @@
      "old": "catch (InvalidOperationException error) { throw Refuse(NotRecoverable, \"A field of the journal is not text.\", error); }",
      "new": "catch (InvalidOperationException error) when (false) { throw Refuse(NotRecoverable, \"A field of the journal is not text.\", error); }"
     }
-   ]
+   ],
+   "equivalent": "A lone surrogate makes GetString throw an InvalidOperationException; the catch around the whole first phase (MakePlan) turns it into the same refusal, not_recoverable, with nothing changed. Only the text of the message differs."
   },
   {
    "name": "recover-field-kind-unchecked",
@@ -6338,7 +6342,8 @@
      "old": "string.Equals(relative, InstallTransaction.PendingName, StringComparison.OrdinalIgnoreCase) || ",
      "new": ""
     }
-   ]
+   ],
+   "equivalent": "The marker's own name (.chatmcp-update-pending.json) starts with the prefix of the update folders, so the test of the prefix right after it refuses the marker as well; the clause only says it out loud. The test of an entry that names the marker, in either spelling, is in RecoverHardeningTests and passes with or without the clause."
   },
   {
    "name": "recover-bookkeeping-update-folder",

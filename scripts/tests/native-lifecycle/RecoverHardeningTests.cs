@@ -69,6 +69,17 @@ internal static partial class RecoverTests
             var again = Thrown(() => InstallRecovery.Run(s.Install, (_, _) => { }, s.Program));
             kit.Check(again is RecoveryException { Code: InstallRecovery.ForeignChanges, Touched: false } && Content(s, relative) == "written by the owner while the repair ran", "and run again it refuses at once and changes nothing");
         }
+        // all or nothing: a file that somebody changed BEFORE the repair began is found out by the first phase, before a single file is put back, wherever its turn would have come in the order of putting back
+        // (the second look at a file is for what changes in the meantime, and refuses only when its turn comes)
+        foreach (var (kind, relative) in new[] { ("created", "sub/new.txt"), ("replaced", "a.txt"), ("replaced", "sub/c.txt") })
+        {
+            var s = Copy(kit, 5, "all-or-nothing-" + kind + "-" + relative.Replace('/', '-'));
+            File.WriteAllText(s.At(relative), "edited by somebody else");
+            var before = Snapshot(s.Install);
+            var thrown = Thrown(() => InstallRecovery.Run(s.Install, (_, _) => { }, s.Program));
+            kit.Check(thrown is RecoveryException { Code: InstallRecovery.ForeignChanges, Touched: false } && Snapshot(s.Install) == before,
+                "a file the update " + kind + " (" + relative + ") that somebody changed before the repair began is refused by the first phase, before ANY file is put back: nothing is touched (got " + (thrown is RecoveryException refusal ? refusal.Code + ", touched " + refusal.Touched : thrown?.GetType().Name ?? "no error") + ")");
+        }
         {
             // the other states a file can come to in those minutes are not somebody else's change: already back is let be, gone is put back, and a file the update created that is already gone needs no removal
             var s = Copy(kit, 5, "meanwhile-benign");

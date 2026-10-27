@@ -112,6 +112,7 @@ internal static class ContractTests
         {
             ("a quote at its end", Dir + "\""), ("a quote inside it", @"C:\Users\Test ""User""\ChatMCP"), ("a less-than sign", @"C:\Users\a<b"), ("a pipe", @"C:\Users\a|b"), ("a line feed", "C:\\Users\\a\nb"),
             ("a device path with a question mark", @"\\?\C:\Users\Test User\ChatMCP"), ("a device path with a dot", @"\\.\C:\Users\Test User\ChatMCP"),
+            ("a device path to a share", @"\\?\UNC\server\share\ChatMCP"), ("a device path to a share, the other spelling", @"\\.\UNC\server\share\ChatMCP"),
             ("a stream name", @"C:\Users\Test User\ChatMCP:stream"), ("a second colon", @"C:\Users\Test User:x\ChatMCP"), ("a wildcard", @"C:\Users\Test User\Chat*"), ("a question mark", @"C:\Users\Test User\Chat?"),
         })
             kit.Check(Parsed(new[] { "--quiet", "--recover", "--install-dir", bad }) == null, "a repair of a directory with " + why + " is refused");
