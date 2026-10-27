@@ -47,11 +47,24 @@ export function buildReleaseManifest({ version, commit, installer, workflowRun =
 
 // ------------------------------------------------------------------------------------------------------------------------------- one byte
 
+/**
+ * Opens `file` for reading and writing. A file that was written a moment ago (a download of 220 MB) can be held for a second or two by the virus scanner of the machine, which Windows reports as a sharing
+ * violation (EBUSY, EPERM or EACCES); that is waited out, a few times, and anything else is raised at once.
+ */
+function openForWriting(file, { attempts = 8, waitMs = 500 } = {}) {
+  for (let attempt = 1; ; attempt += 1) {
+    try { return fs.openSync(file, 'r+'); } catch (error) {
+      if (attempt >= attempts || !['EBUSY', 'EPERM', 'EACCES'].includes(error?.code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+    }
+  }
+}
+
 /** Turns every bit of the byte at `offset` of `file`, in place. Calling it twice with the same offset gives the file back; the size never changes. */
 export function flipByte(file, offset) {
   const size = fs.statSync(file).size;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset >= size) throw new RangeError(`The offset ${offset} is not inside the file (${size} bytes).`);
-  const descriptor = fs.openSync(file, 'r+');
+  const descriptor = openForWriting(file);
   try {
     const byte = Buffer.alloc(1);
     if (fs.readSync(descriptor, byte, 0, 1, offset) !== 1) throw new Error('The byte could not be read.');

@@ -374,6 +374,9 @@ async function main() {
   ev.check(!fs.existsSync(paths.shortcuts.desktop), 'the person deletes the Desktop shortcut (the update must not bring it back)');
   const workspaceBefore = (await hub.state()).workspace?.path;
   ev.check(typeof workspaceBefore === 'string' && workspaceBefore.length > 0, 'the Hub has a workspace the person chose', workspaceBefore);
+  // where the staged setup really is, written as Windows spells it, asked BEFORE the click: the Hub that starts after the update removes the folder of updates (its start-up cleanup), so the file is gone by the time
+  // the run looks at what the setup was started from (the first hosted run failed on exactly that: ENOENT on the realpath of a file that had just done its job)
+  const stagedRealPath = fs.realpathSync.native(installerFile).toLowerCase();
   const updateBegan = Date.now();
   const oldShellPid = run.shellPid;
   await run.driver.pressTestId('update-apply');
@@ -410,7 +413,7 @@ async function main() {
   if (installerSeen?.info) {
     const command = String(installerSeen.info.commandLine);
     // compared as Windows spells them (a profile path can be written with 8.3 names in one and in full in the other)
-    ev.check(String(installerSeen.info.path).toLowerCase() === fs.realpathSync.native(installerFile).toLowerCase(), 'and it was started from the staged file that the shell had hashed', `${installerSeen.info.path} vs ${installerFile}`);
+    ev.check(String(installerSeen.info.path).toLowerCase() === stagedRealPath, 'and it was started from the staged file that the shell had hashed', `${installerSeen.info.path} vs ${installerFile}`);
     ev.check(command.includes('--quiet') && command.includes('--update') && command.includes('--install-dir') && command.includes(`--wait-pid ${oldShellPid}`) && command.includes('--relaunch') && command.includes('--result') && command.includes('update-result.json'),
       'with the arguments of the contract (--quiet --update --install-dir --wait-pid <the shell> --relaunch --result <the Hub\'s folder>\\update-result.json)', command);
   }
