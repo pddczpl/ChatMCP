@@ -2307,7 +2307,7 @@
    "patches": [
     {
      "file": "installer/UpdateWords.cs",
-     "old": "\"needs_recovery\" => RecoveryFor(outcome),",
+     "old": "\"needs_recovery\" => RecoveryFor(end),",
      "new": "\"needs_recovery\" => head,"
     }
    ]
@@ -2329,7 +2329,7 @@
    "patches": [
     {
      "file": "installer/UpdateWords.cs",
-     "old": "\"rolled_back\" => head + \" The files that had been replaced were put back. \" + still + (relaunched ? \" It was opened again.\" : \"\"),",
+     "old": "\"rolled_back\" => head + \" The files that had been replaced were put back. \" + still + (end.Relaunched ? \" It was opened again.\" : \"\"),",
      "new": "\"rolled_back\" => head + \" The files that had been replaced were put back. \" + still + \" It was opened again.\","
     }
    ]
@@ -2959,8 +2959,8 @@
    "patches": [
     {
      "file": "installer/UpdateProgressForm.cs",
-     "old": "if (outcome.Ok) { _allowClose = true; Close(); return; }",
-     "new": "if (outcome.Ok) { Close(); return; }"
+     "old": "if (end.Outcome.Ok) { _allowClose = true; Close(); return; }",
+     "new": "if (end.Outcome.Ok) { Close(); return; }"
     }
    ]
   },
@@ -3303,8 +3303,8 @@
    "patches": [
     {
      "file": "installer/UpdateRun.cs",
-     "old": "if (command.ResultFile != null && !HubListens(environment))",
-     "new": "if (command.ResultFile != null)"
+     "old": "if (writeResult && command.ResultFile != null && !HubListens(environment))",
+     "new": "if (writeResult && command.ResultFile != null)"
     }
    ]
   },
@@ -3360,17 +3360,6 @@
      "file": "installer/UpdateWords.cs",
      "old": "return outcome.Reason == \"pending_recovery\"",
      "new": "return false"
-    }
-   ]
-  },
-  {
-   "name": "words-recovery-setup-again",
-   "what": "the words send the person to the setup, which refuses behind the marker",
-   "patches": [
-    {
-     "file": "installer/UpdateWords.cs",
-     "old": "DatGoldSetup.exe will not install again while that file is there. \"",
-     "new": "Run DatGoldSetup.exe again. \""
     }
    ]
   },
@@ -4400,11 +4389,11 @@
   },
   {
    "name": "words-recovery-no-guide",
-   "what": "the words of an update that needs recovery do not name the way out that exists",
+   "what": "the words of a repair that was refused do not name the way out that always exists",
    "patches": [
     {
      "file": "installer/UpdateWords.cs",
-     "old": "\"To put the files back by hand, follow Recovering an installation by hand in docs/WINDOWS-SETUP.md in the DatGold project on GitHub.\";",
+     "old": "\" To put the files back by hand, follow Recovering an installation by hand in docs/WINDOWS-SETUP.md in the DatGold project on GitHub.\";",
      "new": "\"\";"
     }
    ]
@@ -4907,6 +4896,1381 @@
      "file": "native-shared/PageMessage.cs",
      "old": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;",
      "new": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-no-repair-button",
+   "what": "the words of an update that needs repair do not say what to press",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "return what + \" Press Repair now to put the files back from \" + (earlier ? \"its\" : \"the\") + \" backup. \" + keep;",
+     "new": "return what + \" \" + keep;"
+    }
+   ]
+  },
+  {
+   "name": "recover-no-marker-still-acts",
+   "what": "a folder with no marker is read as one that has a marker",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!MarkerExists(directory)) return null;",
+     "new": "if (false) return null;"
+    }
+   ]
+  },
+  {
+   "name": "recover-inside-allowed",
+   "what": "a program that is a file of the installation may run the repair",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (runningProgram != null && Inside(root, runningProgram))",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "recover-inside-without-separator",
+   "what": "a folder whose name only starts like the installation's counts as the installation",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "Path.GetFullPath(path).StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)",
+     "new": "Path.GetFullPath(path).StartsWith(folder, StringComparison.OrdinalIgnoreCase)"
+    }
+   ]
+  },
+  {
+   "name": "recover-inside-case-sensitive",
+   "what": "a program spelled in other letters than the installation is not seen to be inside it",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)",
+     "new": "folder + Path.DirectorySeparatorChar, StringComparison.Ordinal)"
+    }
+   ]
+  },
+  {
+   "name": "recover-size-limit-removed",
+   "what": "a marker or a journal of any size is read",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (new FileInfo(path).Length > limit) throw Refuse(NotRecoverable, \"The \" + what + \" is too large to be one.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-marker-limit-raised",
+   "what": "a marker ten times larger is read",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "private const long MarkerLimit = 4096;",
+     "new": "private const long MarkerLimit = 40960;"
+    }
+   ]
+  },
+  {
+   "name": "recover-journal-limit-raised",
+   "what": "a journal twice as large is read",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "private const long JournalLimit = 128L * 1024 * 1024;",
+     "new": "private const long JournalLimit = 256L * 1024 * 1024;"
+    }
+   ]
+  },
+  {
+   "name": "recover-version-not-checked",
+   "what": "a marker of any version is read",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "|| !version.TryGetInt32(out var format) || format != 1)",
+     "new": ")"
+    }
+   ]
+  },
+  {
+   "name": "recover-version-text-accepted",
+   "what": "a version that is text is not turned away by its kind",
+   "equivalent": "TryGetInt32 throws for a value that is not a number, and the catch below turns that into a marker that is damaged: the same refusal with the same code.",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "version.ValueKind != JsonValueKind.Number || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-folder-name-unchecked",
+   "what": "the backup folder may have any name",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!UpdateFolder.IsMatch(leaf)) throw",
+     "new": "if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "recover-folder-regex-any-length",
+   "what": "a backup folder may have any number of digits",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "^\\.ChatMCP-update-[0-9a-f]{32}\\z",
+     "new": "^\\.ChatMCP-update-[0-9a-f]+\\z"
+    }
+   ]
+  },
+  {
+   "name": "recover-folder-regex-no-start",
+   "what": "a backup folder may have a name before the prefix",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "@\"^\\.ChatMCP-update-[0-9a-f]{32}\\z\"",
+     "new": "@\"\\.ChatMCP-update-[0-9a-f]{32}\\z\""
+    }
+   ]
+  },
+  {
+   "name": "recover-folder-regex-no-end",
+   "what": "a backup folder may have a name after the digits",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "[0-9a-f]{32}\\z\", RegexOptions.CultureInvariant); // exactly",
+     "new": "[0-9a-f]{32}\", RegexOptions.CultureInvariant); // exactly"
+    }
+   ]
+  },
+  {
+   "name": "recover-folder-regex-any-case",
+   "what": "a backup folder may be spelled in other letters",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "RegexOptions.CultureInvariant); // exactly as the transaction names it",
+     "new": "RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); // exactly as the transaction names it"
+    }
+   ]
+  },
+  {
+   "name": "recover-folder-regex-any-character",
+   "what": "a backup folder may end in any 32 characters",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "[0-9a-f]{32}\\z\", RegexOptions.CultureInvariant); // exactly",
+     "new": ".{32}\\z\", RegexOptions.CultureInvariant); // exactly"
+    }
+   ]
+  },
+  {
+   "name": "recover-empty-journal-ok",
+   "what": "a journal that lists nothing is a journal",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": " || journal.RootElement.GetArrayLength() == 0",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-journal-not-a-list-ok",
+   "what": "a journal that is not a list is read as one",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "journal.RootElement.ValueKind != JsonValueKind.Array || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-entry-not-an-object-ok",
+   "what": "an entry of the journal may be anything",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (entry.ValueKind != JsonValueKind.Object) throw Refuse(NotRecoverable, \"An entry of the journal is not an object.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-field-optional",
+   "what": "a field that the journal lacks is read as null",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "return required ? throw Refuse(NotRecoverable, \"A field of the journal is missing.\") : null;",
+     "new": "return null;"
+    }
+   ]
+  },
+  {
+   "name": "recover-hash-shape-unchecked",
+   "what": "a hash may be any text",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (text != null && !Sha256.IsMatch(text)) throw Refuse(NotRecoverable, \"A hash in the journal is not a SHA-256.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-hash-length-unchecked",
+   "what": "a hash may have any number of digits",
+   "equivalent": "A hash that is not 64 digits can never be the SHA-256 of a file, so it is refused a moment later (the backup is \"not the file it was made from\", or the file is \"changed by something else\") - for a hash of the old file with the same code.",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "^[0-9A-Fa-f]{64}\\z",
+     "new": "^[0-9A-Fa-f]+\\z"
+    }
+   ]
+  },
+  {
+   "name": "recover-normalize-skipped",
+   "what": "a file name does not go through the rules of a payload",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "relative = InstallTransaction.Normalize(named);",
+     "new": "relative = named.Replace('\\\\', '/');"
+    }
+   ]
+  },
+  {
+   "name": "recover-safepath-skipped",
+   "what": "a file name is joined to the root without the check for links and for leaving it",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "target = InstallerEngine.SafePath(root, relative);",
+     "new": "target = Path.GetFullPath(Path.Combine(root, relative));"
+    }
+   ]
+  },
+  {
+   "name": "recover-duplicates-allowed",
+   "what": "the journal may name a file twice",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!seen.Add(relative)) throw Refuse(NotRecoverable, \"The journal names a file twice.\");",
+     "new": "seen.Add(relative);"
+    }
+   ]
+  },
+  {
+   "name": "recover-duplicates-case-sensitive",
+   "what": "two spellings of one file are two files",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "new HashSet<string>(StringComparer.OrdinalIgnoreCase)",
+     "new": "new HashSet<string>(StringComparer.Ordinal)"
+    }
+   ]
+  },
+  {
+   "name": "recover-state-folder-ignored",
+   "what": "a file in the data folder of the Hub may be touched",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (stateFolder != null && (string.Equals(target, stateFolder, StringComparison.OrdinalIgnoreCase) || Inside(stateFolder, target)))",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "recover-state-folder-only-itself",
+   "what": "only the data folder itself, not what is in it, is kept out of reach",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": " || Inside(stateFolder, target))",
+     "new": ")"
+    }
+   ]
+  },
+  {
+   "name": "recover-unchanged-entry-removed",
+   "what": "a file that the update did not change is read as one it created, and removed",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (oldHash != null)\n                {",
+     "new": "if (false)\n                {"
+    }
+   ]
+  },
+  {
+   "name": "recover-unchanged-shape-unchecked",
+   "what": "an old hash with no backup and another new hash is read as a file that did not change",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!Same(oldHash, newHash)) throw Refuse(NotRecoverable, \"An entry of the journal has no backup of a file that changed.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-nothing-entry-acted-on",
+   "what": "an entry that changes nothing is looked at as a file the update created",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (newHash == null) continue; // an entry that changes nothing",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-created-folder-unchecked",
+   "what": "a folder where the update created a file is not refused",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (Directory.Exists(target)) throw Refuse(NotRecoverable, \"A file the update created is a folder on the disk.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-created-gone-refused",
+   "what": "a file the update has not created yet (or that is gone) is refused",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!File.Exists(target)) continue; // already gone",
+     "new": "if (!File.Exists(target)) throw Refuse(NotRecoverable, \"x\");"
+    }
+   ]
+  },
+  {
+   "name": "recover-created-foreign-removed",
+   "what": "a file the update created is removed whatever it holds now",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!Same(ReadHash(target, \"a file the update created\"), newHash)) throw Refuse(ForeignChanges, \"A file the update created was changed after the update began.\");",
+     "new": "ReadHash(target, \"a file the update created\");"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-shape-unchecked",
+   "what": "a backup of a file that the update was not to change is accepted",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (oldHash == null || Same(oldHash, newHash)) throw Refuse(NotRecoverable, \"An entry of the journal has a backup it cannot have.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-name-unchecked",
+   "what": "a backup may have any name and be in any folder",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!BackupName.IsMatch(backupName) || !string.Equals(backupFolder, \"old\", StringComparison.OrdinalIgnoreCase)) throw",
+     "new": "if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-regex-any-length",
+   "what": "a backup may have any number of digits",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "^[0-9]{6}\\z",
+     "new": "^[0-9]+\\z"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-regex-any-character",
+   "what": "a backup may be named with any six characters",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "^[0-9]{6}\\z",
+     "new": "^.{6}\\z"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-regex-no-end",
+   "what": "a backup may have characters after the six digits",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "^[0-9]{6}\\z",
+     "new": "^[0-9]{6}"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-folder-unchecked",
+   "what": "a backup may be in any folder of the update",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": " || !string.Equals(backupFolder, \"old\", StringComparison.OrdinalIgnoreCase)) throw",
+     "new": ") throw"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-folder-prefix",
+   "what": "a backup may be in a folder whose name starts with old",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "!string.Equals(backupFolder, \"old\", StringComparison.OrdinalIgnoreCase)",
+     "new": "!backupFolder.StartsWith(\"old\", StringComparison.OrdinalIgnoreCase)"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-path-unchecked",
+   "what": "the folder of backups is joined without the check for links",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "backupPath = InstallerEngine.SafePath(root, Path.GetFileName(workspace) + \"/old/\" + backupName);",
+     "new": "backupPath = Path.Combine(workspace, \"old\", backupName);"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-missing-unchecked",
+   "what": "a backup that is not there is found out only when it is read",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!File.Exists(backupPath)) throw Refuse(NotRecoverable, \"A backup of the update is missing.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-hash-unchecked",
+   "what": "a backup is used whatever it holds",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!Same(ReadHash(backupPath, \"a backup of the update\"), oldHash)) throw Refuse(NotRecoverable, \"A backup of the update is not the file it was made from.\");",
+     "new": "ReadHash(backupPath, \"a backup of the update\");"
+    }
+   ]
+  },
+  {
+   "name": "recover-replaced-folder-unchecked",
+   "what": "a folder where the update replaced a file is not refused",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (Directory.Exists(target)) throw Refuse(NotRecoverable, \"A file the update replaced is a folder on the disk.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-replaced-foreign-put-back",
+   "what": "a file the update replaced is put back over what somebody else wrote",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!Same(current, newHash)) throw Refuse(ForeignChanges, \"A file of the installation was changed after the update began.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-already-back-not-skipped",
+   "what": "a file that is already back is judged like one that was replaced",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (Same(current, oldHash)) continue; // already back",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-missing-target-hashed",
+   "what": "a file that is not there is hashed",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (File.Exists(target))",
+     "new": "if (true)"
+    }
+   ]
+  },
+  {
+   "name": "recover-forward-order",
+   "what": "the files are put back first change first",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "foreach (var step in plan.Steps.Reverse())",
+     "new": "foreach (var step in plan.Steps)"
+    }
+   ]
+  },
+  {
+   "name": "recover-created-file-kept",
+   "what": "a file the update created is not removed",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (step.Backup == null) File.Delete(target);",
+     "new": "if (step.Backup == null) { }"
+    }
+   ]
+  },
+  {
+   "name": "recover-folder-not-made",
+   "what": "the folder of a file that is put back is not made",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "Directory.CreateDirectory(Path.GetDirectoryName(target)!);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-copy-not-flushed",
+   "what": "a file that is put back is not flushed to the disk before the marker goes",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (output is FileStream file) file.Flush(true);",
+     "new": "if (output is FileStream file) { }"
+    }
+   ]
+  },
+  {
+   "name": "recover-copy-unchecked",
+   "what": "a file is not looked at again after it was put back",
+   "equivalent": "The copy is made from a backup whose hash was checked in the first phase; this look catches only a copy that goes wrong on the disk, which no test can make happen.",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!Same(HashOf(target), step.Hash)) throw new IOException(\"A file was not put back as it was.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-marker-first",
+   "what": "the marker goes before the files are put back",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "var done = 0;",
+     "new": "var done = 0; File.Delete(plan.Marker);"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-first",
+   "what": "the backup goes before the marker",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "File.Delete(plan.Marker);\n            progress(97",
+     "new": "try { RemoveWorkspace(plan.Workspace); } catch (IOException) { }\n            File.Delete(plan.Marker);\n            progress(97"
+    }
+   ]
+  },
+  {
+   "name": "recover-marker-kept",
+   "what": "the marker is not removed",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "File.Delete(plan.Marker);\n            progress(97",
+     "new": "progress(97"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-kept",
+   "what": "the backup is not removed",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "try { RemoveWorkspace(plan.Workspace); }",
+     "new": "try { }"
+    }
+   ]
+  },
+  {
+   "name": "recover-backup-removal-fails-the-repair",
+   "what": "a backup that cannot be removed fails a repair that is over",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* the folder only takes up disk space; nothing points to it any more */ }",
+     "new": "catch (Exception) { throw; }"
+    }
+   ]
+  },
+  {
+   "name": "recover-stop-not-touched",
+   "what": "a stop in the middle says that no file was touched",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "touched: true, inner: error)",
+     "new": "touched: false, inner: error)"
+    }
+   ]
+  },
+  {
+   "name": "recover-refusal-touched",
+   "what": "a refusal says that a file was touched",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "new(code, message, touched: false, inner);",
+     "new": "new(code, message, touched: true, inner);"
+    }
+   ]
+  },
+  {
+   "name": "recover-errors-not-wrapped",
+   "what": "an error in the middle of the repair leaves it as it is",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "catch (Exception error) { throw new RecoveryException(RestoreFailed,",
+     "new": "catch (Exception error) when (false) { throw new RecoveryException(RestoreFailed,"
+    }
+   ]
+  },
+  {
+   "name": "recover-nothing-says-repaired",
+   "what": "no marker is said to be a repair",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (plan == null) return RecoveryResult.NothingToRepair;",
+     "new": "if (plan == null) return RecoveryResult.Repaired;"
+    }
+   ]
+  },
+  {
+   "name": "recover-checking-not-reported",
+   "what": "the first step is not reported",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "progress(10, \"Checking the backup of the update...\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-end-not-reported",
+   "what": "the last step is not reported",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "progress(100, \"DatGold was put back as it was before the update.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-link-read-through",
+   "what": "a marker or a journal that is a link is read through",
+   "needs": [
+    "symlink"
+   ],
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "|| (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw Refuse(NotRecoverable, \"The \" + what + \" is missing.\");",
+     "new": ") throw Refuse(NotRecoverable, \"The \" + what + \" is missing.\");"
+    }
+   ],
+   "equivalent": "SafePath already refuses a marker or a journal that is a link (it looks at every part of the path, the file included) before this reader sees it, so the same refusal with the same code comes from there; the test of a linked journal is made where a link can be made, and the mutation is N/A where it cannot."
+  },
+  {
+   "name": "recover-missing-file-not-checked",
+   "what": "a journal that is not there is found out by an exception of the file system",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!File.Exists(path) || (File.GetAttributes(path)",
+     "new": "if ((File.GetAttributes(path)"
+    }
+   ]
+  },
+  {
+   "name": "recover-unreadable-says-damaged",
+   "what": "a journal that another program holds open is said to be damaged",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "throw Refuse(RestoreFailed, \"The \" + what + \" cannot be read.\", error);",
+     "new": "throw Refuse(NotRecoverable, \"The \" + what + \" cannot be read.\", error);"
+    }
+   ]
+  },
+  {
+   "name": "recover-json-error-says-open",
+   "what": "a journal that is not JSON is said to be held open",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "throw Refuse(NotRecoverable, \"The \" + what + \" is not JSON.\", error);",
+     "new": "throw Refuse(RestoreFailed, \"The \" + what + \" is not JSON.\", error);"
+    }
+   ]
+  },
+  {
+   "name": "recover-held-open-says-damaged",
+   "what": "a file that another program holds open is said to be damaged",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "throw Refuse(RestoreFailed, \"A file is held open by another program: \" + what + \".\", error);",
+     "new": "throw Refuse(NotRecoverable, \"A file is held open by another program: \" + what + \".\", error);"
+    }
+   ]
+  },
+  {
+   "name": "recover-surrogate-uncaught",
+   "what": "a lone surrogate in the journal escapes as an exception of .NET",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "catch (InvalidOperationException error) { throw Refuse(NotRecoverable, \"A field of the journal is not text.\", error); }",
+     "new": "catch (InvalidOperationException error) when (false) { throw Refuse(NotRecoverable, \"A field of the journal is not text.\", error); }"
+    }
+   ]
+  },
+  {
+   "name": "recover-field-kind-unchecked",
+   "what": "a field that is not text is not turned away by its kind",
+   "equivalent": "GetString throws for a value that is not a string and the catch below turns that into the same refusal with the same code.",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (value.ValueKind != JsonValueKind.String) throw Refuse(NotRecoverable, \"A field of the journal is not text.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-marker-damage-uncaught",
+   "what": "a damaged marker escapes as an exception of .NET",
+   "equivalent": "TextOf turns a value .NET cannot read into the same refusal itself, and the checks before it keep every other shape of marker from reaching a call that throws.",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "catch (InvalidOperationException error) { throw Refuse(NotRecoverable, \"The marker of the update is damaged.\", error); }",
+     "new": "catch (InvalidOperationException error) when (false) { throw Refuse(NotRecoverable, \"The marker of the update is damaged.\", error); }"
+    }
+   ]
+  },
+  {
+   "name": "recover-workspace-link-followed",
+   "what": "the backup folder is joined to the root without the check for links",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "workspace = InstallerEngine.SafePath(root, leaf);",
+     "new": "workspace = Path.Combine(root, leaf);"
+    }
+   ],
+   "equivalent": "The path of the journal below the backup folder is checked with SafePath, whose check covers every folder on the way to it, the backup folder included, so a backup folder that is a link is refused there with the same code."
+  },
+  {
+   "name": "engine-recover-no-lock",
+   "what": "the repair does not take the lock that an install takes",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "targetDir = NormalizeInstallDirectory(targetDir);\n            using var updateLock = HubLifecycle.AcquireUpdateLock(targetDir);\n            try\n            {\n                if (!InstallRecovery.MarkerExists(targetDir))",
+     "new": "targetDir = NormalizeInstallDirectory(targetDir);\n            using var updateLock = new Mutex(false);\n            try\n            {\n                if (!InstallRecovery.MarkerExists(targetDir))"
+    }
+   ]
+  },
+  {
+   "name": "engine-recover-marker-unchecked",
+   "what": "the engine does not look for the marker before it asks about a Hub",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!InstallRecovery.MarkerExists(targetDir)) return RecoveryResult.NothingToRepair;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "engine-recover-check-after-stop",
+   "what": "the Hub is stopped before the repair is decided",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "InstallRecovery.Check(targetDir);\n                    Say(5, \"Checking tasks and stopping the installed Hub...\");\n                    HubLifecycle.StopInstalledHub(targetDir).GetAwaiter().GetResult();",
+     "new": "Say(5, \"Checking tasks and stopping the installed Hub...\");\n                    HubLifecycle.StopInstalledHub(targetDir).GetAwaiter().GetResult();\n                    InstallRecovery.Check(targetDir);"
+    }
+   ]
+  },
+  {
+   "name": "engine-recover-no-check",
+   "what": "the repair is not decided before the Hub is stopped",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "InstallRecovery.Check(targetDir);\n                    Say(5",
+     "new": "Say(5"
+    }
+   ]
+  },
+  {
+   "name": "engine-recover-window-left-open",
+   "what": "the window of the app is not asked to close",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "CloseRunningProcesses(targetDir);\n                    return InstallRecovery.Run(targetDir, Say);",
+     "new": "return InstallRecovery.Run(targetDir, Say);"
+    }
+   ]
+  },
+  {
+   "name": "repair-pause-removed",
+   "what": "the repair does not wait",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { environment.Pause(RepairPause); }",
+     "new": "try { }"
+    }
+   ]
+  },
+  {
+   "name": "repair-pause-longer",
+   "what": "the repair waits ten times longer",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "RepairPause = TimeSpan.FromSeconds(3);",
+     "new": "RepairPause = TimeSpan.FromSeconds(30);"
+    }
+   ]
+  },
+  {
+   "name": "repair-for-an-earlier-marker",
+   "what": "the marker of an earlier update is repaired unasked",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (outcome.State == \"needs_recovery\" && outcome.Reason != \"pending_recovery\")",
+     "new": "if (outcome.State == \"needs_recovery\")"
+    }
+   ]
+  },
+  {
+   "name": "repair-for-every-failure",
+   "what": "every failed update is repaired",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (outcome.State == \"needs_recovery\" && outcome.Reason != \"pending_recovery\")",
+     "new": "if (outcome.State != \"installed\")"
+    }
+   ]
+  },
+  {
+   "name": "repair-never-by-itself",
+   "what": "an update never repairs itself",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (outcome.State == \"needs_recovery\" && outcome.Reason != \"pending_recovery\")",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "repair-previous-not-read-again",
+   "what": "the version that is back is the one read before the update",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "now?.ToString() ?? failed.Previous",
+     "new": "failed.Previous"
+    }
+   ]
+  },
+  {
+   "name": "repair-state-wrong",
+   "what": "a repaired installation is said not to have been touched",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "new UpdateOutcome(false, failed.Version, now?.ToString() ?? failed.Previous, \"rolled_back\", failed.Reason)",
+     "new": "new UpdateOutcome(false, failed.Version, now?.ToString() ?? failed.Previous, \"unchanged\", failed.Reason)"
+    }
+   ]
+  },
+  {
+   "name": "repair-reason-lost",
+   "what": "the reason the update failed for is dropped from a repaired outcome",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "\"rolled_back\", failed.Reason)",
+     "new": "\"rolled_back\", null)"
+    }
+   ]
+  },
+  {
+   "name": "repair-says-ok",
+   "what": "a repaired installation is said to have the new version",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "new UpdateOutcome(false, failed.Version, now?.ToString()",
+     "new": "new UpdateOutcome(true, failed.Version, now?.ToString()"
+    }
+   ]
+  },
+  {
+   "name": "repair-refusal-from-text",
+   "what": "the reason a repair was refused is the text of the exception",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "error is RecoveryException refused ? refused.Code : StepCode.Of(error)",
+     "new": "error is RecoveryException refused ? error.Message : StepCode.Of(error)"
+    }
+   ]
+  },
+  {
+   "name": "repair-refusal-any-code",
+   "what": "a code that is on no list is passed on as the reason",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "StepCode.Of(error) is { } code && StepCode.IsKnown(code) ? code : InstallRecovery.RestoreFailed",
+     "new": "StepCode.Of(error) is { } code ? code : InstallRecovery.RestoreFailed"
+    }
+   ]
+  },
+  {
+   "name": "repair-refusal-default",
+   "what": "a failure nobody foresaw is said to be an install that failed",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": ": InstallRecovery.RestoreFailed;",
+     "new": ": \"install_failed\";"
+    }
+   ]
+  },
+  {
+   "name": "repair-asked-writes-when-refused",
+   "what": "a repair that was asked for and refused rewrites the result file",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "writeResult: attempt.Repaired);",
+     "new": "writeResult: true);"
+    }
+   ]
+  },
+  {
+   "name": "repair-asked-never-writes",
+   "what": "a repair that was asked for and worked leaves the result file as it was",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "writeResult: attempt.Repaired);",
+     "new": "writeResult: false);"
+    }
+   ]
+  },
+  {
+   "name": "repair-previous-throws",
+   "what": "an installed version that cannot be read fails the repair",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { now = environment.InstalledVersion(directory); } catch (Exception) { /* unknown: the version from before stays */ }",
+     "new": "now = environment.InstalledVersion(directory);"
+    }
+   ]
+  },
+  {
+   "name": "words-repaired-not-said",
+   "what": "a repaired installation is told like a failed one",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "if (end.Repaired) return RepairedFor(end);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "words-repaired-earlier-not-told",
+   "what": "the marker of an earlier update is told as this update stopping halfway",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "return outcome.Reason == \"pending_recovery\"\n            ? \"An earlier update of DatGold had stopped halfway.",
+     "new": "return false\n            ? \"An earlier update of DatGold had stopped halfway."
+    }
+   ]
+  },
+  {
+   "name": "words-repaired-opened-always",
+   "what": "a repaired installation is said to have been opened again whatever happened",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "var opened = end.Relaunched ? \" It was opened again.\" : \"\";",
+     "new": "var opened = \" It was opened again.\";"
+    }
+   ]
+  },
+  {
+   "name": "words-repaired-version-lost",
+   "what": "a repaired installation does not say which version works again",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "var back = outcome.Previous == null ? \"DatGold\" : \"DatGold \" + outcome.Previous;",
+     "new": "var back = \"DatGold\";"
+    }
+   ]
+  },
+  {
+   "name": "words-earlier-not-told",
+   "what": "the marker of an earlier update is told as this update stopping halfway",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "var earlier = outcome.Reason == \"pending_recovery\";",
+     "new": "var earlier = false;"
+    }
+   ]
+  },
+  {
+   "name": "words-refusal-not-told",
+   "what": "a repair that was refused does not say why",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "DatGold tried to repair it and could not: \" + RefusalFor(end.RepairRefusal) + \" Press",
+     "new": "DatGold tried to repair it and could not. Press"
+    }
+   ]
+  },
+  {
+   "name": "words-title-never-repaired",
+   "what": "the window never says that DatGold was repaired",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "end.Repaired ? \"DatGold was repaired\" :",
+     "new": "false ? \"DatGold was repaired\" :"
+    }
+   ]
+  },
+  {
+   "name": "words-title-needs-repair-lost",
+   "what": "the window never says that DatGold needs to be repaired",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "end.Outcome.State == \"needs_recovery\" ? \"DatGold needs to be repaired\"",
+     "new": "false ? \"DatGold needs to be repaired\""
+    }
+   ]
+  },
+  {
+   "name": "words-refusal-step-codes",
+   "what": "the reasons of the steps before the repair are said as a file that could not be put back",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "var known when StepCode.IsKnown(known) => ReasonFor(known),",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "words-refusal-foreign",
+   "what": "a file changed by something else is said as a damaged backup",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "InstallRecovery.ForeignChanges => \"A file of DatGold was changed by something else after the update began.\",",
+     "new": "InstallRecovery.ForeignChanges => \"The backup of the update is missing or damaged.\","
+    }
+   ]
+  },
+  {
+   "name": "words-repair-failure-touched",
+   "what": "a repair that stopped halfway is said to have been refused",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "(stopped.Touched ? \"The repair stopped halfway and can be run again: \" : \"The repair was refused and nothing was changed: \")",
+     "new": "(!stopped.Touched ? \"The repair stopped halfway and can be run again: \" : \"The repair was refused and nothing was changed: \")"
+    }
+   ]
+  },
+  {
+   "name": "words-repair-failure-by-hand",
+   "what": "a refused repair does not name the way out by hand",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "+ RefusalFor(stopped.Code) + ByHand",
+     "new": "+ RefusalFor(stopped.Code)"
+    }
+   ]
+  },
+  {
+   "name": "words-repair-failure-other",
+   "what": "any other failure of the repair form hides what it says",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": ": error.Message;",
+     "new": ": \"The repair failed.\";"
+    }
+   ]
+  },
+  {
+   "name": "parse-recover-length",
+   "what": "the repair form takes more than its four arguments",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (uninstall || args.Length != 4 ||",
+     "new": "if (uninstall || args.Length < 4 ||"
+    }
+   ]
+  },
+  {
+   "name": "parse-recover-quiet-optional",
+   "what": "the repair form runs without --quiet",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": " || !Array.Exists(args, arg => arg == \"--quiet\") || directory < 0",
+     "new": " || directory < 0"
+    }
+   ]
+  },
+  {
+   "name": "parse-recover-uninstaller",
+   "what": "the uninstaller's own file may ask for the repair",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "if (uninstall || args.Length != 4",
+     "new": "if (args.Length != 4"
+    }
+   ]
+  },
+  {
+   "name": "parse-recover-relative-directory",
+   "what": "the repair form takes a directory that is not a full path",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": " || !Path.IsPathFullyQualified(args[directory + 1])) throw new ArgumentException(RecoverUsage);",
+     "new": ") throw new ArgumentException(RecoverUsage);"
+    }
+   ]
+  },
+  {
+   "name": "parse-recover-directory-bounds",
+   "what": "the repair form reads past the end of its arguments",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": " || directory + 1 >= args.Length",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "parse-recover-mode",
+   "what": "the repair form is read as an install",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "return new InstallerCommand(InstallerMode.Recover, args[directory + 1]);",
+     "new": "return new InstallerCommand(InstallerMode.QuietInstall, args[directory + 1]);"
+    }
+   ]
+  },
+  {
+   "name": "parse-recover-usage",
+   "what": "the repair form refuses with the usage of another form",
+   "patches": [
+    {
+     "file": "native-shared/UpdateContract.cs",
+     "old": "private const string RecoverUsage = \"Use DatGoldSetup.exe --quiet --recover --install-dir <absolute directory>.\";",
+     "new": "private const string RecoverUsage = \"Use DatGoldSetup.exe --quiet --install-dir <absolute directory>.\";"
+    }
+   ]
+  },
+  {
+   "name": "gate-repair-button-for-every-failure",
+   "what": "Repair now is offered for every failure",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "if (end.Outcome.State == \"needs_recovery\" && !end.Repaired)",
+     "new": "if (true)"
+    }
+   ]
+  },
+  {
+   "name": "gate-repair-keeps-the-buttons",
+   "what": "the buttons stay on the window while a repair runs",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "private void StartRepair(UpdateEnd end, Func<UpdateOutcome, UpdateEnd> repair)\n        {\n            // back to working: nothing to press until the repair is over\n            RemoveButtons();",
+     "new": "private void StartRepair(UpdateEnd end, Func<UpdateOutcome, UpdateEnd> repair)\n        {\n            // back to working: nothing to press until the repair is over"
+    }
+   ]
+  },
+  {
+   "name": "gate-repair-lets-the-window-go",
+   "what": "starting a repair lets the person close the window",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/UpdateProgressForm.cs",
+     "old": "AcceptButton = null;\n            _title.Text = \"Repairing DatGold\";",
+     "new": "AcceptButton = null; _allowClose = true;\n            _title.Text = \"Repairing DatGold\";"
+    }
+   ]
+  },
+  {
+   "name": "gate-launcher-marker-after-versions",
+   "what": "the launcher compares versions before it looks for the marker",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.cs",
+     "old": "if (File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")))\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway",
+     "new": "if (File.Exists(Path.Combine(_repoRoot, \"CHATMCP-HUB\", \"package.json\")) && File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")) && false)\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway"
+    }
+   ]
+  },
+  {
+   "name": "gate-launcher-says-nothing-to-run",
+   "what": "the launcher does not say what to run",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.cs",
+     "old": "Close this window and run DatGoldSetup.exe: it offers to repair the installation (or run DatGoldSetup.exe --quiet --recover --install-dir \\\"\" + _repoRoot + \"\\\").",
+     "new": "Close this window and look at the installer log."
+    }
+   ]
+  },
+  {
+   "name": "gate-setup-never-recovers",
+   "what": "the repair form does nothing",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/Program.cs",
+     "old": "Environment.ExitCode = RunRecover(command);",
+     "new": "Environment.ExitCode = 0;"
+    }
+   ]
+  },
+  {
+   "name": "gate-update-never-repairs-by-click",
+   "what": "the button of the window repairs nothing",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/Program.cs",
+     "old": "var next = UpdateRun.RepairNow(command, environment, failed, (_, status) => form.Report(status));",
+     "new": "var next = new UpdateEnd(failed, false, false, null);"
+    }
+   ]
+  },
+  {
+   "name": "recover-act-trusts-the-plan",
+   "what": "a name is not checked again right before its file is written, so a link put in its way since the first phase is written through",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "var target = InstallerEngine.SafePath(plan.Root, step.Relative);",
+     "new": "var target = Path.Combine(plan.Root, step.Relative);"
+    }
+   ]
+  },
+  {
+   "name": "repair-waiting-not-said",
+   "what": "the window is not told what the pause before the repair is for",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "progress(0, UpdateWords.WaitingToRepair);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "recover-copy-hash-unchecked",
+   "what": "a backup that changed since the first phase is copied over the file whatever it holds now",
+   "patches": [
+    {
+     "file": "installer/InstallRecovery.cs",
+     "old": "if (!Same(Convert.ToHexString(copied.GetHashAndReset()), step.Hash)) throw new IOException(\"A backup changed while the repair ran.\");",
+     "new": ""
     }
    ]
   }

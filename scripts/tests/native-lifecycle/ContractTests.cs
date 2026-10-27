@@ -69,6 +69,32 @@ internal static class ContractTests
         kit.Check(Parsed(new[] { "--quiet", "--update", "--install-dir", Dir }, "Uninstall") == null && Parsed(new[] { "--quiet", "--update", "--install-dir", Dir }, "uninstall-copy") == null, "an update asked of the uninstaller's own file (Uninstall.exe) is refused, whatever the arguments");
         kit.Check(Parsed(new[] { "--QUIET", "--UPDATE", "--INSTALL-DIR", Dir })?.Mode == InstallerMode.Wizard, "flags in capitals are not flags of the update: the wizard opens, as it does for any arguments it does not know");
 
+        // ---- the repair: one explicit form, exactly these four arguments (vector 2, literal; when it has to change a third vector is added). It is for a person or a script that wants an installation put back after an
+        // update that stopped halfway. It never falls through to the wizard, takes nothing an update takes, and is not run by the uninstaller's own file (that is a file of the installation, and the journal lists it).
+        string[] vector2 = { "--quiet", "--recover", "--install-dir", Dir };
+        kit.Check(Parsed(vector2) is { Mode: InstallerMode.Recover, InstallDir: Dir, WaitPid: null, Relaunch: false, ResultFile: null }, "the repair is asked for with exactly: " + Show(vector2));
+        kit.Check(Parsed(new[] { "--install-dir", Dir, "--recover", "--quiet" }) is { Mode: InstallerMode.Recover, InstallDir: Dir }, "and the order of the parts does not matter");
+        var refusedRepairs = new (string Why, string[] Args)[]
+        {
+            ("no --quiet", new[] { "--recover", "--install-dir", Dir }), ("--recover alone", new[] { "--recover" }), ("no directory", new[] { "--quiet", "--recover" }), ("a relative directory", new[] { "--quiet", "--recover", "--install-dir", "ChatMCP" }),
+            ("a directory with no value", new[] { "--quiet", "--recover", "--install-dir" }), ("a directory whose value is another flag", new[] { "--quiet", "--recover", "--install-dir", "--quiet" }),
+            ("a repeated --recover", new[] { "--quiet", "--recover", "--recover", "--install-dir", Dir }), ("a repeated --install-dir", new[] { "--quiet", "--recover", "--install-dir", Dir, "--install-dir", Dir }),
+            ("--relaunch", new[] { "--quiet", "--recover", "--install-dir", Dir, "--relaunch" }), ("--wait-pid", new[] { "--quiet", "--recover", "--install-dir", Dir, "--wait-pid", "5" }),
+            ("--result", new[] { "--quiet", "--recover", "--install-dir", Dir, "--result", Result }), ("--update", new[] { "--quiet", "--update", "--recover", "--install-dir", Dir }),
+            ("--uninstall", new[] { "--quiet", "--recover", "--uninstall", "--install-dir", Dir }), ("a flag it does not know", new[] { "--quiet", "--recover", "--install-dir", Dir, "--force" }),
+            ("a word that is not a flag", new[] { "--quiet", "--recover", "--install-dir", Dir, "now" }), ("the directory missing and a word in its place", new[] { "--quiet", "--recover", "--install-dir", "x", "y" }),
+            ("four arguments but a word where --quiet should be", new[] { "--recover", "--install-dir", Dir, "now" }), ("four arguments and --install-dir last, with no value after it", new[] { "--quiet", "--recover", "extra", "--install-dir" }),
+        };
+        foreach (var (why, args) in refusedRepairs) kit.Check(Parsed(args) == null, "a repair with " + why + " is refused");
+        kit.Check(Parsed(vector2, "Uninstall") == null && Parsed(vector2, "uninstall-copy") == null, "a repair asked of the uninstaller's own file (Uninstall.exe) is refused");
+        kit.Check(Parsed(new[] { "--QUIET", "--RECOVER", "--INSTALL-DIR", Dir })?.Mode == InstallerMode.Wizard, "flags in capitals are not flags of the repair: the wizard opens, as it does for any arguments it does not know");
+        {
+            string? text = null;
+            try { InstallerCommandLine.Parse(new[] { "--quiet", "--recover" }, "DatGoldSetup"); } catch (ArgumentException error) { text = error.Message; }
+            kit.Check(text == "Use DatGoldSetup.exe --quiet --recover --install-dir <absolute directory>.", "and the refusal says what the form is");
+        }
+        kit.Check(Parsed(new[] { "--quiet", "--install-dir", Dir }) is { Mode: InstallerMode.QuietInstall } && Parsed(new[] { "--quiet", "--update", "--install-dir", Dir }) is { Mode: InstallerMode.Update }, "while the install and the update forms read the way they did");
+
         // ---- the result file the installer leaves for the Hub of whichever version runs afterwards (format 1). Literal text, one line, in this order.
         var cases = new (string Name, UpdateOutcome Outcome, string Text)[]
         {

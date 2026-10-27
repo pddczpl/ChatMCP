@@ -235,6 +235,44 @@ namespace ChatMCP.Installer
             transaction.Commit(reportProgress);
         }
 
+        /// <summary>
+        /// Puts an installation back that an update left behind its marker (see <see cref="InstallRecovery"/>), under the same lock as an install and an uninstall, with the same care for a Hub that does work and for the
+        /// window of the app. Nothing is looked at, stopped or written when there is no marker (an installation that is whole keeps its Hub), and a repair that would be refused is refused BEFORE anything is stopped
+        /// (a refusal changes nothing, not even a Hub that somebody started by hand). Throws <see cref="RecoveryException"/> for the repair's own refusals and the tagged exceptions of the steps before it.
+        /// </summary>
+        internal static RecoveryResult Recover(string targetDir, Action<int, string> reportProgress)
+        {
+            targetDir = NormalizeInstallDirectory(targetDir);
+            using var updateLock = HubLifecycle.AcquireUpdateLock(targetDir);
+            try
+            {
+                if (!InstallRecovery.MarkerExists(targetDir)) return RecoveryResult.NothingToRepair;
+                var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChatMCP", "logs");
+                Directory.CreateDirectory(logs);
+                var log = Path.Combine(logs, "recover-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".log");
+                File.WriteAllText(log, "DatGold installer " + AppVersion + " began a repair " + DateTime.UtcNow.ToString("O") + Environment.NewLine);
+                void Say(int percent, string status)
+                {
+                    File.AppendAllText(log, percent + " " + status + Environment.NewLine);
+                    reportProgress(percent, status);
+                }
+                try
+                {
+                    InstallRecovery.Check(targetDir);
+                    Say(5, "Checking tasks and stopping the installed Hub...");
+                    HubLifecycle.StopInstalledHub(targetDir).GetAwaiter().GetResult();
+                    CloseRunningProcesses(targetDir);
+                    return InstallRecovery.Run(targetDir, Say);
+                }
+                catch (Exception error)
+                {
+                    File.AppendAllText(log, "FAILED " + error.GetType().Name + (error is RecoveryException refused ? " " + refused.Code : "") + Environment.NewLine);
+                    throw;
+                }
+            }
+            finally { updateLock.ReleaseMutex(); }
+        }
+
         /// <summary>The shortcuts the wizard asks for, under the DatGold names: the Desktop link, and the Start menu folder with the launcher and the uninstaller.</summary>
         internal static void CreateShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, bool createDesktop, bool createStartMenu) =>
             CreateShortcuts(installDir, iconPath, desktopDir, programsDir, ShortcutPlan.From(createDesktop, createStartMenu));
@@ -397,7 +435,7 @@ namespace ChatMCP.Installer
             try
             {
             if (File.Exists(SafePath(installDir, InstallTransaction.PendingName)))
-                throw new IOException("An interrupted update must be recovered before uninstalling.");
+                throw new IOException("An update that stopped halfway has to be repaired before uninstalling. Run DatGoldSetup.exe: it offers to put the files back. Nothing was removed.");
             reportProgress(10, "Checking tasks and stopping the installed Hub...");
             HubLifecycle.StopInstalledHub(installDir).GetAwaiter().GetResult();
             CloseRunningProcesses(installDir);

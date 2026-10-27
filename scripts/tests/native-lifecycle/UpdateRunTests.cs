@@ -34,6 +34,12 @@ internal static class UpdateRunTests
         internal ShortcutPlan Shortcuts = new(true, true, false);
         internal Action<ShortcutPlan, Action<int, string>>? Install;
         internal Action? OnRelaunch;
+        /// <summary>The repair: what it answers (or throws) and what it does to the pretend disk when it runs (the marker goes, the old version is back). By default the pretend machine has nothing to repair from, so
+        /// a test that is not about the repair sees an installation that stays as it is; the tests of the repair set <see cref="RecoverThrows"/> to null.</summary>
+        internal RecoveryResult RecoverResult = RecoveryResult.Repaired;
+        internal Exception? RecoverThrows = new RecoveryException(InstallRecovery.NotRecoverable, "the pretend machine has no backup");
+        internal Action? OnRecover;
+        internal TimeSpan? Paused;
         internal int? WaitedPid; internal string? WaitedImage; internal TimeSpan? WaitedLimit; internal ShortcutPlan? InstalledWith; internal bool InstalledThrows;
         internal UpdateOutcome? Written; internal string? WrittenTo; internal string? Relaunched;
         internal List<string> Progress = new();
@@ -51,8 +57,12 @@ internal static class UpdateRunTests
             Relaunch = exe => { Events.Add("relaunch"); Relaunched = exe; OnRelaunch?.Invoke(); },
             WriteResult = (path, outcome) => { Events.Add("write-result"); if (WriteThrows) throw new IOException("disk"); Written = outcome; WrittenTo = path; return WriteWorks; },
             HubIsRunning = () => { Events.Add("hub-running"); if (HubCheckThrows) throw new IOException("table"); return HubRunning; },
+            Recover = (dir, progress) => { Events.Add("recover"); progress(50, "repairing"); if (RecoverThrows != null) throw RecoverThrows; OnRecover?.Invoke(); return RecoverResult; },
+            Pause = span => { Events.Add("pause"); Paused = span; },
         };
 
+        internal UpdateEnd RunToEnd(InstallerCommand command) => UpdateRun.RunToEnd(command, Environment(), (percent, text) => Progress.Add(percent + " " + text));
+        internal UpdateEnd RepairNow(InstallerCommand command, UpdateOutcome failed) => UpdateRun.RepairNow(command, Environment(), failed, (percent, text) => Progress.Add(percent + " " + text));
         internal UpdateOutcome Run(InstallerCommand command) => UpdateRun.Run(command, Environment(), (percent, text) => Progress.Add(percent + " " + text));
         internal UpdateOutcome Run(InstallerCommand command, out bool relaunched) => UpdateRun.Run(command, Environment(), (percent, text) => Progress.Add(percent + " " + text), out relaunched);
     }
@@ -215,6 +225,91 @@ internal static class UpdateRunTests
             machine.Install = (plan, progress) => throw new IOException("Install failed");
             gone = machine.Run(Command(), out relaunched);
             kit.Check(gone.State == "needs_recovery" && gone.Reason == "install_failed" && !relaunched && !machine.Events.Contains("relaunch"), "and the same after a failure of the engine that leaves the marker (got " + gone.State + ", " + gone.Reason + ", relaunched " + relaunched + ")");
+        }
+        // ---- an installation that needs recovery is repaired by the setup itself. When the rollback of THIS update could not put every file back, one attempt is made at once, after a short pause (a scanner that holds
+        // a file lets go of it), and the person can ask again. A marker that an EARLIER update left is not repaired unasked. A repair that works leaves `rolled_back` (the files that were replaced are back) with the
+        // reason the update failed for, rewrites the result file and opens the OLD app again; one that is refused leaves everything as it was, and says why.
+        {
+            Machine HalfDone(Action<Machine>? arrange = null)
+            {
+                var machine = new Machine { RecoverThrows = null };
+                machine.Install = (plan, progress) => { machine.Marker = true; throw new IOException("Install failed", new AggregateException("Upgrade failed; keep the retained backup", new IOException("a"))); };
+                machine.OnRecover = () => machine.Marker = false;
+                arrange?.Invoke(machine);
+                return machine;
+            }
+            var half = HalfDone();
+            var end = half.RunToEnd(Command());
+            kit.Check(end.Outcome == new UpdateOutcome(false, "3.11.0", "3.10.2", "rolled_back", "install_failed") && end.Repaired && end.RepairRefusal == null, "an update that stops halfway and cannot put every file back is repaired by the setup itself: rolled_back, with the reason it failed for (got " + end.Outcome.State + ", " + end.Outcome.Reason + ")");
+            kit.Check(end.Outcome.RolledBack && !end.Outcome.Ok, "(rolledBack is true: the files that were replaced are back; ok is false: the new version is not in place)");
+            kit.Check(string.Join(",", half.Events) == "installed-version,wait,free-bytes,detect-shortcuts,install,pause,recover,installed-version,hub-running,write-result,relaunch", "the repair comes after the failed install and a pause, then the version is read again, the result is written and the app is opened (got " + string.Join(",", half.Events) + ")");
+            kit.Check(half.Paused == TimeSpan.FromSeconds(3), "the pause before the first attempt is 3 seconds");
+            kit.Check(half.Progress.Contains("0 " + UpdateWords.WaitingToRepair) && half.Progress.IndexOf("0 " + UpdateWords.WaitingToRepair) > half.Progress.FindLastIndex(line => line.StartsWith("2 ", StringComparison.Ordinal)), "and the window is told what it waits for before it waits (it has just said that it was installing)");
+            kit.Check(half.Written == end.Outcome && half.WrittenTo == Result, "the result file says what is true now (the update did not go through and the files are back), not that the installation needs recovery");
+            kit.Check(end.Relaunched && half.Relaunched == Path.Combine(Dir, "ChatMCP.exe"), "and the OLD app is opened again, as after a clean rollback");
+            kit.Check(UpdateResultFile.Serialize(end.Outcome) == "{\"format\":1,\"ok\":false,\"version\":\"3.11.0\",\"previous\":\"3.10.2\",\"state\":\"rolled_back\",\"reason\":\"install_failed\",\"rolledBack\":true}", "what is written is a result of the contract that the Hubs of every version read");
+
+            // a repair that is refused: the installation is as it was and the window is told why
+            foreach (var (label, error, code) in new (string, Exception, string)[]
+            {
+                ("the backup is damaged", new RecoveryException(InstallRecovery.NotRecoverable, "x"), "not_recoverable"),
+                ("somebody else changed a file", new RecoveryException(InstallRecovery.ForeignChanges, "x"), "foreign_changes"),
+                ("a file is held open", new RecoveryException(InstallRecovery.RestoreFailed, "x", touched: true), "restore_failed"),
+                ("tasks are running", new InvalidOperationException("Stop active DatGold tasks").Tag("tasks_running"), "tasks_running"),
+                ("something nobody foresaw", new IOException("C:\\Users\\Test User\\secret"), "restore_failed"),
+                ("a code that is not on any list", new InvalidOperationException("x").Tag("C:\\Users\\Test User\\secret"), "restore_failed"),
+            })
+            {
+                var refused = HalfDone(machine => machine.RecoverThrows = error);
+                end = refused.RunToEnd(Command());
+                kit.Check(end.Outcome == new UpdateOutcome(false, "3.11.0", "3.10.2", "needs_recovery", "install_failed") && !end.Repaired && end.RepairRefusal == code && !end.Relaunched && !refused.Events.Contains("relaunch"),
+                    "when " + label + " the repair is refused (" + code + "): the installation still needs recovery, the app is not opened, and the window can say why (got " + end.Outcome.State + ", " + end.RepairRefusal + ")");
+                kit.Check(refused.Written == end.Outcome, "and the result file says that it needs recovery, as it did before the repair existed");
+            }
+
+            // a marker that an EARLIER update left: not repaired unasked; the person's click does it
+            var earlier = new Machine { RecoverThrows = null, Marker = true };
+            earlier.OnRecover = () => earlier.Marker = false;
+            end = earlier.RunToEnd(Command());
+            kit.Check(end.Outcome == new UpdateOutcome(false, "3.11.0", "3.10.2", "needs_recovery", "pending_recovery") && !end.Repaired && end.RepairRefusal == null && !earlier.Events.Contains("recover") && !earlier.Events.Contains("pause") && !end.Relaunched,
+                "a marker that an earlier update left is NOT repaired by itself: needs_recovery, pending_recovery, no attempt, no app opened");
+            earlier.Events.Clear(); earlier.Written = null;
+            var asked = earlier.RepairNow(Command(), end.Outcome);
+            kit.Check(asked.Outcome == new UpdateOutcome(false, "3.11.0", "3.10.2", "rolled_back", "pending_recovery") && asked.Repaired && asked.RepairRefusal == null && asked.Relaunched, "but when the person asks for it, it is repaired: rolled_back, the update to 3.11.0 was not started (reason pending_recovery) and the old app is opened (got " + asked.Outcome.State + ")");
+            kit.Check(earlier.Paused == null && string.Join(",", earlier.Events) == "recover,installed-version,hub-running,write-result,relaunch" && earlier.Written == asked.Outcome, "with no pause, the version read again, and the result file rewritten before the app is opened (got " + string.Join(",", earlier.Events) + ")");
+
+            // asked again after a refusal: nothing changes, nothing is written, the app stays closed
+            var stillStuck = new Machine { Marker = true };
+            end = stillStuck.RunToEnd(Command());
+            stillStuck.Events.Clear(); stillStuck.Written = null;
+            stillStuck.RecoverThrows = new RecoveryException(InstallRecovery.ForeignChanges, "x");
+            asked = stillStuck.RepairNow(Command(), end.Outcome);
+            kit.Check(asked.Outcome == end.Outcome && !asked.Repaired && asked.RepairRefusal == "foreign_changes" && !asked.Relaunched && stillStuck.Written == null && !stillStuck.Events.Contains("relaunch") && !stillStuck.Events.Contains("write-result"), "asked again and refused, the outcome is what it was, the result file is not touched, and the app stays closed");
+
+            // the version that is installed is read again once the files are back
+            var older = HalfDone(machine => machine.OnRecover = () => { machine.Marker = false; machine.Installed = "3.10.1"; });
+            kit.Check(older.RunToEnd(Command()).Outcome.Previous == "3.10.1", "the version that is back is the one on the disk now (3.10.1), not the one that was read before the update");
+            var unreadable = HalfDone(machine => machine.OnRecover = () => { machine.Marker = false; machine.InstalledThrows = true; });
+            kit.Check(unreadable.RunToEnd(Command()).Outcome.Previous == "3.10.2", "and when it cannot be read the version from before the update stays");
+            var nothing = HalfDone(machine => machine.RecoverResult = RecoveryResult.NothingToRepair);
+            kit.Check(nothing.RunToEnd(Command()).Repaired, "a marker that went away while the repair was being asked for needs no repair: the installation is whole");
+
+            // what the repair does not do: it is for an installation that needs it, not for every failure
+            var cleanRollback = new Machine { RecoverThrows = null };
+            cleanRollback.Install = (plan, progress) => throw new UpgradeRolledBackException("Upgrade failed; all changed application files were rolled back. x", new IOException("disk"));
+            kit.Check(cleanRollback.RunToEnd(Command()).Outcome.State == "rolled_back" && !cleanRollback.Events.Contains("recover") && !cleanRollback.Events.Contains("pause"), "a rollback that was whole needs no repair, and none is tried");
+            var refusedUpdate = new Machine { RecoverThrows = null, Target = "3.10.2" };
+            kit.Check(refusedUpdate.RunToEnd(Command()).Outcome.State == "unchanged" && !refusedUpdate.Events.Contains("recover"), "nor does a refusal that changed nothing");
+            var went = new Machine { RecoverThrows = null };
+            kit.Check(went.RunToEnd(Command()).Outcome.Ok && !went.Events.Contains("recover") && !went.Events.Contains("pause"), "nor an update that went through");
+            var noResultFile = HalfDone();
+            noResultFile.HubRunning = true;
+            kit.Check(noResultFile.RunToEnd(Command()).Repaired && noResultFile.Written == null && noResultFile.Events.Contains("relaunch"), "a repaired installation leaves no result file beside a Hub that is already up either, and the app is still opened");
+            var quiet = HalfDone();
+            kit.Check(quiet.RunToEnd(Command(relaunch: false, result: false)).Repaired && !quiet.Events.Contains("relaunch") && !quiet.Events.Contains("write-result"), "without --relaunch the old app is not opened after a repair, and without --result nothing is written");
+            var racing = HalfDone(machine => machine.OnRecover = () => { /* the marker is still there once the repair says it is done */ });
+            end = racing.RunToEnd(Command());
+            kit.Check(end.Repaired && !end.Relaunched && !racing.Events.Contains("relaunch"), "an app is never opened while the marker is still on the disk, whatever the repair said");
         }
         kit.Throws(() => UpdateRun.Real().Relaunch(Path.Combine(kit.Folder("no app here"), "ChatMCP.exe")), "the real way to open the app fails when there is no ChatMCP.exe to open (the window must not say it was opened)");
         // the port of the Hub as the real machine answers: a port that nothing listens on, then the same port with a listener of this test on it
