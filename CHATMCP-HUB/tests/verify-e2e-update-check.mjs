@@ -15,6 +15,7 @@ import { sleep, waitFor } from './e2e/hub-process.mjs';
 import { feedManifest, startUpdateFeed } from './e2e/update-feed-server.mjs';
 import { throwawayKey } from './support/release-keys.mjs';
 import { VERSION } from '../lib/manager.mjs';
+import { NEXT_PATCH, NEXT_PATCH_2, exactly } from './support/running-version.mjs';
 
 const ROUTES = Object.freeze({ check: '/api/update/check', skip: '/api/update/skip', auto: '/api/update/auto-check' });
 const STATE = 'update-check.json';
@@ -28,9 +29,9 @@ await runScenario({
   summary: 'the update notice on a real Hub: the routes and their layers, what is sent, nothing asked until the owner says yes, the floor across restarts, skip and choice across restarts, bad answers',
   budgetMs: 240_000,
 }, async (t) => {
-  const feed = await startUpdateFeed();
+  const feed = await startUpdateFeed({ manifest: feedManifest({ version: NEXT_PATCH }) });
   t.own(() => feed.close());
-  const other = await startUpdateFeed();
+  const other = await startUpdateFeed({ manifest: feedManifest({ version: NEXT_PATCH }) });
   t.own(() => other.close());
   const hooks = (extra = {}) => ({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_FIRST_CHECK_MS: String(FIRST), ...extra });
   const read = (hub, name) => { try { return JSON.parse(fs.readFileSync(path.join(hub.stateDir, name), 'utf8')); } catch { return null; } };
@@ -73,11 +74,11 @@ await runScenario({
     const answer = await send(ROUTES.auto, page, body);
     t.check(answer.status === 400 && JSON.parse(answer.text).code === 'update_setting_invalid', `auto-check with ${label}: 400`, `${answer.status} ${answer.text.slice(0, 100)}`);
   }
-  for (const [label, body] of [['nothing', {}], ['a number', { version: 5 }], ['text that is no version', { version: 'x' }], ['a pre-release', { version: '3.10.3-rc.1' }]]) {
+  for (const [label, body] of [['nothing', {}], ['a number', { version: 5 }], ['text that is no version', { version: 'x' }], ['a pre-release', { version: `${NEXT_PATCH}-rc.1` }]]) {
     const answer = await send(ROUTES.skip, page, body);
     t.check(answer.status === 400 && JSON.parse(answer.text).code === 'update_skip_invalid', `skip with ${label}: 400`, `${answer.status} ${answer.text.slice(0, 100)}`);
   }
-  const early = await send(ROUTES.skip, page, { version: '3.10.3' });
+  const early = await send(ROUTES.skip, page, { version: NEXT_PATCH });
   t.check(early.status === 409 && JSON.parse(early.text).code === 'update_skip_stale', 'skip of a version nobody offered: 409', `${early.status} ${early.text.slice(0, 100)}`);
   t.check((await send(ROUTES.auto, page, '{ not json')).status === 400, 'a body that is not JSON: 400');
   t.check(read(hub, STATE) === null && read(hub, SETTINGS) === null, 'none of those wrote a file');
@@ -89,7 +90,7 @@ await runScenario({
   t.equal([first.status, first.json.checked, first.json.throttled], [200, true, false], 'POST check: 200, a check was made');
   t.equal(Object.keys(first.json).sort(), ['checked', 'csrfToken', 'throttled', 'update'], 'the answer holds the state under "update" next to the two flags');
   const found = first.json.update;
-  t.equal([found.current, found.latest, found.available, found.installerName, found.notesUrl, found.error, found.checking], [VERSION, '3.10.3', true, 'DatGoldSetup.exe', 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.3', null, false], 'a newer release: the version, the installer name from the manifest, the link made from the version');
+  t.equal([found.current, found.latest, found.available, found.installerName, found.notesUrl, found.error, found.checking], [VERSION, NEXT_PATCH, true, 'DatGoldSetup.exe', `https://github.com/pddczpl/ChatMCP/releases/tag/v${NEXT_PATCH}`, null, false], 'a newer release: the version, the installer name from the manifest, the link made from the version');
   t.equal([found.signature, found.kid, found.installerBytes], ['missing', null, 232753314], 'the owner has not signed it yet (the stand-in has no signature): the release shows up, "missing" says no download, and the size is the one the manifest gives');
   t.equal(found.autoCheck, { enabled: false, saved: null, needsChoice: true }, 'and the owner is still not asked-and-answered: a manual check is not an answer');
   t.equal(feed.checks(), 1, 'one check');
@@ -100,29 +101,29 @@ await runScenario({
     for (const name of Object.keys(request.headers)) names.add(name);
   }
   t.equal([...names].sort(), ['accept', 'connection', 'host', 'user-agent'], 'the only headers: nothing that identifies the person (no cookie, no login, no referrer, no language)');
-  t.check(feed.requests.every((request) => /^\/(pddczpl\/ChatMCP\/releases\/(latest\/download|download\/v3\.10\.3)\/RELEASE-MANIFEST\.json(\.sig)?|github-production-release-asset\/)/.test(request.url)), 'every address asked for is the manifest, its signature or a hop towards one of them: no installer, no page, nothing to download');
+  t.check(feed.requests.every((request) => new RegExp(`^/(pddczpl/ChatMCP/releases/(latest/download|download/v${exactly(NEXT_PATCH)})/RELEASE-MANIFEST\\.json(\\.sig)?|github-production-release-asset/)`).test(request.url)), 'every address asked for is the manifest, its signature or a hop towards one of them: no installer, no page, nothing to download');
   t.check(feed.requests.every((request) => !/\.exe|\.zip|installer/i.test(request.url.split('?')[0])), 'in particular not the installer the manifest names');
-  t.equal(read(hub, STATE), { version: 1, latest: '3.10.3', installerName: 'DatGoldSetup.exe', checkedAt: found.checkedAt, lastAttemptAt: found.lastAttemptAt, skippedVersion: null }, 'the state file: the release, the installer name and the two times');
+  t.equal(read(hub, STATE), { version: 1, latest: NEXT_PATCH, installerName: 'DatGoldSetup.exe', checkedAt: found.checkedAt, lastAttemptAt: found.lastAttemptAt, skippedVersion: null }, 'the state file: the release, the installer name and the two times');
   t.check(read(hub, SETTINGS) === null, 'and no setting: the owner has not decided');
   const second = await post(hub, ROUTES.check, {});
-  t.equal([second.status, second.json.checked, second.json.throttled, second.json.update.latest], [200, false, true, '3.10.3'], 'a second press at once is answered from the state, flagged as throttled');
+  t.equal([second.status, second.json.checked, second.json.throttled, second.json.update.latest], [200, false, true, NEXT_PATCH], 'a second press at once is answered from the state, flagged as throttled');
   t.equal(feed.checks(), 1, 'without a request');
   t.equal((await updateOf(hub)).available, true, '/api/state says the same');
   const log = hub.logText();
-  t.check(log.includes(`DatGold 3.10.3 đã có (bản đang chạy ${VERSION})`), 'the Hub log says what the check found');
+  t.check(log.includes(`DatGold ${NEXT_PATCH} đã có (bản đang chạy ${VERSION})`), 'the Hub log says what the check found');
   t.check(!log.includes(SIGNED) && !fs.readFileSync(path.join(hub.stateDir, STATE), 'utf8').includes(SIGNED), 'and neither the log nor the state file holds the signed address of the last hop');
 
   // ---- skip, and a restart that finds the notice without asking ---------------------------------------------------------------------------------
-  const stale = await post(hub, ROUTES.skip, { version: '3.10.4' });
+  const stale = await post(hub, ROUTES.skip, { version: NEXT_PATCH_2 });
   t.equal([stale.status, stale.json.code], [409, 'update_skip_stale'], 'skip of another version than the one on offer: 409');
-  const skipped = await post(hub, ROUTES.skip, { version: '3.10.3' });
-  t.equal([skipped.status, skipped.json.update.skippedVersion, skipped.json.update.available], [200, '3.10.3', true], 'skip of the one on offer: saved; it is still available (the page decides what to show)');
+  const skipped = await post(hub, ROUTES.skip, { version: NEXT_PATCH });
+  t.equal([skipped.status, skipped.json.update.skippedVersion, skipped.json.update.available], [200, NEXT_PATCH, true], 'skip of the one on offer: saved; it is still available (the page decides what to show)');
   await hub.stop();
   feed.mode('stall'); // from here on a check would hang: what the restarted Hub knows, it knows from the file
   const checksBefore = feed.checks();
   hub = await t.hub({ env: hooks(), stateDir });
   const found2 = await updateOf(hub);
-  t.equal([found2.latest, found2.available, found2.skippedVersion, found2.installerName, found2.checkedAt, found2.error], ['3.10.3', true, '3.10.3', 'DatGoldSetup.exe', found.checkedAt, null], 'a restart: the notice, the installer and the skip are there at once');
+  t.equal([found2.latest, found2.available, found2.skippedVersion, found2.installerName, found2.checkedAt, found2.error], [NEXT_PATCH, true, NEXT_PATCH, 'DatGoldSetup.exe', found.checkedAt, null], 'a restart: the notice, the installer and the skip are there at once');
   t.equal(feed.checks(), checksBefore, 'and it was known without a request');
   const cleared = await post(hub, ROUTES.skip, { version: null });
   t.equal([cleared.status, cleared.json.update.skippedVersion], [200, null], 'null takes the skip back');
@@ -151,7 +152,7 @@ await runScenario({
   await waitFor(() => feed.checks() === base + 1, { timeoutMs: 8000, label: 'the first check of a Hub that may ask' });
   await sleep(1500);
   t.equal(feed.checks(), base + 1, 'POSITIVE CONTROL: a Hub with the setting on and an old attempt asks exactly once, shortly after it starts, and not again');
-  const afterFirst = await waitFor(async () => { const state = await updateOf(control); return state.latest === '3.10.3' ? state : null; }, { label: 'the answer to be taken' });
+  const afterFirst = await waitFor(async () => { const state = await updateOf(control); return state.latest === NEXT_PATCH ? state : null; }, { label: 'the answer to be taken' });
   t.equal([afterFirst.available, afterFirst.error, afterFirst.checking], [true, null, false], 'and the notice is there');
   const timed = Date.parse(afterFirst.nextAutomaticCheckAt) - Date.parse(afterFirst.lastAttemptAt);
   t.check(timed >= 0.9 * 12 * 3_600_000 && timed <= 1.1 * 12 * 3_600_000, 'the next one is 12 hours on (with 10% jitter)', String(timed));
@@ -205,23 +206,23 @@ await runScenario({
   for (const [label, arrange, code] of bad) {
     const dir = path.join(t.scratch, `bad-${badStates.length}`);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, STATE), JSON.stringify({ version: 1, latest: '3.10.3', installerName: 'DatGoldSetup.exe', checkedAt: '2026-10-01T00:00:00.000Z', lastAttemptAt: '2026-10-01T00:00:00.000Z' }));
+    fs.writeFileSync(path.join(dir, STATE), JSON.stringify({ version: 1, latest: NEXT_PATCH, installerName: 'DatGoldSetup.exe', checkedAt: '2026-10-01T00:00:00.000Z', lastAttemptAt: '2026-10-01T00:00:00.000Z' }));
     badStates.push(dir);
     arrange();
     const victim = await t.hub({ env: hooks(), stateDir: dir });
     const answer = await post(victim, ROUTES.check, {});
     t.equal([answer.status, answer.json.update.error?.code], [200, code], `${label}: the answer is 200 with the error "${code}" in the state`);
-    t.equal([answer.json.update.latest, answer.json.update.available, answer.json.update.checkedAt], ['3.10.3', true, '2026-10-01T00:00:00.000Z'], `${label}: the last good release is kept`);
+    t.equal([answer.json.update.latest, answer.json.update.available, answer.json.update.checkedAt], [NEXT_PATCH, true, '2026-10-01T00:00:00.000Z'], `${label}: the last good release is kept`);
     t.check((await victim.get('/api/health')).ok && victim.running, `${label}: the Hub is still up`);
     t.check(!victim.logText().includes(SIGNED), `${label}: nothing signed in the log`);
-    feed.mode('chain'); feed.publish(feedManifest());
+    feed.mode('chain'); feed.publish(feedManifest({ version: NEXT_PATCH }));
   }
   t.equal(other.requests.length, 0, 'the server a redirect pointed at was never asked');
 
   // ---- the signature, on a real Hub: with the key it is given, without it ---------------------------------------------------------------------------
   {
     const owner = throwawayKey();
-    const signed = await startUpdateFeed({ key: owner });
+    const signed = await startUpdateFeed({ manifest: feedManifest({ version: NEXT_PATCH }), key: owner });
     t.own(() => signed.close());
     const signedHooks = (extra = {}) => ({ CHATMCP_UPDATE_FEED_URL: signed.url, CHATMCP_UPDATE_FIRST_CHECK_MS: String(FIRST), ...extra });
     const dir = path.join(t.scratch, 'state-signed');
@@ -235,7 +236,7 @@ await runScenario({
     await trusting.stop();
     const restarted = await t.hub({ env: signedHooks({ CHATMCP_UPDATE_TEST_KEY: owner.spkiBase64 }), stateDir: dir });
     const afterRestart = await updateOf(restarted);
-    t.equal([afterRestart.latest, afterRestart.available, afterRestart.signature, afterRestart.kid], ['3.10.3', true, null, null], 'after a restart the release is known and its signature is not, until a check has looked: the Download button waits for it');
+    t.equal([afterRestart.latest, afterRestart.available, afterRestart.signature, afterRestart.kid], [NEXT_PATCH, true, null, null], 'after a restart the release is known and its signature is not, until a check has looked: the Download button waits for it');
     const strangers = await t.hub({ env: signedHooks(), stateDir: path.join(t.scratch, 'state-signed-b') });
     const unknown = (await post(strangers, ROUTES.check, {})).json.update;
     t.equal([unknown.signature, unknown.kid, unknown.error?.code, unknown.available], ['invalid', null, 'update_signature_unknown_key', true], 'a Hub that does not trust that key (it has the placeholder only): "invalid", told apart from a signature that does not check, and the release still shows up');

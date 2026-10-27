@@ -17,6 +17,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { findNeedles, runScenario } from './e2e/harness.mjs';
 import { HUB_ROOT, cleanEnvironment, freePort, sleep, waitFor } from './e2e/hub-process.mjs';
 import { feedManifest, startUpdateFeed } from './e2e/update-feed-server.mjs';
+import { NEXT_MINOR as RELEASE } from './support/running-version.mjs';
 import { throwawayKey } from './support/release-keys.mjs';
 
 const ROUTES = Object.freeze({ download: '/api/update/download', cancel: '/api/update/download-cancel' });
@@ -43,7 +44,7 @@ await runScenario({
   const size = 6 * MiB;
   const bytes = pseudoBytes(size, 31);
   const sha = createHash('sha256').update(bytes).digest('hex');
-  feed.publish(feedManifest({ version: '3.11.0', assets: [{ name: 'DatGoldSetup.exe', sha256: sha, bytes: size }, { name: 'DatGold-Browser-Companion.zip', sha256: 'c'.repeat(64), bytes: 48568 }] }));
+  feed.publish(feedManifest({ version: RELEASE, assets: [{ name: 'DatGoldSetup.exe', sha256: sha, bytes: size }, { name: 'DatGold-Browser-Companion.zip', sha256: 'c'.repeat(64), bytes: 48568 }] }));
   feed.installer.set({ name: 'DatGoldSetup.exe', bytes });
   const hooks = (extra = {}) => ({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_FIRST_CHECK_MS: String(FIRST), CHATMCP_UPDATE_TEST_KEY: owner.spkiBase64, CHATMCP_UPDATE_TEST_PLATFORM: 'win32', ...extra });
   const installerHits = () => feed.requests.filter((request) => request.url.split('?')[0].endsWith('.exe')).length;
@@ -76,12 +77,12 @@ await runScenario({
     t.equal((await send(route, { ...page, 'content-type': 'text/plain' }, {})).status, 415, `${route}: not JSON: 415`);
     t.equal((await hub.rawRequest({ method: 'GET', route, headers: hub.authHeaders })).status, 404, `${route}: a GET is not a route (what changes state is a POST)`);
   }
-  for (const [label, body] of [['nothing', {}], ['a number', { version: 5 }], ['text that is no version', { version: 'x' }], ['a pre-release', { version: '3.11.0-rc.1' }], ['a path', { version: '../3.11.0' }]]) {
+  for (const [label, body] of [['nothing', {}], ['a number', { version: 5 }], ['text that is no version', { version: 'x' }], ['a pre-release', { version: `${RELEASE}-rc.1` }], ['a path', { version: `../${RELEASE}` }]]) {
     const answer = await send(ROUTES.download, page, body);
     t.check(answer.status === 400 && JSON.parse(answer.text).code === 'update_download_invalid', `download with ${label}: 400 update_download_invalid`, `${answer.status} ${answer.text.slice(0, 100)}`);
   }
   t.check((await send(ROUTES.download, page, '{ not json')).status === 400, 'a body that is not JSON: 400');
-  const early = await send(ROUTES.download, page, { version: '3.11.0' });
+  const early = await send(ROUTES.download, page, { version: RELEASE });
   t.check(early.status === 409 && JSON.parse(early.text).code === 'update_download_stale', 'a release nobody has offered (no check yet): 409 update_download_stale', `${early.status} ${early.text.slice(0, 100)}`);
   const idleCancel = await post(hub, ROUTES.cancel, {});
   t.equal([idleCancel.status, idleCancel.json.cancelled, idleCancel.json.update.download], [200, false, { state: 'idle' }], 'a cancel with nothing to cancel: 200, not cancelled');
@@ -92,7 +93,7 @@ await runScenario({
   const yes = await post(hub, '/api/update/auto-check', { enabled: true });
   t.equal([yes.status, yes.json.update.download], [200, { state: 'idle' }], 'yes to automatic checks: the answer carries the download state too');
   const found = await waitFor(async () => { const state = await updateOf(hub); return state.signature === 'valid' ? state : null; }, { timeoutMs: 20_000, label: 'the first automatic check to find a signed release' });
-  t.equal([found.latest, found.available, found.signature, found.kid, found.installerBytes, found.error], ['3.11.0', true, 'valid', owner.kid, size, null], 'POSITIVE CONTROL: the automatic check ran and found a release that is signed (the key was given by the test hook)');
+  t.equal([found.latest, found.available, found.signature, found.kid, found.installerBytes, found.error], [RELEASE, true, 'valid', owner.kid, size, null], 'POSITIVE CONTROL: the automatic check ran and found a release that is signed (the key was given by the test hook)');
   await sleep(QUIET);
   t.equal(installerHits(), 0, `ZERO requests for the installer in ${QUIET} ms after that, although everything is ready for one`);
   t.equal(listing(folderOf(stateDir)), null, 'and no folder');
@@ -101,13 +102,13 @@ await runScenario({
 
   // ---- the click: progress, two clicks, cancel -----------------------------------------------------------------------------------------------------
   feed.installer.mode('chain', { pauseAfter: 2 * MiB });
-  const click = await post(hub, ROUTES.download, { version: '3.11.0', name: 'Other.exe', url: 'https://evil.example/x.exe' });
+  const click = await post(hub, ROUTES.download, { version: RELEASE, name: 'Other.exe', url: 'https://evil.example/x.exe' });
   t.equal([click.status, click.json.started, click.json.update.download.state, click.json.update.download.total], [200, true, 'downloading', size], 'the click: 200, started; the status says downloading with the size of the manifest; a name or an address in the body is not read');
   const midway = await waitFor(async () => { const download = (await updateOf(hub)).download; return download.state === 'downloading' && download.received >= 2 * MiB ? download : null; }, { timeoutMs: 20_000, label: 'part of the installer' });
-  t.equal([midway.received, midway.total, midway.version], [2 * MiB, size, '3.11.0'], 'progress, read from GET /api/update/status while the stand-in holds the stream: the bytes that arrived out of the total');
-  t.check(fs.existsSync(path.join(folderOf(stateDir), '3.11.0', 'DatGoldSetup.exe.part')) && !fs.existsSync(path.join(folderOf(stateDir), '3.11.0', 'DatGoldSetup.exe')), 'the bytes are in a .part file and the installer does not exist yet');
+  t.equal([midway.received, midway.total, midway.version], [2 * MiB, size, RELEASE], 'progress, read from GET /api/update/status while the stand-in holds the stream: the bytes that arrived out of the total');
+  t.check(fs.existsSync(path.join(folderOf(stateDir), RELEASE, 'DatGoldSetup.exe.part')) && !fs.existsSync(path.join(folderOf(stateDir), RELEASE, 'DatGoldSetup.exe')), 'the bytes are in a .part file and the installer does not exist yet');
   t.equal((await hub.state()).update.download.received, 2 * MiB, '/api/state says the same');
-  const twice = await post(hub, ROUTES.download, { version: '3.11.0' });
+  const twice = await post(hub, ROUTES.download, { version: RELEASE });
   t.equal([twice.status, twice.json.started, twice.json.update.download.state], [200, false, 'downloading'], 'a second click while it runs: 200, nothing started');
   t.equal(installerHits(), 1, 'one request for the installer');
   const cancelled = await post(hub, ROUTES.cancel, {});
@@ -119,26 +120,26 @@ await runScenario({
 
   // ---- a whole download ---------------------------------------------------------------------------------------------------------------------------------
   feed.installer.mode('chain');
-  const whole = await post(hub, ROUTES.download, { version: '3.11.0' });
+  const whole = await post(hub, ROUTES.download, { version: RELEASE });
   t.equal(whole.json.started, true, 'a click after a cancel starts again');
   const ready = await downloaded(hub);
-  t.equal(ready, { state: 'ready', version: '3.11.0', bytes: size }, 'ready, with the version and the size');
-  const folder = path.join(folderOf(stateDir), '3.11.0');
+  t.equal(ready, { state: 'ready', version: RELEASE, bytes: size }, 'ready, with the version and the size');
+  const folder = path.join(folderOf(stateDir), RELEASE);
   t.equal(listing(folder), ['DatGoldSetup.exe', 'RELEASE-MANIFEST.json', 'RELEASE-MANIFEST.json.sig', 'state.json'], 'the folder holds the installer, the signed manifest and its signature, and the state file: no .part');
   t.check(fs.readFileSync(path.join(folder, 'DatGoldSetup.exe')).equals(bytes), 'the installer on disk is the bytes the stand-in served');
-  t.equal(JSON.parse(fs.readFileSync(path.join(folder, 'state.json'), 'utf8')), { version: 1, release: '3.11.0', name: 'DatGoldSetup.exe', bytes: size, sha256: sha, kid: owner.kid }, 'the state file: the version, the name, the size, the SHA-256 and the id of the key that signed');
+  t.equal(JSON.parse(fs.readFileSync(path.join(folder, 'state.json'), 'utf8')), { version: 1, release: RELEASE, name: 'DatGoldSetup.exe', bytes: size, sha256: sha, kid: owner.kid }, 'the state file: the version, the name, the size, the SHA-256 and the id of the key that signed');
   const before = installerHits();
-  const again = await post(hub, ROUTES.download, { version: '3.11.0' });
+  const again = await post(hub, ROUTES.download, { version: RELEASE });
   t.equal([again.json.started, again.json.update.download.state, installerHits()], [false, 'ready', before], 'a click on something that is ready: nothing is fetched again');
   const log = hub.logText();
-  t.check(log.includes('3.11.0') && !log.includes(SIGNED), 'the Hub log says what happened and holds no signed address');
+  t.check(log.includes(RELEASE) && !log.includes(SIGNED), 'the Hub log says what happened and holds no signed address');
 
   // ---- a restart finds it ready, from the folder alone; a Hub that no longer trusts the key does not -------------------------------------------------------
   await hub.stop();
   feed.mode('stall');
   const hitsBefore = feed.requests.length;
   hub = await t.hub({ env: hooks({ CHATMCP_UPDATE_FIRST_CHECK_MS: '60000' }), stateDir });
-  t.equal((await updateOf(hub)).download, { state: 'ready', version: '3.11.0', bytes: size }, 'after a restart the download is ready (known from the folder, with no request: the feed would stall)');
+  t.equal((await updateOf(hub)).download, { state: 'ready', version: RELEASE, bytes: size }, 'after a restart the download is ready (known from the folder, with no request: the feed would stall)');
   t.equal(feed.requests.length, hitsBefore, 'and nothing was asked');
   await hub.stop();
   hub = await t.hub({ env: { CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_TEST_PLATFORM: 'win32' }, stateDir });
@@ -152,9 +153,9 @@ await runScenario({
   let doomed = await t.hub({ env: hooks(), stateDir: killedDir });
   await post(doomed, '/api/update/check', {});
   feed.installer.mode('chain', { pauseAfter: 2 * MiB });
-  await post(doomed, ROUTES.download, { version: '3.11.0' });
+  await post(doomed, ROUTES.download, { version: RELEASE });
   await waitFor(async () => (await updateOf(doomed)).download.received >= 2 * MiB, { timeoutMs: 20_000, label: 'part of the installer' });
-  const part = path.join(folderOf(killedDir), '3.11.0', 'DatGoldSetup.exe.part');
+  const part = path.join(folderOf(killedDir), RELEASE, 'DatGoldSetup.exe.part');
   t.check(fs.existsSync(part), 'the .part file is on disk while the Hub downloads');
   await doomed.kill();
   t.check(fs.existsSync(part), 'and a Hub that is killed (no chance to clean up) leaves it there');
@@ -169,7 +170,7 @@ await runScenario({
   t.equal((await updateOf(survivor)).download, { state: 'idle' }, 'the next start: idle');
   t.equal(listing(folderOf(killedDir)), [], 'and the .part file and the folder of an old version are deleted');
   await post(survivor, '/api/update/check', {});
-  const redo = await post(survivor, ROUTES.download, { version: '3.11.0' });
+  const redo = await post(survivor, ROUTES.download, { version: RELEASE });
   t.equal(redo.json.started, true, 'and a click downloads again, from the start');
   t.equal((await downloaded(survivor)).state, 'ready', 'to the end');
 
@@ -178,7 +179,7 @@ await runScenario({
   const polite = await t.hub({ env: hooks(), stateDir: politeDir });
   await post(polite, '/api/update/check', {});
   feed.installer.mode('chain', { pauseAfter: 2 * MiB });
-  await post(polite, ROUTES.download, { version: '3.11.0' });
+  await post(polite, ROUTES.download, { version: RELEASE });
   await waitFor(async () => (await updateOf(polite)).download.received >= 2 * MiB, { timeoutMs: 20_000, label: 'part of the installer' });
   await polite.stop();
   t.equal(listing(folderOf(politeDir)), [], 'a Hub that is stopped in the middle removes its .part file');
@@ -190,7 +191,7 @@ await runScenario({
   const linux = await t.hub({ env: hooks({ CHATMCP_UPDATE_TEST_PLATFORM: 'linux' }), stateDir: linuxDir });
   await post(linux, '/api/update/check', {});
   const hitsLinux = installerHits();
-  const refused = await post(linux, ROUTES.download, { version: '3.11.0' });
+  const refused = await post(linux, ROUTES.download, { version: RELEASE });
   t.equal([refused.status, refused.json.code, (await updateOf(linux)).download, installerHits()], [501, 'update_download_platform', { state: 'idle' }, hitsLinux], 'a Hub on a system that is not Windows: 501 update_download_platform, nothing fetched, idle');
   t.equal(listing(folderOf(linuxDir)), null, 'and nothing written');
 
@@ -201,7 +202,7 @@ await runScenario({
   const checked = (await post(unsigned, '/api/update/check', {})).json.update;
   t.equal([checked.available, checked.signature, checked.error], [true, 'missing', null], 'a release the owner has not signed: on offer, "missing"');
   const hitsUnsigned = installerHits();
-  const refusedUnsigned = await post(unsigned, ROUTES.download, { version: '3.11.0' });
+  const refusedUnsigned = await post(unsigned, ROUTES.download, { version: RELEASE });
   t.equal([refusedUnsigned.status, refusedUnsigned.json.code, installerHits(), listing(folderOf(unsignedDir))], [409, 'update_download_unsigned', hitsUnsigned, null], 'a click is refused (409 update_download_unsigned): nothing fetched, nothing written');
   feed.signature.mode('chain');
 
@@ -212,14 +213,14 @@ await runScenario({
   const strangerCheck = (await post(strangerHub, '/api/update/check', {})).json.update;
   t.equal([strangerCheck.available, strangerCheck.signature, strangerCheck.error?.code], [true, 'invalid', 'update_signature_unknown_key'], 'a release signed with a key this Hub does not know: on offer, "invalid", and told apart from one whose signature does not check');
   const hitsStranger = installerHits();
-  const refusedStranger = await post(strangerHub, ROUTES.download, { version: '3.11.0' });
+  const refusedStranger = await post(strangerHub, ROUTES.download, { version: RELEASE });
   t.equal([refusedStranger.status, refusedStranger.json.code, installerHits(), listing(folderOf(strangerDir))], [409, 'update_download_unsigned', hitsStranger, null], 'a click is refused (409 update_download_unsigned): nothing fetched, nothing written');
 
   // ---- a check that finds the release no longer signed drops the download that was ready ----------------------------------------------------------------
   const withdrawnDir = path.join(t.scratch, 'state-withdrawn');
   const first = await t.hub({ env: hooks(), stateDir: withdrawnDir });
   await post(first, '/api/update/check', {});
-  await post(first, ROUTES.download, { version: '3.11.0' });
+  await post(first, ROUTES.download, { version: RELEASE });
   t.equal((await downloaded(first)).state, 'ready', 'a download that is ready');
   await first.stop();
   feed.signature.mode('missing');
@@ -242,9 +243,9 @@ await runScenario({
     const owner1 = await t.hub({ env: hooks(), stateDir: sharedDir });
     await post(owner1, '/api/update/check', {});
     feed.installer.mode('chain', { pauseAfter: 2 * MiB });
-    await post(owner1, ROUTES.download, { version: '3.11.0' });
+    await post(owner1, ROUTES.download, { version: RELEASE });
     await waitFor(async () => (await updateOf(owner1)).download.received >= 2 * MiB, { timeoutMs: 20_000, label: 'part of the installer' });
-    const part = path.join(folderOf(sharedDir), '3.11.0', 'DatGoldSetup.exe.part');
+    const part = path.join(folderOf(sharedDir), RELEASE, 'DatGoldSetup.exe.part');
     t.check(fs.existsSync(part), 'the first Hub is downloading: its .part file is on disk');
     // a second Hub process on the same data folder (another port, as a second start of the launcher would be): it finds that the folder is taken and stops
     const second = spawn(process.execPath, [path.join(HUB_ROOT, 'hub.mjs'), '--backend', 'local', '--port', String(await freePort()), '--state-dir', sharedDir, '--no-open'], {

@@ -23,6 +23,7 @@ import path from 'node:path';
 import { sign } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { feedManifest, startUpdateFeed } from './e2e/update-feed-server.mjs';
+import { NEXT_PATCH, RUNNING, exactly } from './support/running-version.mjs';
 import { keyFileText, signatureFor, throwawayKey } from './support/release-keys.mjs';
 import {
   FEED_HOSTS, FEED_URL, LIMITS, NOTES_URL_PREFIX, SCHEDULE, SETTINGS_FILE, STATE_FILE, WHEN_UNANSWERED,
@@ -1177,15 +1178,15 @@ try {
       child.on('close', (code) => { clearTimeout(timer); resolve({ code, output }); });
     });
     feed.mode('chain');
-    feed.publish(feedManifest({ version: '3.10.3' }));
+    feed.publish(feedManifest({ version: NEXT_PATCH }));
     const good = await runLive([], { CHATMCP_UPDATE_FEED_URL: feed.url });
     assert.equal(good.code, 0, good.output);
     assert.match(good.output, /\(a loopback stand-in\)/);
     assert.match(good.output, /redirects:\s+2/);
-    assert.match(good.output, /release:\s+3\.10\.3\s+commit 0123456789abcdef0123456789abcdef01234567/);
+    assert.match(good.output, new RegExp(`release:\\s+${exactly(NEXT_PATCH)}\\s+commit 0123456789abcdef0123456789abcdef01234567`));
     assert.match(good.output, /installer:\s+DatGoldSetup\.exe/);
-    assert.match(good.output, /verdict:\s+the Hub would offer 3\.10\.3 \(newer than 3\.10\.2\)/);
-    assert.match(good.output, /notes link:\s+https:\/\/github\.com\/pddczpl\/ChatMCP\/releases\/tag\/v3\.10\.3/);
+    assert.match(good.output, new RegExp(`verdict:\\s+the Hub would offer ${exactly(NEXT_PATCH)} \\(newer than ${exactly(RUNNING)}\\)`));
+    assert.match(good.output, new RegExp(`notes link:\\s+https://github\\.com/pddczpl/ChatMCP/releases/tag/v${exactly(NEXT_PATCH)}`));
     assert.match(good.output, /OK: the Hub reads this answer\./);
     feed.mode('status', { status: 503 });
     const bad = await runLive([], { CHATMCP_UPDATE_FEED_URL: feed.url });
