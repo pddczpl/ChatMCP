@@ -44,7 +44,7 @@ const TEXT_EXTENSIONS = /\.(?:txt|md|json|js|jsx|ts|tsx|mjs|cjs|py|cs|go|rs|java
 const isBase64 = (text) => text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text);
 // What the person is told when a checkpoint took pictures out of the request (lib/context-compaction.mjs tells the model in the checkpoint itself): the budget is the model's window, and with one
 // the Hub does not know it plans on 32,768 tokens.
-const pictureNotice = (count) => count > 0 ? ` ${count} ảnh đính kèm không còn trong yêu cầu gửi model vì vượt ngân sách ngữ cảnh: đặt đúng "Ngữ cảnh model" trong cấu hình, hoặc gửi ít ảnh hơn.` : '';
+export const pictureNotice = (count) => count > 0 ? ` ${count} ảnh đính kèm không còn trong yêu cầu gửi model vì vượt ngân sách ngữ cảnh: đặt đúng "Ngữ cảnh model" trong cấu hình, hoặc gửi ít ảnh hơn.` : '';
 export function buildUserAttachmentParts(attachments = []) {
   if (!Array.isArray(attachments) || attachments.length > ATTACHMENT_LIMITS.files)
     throw fault('invalid_attachments',`Tối đa ${ATTACHMENT_LIMITS.files} tệp/ảnh mỗi tin nhắn. ${PROJECT_FOLDER_ADVICE}`,413);

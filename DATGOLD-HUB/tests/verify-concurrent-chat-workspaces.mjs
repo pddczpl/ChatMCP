@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { AgentRunner, buildUserAttachmentParts } from '../lib/agent.mjs';
+import { AgentRunner, buildUserAttachmentParts, pictureNotice } from '../lib/agent.mjs';
 import { ATTACHMENT_LIMITS, ATTACHMENT_BODY_LIMIT, limitLabel as attachmentLimitLabel } from '../lib/attachment-limits.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { WorkspaceRegistry } from '../lib/workspace-registry.mjs';
@@ -569,6 +569,9 @@ try {
     assert.equal(buildUserAttachmentParts([file(200000,'a.md','text/markdown')]).parts[0].type,'input_text','a text file of 200,000 bytes is taken');
     assert.throws(()=>buildUserAttachmentParts([file(200001,'a.md','text/markdown')]),(error)=>/200 KB/.test(error.message)&&advice.test(error.message)&&error.statusCode===415,'a text file of one byte more is not, and a text file is not given the room of a picture');
     assert.throws(()=>buildUserAttachmentParts([file(13*MiB)]),(error)=>error.code==='attachments_too_large'&&/lớn hơn 12 MB/.test(error.message)&&advice.test(error.message),'a file longer than a whole message is refused before it is decoded, with the way around it');
+    // What the person is told when a checkpoint leaves pictures out of the request (the model is told in the checkpoint itself): the count, the cause and what to do; nothing when none was left out.
+    assert.match(pictureNotice(3),/3 ảnh đính kèm không còn trong yêu cầu gửi model.*Ngữ cảnh model/,'the notice names the count, and the setting that tells the Hub the real window');
+    assert.deepEqual([pictureNotice(0),pictureNotice(undefined),pictureNotice(null)],['','',''],'no picture left out: no notice');
     // What is base64: whole groups of four, the alphabet, at most two = at the end. (The check that stood here before ran out of stack on a picture of about 4 MB.)
     const named=(dataBase64)=>[{name:'x.png',mimeType:'image/png',dataBase64}];
     for(const bad of ['AAA','A===','AA=A','@@@@','AAAAA','====','AA==AA=='])assert.throws(()=>buildUserAttachmentParts(named(bad)),(error)=>error.code==='invalid_attachment',`${bad} is not base64`);

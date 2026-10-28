@@ -114,17 +114,13 @@ test('a window the Hub does not know (it plans on 32,768 tokens): one picture of
   expect(await firstModelRequestBytes(app), 'a picture is paid for as a picture: it fits what the Hub plans for an unknown window').toBeGreaterThan(base64);
 });
 
-test('a window the Hub does not know: three pictures of 3.5 MB do not fit its plan, and the model and the person are both told', async ({ page, app }) => {
+test('a window the Hub does not know: three pictures of 3.5 MB are sent too (the Hub cannot enforce a limit it does not know: the provider decides)', async ({ page, app }) => {
   app.mock.define('image-seen', () => say('Đã nhận ảnh.'));
   app.mock.setScenario('image-seen');
   await onboard(page, app);
   await connectModel(app.hub, app.mock, { contextWindowTokens: undefined });
-  await sendPictures(page, app, 'Ba ảnh này khác nhau thế nào?', [gif('a.gif', 3.5 * MB), gif('b.gif', 3.5 * MB), gif('c.gif', 3.5 * MB)]);
-  await expect.poll(() => app.mock.state.requests.length, { message: 'the model was asked' }).toBeGreaterThan(0);
-  expect(JSON.stringify(app.mock.state.lastBody), 'the model is told that three pictures are not in front of it').toContain('3 pictures attached earlier in this conversation');
-  const task = await taskByPrompt(app, 'Ba ảnh này khác nhau thế nào?');
-  await expect.poll(async () => JSON.stringify((await app.hub.task(task.id)).events ?? []), { message: 'the person is told too' })
-    .toContain('3 ảnh đính kèm không còn trong yêu cầu gửi model');
+  const base64 = await sendPictures(page, app, 'Ba ảnh này khác nhau thế nào?', [gif('a.gif', 3.5 * MB), gif('b.gif', 3.5 * MB), gif('c.gif', 3.5 * MB)]);
+  expect(await firstModelRequestBytes(app), 'the request holds all three: 14 MB of base64').toBeGreaterThan(base64);
 });
 
 test('over 12 MB in one message the file is not added, and the message says the limit and the way around it', async ({ page, app }) => {
