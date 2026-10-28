@@ -74,11 +74,14 @@ test('components use semantic colour tokens, never Tailwind palette classes', ()
   assert.deepEqual(offenders, [], 'use text-primary / text-success / bg-danger/10 ... from src/index.css');
 });
 
-test('no hard-coded colour values in components (the preview iframe canvas is the one white)', () => {
+// The mark of DatGold is a picture with colours of its own, a gold D on its own dark square, the same in both themes: it is the one component that holds hex values.
+const BRAND_MARK = 'components/layout/BrandMark.tsx';
+
+test('no hard-coded colour values in components (the preview iframe canvas is the one white, the mark of DatGold the one picture)', () => {
   const offenders = [];
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
-    if (/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?![\w-])/.test(text.replace(/&#\d+;/g, ''))) offenders.push(rel(file));
+    if (rel(file) !== BRAND_MARK && /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?![\w-])/.test(text.replace(/&#\d+;/g, ''))) offenders.push(rel(file));
     if (/\bbg-white\b/.test(text) && rel(file) !== 'components/inspector/PreviewTab.tsx') offenders.push(`${rel(file)} (bg-white)`);
   }
   assert.deepEqual(offenders, []);

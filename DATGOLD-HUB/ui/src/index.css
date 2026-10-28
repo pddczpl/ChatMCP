@@ -12,6 +12,8 @@
    - Green means "verified by evidence", amber means "reported or unverified", red means "failed or dangerous", blue is the
      brand and the focus colour. Nothing else uses those hues.
    - Text on the canvas keeps >= 4.5:1 in both themes; sizes below 12px are not used for anything a person has to read.
+   - The one picture with colours of its own is the mark of DatGold (components/layout/BrandMark.tsx): a gold D on its own dark
+     square, the same in both themes. It is the only component that may hold hex values.
    --------------------------------------------------------------------------------------------------------------------- */
 
 @theme {
