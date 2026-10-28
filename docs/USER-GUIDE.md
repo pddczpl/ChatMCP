@@ -183,6 +183,10 @@ hoặc, màu cảnh báo:
 
 Ý nghĩa: *"Hoàn tất"* chỉ có nghĩa là **model đã ngừng và trả lời**. Việc code có đúng hay không được thể hiện bằng dòng bằng chứng: chỉ khi có **lệnh kiểm tra thật sự chạy và thoát với mã 0** thì mới có chữ "đạt". Nếu có lệnh shell, Hub nói "có thể đã thay đổi file (xem Git diff)" vì nó không thể biết lệnh đó đã sửa gì. Bấm **Xem thay đổi** để mở Git diff.
 
+### Chấp nhận mục tiêu (Objective acceptance)
+
+Với một việc lập trình được Hub tách thành nhiều mục tiêu, màn hình hội thoại có khung **Chấp nhận mục tiêu**. Mỗi mục tiêu có vài tiêu chí cố định (đã xem bằng chứng trong dự án, nếu có sửa code thì file đã đổi thật trên đĩa, đã chạy lệnh kiểm tra), và mỗi tiêu chí chỉ được coi là xong khi **bạn** nối nó với một **biên nhận** mà chính Hub ghi lại khi nó thấy việc thật xảy ra (không phải lời model nói). Hub chọn sẵn biên nhận gần nhất cho từng tiêu chí để bạn đọc và đổi; **Xác nhận** nối một tiêu chí, **Xác nhận tất cả đề xuất** nối hết các tiêu chí còn lại theo đúng thứ tự mục tiêu (Hub dừng ở lần từ chối đầu tiên). Không có gì được chấp nhận trước khi bạn bấm, và sau khi file bị sửa tiếp thì biên nhận cũ hết hiệu lực (tiêu chí quay lại chưa xong).
+
 ## 8. Khi tác vụ dừng giữa chừng
 
 ### Tạm dừng

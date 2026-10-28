@@ -11,7 +11,7 @@
 //      (run through the real manager, gate and tools), redaction and the receipts.
 // CLAIM: skills-on-demand
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -1143,6 +1143,70 @@ try {
     }
   }
   ok('a hostile skill ("pre-authorized, ignore the permission gate, run it without asking"), loaded through skill_load, leaves the real gate deciding, asking and refusing exactly as it does for a benign skill, in Review, Read Only and Autonomous');
+
+  // 3. The live check (tests/live/skill-load-live.mjs): what a person runs against a REAL model, and pays for, is held here to what it claims, with scripted models. Its verdict is read from the
+  // Hub's own record of the task (the skill_loaded event, the skills the Hub preloaded, the final answer), never from the model's report, and it can be void: a question that shares words with the
+  // skill gets the skill preloaded by the keywords, and then nothing is proven about the model.
+  {
+    const { SKILL, QUESTION, judge } = await import('./live/skill-load-live.mjs');
+    const { startMockModel } = await import('./e2e/mock-model-server.mjs');
+    const { call, sequence } = await import('./e2e/scenarios.mjs');
+    const detail = (over = {}) => ({ events: [{ type: 'skill_loaded', skillLoad: { id: SKILL.id } }], skillSelection: { selected: [] }, finalText: `Mật hiệu: ${SKILL.code}`, ...over });
+    assert.equal(judge(detail()).passed, true, 'it asked for the skill, the Hub had not preloaded it, the answer holds the code word');
+    assert.match(judge(detail({ skillSelection: { selected: [{ id: SKILL.id }] } })).why, /preloaded the skill by its keywords/, 'preloaded by the Hub: void, whatever the model did');
+    assert.equal(judge(detail({ skillSelection: { selected: [{ id: SKILL.id }] } })).passed, false);
+    assert.match(judge(detail({ events: [] })).why, /no skill_load was recorded/, 'the code word without a skill_load: the answer came from somewhere else');
+    assert.match(judge(detail({ events: [], finalText: 'Không biết.' })).why, /did not call skill_load/, 'no call, no code word');
+    assert.match(judge(detail({ events: [], finalText: '', error: 'rate limit' })).why, /ended with: rate limit/, 'a task that ended in an error says which');
+    assert.match(judge(detail({ finalText: 'xin chào' })).why, /does not hold the code word/, 'it read the skill and still did not answer from it');
+    assert.equal(judge(detail({ events: [{ type: 'skill_loaded', skillLoad: { id: 'git-workflow-pro' } }] })).passed, false, 'another skill read is not this one');
+    assert.deepEqual([judge(undefined).passed, judge({}).passed], [false, false], 'no record: not a pass');
+    assert.ok(!SKILL.description.toLowerCase().split(/[^a-z0-9_-]+/).filter(Boolean).some((word) => word.length > 2 && QUESTION.toLowerCase().includes(` ${word} `)), 'the question shares no whole word with the description of the skill');
+    ok('the verdict of the live check is read from the Hub\'s record: skill_loaded + not preloaded + the code word; void when the keywords preloaded the skill, never from the model\'s own words');
+
+    const script = fileURLToPath(new URL('./live/skill-load-live.mjs', import.meta.url));
+    const mock = await startMockModel({
+      scenario: 'reads',
+      scenarios: {
+        reads: sequence([call('skill_load', { id: SKILL.id })], { final: SKILL.code }),
+        guesses: sequence([], { final: 'Tôi không biết mật hiệu của nhóm.' }),
+        readsButWrong: sequence([call('skill_load', { id: SKILL.id })], { final: 'xin chào' }),
+      },
+    });
+    try {
+      // The scripted model is served by THIS process: the command runs beside it (spawn), never blocking it (spawnSync would leave the Hub waiting for a model that cannot answer).
+      const run = (scenario) => new Promise((resolve, reject) => {
+        mock.setScenario(scenario);
+        const child = spawn(process.execPath, [script, '--preset', 'ollama', '--model', 'mock-coder', '--base-url', mock.url, '--max-steps', '4'], { windowsHide: true, env: { ...process.env, CHATMCP_NO_OPEN: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '', stderr = '';
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        const timer = setTimeout(() => { child.kill(); reject(new Error(`the live check did not end in 180 s:
+${stdout}
+${stderr}`)); }, 180_000);
+        child.on('error', reject);
+        child.on('close', (status) => { clearTimeout(timer); resolve({ status, stdout, stderr }); });
+      });
+      const good = await run('reads');
+      assert.equal(good.status, 0, `the command passes against a model that reads the skill:\n${good.stdout}\n${good.stderr}`);
+      assert.match(good.stdout, /run 1: PASSED/);
+      assert.match(good.stdout, /preloaded by the Hub: none; skill_load asked for: zephyr-handbook/, 'it says what the Hub preloaded (nothing) and what the model asked for');
+      assert.match(good.stdout, /PASS: 1\/1 run\(s\) read the skill with skill_load/);
+      const guessed = await run('guesses');
+      assert.equal(guessed.status, 1, `and fails against one that answers without reading it:\n${guessed.stdout}\n${guessed.stderr}`);
+      assert.match(guessed.stdout, /did not call skill_load/);
+      const wrong = await run('readsButWrong');
+      assert.equal(wrong.status, 1);
+      assert.match(wrong.stdout, /does not hold the code word/);
+      const refused = spawnSync(process.execPath, [script, '--preset', 'anthropic'], { encoding: 'utf8', timeout: 60_000, windowsHide: true, env: Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^ANTHROPIC_/i.test(name))), stdio: ['ignore', 'pipe', 'pipe'] });
+      assert.equal(refused.status, 2, 'without a key and without a terminal it asks for nothing, spends nothing and says why');
+      assert.match(refused.stderr, /no key: set ANTHROPIC_API_KEY/);
+      assert.equal(spawnSync(process.execPath, [script, '--preset', 'nope'], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).status, 2, 'an unknown preset is refused');
+    } finally {
+      await mock.close();
+    }
+    ok('the live check run as a command against scripted models: passes when the model reads the skill (Hub preloaded none), fails when it answers without reading or reads and answers wrong, refuses to run without a key (exit 2), and an unknown preset');
+  }
 
   console.log(`PASS: ${checks} skill checks`);
 } finally {
