@@ -177,6 +177,30 @@ export interface ProjectInstructionsRecord {
   files: ProjectInstructionFile[];
 }
 
+/** One ground on which the Hub took a skill (lib/plugins.mjs: selectSkillsForTask): a word of the request that is the skill's id, name or an explicit trigger, a word of its description, or the kind of project. `via` is the Vietnamese phrase a word was read from. */
+export interface SkillSelectionWhy {
+  kind: 'id' | 'name' | 'description' | 'trigger' | 'project';
+  word?: string;
+  via?: string;
+  label?: string;
+}
+
+/** `task.skillSelection` (lib/skill-selection-record.mjs): which skills the latest run was given and why, or why none. Holds names and words of skills, never the prompt. */
+export interface SkillSelectionRecord {
+  reason: 'selected' | 'no_match' | 'no_skills' | 'no_prompt';
+  /** How many skills were turned on. */
+  considered: number;
+  /** The points a skill needs to be taken. */
+  threshold: number;
+  selected: { id: string; name: string; score: number; source: 'run' | 'earlier'; why: SkillSelectionWhy[] }[];
+  /** When nothing was taken: the skill that came closest. */
+  nearest: { id: string; name: string; score: number } | null;
+  /** The kinds of project the workspace was found to be. */
+  project: { id: string; label: string }[];
+  /** The Vietnamese phrases of this run's own request that were read, and the words they counted as. */
+  concepts: { phrase: string; words: string[] }[];
+}
+
 /** The receipt of one skill_load call (lib/skill-index.mjs): hashes and sizes, never the text. */
 export interface SkillLoadReceipt {
   id: string;
@@ -220,6 +244,8 @@ export interface TaskDetail extends TaskSummary {
   events?: TaskEvent[];
   /** What the latest run was given of AGENTS.md / CLAUDE.md; absent for a ChatGPT Web task and for one from before the record existed. */
   projectInstructions?: ProjectInstructionsRecord | null;
+  /** Which skills the latest run was given and why, or why none; absent for a ChatGPT Web task and for one from before the record existed. */
+  skillSelection?: SkillSelectionRecord | null;
   stateReason?: string;
   errorCode?: string;
   error?: string;
@@ -505,6 +531,7 @@ export interface Task {
   updatedAt?: string;
   events?: TaskEvent[];
   projectInstructions?: ProjectInstructionsRecord | null;
+  skillSelection?: SkillSelectionRecord | null;
   phase?: string;
   stage?: string;
   startedAt?: string;

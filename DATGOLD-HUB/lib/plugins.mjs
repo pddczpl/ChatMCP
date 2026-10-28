@@ -13,6 +13,9 @@ import net from 'node:net';
 import { readJson, writeJson } from './runtime.mjs';
 import { fetchPinnedSkillResponse } from './skill-http.mjs';
 import { isUnsafeWindowsName } from './fs-safe.mjs';
+import { conceptsIn } from './skill-vocabulary.mjs';
+import { projectSignalFor } from './project-signals.mjs';
+import { SKILL_THRESHOLD } from './skill-selection-record.mjs';
 
 const INSTALLED_FILENAME = 'installed-plugins.json';
 const LOCK_FILENAME = 'skills-lock.json';
@@ -673,6 +676,14 @@ const FUNCTION_WORDS = new Set((
   'where whether which while who whom whose why will with within without would yet you your yours'
 ).split(' '));
 const DESCRIPTION_FILLER = new Set('guidance need needs prompt prompts skill skills tool tools trigger triggers use used user users uses using want wants'.split(' '));
+// The explicit triggers: [a word of the request, a part of the skill's id, points]. Not "test": it is the most ordinary word of a request for code (the Hub's own auto-resume
+// prompt says it), and selecting the Python skill on it was a guess about the language of the project.
+const TRIGGERS = Object.freeze([
+  ['git', 'git', 10], ['commit', 'git', 8], ['branch', 'git', 8], ['pytest', 'python', 10], ['docker', 'docker', 10], ['react', 'react', 10],
+  ['security', 'security', 10], ['secret', 'security', 10], ['sqlite', 'sqlite', 10],
+]);
+// What a project of the kind a skill is called adds to a request that already says something about the skill (lib/project-signals.mjs).
+const PROJECT_POINTS = 2;
 
 export class PluginManager {
   #loadPromise = null;
@@ -1158,33 +1169,44 @@ export class PluginManager {
    * Any other word is worth at most 1 to a skill, so one ordinary word ("file", "read", "and", "test") cannot reach the threshold by itself: function words and
    * the filler of descriptions count for nothing, and so do the tools a skill lists (they say which tools it would use, not what it is about, and most skills
    * list read_file).
+   * A Vietnamese phrase of the prompt counts as the English words of its translation (lib/skill-vocabulary.mjs). A project of the kind a skill is called (`project`, from
+   * lib/project-signals.mjs) adds 2 to a skill the prompt already says something about, once; it never selects a skill by itself.
    * Guarantees that injected prompt instructions never exceed tokenBudget, even if the first skill is oversized.
    *
    * @param {object} options
    * @param {string} [options.prompt] The user task prompt
    * @param {string} [options.workspacePath]
+   * @param {Array<{id: string, label: string, tokens: string[]}>} [options.project] The kinds of project the workspace is (detectProjectSignals)
    * @param {number} [options.limit] Maximum number of skills to select (default: 4)
    * @param {number} [options.tokenBudget] Maximum characters allowed for injected skill instructions (default: 8000)
+   * @param {object} [options.trace] An object that is filled with how the choice was made: `reason` ('selected', 'no_match', 'no_skills', 'no_prompt'), `considered` (skills
+   *   enabled), `threshold`, `concepts` (the Vietnamese phrases read), `candidates` (every skill with a score, best first: id, name, score, passed, why) and `chosen` (the ids returned)
    * @returns {Array<object>} Selected skills
    */
-  selectSkillsForTask({ prompt = '', workspacePath = null, limit = 4, tokenBudget = 8000 } = {}) {
+  selectSkillsForTask({ prompt = '', workspacePath = null, project = [], limit = 4, tokenBudget = 8000, trace = null } = {}) {
     const active = this.activeSkills();
-    if (!active.length) return [];
+    const explain = (fields) => { if (trace) Object.assign(trace, { reason: 'no_match', considered: active.length, threshold: SKILL_THRESHOLD, concepts: [], candidates: [], chosen: [], ...fields }); };
+    if (!active.length) { explain({ reason: 'no_skills' }); return []; }
 
     const promptText = String(prompt || '').trim().toLowerCase();
-    if (!promptText) return [];
+    if (!promptText) { explain({ reason: 'no_prompt' }); return []; }
 
-    const promptTokens = new Set(
-      promptText.match(/\b[a-z0-9_-]{3,}\b/g) || []
-    );
+    const typed = new Set(promptText.match(/\b[a-z0-9_-]{3,}\b/g) || []);
+    const read = conceptsIn(String(prompt));
+    const promptTokens = new Set([...typed, ...read.words.keys()]);
+    // Where a word of the prompt came from, when the person did not type it.
+    const via = (tok) => (typed.has(tok) ? undefined : read.words.get(tok));
 
     // Function words are no evidence for anything, whichever field they would match.
     const words = [...promptTokens].filter((tok) => !FUNCTION_WORDS.has(tok));
 
     const scored = [];
+    const candidates = [];
 
     for (const skill of active) {
       let score = 0;
+      const why = [];
+      const because = (kind, word) => { const from = via(word); why.push(from === undefined ? { kind, word } : { kind, word, via: from }); };
       const idTokens = skill.id.toLowerCase().split(/[-_]/);
       const nameTokens = skill.name.toLowerCase().split(/\s+/);
       const descTokens = new Set((skill.description || '').toLowerCase().split(/\s+/));
@@ -1192,32 +1214,30 @@ export class PluginManager {
       // What a skill is called is evidence on its own (5 and 4); what it says about itself is weak and needs company: a description word is 1 and the
       // threshold is 3. The tools it lists are no evidence at all: a word that is part of "read_file" or "run_command" is in the request of nearly every task.
       for (const tok of words) {
-        if (idTokens.includes(tok)) score += 5;
-        if (nameTokens.includes(tok)) score += 4;
-        if (descTokens.has(tok) && !DESCRIPTION_FILLER.has(tok)) score += 1;
+        if (idTokens.includes(tok)) { score += 5; because('id', tok); }
+        if (nameTokens.includes(tok)) { score += 4; because('name', tok); }
+        if (descTokens.has(tok) && !DESCRIPTION_FILLER.has(tok)) { score += 1; because('description', tok); }
       }
 
-      // Context heuristics: explicit triggers, each enough on its own. Not "test": it is the most ordinary word of a request for code (the Hub's own
-      // auto-resume prompt says it), and selecting the Python skill on it was a guess about the language of the project.
-      if (promptTokens.has('git') && skill.id.includes('git')) score += 10;
-      if (promptTokens.has('commit') && skill.id.includes('git')) score += 8;
-      if (promptTokens.has('branch') && skill.id.includes('git')) score += 8;
-      if (promptTokens.has('pytest') && skill.id.includes('python')) score += 10;
-      if (promptTokens.has('docker') && skill.id.includes('docker')) score += 10;
-      if (promptTokens.has('react') && skill.id.includes('react')) score += 10;
-      if (promptTokens.has('security') && skill.id.includes('security')) score += 10;
-      if (promptTokens.has('secret') && skill.id.includes('security')) score += 10;
-      if (promptTokens.has('sqlite') && skill.id.includes('sqlite')) score += 10;
+      // Context heuristics: explicit triggers, each enough on its own.
+      for (const [word, part, points] of TRIGGERS) {
+        if (promptTokens.has(word) && skill.id.includes(part)) { score += points; because('trigger', word); }
+      }
 
+      // A project of the kind the skill is called supports a request that already says something about it, and never selects a skill alone.
+      if (score > 0) {
+        const signal = projectSignalFor(skill, project);
+        if (signal) { score += PROJECT_POINTS; why.push({ kind: 'project', label: signal.label }); }
+      }
+
+      if (trace && score > 0) candidates.push({ id: skill.id, name: skill.name, score, passed: score >= SKILL_THRESHOLD, why });
       // Meaningful relevance threshold: must achieve score >= 3
-      if (score >= 3) {
+      if (score >= SKILL_THRESHOLD) {
         scored.push({ skill, score });
       }
     }
 
-    // If nothing is relevant, select nothing
-    if (!scored.length) return [];
-
+    // If nothing is relevant nothing is selected: the loop below has nothing to take.
     scored.sort((a, b) => b.score - a.score);
 
     const selected = [];
@@ -1246,6 +1266,13 @@ export class PluginManager {
       }
     }
 
+    if (trace) {
+      candidates.sort((a, b) => b.score - a.score);
+      explain({
+        reason: selected.length ? 'selected' : 'no_match', candidates,
+        concepts: read.found.map(({ phrase, words: meant }) => ({ phrase, words: [...meant] })), chosen: selected.map((skill) => skill.id),
+      });
+    }
     return selected;
   }
 }

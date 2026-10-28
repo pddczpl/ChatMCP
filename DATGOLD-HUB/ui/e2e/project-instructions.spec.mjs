@@ -100,6 +100,22 @@ test('Settings flips the switch, the Hub and the next request follow, and the li
   await expect(note).toContainText('Hướng dẫn dự án đã nạp');
   await expect(note).toContainText('Nạp vào chỉ dẫn không có nghĩa là model đã làm theo');
   await expect(note).toContainText('không tin cậy');
+
+  // The line under it that says which skills the Hub took for this run, or why none: this request names no skill, so it says that, and it is a record in the same neutral
+  // colours, drawn after the project instructions.
+  const skills = (await app.hub.task(taskId)).skillSelection;
+  expect(skills, 'the Hub served the record of the run').toMatchObject({ reason: 'no_match', selected: [], threshold: 3 });
+  const skillNote = page.getByTestId('skill-selection-note');
+  await expect(skillNote).toHaveAttribute('data-kind', 'none');
+  await expect(skillNote).toContainText('Không chọn kỹ năng nào cho lượt này');
+  await expect(skillNote).toContainText(`Yêu cầu không nhắc tới việc nào của ${skills.considered} kỹ năng đang bật`);
+  await expect(skillNote).toContainText('chỉ hiểu một số cụm tiếng Việt thường gặp, nên có thể bỏ sót');
+  expect(await page.evaluate(() => {
+    const first = document.querySelector('[data-testid="project-instructions-note"]');
+    const second = document.querySelector('[data-testid="skill-selection-note"]');
+    return Boolean(first && second && (first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING));
+  }), 'after the line about the project instructions').toBe(true);
+  expect(await skillNote.evaluate((element) => element.outerHTML)).not.toMatch(/text-success|bg-success|border-success|text-danger|bg-danger|text-warning|bg-warning|lucide-check|lucide-shield|lucide-circle-check/);
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
     await page.screenshot({ path: testInfo.outputPath(`turn-note-${theme}.png`), animations: 'disabled' });
@@ -201,4 +217,50 @@ test.describe('with CHATMCP_PROJECT_INSTRUCTIONS set in the environment of the H
     expect(seen).toEqual([0]);
     await expect(page.getByTestId('project-instructions-note')).toHaveAttribute('data-kind', 'off');
   });
+});
+
+test('the line under the turn names the skill the Hub took and on what grounds: a Vietnamese phrase counts as its English word, the kind of project supports it, an earlier message carries it', async ({ page, app }, testInfo) => {
+  await fs.writeFile(path.join(app.project, 'Dockerfile'), 'FROM node:22\n');
+  app.mock.define('quiet', () => say('Xong.'));
+  app.mock.setScenario('quiet');
+  await onboard(page, app);
+  const taskId = await firstTurn(page, app, 'Tạo nhánh mới tên feature/export-csv rồi chuyển sang nhánh đó.');
+
+  // What the real Hub served for the run ...
+  const record = (await app.hub.task(taskId)).skillSelection;
+  expect(record.reason).toBe('selected');
+  expect(record.selected.map((item) => [item.id, item.source])).toContainEqual(['git-workflow-pro', 'run']);
+  expect(record.concepts).toEqual([{ phrase: 'nhánh', words: ['branch'] }]);
+  expect(record.project.map((signal) => signal.label)).toContain('Dockerfile');
+
+  // ... and what the production page draws from it.
+  const skillNote = page.getByTestId('skill-selection-note');
+  const git = skillNote.getByTestId('skill-selection-skill').filter({ hasText: 'Git Workflow Pro' });
+  await expect(skillNote).toHaveAttribute('data-kind', 'selected');
+  await expect(skillNote).toContainText('Kỹ năng đã chọn cho lượt này');
+  await expect(git).toContainText('“nhánh” → branch');
+  await expect(skillNote).toContainText('Hub thấy dự án có:');
+  await expect(skillNote).toContainText('Dockerfile');
+  await expect(skillNote).toContainText('không có nghĩa là model đã làm theo');
+  await page.screenshot({ path: testInfo.outputPath('skills-turn-note.png'), animations: 'disabled' });
+
+  // The next message names no skill: the one of the first message is carried, and the line says where it comes from.
+  await send(page, 'Cảm ơn nhé.');
+  await waitFor(async () => { const full = await app.hub.task(taskId); return full.runs?.length === 2 && full.state === 'completed'; }, { label: 'the second run to complete' });
+  await expect(git).toContainText('từ tin nhắn trước');
+  expect((await app.hub.task(taskId)).skillSelection.selected.map((item) => item.source)).not.toContain('run');
+
+  // A narrow window: the line wraps, nothing scrolls sideways.
+  await page.setViewportSize({ width: 640, height: 900 });
+  await expect(skillNote).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'the conversation does not scroll sideways').toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+
+  // The same line in English, from the real language switch.
+  await openSettings(page, 'Giao diện & ngôn ngữ');
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(skillNote).toContainText(/Skills chosen for this turn: \d/);
+  await expect(skillNote).toContainText('from an earlier message');
+  await expect(skillNote).toContainText('does not mean the model followed it');
 });

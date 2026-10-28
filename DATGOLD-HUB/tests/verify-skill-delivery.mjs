@@ -197,15 +197,16 @@ try {
   const READ_FILE = { name: 'local.read_file', originalName: 'read_file', server: 'local', inputSchema: { type: 'object' } };
   let chats = 0;
   // script({requests, runner}) answers the model; onSession({runner}) runs while a run is preparing: the task is running and its skills are not selected yet.
-  // pluginManager, tools (the catalog the scripted tool session offers) and toolSelectionMode are the skills above, read_file alone and the runner's default.
-  const chat = async ({ script = () => finalAnswer('Done.'), onSession = null, pluginManager = plugins, tools = [READ_FILE], toolSelectionMode = null } = {}) => {
+  // pluginManager, tools (the catalog the scripted tool session offers) and toolSelectionMode are the skills above, read_file alone and the runner's default;
+  // workspace is the folder the conversation works in (the temporary root of this test, which holds no project file).
+  const chat = async ({ script = () => finalAnswer('Done.'), onSession = null, pluginManager = plugins, tools = [READ_FILE], toolSelectionMode = null, workspace = conversationRoot } = {}) => {
     const requests = [];
     let locked = false;
     let id = null;
     const manager = {
       backend: 'local', secrets: [], instanceId: 'skill-conversation', generation: 1,
       pluginManager,
-      state() { return { workspace: { path: conversationRoot }, generation: this.generation, instanceId: this.instanceId }; },
+      state() { return { workspace: { path: workspace }, generation: this.generation, instanceId: this.instanceId }; },
       acquireTask() { if (locked) return false; locked = true; return true; },
       releaseTask() { locked = false; },
       studio: { async checks() { return { suggested: [] }; } },
@@ -513,7 +514,7 @@ try {
     const selecting = corpus.filter((entry) => selectConversationSkills(shipped, entry.prompt).length > 0);
     assert.ok(corpus.length >= 80 && selecting.length >= 8, `(the premise: ${selecting.length} of ${corpus.length} corpus prompts select a skill)`);
     const byId = new Map(corpus.map((entry) => [entry.id, entry.prompt]));
-    for (const id of ['g01', 'g02', 'g04', 'g07', 'g08', 'g10']) assert.ok(pick(byId.get(id)).includes('git-workflow-pro'), `${id} still selects the Git skill`);
+    for (const id of ['g01', 'g02', 'g04', 'g07', 'g08', 'g09', 'g10']) assert.ok(pick(byId.get(id)).includes('git-workflow-pro'), `${id} still selects the Git skill (g09, "Tạo nhánh mới ...", does since the Hub reads Vietnamese)`);
     for (const entry of selecting) {
       const own = idsOf(selectConversationSkills(shipped, entry.prompt));
       for (const text of hubPrompts) {
@@ -524,15 +525,332 @@ try {
     ok(`the Hub's auto-resume and repair prompts select no skill, and a continuation keeps all the skills of the first message (${selecting.length} of ${corpus.length} corpus prompts select one)`);
 
     // Over the whole corpus a skill is selected because the prompt names it or asks for what it is about, never because of the ordinary words around that.
+    // (What a Vietnamese phrase of the prompt stands for counts as a word of the prompt: lib/skill-vocabulary.mjs.)
     const triggerWords = ['git', 'commit', 'branch', 'pytest', 'docker', 'react', 'security', 'secret', 'sqlite'];
+    const vocabulary = await import('../lib/skill-vocabulary.mjs');
     for (const entry of corpus) {
-      const words = new Set(entry.prompt.toLowerCase().match(/\b[a-z0-9_-]{3,}\b/g) ?? []);
+      const words = new Set([...(entry.prompt.toLowerCase().match(/\b[a-z0-9_-]{3,}\b/g) ?? []), ...vocabulary.conceptsIn(entry.prompt).words.keys()]);
       for (const skill of shipped.selectSkillsForTask({ prompt: entry.prompt, limit: 99, tokenBudget: 10_000_000 })) {
         const own = [...skill.id.split(/[-_]/), ...skill.name.toLowerCase().split(/\s+/)];
         assert.ok(own.some((word) => words.has(word)) || triggerWords.some((word) => words.has(word)), `${entry.id}: ${skill.id} is selected on ordinary words ("${entry.prompt}")`);
       }
     }
     ok('over the corpus a skill is selected by a word of its id or name or by an explicit trigger, never by the ordinary words around it');
+
+    // ---- Vietnamese, and the project ----------------------------------------------------------------------------------------------------------------------
+    // The scorer read ASCII only. A Vietnamese request was a few fragments ("thay", "kho"): "Tạo nhánh mới" (create a new branch) selected no skill, and neither did the
+    // owner's own question about skills, with no word about why. Now a Vietnamese phrase counts as the English words a translation of it would use (lib/skill-vocabulary.mjs:
+    // a short table, not a translator), a project of the kind a skill is about adds to a request that already says something about that skill (lib/project-signals.mjs), and a
+    // run records which skills it took and on what grounds, or why it took none (lib/skill-selection-record.mjs).
+    const { CONCEPTS, conceptsIn, foldVietnamese } = await import('../lib/skill-vocabulary.mjs');
+    const { detectProjectSignals } = await import('../lib/project-signals.mjs');
+    const { buildSkillSelectionRecord } = await import('../lib/skill-selection-record.mjs');
+    const BOTH_GIT = ['git-workflow-pro', 'github-actions-ci-cd'];
+    const select = (prompt, extra = {}) => idsOf(shipped.selectSkillsForTask({ prompt, limit: 99, tokenBudget: 10_000_000, ...extra }));
+    const wordsOf = (text) => conceptsIn(text).found.flatMap((entry) => entry.words);
+
+    // The table, pinned from outside: phrase -> the English words it counts as. A row added to the module has to be added here.
+    const TABLE = {
+      'nhánh': ['branch'], 'bảo mật': ['security'], 'bí mật': ['secret'],
+      'yêu cầu kéo': ['pull', 'request'], 'cơ sở dữ liệu': ['database', 'databases'], 'truy vấn': ['queries'], 'lược đồ': ['schemas'], 'chỉ mục': ['indexes'],
+      'thành phần': ['component'], 'khả năng truy cập': ['accessible'], 'khóa riêng': ['private', 'keys'], 'tài liệu chính thức': ['official', 'documentation'],
+      'tích hợp liên tục': ['workflows', 'automated'], 'triển khai liên tục': ['workflows', 'automated'], 'quy trình làm việc': ['workflows'],
+      'phát hành': ['release'], 'nhật ký': ['logs'], 'kiểm tra sức khỏe': ['health', 'checks'],
+    };
+    assert.equal(CONCEPTS.length, Object.keys(TABLE).length, 'the table of the module and the table of this test have the same rows');
+    for (const [phrase, words] of Object.entries(TABLE)) {
+      assert.deepEqual(wordsOf(phrase), words, `"${phrase}" counts as ${words.join(' ')}`);
+      assert.deepEqual(wordsOf(`Hãy xử lý ${phrase} giúp mình nhé.`), words, `"${phrase}" inside a sentence`);
+      assert.deepEqual(wordsOf(phrase.toUpperCase()), words, `"${phrase.toUpperCase()}": capitals do not matter`);
+      assert.deepEqual(wordsOf(phrase.normalize('NFD')), words, `"${phrase}" typed as letters and combining marks`);
+    }
+    assert.deepEqual(wordsOf('khoá riêng'), ['private', 'keys'], 'the older spelling of khóa');
+    assert.deepEqual(wordsOf('kiểm tra sức khoẻ'), ['health', 'checks'], 'and of khỏe');
+    assert.deepEqual(conceptsIn('tạo nhánh mới').found, [{ phrase: 'nhánh', words: ['branch'] }], 'a match says which phrase it read');
+    assert.deepEqual([...conceptsIn('tạo nhánh mới rồi bảo mật').words], [['branch', 'nhánh'], ['security', 'bảo mật']], 'and each word says where it came from');
+    assert.equal(conceptsIn('').found.length + conceptsIn(null).found.length + conceptsIn(42).found.length, 0, 'text that is not text has no phrase');
+
+    // Typed without diacritics (a phone keyboard, a hurry): a phrase that is only itself still counts. A phrase whose bare letters are another everyday phrase does not:
+    // "nhanh" is fast and "bi mat" is "bị mất" (lost), and "tôi bị mất tệp" must not call the security skill.
+    assert.equal(foldVietnamese('Đường dẫn ĐẾN Nhánh Mới'), 'duong dan den nhanh moi');
+    assert.equal(foldVietnamese('Plain ASCII 123 stays'), 'plain ascii 123 stays');
+    assert.deepEqual(wordsOf('Tạo (nhánh), rồi rà bảo mật.'), ['branch', 'security'], 'punctuation next to a phrase does not hide it');
+    assert.deepEqual(wordsOf('can xem bao mat cua ung dung'), ['security']);
+    assert.deepEqual(wordsOf('Kiem tra suc khoe cua container'), ['health', 'checks']);
+    assert.deepEqual(wordsOf('tich hop lien tuc'), ['workflows', 'automated']);
+    for (const text of ['Làm cho ứng dụng chạy nhanh hơn', 'Tóm tắt cấu trúc dự án này để mình nắm nhanh.', 'Tôi bị mất tệp dữ liệu, giúp tôi tìm lại', 'Hàm nào đang gọi `sendInvoiceEmail` vậy?',
+      'lam cho ung dung chay nhanh hon', 'toi bi mat tep du lieu', 'hay tao nhanh moi', 'chỉ cần xem mục lục', 'kiểm tra lại sức mạnh']) {
+      assert.deepEqual(conceptsIn(text).found, [], `"${text}" holds no phrase`);
+    }
+    assert.deepEqual([...conceptsIn('quy trình làm việc và tích hợp liên tục').words], [['workflows', 'tích hợp liên tục'], ['automated', 'tích hợp liên tục']], 'a word read from two phrases names the first row that holds it');
+    ok('a Vietnamese phrase counts as the English words of its translation: 18 rows, capitals, the older spellings, no diacritics where the bare letters are only that phrase, and never "nhanh" or "bi mat"');
+
+    // Through the real scorer a Vietnamese request is given what its English translation is given, and the words that are not in the table select nothing, as before.
+    for (const [vi, en] of [
+      ['Tạo nhánh mới tên feature/export-csv', 'Create a new branch named feature/export-csv'],
+      ['Cần xem xét vấn đề bảo mật của đoạn mã này', 'Review the security of this code'],
+      ['Đừng để lộ bí mật trong mã nguồn', 'Do not leak the secret in the source'],
+    ]) {
+      assert.ok(select(en).length > 0, `(the premise: "${en}" selects a skill)`);
+      assert.deepEqual(select(vi), select(en), `"${vi}" is given what "${en}" is given`);
+    }
+    assert.deepEqual(select('Tạo nhánh mới tên feature/export-csv'), BOTH_GIT, 'the Git skill, and the GitHub one whose id has "git" in it, as for "branch"');
+    assert.deepEqual(select('Cần xem xét vấn đề bảo mật của đoạn mã này'), ['security-compliance-guard']);
+    const QUIET = ['Dự án đã biết chọn skill phù hợp dự án chưa', 'Sửa lỗi hiển thị của nút bấm trên trang chủ', 'Đọc tệp cấu hình rồi chạy lệnh kiểm thử', 'Làm cho ứng dụng chạy nhanh hơn',
+      'Tôi bị mất tệp dữ liệu, giúp tôi tìm lại', 'Giải thích đoạn mã này làm gì', 'Viết tài liệu cho hàm này', 'Cập nhật phiên bản trong package.json lên 4.0.0.'];
+    for (const text of QUIET) for (const variant of [text, foldVietnamese(text)]) assert.deepEqual(select(variant), [], `"${variant}" selects no skill`);
+    // Over the whole corpus (87 prompts, 33 of them Vietnamese): the skills it selected before the table, and the Vietnamese prompt that asks for a branch.
+    assert.deepEqual(
+      Object.fromEntries(corpus.map((entry) => [entry.id, select(entry.prompt)]).filter(([, ids]) => ids.length)),
+      { e06: ['react-typescript-expert'], e21: ['web-researcher'], t08: ['github-actions-ci-cd'], g01: BOTH_GIT, g02: BOTH_GIT, g04: BOTH_GIT, g06: BOTH_GIT, g07: BOTH_GIT, g08: BOTH_GIT, g09: BOTH_GIT, g10: BOTH_GIT },
+      'no corpus prompt selects anything it did not select before, except g09 ("Tạo nhánh mới ...")');
+    ok('the real scorer gives a Vietnamese request what its translation gets; the owner\'s question and ordinary Vietnamese requests, with and without diacritics, select nothing; the corpus selects as before plus g09');
+
+    // Every row of the table is counted exactly: a skill whose description is made of the row's words (and a pad word or two) passes the threshold of 3 on the Vietnamese
+    // phrase and on its English words, and on nothing less.
+    {
+      const probes = new PluginManager({ stateDir: path.join(conversationRoot, 'probe-state') });
+      await probes.load();
+      for (const installed of probes.installed()) await probes.toggle(installed.id, false);
+      const weak = Object.entries(TABLE).filter(([, words]) => !words.some((word) => ['branch', 'security', 'secret'].includes(word)));
+      const padsOf = (index, words) => Array.from({ length: 3 - words.length }, (_, n) => `padword${index}x${n}`);
+      for (const [index, [, words]] of weak.entries()) {
+        await probes.install(`probe-${index}`, { name: `probe ${index}`, description: [...words, ...padsOf(index, words)].join(' '), tools: [], systemPrompt: `Reference text for probe ${index}.` });
+      }
+      const probe = (prompt) => idsOf(probes.selectSkillsForTask({ prompt, limit: 99, tokenBudget: 10_000_000 }));
+      for (const [index, [phrase, words]] of weak.entries()) {
+        const pads = padsOf(index, words).join(' ');
+        assert.deepEqual(probe(`${words.join(' ')} ${pads}`), [`probe-${index}`], `(the control: the English words of "${phrase}" and the pad select probe-${index})`);
+        assert.deepEqual(probe(`${phrase} ${pads}`), [`probe-${index}`], `"${phrase}" and the pad select probe-${index}`);
+        assert.deepEqual(probe(phrase), [], `"${phrase}" alone is not enough`);
+      }
+    }
+    ok('each of the 15 weaker rows is worth exactly its words: with the rest of a description it selects, alone it does not');
+
+    // What a Vietnamese phrase did is in the trace of the scorer, and nothing of the prompt that is not a word of a skill.
+    {
+      const trace = {};
+      const picked = idsOf(shipped.selectSkillsForTask({ prompt: 'Tạo nhánh mới rồi commit', limit: 99, tokenBudget: 10_000_000, trace }));
+      assert.deepEqual(picked, BOTH_GIT);
+      assert.deepEqual([trace.reason, trace.considered, trace.threshold, trace.chosen], ['selected', 9, 3, BOTH_GIT]);
+      assert.deepEqual(trace.concepts, [{ phrase: 'nhánh', words: ['branch'] }]);
+      const git = trace.candidates.find((candidate) => candidate.id === 'git-workflow-pro');
+      assert.deepEqual([git.name, git.score, git.passed], ['Git Workflow Pro', 18, true]);
+      assert.deepEqual(git.why.filter((item) => item.kind === 'trigger'), [{ kind: 'trigger', word: 'commit' }, { kind: 'trigger', word: 'branch', via: 'nhánh' }]);
+      assert.deepEqual(git.why.filter((item) => item.kind === 'description'), [{ kind: 'description', word: 'commit' }, { kind: 'description', word: 'branch', via: 'nhánh' }]);
+      assert.deepEqual(trace.candidates.map((candidate) => candidate.score), [...trace.candidates.map((candidate) => candidate.score)].sort((a, b) => b - a), 'best first');
+      // a word of the name or the id says so, and what each is worth: id 5, name 4, description 1, trigger 10
+      const named = {};
+      shipped.selectSkillsForTask({ prompt: 'docker', trace: named });
+      assert.deepEqual(named.candidates[0].why.map((item) => item.kind), ['id', 'name', 'description', 'trigger']);
+      assert.equal(named.candidates[0].score, 20);
+      // best first, whatever the order the skills were installed in (Git and GitHub come before SQLite)
+      const ordered = {};
+      shipped.selectSkillsForTask({ prompt: 'sqlite commit', trace: ordered });
+      assert.deepEqual(ordered.candidates.map((candidate) => [candidate.id, candidate.score]), [['sqlite-explorer', 20], ['git-workflow-pro', 9], ['github-actions-ci-cd', 9]]);
+      // nothing selected: the reason, and the nearest skill under the threshold
+      const miss = {};
+      assert.deepEqual(idsOf(shipped.selectSkillsForTask({ prompt: 'Tìm hiểu nhật ký và kiểm tra sức khỏe', trace: miss })), []);
+      assert.deepEqual([miss.reason, miss.chosen], ['no_match', []]);
+      assert.deepEqual(miss.candidates.map((candidate) => [candidate.id, candidate.score, candidate.passed]), [['docker-devops', 2, false]]);
+      const quiet = {};
+      shipped.selectSkillsForTask({ prompt: '   ', trace: quiet });
+      assert.deepEqual([quiet.reason, quiet.considered, quiet.candidates], ['no_prompt', 9, []]);
+      const empty = new PluginManager({ stateDir: path.join(conversationRoot, 'empty-state') });
+      await empty.load();
+      for (const installed of empty.installed()) await empty.toggle(installed.id, false);
+      const none = {};
+      assert.deepEqual(empty.selectSkillsForTask({ prompt: 'git commit', trace: none }), []);
+      assert.deepEqual([none.reason, none.considered], ['no_skills', 0]);
+    }
+    ok('the scorer explains itself: the grounds of each skill (typed or read from a Vietnamese phrase), the nearest miss, and why it took none');
+
+    // The project: what kinds of project a folder is, from its file names and the dependency lists, never from the text of the code, and never beyond the folder.
+    {
+      const base = await fs.mkdtemp(path.join(conversationRoot, 'projects-'));
+      const folder = async (files) => {
+        const dir = await fs.mkdtemp(path.join(base, 'p-'));
+        for (const [name, text] of Object.entries(files)) { await fs.mkdir(path.dirname(path.join(dir, name)), { recursive: true }); await fs.writeFile(path.join(dir, name), text); }
+        return dir;
+      };
+      const kinds = async (files) => (await detectProjectSignals(await folder(files))).map((signal) => `${signal.id}=${signal.label}`);
+      assert.deepEqual(await kinds({}), []);
+      assert.deepEqual(await kinds({ 'README.md': '# hi', 'src/main.js': 'console.log(1)', Thumbs: 'x', 'Thumbs.db': 'x' }), [], 'ordinary files are no signal');
+      assert.deepEqual(await kinds({ Dockerfile: 'FROM node' }), ['docker=Dockerfile']);
+      assert.deepEqual(await kinds({ 'docker-compose.yaml': 'services: {}' }), ['docker=docker-compose.yaml']);
+      assert.deepEqual(await kinds({ 'compose.yml': 'services: {}' }), ['docker=compose.yml']);
+      assert.deepEqual(await kinds({ '.github/workflows/ci.yml': 'on: push' }), ['github-actions=.github/workflows']);
+      assert.deepEqual(await kinds({ '.github/workflows/notes.txt': 'x' }), [], 'a workflow is a .yml or .yaml file');
+      assert.deepEqual(await kinds({ 'package.json': JSON.stringify({ dependencies: { react: '^19.0.0' } }) }), ['react=package.json: react']);
+      assert.deepEqual(await kinds({ 'package.json': JSON.stringify({ devDependencies: { react: '^19.0.0' } }) }), ['react=package.json: react']);
+      assert.deepEqual(await kinds({ 'package.json': JSON.stringify({ name: 'react', dependencies: { vue: '3' } }) }), [], 'a dependency, not a word');
+      assert.deepEqual(await kinds({ 'package.json': '{ not json' }), [], 'a package.json that is not JSON is no signal and no error');
+      assert.deepEqual(await kinds({ 'package.json': JSON.stringify({ dependencies: { react: '1' } }) + ' '.repeat(300 * 1024) }), [], 'a package.json over 256 KiB is not read');
+      assert.deepEqual(await kinds({ 'requirements.txt': 'fastapi==0.115.0\nuvicorn\n' }), ['python=requirements.txt', 'fastapi=requirements.txt: fastapi']);
+      assert.deepEqual(await kinds({ 'requirements.txt': '# fastapi is not used here\nflask\n' }), ['python=requirements.txt'], 'a comment is not a dependency');
+      assert.deepEqual(await kinds({ 'requirements.txt': 'fastapi-users==1.0\nmyfastapi==2\nfastapi_utils\n' }), ['python=requirements.txt'], 'another package whose name holds "fastapi" is not FastAPI');
+      assert.deepEqual(await kinds({ 'requirements.txt': 'fastapi[all]>=0.100\n' }), ['python=requirements.txt', 'fastapi=requirements.txt: fastapi'], 'extras are still FastAPI');
+      assert.deepEqual(await kinds({ 'requirements-dev.txt': 'pytest\nfastapi\n' }), ['python=requirements-dev.txt', 'fastapi=requirements-dev.txt: fastapi'], 'a requirements file with a suffix counts');
+      assert.deepEqual(await kinds({ 'pyproject.toml': '[project]\ndependencies = ["fastapi>=0.100", "pytest"]\n' }), ['python=pyproject.toml', 'fastapi=pyproject.toml: fastapi']);
+      assert.deepEqual(await kinds({ 'notes.sqlite3': '' }), ['sqlite=notes.sqlite3']);
+      {
+        // a name from the file system is a label with no control characters (a Windows account cannot make such a file: the check is skipped there)
+        const dir = await folder({});
+        let named = true;
+        try { await fs.writeFile(path.join(dir, 'a\u0007b\nc.sqlite'), ''); } catch { named = false; }
+        if (named) assert.deepEqual((await detectProjectSignals(dir)).map((signal) => signal.label), ['abc.sqlite']);
+      }
+      assert.deepEqual(await kinds({
+        'package.json': JSON.stringify({ dependencies: { react: '1' } }), Dockerfile: 'FROM node', '.github/workflows/ci.yaml': 'on: push', 'app.sqlite': '', 'setup.py': 'x',
+      }), ['docker=Dockerfile', 'github-actions=.github/workflows', 'python=setup.py', 'react=package.json: react', 'sqlite=app.sqlite'], 'in the order of the kinds, one signal for each');
+      const shape = (await detectProjectSignals(await folder({ Dockerfile: 'FROM node' })))[0];
+      assert.deepEqual(shape, { id: 'docker', label: 'Dockerfile', tokens: ['docker'] }, 'a signal is a name, a label and the words a skill is called');
+      for (const bad of [undefined, null, '', 42, path.join(base, 'does-not-exist')]) assert.deepEqual(await detectProjectSignals(bad), [], `${String(bad)} has no project`);
+      {
+        const dir = await folder({ Dockerfile: 'FROM node' });
+        const before = process.cwd();
+        process.chdir(dir);
+        try { assert.deepEqual(await detectProjectSignals('.'), [], 'a relative path is not looked up from wherever the Hub happens to be'); } finally { process.chdir(before); }
+      }
+      {
+        const dir = await folder({ 'real.txt': 'FROM node' });
+        let linked = true;
+        try { await fs.symlink(path.join(dir, 'real.txt'), path.join(dir, 'Dockerfile')); } catch { linked = false; }
+        if (linked) assert.deepEqual(await detectProjectSignals(dir), [], 'a link named Dockerfile is not followed');
+      }
+    }
+    ok('project signals: Docker, GitHub Actions, Python, FastAPI, React and SQLite from file names and dependency lists, bounded, no link followed, no error from a folder that is not there');
+
+    // A project of the kind a skill is called adds 2 to a request that already says something about it: never alone, once for the skill, and not for another kind.
+    {
+      const DOCKER = [{ id: 'docker', label: 'Dockerfile', tokens: ['docker'] }];
+      assert.deepEqual(select('Fix the Dockerfile'), [], '(the premise: one word of a description is not enough)');
+      assert.deepEqual(select('Fix the Dockerfile', { project: DOCKER }), ['docker-devops']);
+      assert.deepEqual(select('Sửa Dockerfile giúp mình', { project: DOCKER }), ['docker-devops']);
+      assert.deepEqual(select('Kiểm tra sức khỏe của dịch vụ'), []);
+      assert.deepEqual(select('Kiểm tra sức khỏe của dịch vụ', { project: DOCKER }), ['docker-devops'], 'a Vietnamese phrase and the project together pass the threshold');
+      assert.deepEqual(select('Fix the Dockerfile', { project: [{ id: 'react', label: 'package.json: react', tokens: ['react'] }] }), [], 'a project of another kind does not help');
+      assert.deepEqual(select('Hello there, how are you doing today?', { project: DOCKER }), [], 'a project never selects a skill alone');
+      const idle = {};
+      select('Hello there, how are you doing today?', { project: DOCKER, trace: idle });
+      assert.deepEqual(idle.candidates, [], 'nor does it make a skill a candidate: a request that says nothing about a skill gives the project nothing to support');
+      assert.deepEqual(select('Fix the build', { project: DOCKER }), []);
+      for (const garbage of [null, 'docker', {}, [null, {}, { tokens: 'docker' }, { id: 'x' }, { tokens: [42] }, { tokens: ['docker'] }, { label: 'x', tokens: [42, null] }]]) {
+        assert.deepEqual(select('Fix the Dockerfile', { project: garbage }), [], 'a project that is not a list of signals is ignored');
+      }
+      const alone = {};
+      select('Fix the Dockerfile', { trace: alone });
+      assert.deepEqual(alone.candidates.map((candidate) => [candidate.id, candidate.score, candidate.passed]), [['docker-devops', 1, false]], 'a skill with one point is a candidate, and is not taken');
+      const once = {};
+      const twice = {};
+      select('Fix the Dockerfile', { project: DOCKER, trace: once });
+      select('Fix the Dockerfile', { project: [...DOCKER, { id: 'compose', label: 'compose.yml', tokens: ['docker', 'compose'] }], trace: twice });
+      assert.deepEqual([once.candidates[0].score, twice.candidates[0].score], [3, 3], 'two signals for one skill are worth 2, once');
+      assert.deepEqual(once.candidates[0].why.at(-1), { kind: 'project', label: 'Dockerfile' });
+      assert.deepEqual(twice.candidates[0].why.at(-1), { kind: 'project', label: 'Dockerfile' }, 'the first signal that fits is the one named');
+      // a skill the owner installed is called by its words too
+      const mine = new PluginManager({ stateDir: path.join(conversationRoot, 'mine-state') });
+      await mine.load();
+      for (const installed of mine.installed()) await mine.toggle(installed.id, false);
+      await mine.install('docker-compose-helper', { name: 'Compose helper', description: 'orchestrates replicas', tools: [], systemPrompt: 'Reference text.' });
+      await mine.install('dc-helper', { name: 'Docker orchestrator', description: 'orchestrates replicas', tools: [], systemPrompt: 'Reference text.' });
+      assert.deepEqual(idsOf(mine.selectSkillsForTask({ prompt: 'scale the replicas', project: DOCKER })), ['docker-compose-helper', 'dc-helper'], 'by a word of its id, or of its name');
+      assert.deepEqual(idsOf(mine.selectSkillsForTask({ prompt: 'scale the replicas' })), []);
+    }
+    ok('a project of the kind a skill is called adds 2 to a request that already says something about it (one skill, once), and never selects alone');
+
+    // The record of a run. selectConversationSkills fills a trace; buildSkillSelectionRecord makes of it what the task keeps and the page shows: bounded, and no text of
+    // the prompt that is not a word of a skill.
+    {
+      const record = (run, earlier = [], project = []) => {
+        const trace = {};
+        selectConversationSkills(shipped, run, earlier, { project, trace });
+        return buildSkillSelectionRecord(trace, { project });
+      };
+      assert.deepEqual(record('Dự án đã biết chọn skill phù hợp dự án chưa'), { reason: 'no_match', considered: 9, threshold: 3, selected: [], nearest: null, project: [], concepts: [] }, 'the owner\'s question: no skill, and the record says why');
+      const branch = record('Tạo nhánh mới');
+      assert.deepEqual([branch.reason, branch.selected.map((item) => [item.id, item.source])], ['selected', [['git-workflow-pro', 'run'], ['github-actions-ci-cd', 'run']]]);
+      assert.deepEqual(branch.concepts, [{ phrase: 'nhánh', words: ['branch'] }]);
+      assert.deepEqual(branch.selected[0].why.filter((item) => item.kind === 'trigger'), [{ kind: 'trigger', word: 'branch', via: 'nhánh' }]);
+      assert.equal(branch.nearest, null);
+      const later = record('ok', ['Tạo nhánh mới']);
+      assert.deepEqual(later.selected.map((item) => [item.id, item.source]), [['git-workflow-pro', 'earlier'], ['github-actions-ci-cd', 'earlier']], 'a skill of an earlier message says so');
+      assert.deepEqual(later.concepts, [], 'the phrases are those of this run\'s own prompt');
+      const near = record('Tìm hiểu nhật ký và kiểm tra sức khỏe');
+      assert.deepEqual([near.reason, near.nearest, near.selected], ['no_match', { id: 'docker-devops', name: 'Docker DevOps Engine', score: 2 }, []]);
+      assert.deepEqual(record('Tìm hiểu nhật ký, kiểm tra sức khỏe và cơ sở dữ liệu').nearest, { id: 'docker-devops', name: 'Docker DevOps Engine', score: 2 }, 'the nearest is the best of the skills under the threshold, not the first (FastAPI and SQLite have 1 point each and come before Docker)');
+      assert.deepEqual(record('   ').reason, 'no_prompt');
+      assert.deepEqual(record('Sửa Dockerfile giúp mình', [], [{ id: 'docker', label: 'Dockerfile', tokens: ['docker'] }]).project, [{ id: 'docker', label: 'Dockerfile' }], 'the project as the page shows it: a name and a label');
+      assert.equal(record('x', [], [{ id: 'docker', label: 'Dockerfile', tokens: ['docker'] }]).selected.length, 0);
+      const disabled = new PluginManager({ stateDir: path.join(conversationRoot, 'disabled-state') });
+      await disabled.load();
+      for (const installed of disabled.installed()) await disabled.toggle(installed.id, false);
+      const off = {};
+      selectConversationSkills(disabled, 'git commit', [], { trace: off });
+      assert.deepEqual(buildSkillSelectionRecord(off), { reason: 'no_skills', considered: 0, threshold: 3, selected: [], nearest: null, project: [], concepts: [] });
+      // a manager that does not explain itself (a stub) still gives a record that is true
+      assert.deepEqual(buildSkillSelectionRecord({ calls: [{}], picks: [] }), { reason: 'no_match', considered: 0, threshold: 3, selected: [], nearest: null, project: [], concepts: [] });
+      assert.deepEqual(buildSkillSelectionRecord(), { reason: 'no_match', considered: 0, threshold: 3, selected: [], nearest: null, project: [], concepts: [] });
+      // a hand-made trace: control characters are dropped, the lists are cut, and a ground of a kind the page does not know is not kept
+      const crowded = buildSkillSelectionRecord({
+        calls: [{
+          considered: 1, threshold: 3,
+          candidates: [{ id: 'x', name: 'a\u0007b', score: 3, passed: true, why: Array.from({ length: 20 }, (_, n) => ({ kind: 'trigger', word: `w${n}` })) }],
+          concepts: Array.from({ length: 20 }, (_, n) => ({ phrase: `p${n}`, words: Array.from({ length: 9 }, (__, k) => `k${k}`) })),
+        }],
+        picks: Array.from({ length: 12 }, (_, n) => ({ id: n === 0 ? 'x' : `y${n}`, call: 0 })),
+      });
+      assert.deepEqual([crowded.selected[0].name, crowded.selected.length, crowded.selected[0].why.length, crowded.concepts.length, crowded.concepts[0].words.length], ['ab', 8, 12, 8, 6]);
+      const odd = buildSkillSelectionRecord({ calls: [{ candidates: [{ id: 'x', name: 'X', score: 3, passed: true, why: [{ kind: 'weird', word: 'w' }, null, 7, { kind: 'trigger', word: 'git', extra: 'dropped' }] }] }], picks: [{ id: 'x' }] });
+      assert.deepEqual(odd.selected[0].why, [{ kind: 'trigger', word: 'git' }]);
+      // nothing of the prompt that is not a word of a skill, and the strings are bounded
+      const secret = record('Sửa Dockerfile của khách hàng ACME-SECRET-123 gấp, mật khẩu là hunter2');
+      const text = JSON.stringify(secret);
+      for (const leak of ['ACME', 'acme', 'khách', 'hunter2', 'mật khẩu']) assert.ok(!text.includes(leak), `the record does not hold "${leak}"`);
+      const wide = new PluginManager({ stateDir: path.join(conversationRoot, 'wide-state') });
+      await wide.load();
+      for (const installed of wide.installed()) await wide.toggle(installed.id, false);
+      await wide.install('longname', { name: 'N'.repeat(300), description: 'x', tools: [], systemPrompt: 'Reference text.' });
+      const longTrace = {};
+      selectConversationSkills(wide, 'longname', [], { trace: longTrace });
+      const bounded = buildSkillSelectionRecord(longTrace, { project: Array.from({ length: 30 }, (_, n) => ({ id: `kind-${n}`, label: 'L'.repeat(200), tokens: [] })) });
+      assert.equal(bounded.selected[0].name.length, 80, 'a name is cut at 80 characters');
+      assert.equal(bounded.project.length, 8, 'at most 8 signals');
+      assert.ok(bounded.project.every((signal) => signal.label.length <= 64), 'each label at most 64 characters');
+    }
+    ok('the record of a run: the owner\'s question gives "no_match" and the nearest skill, a skill of an earlier message says so, no skills / no prompt / a stub are true, and it holds no text of the prompt');
+
+    // A run keeps the record in its task: served with the task, kept in the task file, not in the list of tasks.
+    {
+      const work = await fs.mkdtemp(path.join(conversationRoot, 'workspace-'));
+      await fs.writeFile(path.join(work, 'Dockerfile'), 'FROM node');
+      await fs.writeFile(path.join(work, 'package.json'), JSON.stringify({ dependencies: { react: '^19.0.0' } }));
+      const c = await chat({ pluginManager: shipped, workspace: work });
+      try {
+        await c.say('Sửa Dockerfile giúp mình');
+        const first = c.runner.get(c.id).skillSelection;
+        assert.equal(first.reason, 'selected');
+        assert.deepEqual(first.selected.map((item) => [item.id, item.source]), [['docker-devops', 'run']]);
+        assert.deepEqual(first.project.map((signal) => signal.label), ['Dockerfile', 'package.json: react']);
+        assert.deepEqual(first.selected[0].why.at(-1), { kind: 'project', label: 'Dockerfile' });
+        await c.say('Cảm ơn bạn nhé');
+        const second = c.runner.get(c.id).skillSelection;
+        assert.deepEqual(second.selected.map((item) => [item.id, item.source]), [['docker-devops', 'earlier']], 'the next message carries the skill of the first, and says where it comes from');
+        assert.ok(!('skillSelection' in c.runner.state().tasks.find((task) => task.id === c.id)), 'the list of tasks does not carry it');
+        const reopened = new AgentRunner({ manager: c.manager, provider: c.provider, taskDirectory: c.taskDirectory });
+        await reopened.load();
+        assert.deepEqual(reopened.get(c.id).skillSelection, second, 'and the task file keeps it');
+        await reopened.shutdown();
+      } finally { await c.runner.shutdown(); }
+      const q = await chat({ pluginManager: shipped });
+      try {
+        await q.say('Dự án đã biết chọn skill phù hợp dự án chưa');
+        const asked = q.runner.get(q.id).skillSelection;
+        assert.deepEqual([asked.reason, asked.considered, asked.selected, asked.project], ['no_match', 9, [], []], 'the owner\'s question: none, of 9, and a folder with no project file');
+        assert.equal(activations(q).length, 0, 'and no skills_activated event');
+      } finally { await q.runner.shutdown(); }
+    }
+    ok('a run keeps its record: served with the task and in the task file, with the project of its workspace, not in the list of tasks');
   }
 
   // A delegated worker's first prompt is composed by the Hub: the worker's goal, then (when its workflow has predecessors) a handoff of branch names, worktree
