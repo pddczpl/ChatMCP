@@ -4,7 +4,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { test, expect, onboard, openSettings, closeSettings, send, setTheme, taskByPrompt } from './fixtures.mjs';
-import { pendingApprovals, waitFor, waitForState } from '../../tests/e2e/hub-process.mjs';
+import { connectModel, pendingApprovals, waitFor, waitForState } from '../../tests/e2e/hub-process.mjs';
 import { call, say } from '../../tests/e2e/scenarios.mjs';
 
 const ROUTE = '/api/agent/project-instructions';
@@ -100,6 +100,25 @@ test('Settings flips the switch, the Hub and the next request follow, and the li
   await expect(note).toContainText('Hướng dẫn dự án đã nạp');
   await expect(note).toContainText('Nạp vào chỉ dẫn không có nghĩa là model đã làm theo');
   await expect(note).toContainText('không tin cậy');
+
+  // The line under it that says which skills the Hub took for this run, or why none: this request names no skill, so it says that, and it is a record in the same neutral
+  // colours, drawn after the project instructions.
+  const skills = (await app.hub.task(taskId)).skillSelection;
+  expect(skills, 'the Hub served the record of the run').toMatchObject({ reason: 'no_match', selected: [], threshold: 3 });
+  expect(skills.catalog.listed.length, 'and which skills the model was told about').toBe(skills.considered);
+  const skillNote = page.getByTestId('skill-selection-note');
+  await expect(skillNote).toHaveAttribute('data-kind', 'none');
+  await expect(skillNote).toContainText('Hub không nạp sẵn kỹ năng nào cho lượt này');
+  await expect(skillNote).toContainText(`Từ khóa trong yêu cầu không khớp kỹ năng nào trong ${skills.considered} kỹ năng đang bật`);
+  // (This Hub does not know the window of its model, so it plans on a small one and the index names the ids alone; a model with a known window is told what each is for.)
+  expect(['names', 'lines'], 'the ids alone, or a line each when this Hub has the room').toContain(skills.catalog.form);
+  await expect(skillNote).toContainText(`Model vẫn thấy ${skills.catalog.form === 'names' ? 'tên' : 'tên và mô tả'} của ${skills.catalog.listed.length} kỹ năng và tự đọc cái cần bằng skill_load`);
+  expect(await page.evaluate(() => {
+    const first = document.querySelector('[data-testid="project-instructions-note"]');
+    const second = document.querySelector('[data-testid="skill-selection-note"]');
+    return Boolean(first && second && (first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING));
+  }), 'after the line about the project instructions').toBe(true);
+  expect(await skillNote.evaluate((element) => element.outerHTML)).not.toMatch(/text-success|bg-success|border-success|text-danger|bg-danger|text-warning|bg-warning|lucide-check|lucide-shield|lucide-circle-check/);
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
     await page.screenshot({ path: testInfo.outputPath(`turn-note-${theme}.png`), animations: 'disabled' });
@@ -201,4 +220,78 @@ test.describe('with CHATMCP_PROJECT_INSTRUCTIONS set in the environment of the H
     expect(seen).toEqual([0]);
     await expect(page.getByTestId('project-instructions-note')).toHaveAttribute('data-kind', 'off');
   });
+});
+
+test('the line under the turn names the skill the Hub took and on what grounds: a Vietnamese phrase counts as its English word, the kind of project supports it, an earlier message carries it', async ({ page, app }, testInfo) => {
+  await fs.writeFile(path.join(app.project, 'Dockerfile'), 'FROM node:22\n');
+  app.mock.define('quiet', () => say('Xong.'));
+  app.mock.setScenario('quiet');
+  await onboard(page, app);
+  // A model whose window is known leaves its skill index room to say what each skill is for (the first test shows the short form, for a window that is not known).
+  await connectModel(app.hub, app.mock, { contextWindowTokens: 200000 });
+  const taskId = await firstTurn(page, app, 'Tạo nhánh mới tên feature/export-csv rồi chuyển sang nhánh đó.');
+
+  // What the real Hub served for the run ...
+  const record = (await app.hub.task(taskId)).skillSelection;
+  expect(record.reason).toBe('selected');
+  expect(record.selected.map((item) => [item.id, item.source])).toContainEqual(['git-workflow-pro', 'run']);
+  expect(record.concepts).toEqual([{ phrase: 'nhánh', words: ['branch'] }]);
+  expect(record.project.map((signal) => signal.label)).toContain('Dockerfile');
+  expect(record.catalog.listed.length + record.selected.length, 'the model is told about every skill that is turned on').toBe(record.considered);
+  expect(record.catalog.form).toBe('lines');
+
+  // ... and what the production page draws from it.
+  const skillNote = page.getByTestId('skill-selection-note');
+  const git = skillNote.getByTestId('skill-selection-skill').filter({ hasText: 'Git Workflow Pro' });
+  await expect(skillNote).toHaveAttribute('data-kind', 'selected');
+  await expect(skillNote).toContainText('Kỹ năng Hub nạp sẵn cho lượt này');
+  await expect(git).toContainText('“nhánh” → branch');
+  await expect(skillNote.getByTestId('skill-selection-catalog')).toContainText(`Model còn thấy tên và mô tả của ${record.catalog.listed.length} kỹ năng khác đang bật`);
+  await expect(skillNote).toContainText('Hub thấy dự án có:');
+  await expect(skillNote).toContainText('Dockerfile');
+  await expect(skillNote).toContainText('không có nghĩa là model đã làm theo');
+  await page.screenshot({ path: testInfo.outputPath('skills-turn-note.png'), animations: 'disabled' });
+
+  // The next message names no skill: the one of the first message is carried, and the line says where it comes from.
+  await send(page, 'Cảm ơn nhé.');
+  await waitFor(async () => { const full = await app.hub.task(taskId); return full.runs?.length === 2 && full.state === 'completed'; }, { label: 'the second run to complete' });
+  await expect(git).toContainText('từ tin nhắn trước');
+  expect((await app.hub.task(taskId)).skillSelection.selected.map((item) => item.source)).not.toContain('run');
+
+  // A narrow window: the line wraps, nothing scrolls sideways.
+  await page.setViewportSize({ width: 640, height: 900 });
+  await expect(skillNote).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'the conversation does not scroll sideways').toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+
+  // The same line in English, from the real language switch.
+  await openSettings(page, 'Giao diện & ngôn ngữ');
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(skillNote).toContainText(/Skills the Hub preloaded for this turn: \d/);
+  await expect(skillNote.getByTestId('skill-selection-catalog')).toContainText('The model also sees the name and description of');
+  await expect(skillNote).toContainText('from an earlier message');
+  await expect(skillNote).toContainText('does not mean the model followed it');
+});
+test('a model whose window is not known: a keyword preloads a skill, and the line says what the model was told of the others, whatever room this Hub had', async ({ page, app }) => {
+  // How much room the index has depends on the Hub's own tools and so on the operating system: the same request leaves no room on one and room for the ids on another. What does not
+  // depend on it is that the page says what the record says: that the model was told of the others, or that there was no room and what to do.
+  app.mock.define('quiet', () => say('Xong.'));
+  app.mock.setScenario('quiet');
+  await onboard(page, app);
+  const taskId = await firstTurn(page, app, 'Tạo nhánh mới tên feature/export-csv rồi chuyển sang nhánh đó.');
+  const record = (await app.hub.task(taskId)).skillSelection;
+  expect(record.selected.map((item) => item.id)).toContain('git-workflow-pro');
+  const others = record.considered - record.selected.length;
+  expect(record.catalog.listed.length + record.catalog.omitted.length, 'every other skill is either named to the model or counted').toBe(others);
+  const skillNote = page.getByTestId('skill-selection-note');
+  const line = skillNote.getByTestId('skill-selection-catalog');
+  if (record.catalog.listed.length === 0) {
+    await expect(line).toContainText(`${record.catalog.omitted.length} kỹ năng khác đang bật không được nêu tên cho model vì cửa sổ ngữ cảnh của model nhỏ hoặc chưa biết`);
+    await expect(skillNote).toContainText('Đặt cửa sổ thật trong Cài đặt → Mô hình AI');
+    await expect(skillNote).not.toContainText('Model còn thấy');
+  } else {
+    await expect(line).toContainText(`Model còn thấy ${record.catalog.form === 'names' ? 'tên' : 'tên và mô tả'} của ${record.catalog.listed.length} kỹ năng khác đang bật`);
+    await expect(skillNote).not.toContainText('không được nêu tên cho model');
+  }
 });

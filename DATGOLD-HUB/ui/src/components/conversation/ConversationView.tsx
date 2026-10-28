@@ -13,6 +13,7 @@ import { EmptyState } from './EmptyState';
 import { ModelProfilePicker, RoleOverridesField, TaskReasoningPicker } from './ModelProfilePicker';
 import { ProofStrip } from './ProofStrip';
 import { ProjectInstructionsNote } from './ProjectInstructionsNote';
+import { SkillSelectionNote } from './SkillSelectionNote';
 import { ContextPolicyNotice } from './ContextPolicyNotice';
 import { ObjectiveAcceptancePanel } from './ObjectiveAcceptancePanel';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -333,6 +334,8 @@ export function ConversationView() {
               {task && !isWorking && <ProofStrip task={task} />}
               {/* What the Hub put into the instructions of this run (AGENTS.md, CLAUDE.md) and which skills the model read: a record, never a proof. */}
               {task && !isWorking && <ProjectInstructionsNote task={task} />}
+              {/* Which skills the Hub took for this run and on what grounds, or why none: a record of its choice, never a proof. */}
+              {task && !isWorking && <SkillSelectionNote task={task} />}
               {/* Owner-reviewed evidence is distinct from an agent completion message. */}
               {task && !isWorking && task.transport!=='chatgpt-web' && task.goalPlan?.objectives?.length &&
                 <ObjectiveAcceptancePanel task={task} onAccepted={refreshTask}/>}
