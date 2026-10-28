@@ -1,0 +1,99 @@
+name: Model catalog
+
+# The list of models that a new install starts from is a dated snapshot of https://models.dev/api.json (DATGOLD-HUB/lib/model-catalog.data.json). Nothing kept it young between releases: a model
+# published after the snapshot (kimi-k3.1-pro on 2026-10-23, when the snapshot was of 2026-10-19) was not in the picker of anyone who installed since. Once a week this workflow builds the
+# snapshot again and, when what models.dev says changed (the hash of the content; the date alone is not a change), offers it as a DRAFT pull request. It never merges anything, and the Hub
+# still downloads nothing by itself: this is the CI side of scripts/update-model-catalog.mjs, which a release has always run by hand.
+#
+# The tests that read the snapshot are run on the new one and their result is written in the pull request; a failure does not stop the pull request, it is what the person who opens it has to
+# look at (a test that held a number the new list no longer has, or a preset whose default model models.dev now marks deprecated).
+#
+# A pull request made with the token of a workflow does not start the other workflows (DCO, CI): close it and open it again, or push to its branch, to run them. Making a pull request needs
+# "Allow GitHub Actions to create and approve pull requests" in the repository's Actions settings; when it is off, the branch is pushed anyway and the log prints the address that opens it.
+
+on:
+  schedule:
+    - cron: '23 5 * * 1' # Mondays, 05:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-catalog
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Rebuild the snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Download models.dev and build the snapshot (12 MiB and 30 s at most; a document that is not the catalog is refused)
+        run: node scripts/update-model-catalog.mjs --out "$RUNNER_TEMP/model-catalog.data.json"
+      - name: Is what it says different from the snapshot in the repository?
+        id: changed
+        run: |
+          node --input-type=module -e "
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const old = JSON.parse(readFileSync('DATGOLD-HUB/lib/model-catalog.data.json', 'utf8'));
+          const now = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/model-catalog.data.json', 'utf8'));
+          const changed = old.sha256 !== now.sha256;
+          console.log(changed ? 'models.dev changed: ' + old.rows.length + ' -> ' + now.rows.length + ' rows, ' + Object.keys(old.providers).length + ' -> ' + Object.keys(now.providers).length + ' providers' : 'models.dev says what the snapshot of ' + old.generatedAt + ' says: nothing to offer');
+          appendFileSync(process.env.GITHUB_OUTPUT, 'changed=' + changed + '\n');
+          "
+      - name: Put it in place and run the tests that read it
+        if: steps.changed.outputs.changed == 'true'
+        run: |
+          cp "$RUNNER_TEMP/model-catalog.data.json" DATGOLD-HUB/lib/model-catalog.data.json
+          report="$RUNNER_TEMP/checks.md"
+          : > "$report"
+          for suite in verify-model-catalog verify-model-catalog-refresh verify-catalog-budget verify-model-cost verify-reasoning-effort verify-profile-routing; do
+            if node "DATGOLD-HUB/tests/$suite.mjs" > "$RUNNER_TEMP/$suite.log" 2>&1; then
+              echo "- \`$suite\`: passed" >> "$report"
+            else
+              echo "- \`$suite\`: **failed**: $(grep -m1 -E '^[A-Za-z]*Error' "$RUNNER_TEMP/$suite.log" | cut -c1-300)" >> "$report"
+            fi
+          done
+          if node scripts/update-model-catalog.mjs --check > /dev/null; then
+            echo "- \`update-model-catalog --check\`: passed" >> "$report"
+          else
+            echo "- \`update-model-catalog --check\`: **failed**" >> "$report"
+          fi
+          cat "$report"
+      - name: Offer it as a draft pull request
+        if: steps.changed.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch=automation/model-catalog
+          day="$(date -u +%Y-%m-%d)"
+          {
+            echo "The list of models that a new install starts from, rebuilt from https://models.dev/api.json by the workflow \`model-catalog.yml\`. What models.dev says changed since the snapshot in main (the hash of the content; the date alone is not a change)."
+            echo
+            echo "What ran on it in the job:"
+            echo
+            cat "$RUNNER_TEMP/checks.md"
+            echo
+            echo "A failed item is for a person to look at: a test that holds a number the new list no longer has, or a preset whose default model models.dev now marks deprecated. Nothing else is changed. A pull request made with a workflow's token does not start the other checks: close it and open it again to run them."
+          } > "$RUNNER_TEMP/body.md"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add DATGOLD-HUB/lib/model-catalog.data.json
+          git commit -s -m "data(catalog): the models.dev snapshot of $day" -m "Built by .github/workflows/model-catalog.yml with scripts/update-model-catalog.mjs."
+          git push --force origin "$branch"
+          if [ "$(gh pr list --head "$branch" --state open --json number --jq length)" != "0" ]; then
+            gh pr edit "$branch" --body-file "$RUNNER_TEMP/body.md"
+            echo "A pull request from $branch is open: it has the new snapshot and the new result now."
+            exit 0
+          fi
+          gh pr create --draft --base main --head "$branch" --title "data(catalog): the models.dev snapshot of $day" --body-file "$RUNNER_TEMP/body.md" \
+            || echo "No pull request was made (is 'Allow GitHub Actions to create and approve pull requests' off?). The branch is pushed: https://github.com/$GITHUB_REPOSITORY/compare/main...$branch?expand=1"
