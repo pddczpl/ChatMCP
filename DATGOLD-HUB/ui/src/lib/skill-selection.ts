@@ -53,6 +53,7 @@ const TEXT = {
     description: (words: string) => `từ trong mô tả: ${words}`,
     inProject: (label: string) => `dự án có ${label}`,
     earlier: 'từ tin nhắn trước',
+    noRoom: (n: number) => `${n} kỹ năng khác đang bật không được nêu tên cho model vì cửa sổ ngữ cảnh của model nhỏ hoặc chưa biết, nên model chỉ thấy phần Hub nạp sẵn. Đặt cửa sổ thật trong Cài đặt → Mô hình AI.`,
   },
   en: {
     selected: (n: number) => `Skills the Hub preloaded for this turn: ${n}`,
@@ -73,6 +74,7 @@ const TEXT = {
     description: (words: string) => `words in its description: ${words}`,
     inProject: (label: string) => `the project has ${label}`,
     earlier: 'from an earlier message',
+    noRoom: (n: number) => `${n} other skills turned on were not named to the model because its context window is small or unknown, so it sees only what the Hub preloaded. Set the real window in Settings → AI model.`,
   },
 } as const;
 
@@ -112,16 +114,18 @@ export function describeSkillSelection(record: SkillSelectionRecord | null | und
   const unnamed = named(record.catalog?.omitted);
   // 'names': the room was small and the model was told the ids alone, not what each is for.
   const idsOnly = record.catalog?.form === 'names';
+  // Skills were turned on and the model was told of none: there was no room (a small window, or one the Hub does not know, planned on a small share), and the person can fix that.
+  const noRoom = listed === 0 && unnamed > 0;
   if (record.reason === 'selected') {
     const skills = record.selected.filter((skill) => skill !== null && typeof skill === 'object' && str(skill.id) && str(skill.name)).slice(0, MAX_SKILLS)
       .map((skill) => ({ id: skill.id, name: skill.name, reasons: reasonsOf(skill.why, skill.source, lang) }));
     if (!skills.length) return null;
-    return { kind: 'selected', headline: text.selected(skills.length), skills, nearest: null, project, catalog: listed ? text.catalog(listed, unnamed, idsOnly) : null, note: text.noteSelected };
+    return { kind: 'selected', headline: text.selected(skills.length), skills, nearest: null, project, catalog: listed ? text.catalog(listed, unnamed, idsOnly) : noRoom ? text.noRoom(unnamed) : null, note: text.noteSelected };
   }
   if (record.reason === 'no_skills') return { kind: 'off', headline: text.off, skills: [], nearest: null, project: null, catalog: null, note: text.noteOff };
   if (record.reason === 'no_prompt') return { kind: 'empty', headline: text.empty, skills: [], nearest: null, project: null, catalog: null, note: text.noteEmpty };
   const near = record.nearest;
   const nearest = near !== null && typeof near === 'object' && str(near.name) && Number.isInteger(near.score) ? text.nearest(near.name, near.score, threshold) : null;
-  const note = listed ? text.noteNoneCatalog(considered, threshold, listed, unnamed, idsOnly) : text.noteNone(considered, threshold);
+  const note = listed ? text.noteNoneCatalog(considered, threshold, listed, unnamed, idsOnly) : text.noteNone(considered, threshold) + (noRoom ? ` ${text.noRoom(unnamed)}` : '');
   return { kind: 'none', headline: text.none, skills: [], nearest, project: project ?? text.noProject, catalog: null, note };
 }

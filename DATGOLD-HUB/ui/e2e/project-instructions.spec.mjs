@@ -273,3 +273,17 @@ test('the line under the turn names the skill the Hub took and on what grounds: 
   await expect(skillNote).toContainText('from an earlier message');
   await expect(skillNote).toContainText('does not mean the model followed it');
 });
+test('a model whose window is not known: a keyword preloads a skill and there is no room to name the others; the line says so and what to do', async ({ page, app }) => {
+  app.mock.define('quiet', () => say('Xong.'));
+  app.mock.setScenario('quiet');
+  await onboard(page, app);
+  const taskId = await firstTurn(page, app, 'Tạo nhánh mới tên feature/export-csv rồi chuyển sang nhánh đó.');
+  const record = (await app.hub.task(taskId)).skillSelection;
+  expect(record.selected.map((item) => item.id)).toContain('git-workflow-pro');
+  expect(record.catalog.listed, 'the model was told of no other skill').toEqual([]);
+  expect(record.catalog.omitted.length, 'though some were turned on').toBe(record.considered - record.selected.length);
+  const skillNote = page.getByTestId('skill-selection-note');
+  await expect(skillNote.getByTestId('skill-selection-catalog')).toContainText(`${record.catalog.omitted.length} kỹ năng khác đang bật không được nêu tên cho model vì cửa sổ ngữ cảnh của model nhỏ hoặc chưa biết`);
+  await expect(skillNote).toContainText('Đặt cửa sổ thật trong Cài đặt → Mô hình AI');
+  await expect(skillNote).not.toContainText('Model còn thấy');
+});

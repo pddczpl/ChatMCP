@@ -175,8 +175,20 @@ try {
     assert.match(plain(note({ skillSelection: record({ catalog: ids }) }, 'en')), /The model also sees the name of 3 other skills/);
     assert.match(plain(note({ skillSelection: none_({ catalog: ids }) }, 'en')), /The model still sees the name of 3 skills and reads what it needs with skill_load/);
     assert.match(note({ skillSelection: record({ catalog: { ...ids, form: 'lines' } }) }, 'vi'), /tên và mô tả của 3 kỹ năng/, 'and the long form says both');
-    // No room to name them (or an older record that has no catalog): the old note, with the limit of the keywords.
-    for (const catalog of [undefined, null, 'all', { listed: [], omitted: ['a'] }, { listed: 'a' }, { listed: [1, null] }]) {
+    // Skills were turned on and the model was told of none (a small window, or one the Hub does not know): the page says so and says what to do, for a request that preloaded
+    // a skill and for one that preloaded none, and it does not claim that the model sees them.
+    const noRoom = { listed: [], omitted: ['b', 'c'], form: null };
+    const withSkill = note({ skillSelection: record({ catalog: noRoom }) }, 'vi');
+    assert.match(withSkill, /data-testid="skill-selection-catalog"[^>]*>2 kỹ năng khác đang bật không được nêu tên cho model vì cửa sổ ngữ cảnh của model nhỏ hoặc chưa biết, nên model chỉ thấy phần Hub nạp sẵn\. Đặt cửa sổ thật trong Cài đặt → Mô hình AI\./);
+    assert.doesNotMatch(withSkill, /Model còn thấy/);
+    const withNone = note({ skillSelection: none_({ catalog: noRoom }) }, 'vi');
+    assert.match(withNone, /nên có thể bỏ sót; hãy nhắc tên công cụ[^<]*2 kỹ năng khác đang bật không được nêu tên cho model vì cửa sổ ngữ cảnh của model nhỏ hoặc chưa biết[^<]*Cài đặt → Mô hình AI\./, 'the limit of the keywords and then why the model was not told');
+    assert.doesNotMatch(withNone, /Model vẫn thấy/);
+    assert.match(plain(note({ skillSelection: record({ catalog: noRoom }) }, 'en')), /2 other skills turned on were not named to the model because its context window is small or unknown, so it sees only what the Hub preloaded\. Set the real window in Settings → AI model\./);
+    assert.match(plain(note({ skillSelection: none_({ catalog: noRoom }) }, 'en')), /so it can miss[^<]*2 other skills turned on were not named to the model/);
+    for (const room of [{ listed: [], omitted: [] }, undefined]) assert.doesNotMatch(note({ skillSelection: record({ catalog: room }) }, 'vi'), /không được nêu tên cho model/, 'nothing to say when no other skill is turned on');
+    // An older record that has no catalog, or one that is not one: the old note, with the limit of the keywords.
+    for (const catalog of [undefined, null, 'all', { listed: 'a' }, { listed: [1, null] }]) {
       const old = note({ skillSelection: none_({ catalog }) }, 'vi');
       assert.match(old, /nên có thể bỏ sót/, JSON.stringify(catalog));
       assert.doesNotMatch(old, /Model vẫn thấy tên/, JSON.stringify(catalog));
