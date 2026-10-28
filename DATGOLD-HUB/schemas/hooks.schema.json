@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/pddczpl/ChatMCP/blob/main/CHATMCP-HUB/schemas/hooks.schema.json",
+  "$id": "https://github.com/pddczpl/ChatMCP/blob/main/DATGOLD-HUB/schemas/hooks.schema.json",
   "title": "DatGold hooks.json",
   "description": "Lifecycle hooks for the DatGold Hub: the documented subset of the Claude Code hooks schema. The owner's file is <Hub data folder>/hooks.json; a project may ship .chatmcp/hooks.json, which is ignored until the owner approves its sha256. The Hub validates in code (lib/hooks.mjs); tests/verify-hooks-core.mjs checks that this file and the loader accept and refuse the same configurations.",
   "type": "object",

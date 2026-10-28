@@ -23,7 +23,9 @@ $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $scriptDir '..'))
+# The folder of the Hub is CHATMCP-HUB in an installation (the installer keeps that name, so that the updates from earlier builds find it) and DATGOLD-HUB in a source checkout.
 $hubDir = Join-Path $repoRoot 'CHATMCP-HUB'
+if (-not (Test-Path -LiteralPath (Join-Path $hubDir 'hub.mjs') -PathType Leaf)) { $hubDir = Join-Path $repoRoot 'DATGOLD-HUB' }
 $hubScript = Join-Path $hubDir 'hub.mjs'
 
 # 0. Check for Native ChatMCP.exe desktop shell first

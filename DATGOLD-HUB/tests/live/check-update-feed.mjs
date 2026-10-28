@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Reads the REAL update feed once, with the Hub's own code, and says what the Hub would make of it. For the owner, by hand:
 //
-//     node CHATMCP-HUB/tests/live/check-update-feed.mjs
+//     node DATGOLD-HUB/tests/live/check-update-feed.mjs
 //
 // It asks GitHub (one GET of https://github.com/pddczpl/ChatMCP/releases/latest/download/RELEASE-MANIFEST.json, with its two redirects), so CI never runs it. Everything else about the
 // update notice is tested against a stand-in for GitHub (tests/verify-update-check.mjs, tests/verify-e2e-update-check.mjs); this is the one place where the real answer is looked at, and the

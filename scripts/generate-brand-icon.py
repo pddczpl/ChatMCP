@@ -6,8 +6,8 @@ Outputs (the file names keep the old product name on purpose: the desktop shell,
 - assets/icons/chatmcp.ico (Multi-resolution: 256, 128, 64, 48, 32, 24, 16)
 - assets/icons/chatmcp.png (512x512)
 - assets/icons/chatmcp-1024.png (1024x1024)
-- CHATMCP-HUB/web/favicon.ico
-- CHATMCP-HUB/web/chatmcp-logo.png
+- DATGOLD-HUB/web/favicon.ico
+- DATGOLD-HUB/web/chatmcp-logo.png
 """
 
 import os
@@ -110,7 +110,7 @@ def create_brand_icon(size=1024):
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     icons_dir = os.path.join(repo_root, "assets", "icons")
-    web_dir = os.path.join(repo_root, "CHATMCP-HUB", "web")
+    web_dir = os.path.join(repo_root, "DATGOLD-HUB", "web")
     os.makedirs(icons_dir, exist_ok=True)
     os.makedirs(web_dir, exist_ok=True)
 

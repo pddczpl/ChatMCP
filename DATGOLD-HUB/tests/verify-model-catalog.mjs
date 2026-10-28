@@ -179,7 +179,7 @@ const script = existsSync(scriptFile) ? await import(pathToFileURL(scriptFile).h
 
 // ------------------------------------------------------------------------------------------------------------------------------- 5. the maintainer script
 if (!script) {
-  console.log('  skip - scripts/update-model-catalog.mjs was not found next to CHATMCP-HUB (the script checks need the whole repository)');
+  console.log('  skip - scripts/update-model-catalog.mjs was not found next to DATGOLD-HUB (the script checks need the whole repository)');
 } else {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'chatmcp-catalog-'));
   try {

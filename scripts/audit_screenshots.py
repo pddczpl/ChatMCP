@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 output_dir = Path("design/audit")
 output_dir.mkdir(parents=True, exist_ok=True)
 
-root = Path("CHATMCP-HUB")
+root = Path("DATGOLD-HUB")
 
 def run():
     with sync_playwright() as p:

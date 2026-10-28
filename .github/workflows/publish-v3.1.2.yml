@@ -40,20 +40,20 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ] || exit 1
           [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA" ] || { echo 'main moved after CI; refusing stale release'; exit 1; }
           [ "$(git show -s --format=%s HEAD)" = 'release: ChatMCP v3.1.2 (hybrid intelligence and secure profiles)' ] || { echo 'Not the authorized v3.1.2 merge'; exit 1; }
-          [ "$(node -p "require('./CHATMCP-HUB/package.json').version")" = '3.1.2' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package.json').version")" = '3.1.2' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').version")" = '3.1.2' ]
+          [ "$(node -p "require('./DATGOLD-HUB/package.json').version")" = '3.1.2' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package.json').version")" = '3.1.2' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package-lock.json').version")" = '3.1.2' ]
           grep -q '<Version>3.1.2</Version>' desktop-shell/ChatMCP.csproj
           grep -q '<Version>3.1.2</Version>' installer/ChatMCP.Installer.csproj
-          grep -q "export const VERSION = '3.1.2'" CHATMCP-HUB/lib/manager.mjs
-          grep -q "UI_BUILD = '3.1.2-react-agent'" CHATMCP-HUB/hub.mjs
-          grep -q "const BUILD = '3.1.2-react-agent'" CHATMCP-HUB/web/react-app.js
-          grep -q "const UI_BUILD = '3.1.2-react-agent'" CHATMCP-HUB/ui/src/lib/api.ts
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').packages[''].version")" = '3.1.2' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').packages[''].version")" = '3.1.2' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').packages[''].name")" = 'chatmcp-studio-frontend' ]
-          grep -q "const BUILD = '3.1.2-react-agent'" CHATMCP-HUB/web/react-app.js
-          grep -q "const UI_BUILD = '3.1.2-react-agent'" CHATMCP-HUB/ui/src/lib/api.ts
+          grep -q "export const VERSION = '3.1.2'" DATGOLD-HUB/lib/manager.mjs
+          grep -q "UI_BUILD = '3.1.2-react-agent'" DATGOLD-HUB/hub.mjs
+          grep -q "const BUILD = '3.1.2-react-agent'" DATGOLD-HUB/web/react-app.js
+          grep -q "const UI_BUILD = '3.1.2-react-agent'" DATGOLD-HUB/ui/src/lib/api.ts
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package-lock.json').packages[''].version")" = '3.1.2' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package-lock.json').packages[''].version")" = '3.1.2' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package-lock.json').packages[''].name")" = 'chatmcp-studio-frontend' ]
+          grep -q "const BUILD = '3.1.2-react-agent'" DATGOLD-HUB/web/react-app.js
+          grep -q "const UI_BUILD = '3.1.2-react-agent'" DATGOLD-HUB/ui/src/lib/api.ts
           test -s RELEASE-NOTES-v3.1.2.md
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id >/dev/null 2>&1; then
             echo 'Existing release found; will not overwrite its artifacts'

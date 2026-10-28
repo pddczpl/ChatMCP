@@ -44,9 +44,9 @@ jobs:
           $main = ((git ls-remote origin refs/heads/main) -split '\s+')[0]
           if ($main -ne $env:GITHUB_SHA) { throw 'main moved since release commit; refusing stale release' }
           if ((git show -s --format=%s HEAD).Trim() -ne 'release: ChatMCP v3.4.2 (custom gateway protocol persistence)') { throw 'Wrong release commit title' }
-          $hub = (Get-Content CHATMCP-HUB/package.json -Raw | ConvertFrom-Json).version
-          $ui = (Get-Content CHATMCP-HUB/ui/package.json -Raw | ConvertFrom-Json).version
-          $lock = (node -p "require('./CHATMCP-HUB/ui/package-lock.json').version").Trim()
+          $hub = (Get-Content DATGOLD-HUB/package.json -Raw | ConvertFrom-Json).version
+          $ui = (Get-Content DATGOLD-HUB/ui/package.json -Raw | ConvertFrom-Json).version
+          $lock = (node -p "require('./DATGOLD-HUB/ui/package-lock.json').version").Trim()
           if ($hub -ne '3.4.2' -or $ui -ne '3.4.2' -or $lock -ne '3.4.2') { throw 'Version mismatch: Hub/UI/lockfile' }
           if (-not (Get-Content desktop-shell/ChatMCP.csproj -Raw).Contains('<Version>3.4.2</Version>')) { throw 'Desktop version mismatch' }
           if (-not (Get-Content installer/ChatMCP.Installer.csproj -Raw).Contains('<Version>3.4.2</Version>')) { throw 'Installer version mismatch' }

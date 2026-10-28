@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: '24'
       - name: Run actual extension IPC on scripted pages, without live login
-        working-directory: CHATMCP-HUB/ui
+        working-directory: DATGOLD-HUB/ui
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/companion-release-evidence/results.json
         run: |
@@ -69,13 +69,13 @@ jobs:
           $env:GITHUB_SHA | Set-Content "$env:RUNNER_TEMP/native-release-evidence/commit.txt" -Encoding utf8
           if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'Wrong checkout' }
           if ((git show -s --format=%s HEAD).Trim() -ne 'release: ChatMCP v3.11.0') { throw 'Wrong release commit' }
-          foreach ($file in @('CHATMCP-HUB/package.json','CHATMCP-HUB/ui/package.json','CHATMCP-HUB/ui/package-lock.json')) {
+          foreach ($file in @('DATGOLD-HUB/package.json','DATGOLD-HUB/ui/package.json','DATGOLD-HUB/ui/package-lock.json')) {
             if ((Get-Content $file -Raw | ConvertFrom-Json -AsHashtable)['version'] -ne '3.11.0') { throw "Version mismatch: $file" }
           }
           foreach ($file in @('desktop-shell/ChatMCP.csproj','installer/ChatMCP.Installer.csproj')) {
             if (-not (Get-Content $file -Raw).Contains('<Version>3.11.0</Version>')) { throw "Native version mismatch: $file" }
           }
-          if ((Get-Content CHATMCP-HUB/extension/manifest.json -Raw | ConvertFrom-Json).version -ne '1.5.2') { throw 'Companion version mismatch' }
+          if ((Get-Content DATGOLD-HUB/extension/manifest.json -Raw | ConvertFrom-Json).version -ne '1.5.2') { throw 'Companion version mismatch' }
           if (-not (Test-Path RELEASE-NOTES-v3.11.0.md)) { throw 'Missing release notes' }
       - name: Native health, ownership and transactional rollback regression
         run: |
@@ -87,11 +87,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installer payload regression failed' }
       - name: Complete no-skip Hub regression
         run: |
-          python -m pip install -r CHATMCP-HUB/tests/requirements-e2e.txt
+          python -m pip install -r DATGOLD-HUB/tests/requirements-e2e.txt
           if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
           git config --global user.email 'ci@example.invalid'
           git config --global user.name 'ci'
-          node CHATMCP-HUB/tests/run-all.mjs --no-skip all --json "$env:RUNNER_TEMP/native-release-evidence/node-summary.json" 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/node-all.log"
+          node DATGOLD-HUB/tests/run-all.mjs --no-skip all --json "$env:RUNNER_TEMP/native-release-evidence/node-summary.json" 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/node-all.log"
           if ($LASTEXITCODE -ne 0) { throw 'Hub regression failed' }
       - name: Build fresh versioned Windows installer
         run: |
@@ -110,7 +110,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
       - name: Native WebView2 smoke and canonical Companion parity
         run: |
-          node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
+          node DATGOLD-HUB/ui/e2e/webview2-smoke.mjs
           if ($LASTEXITCODE -ne 0) { throw 'WebView2 smoke failed' }
           powershell -NoProfile -File scripts/Build-BrowserCompanion.ps1 -VerifyInstallerPayload
           if ($LASTEXITCODE -ne 0) { throw 'Companion source/ZIP/payload parity failed' }

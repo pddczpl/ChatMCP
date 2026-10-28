@@ -2,8 +2,8 @@
 // (it needs a key and spends a few cents), so CI never runs it against the real API; tests/verify-live-checks.mjs runs it in CI, offline and with no key, against stand-ins for the API,
 // so that it cannot rot, and checks that it reports a Hub defect.
 //
-//   node CHATMCP-HUB/tests/live/check-anthropic-hub-adapter.mjs [--model <id>] [--mode json|stream|both] [--effort auto|low|medium|high|xhigh|max]
-//                                        [--hub <folder CHATMCP-HUB>] [--base-url <url>] [--tries <n>] [--no-tamper] [--dry-run]
+//   node DATGOLD-HUB/tests/live/check-anthropic-hub-adapter.mjs [--model <id>] [--mode json|stream|both] [--effort auto|low|medium|high|xhigh|max]
+//                                        [--hub <folder DATGOLD-HUB>] [--base-url <url>] [--tries <n>] [--no-tamper] [--dry-run]
 //
 // On record: 2026-10-25, claude-sonnet-5-5, the owner's account, Hub 3.10.1, JSON and stream, 14 requests: every scenario behaved as the Hub promises (docs/ARCHITECTURE.md,
 // "Khối suy luận của Anthropic (prov-18)"). The model thought only in the first request of each mode, so one replay per mode was exercised.
@@ -35,16 +35,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// The Hub whose code is tested: the folder this file is in (CHATMCP-HUB/tests/live -> CHATMCP-HUB), or another one with --hub or CHATMCP_HUB_DIR (an installed copy has the same lib folder).
+// The Hub whose code is tested: the folder this file is in (DATGOLD-HUB/tests/live -> DATGOLD-HUB), or another one with --hub or CHATMCP_HUB_DIR (an installed copy has the same lib folder).
 const DEFAULTS = { model: 'claude-sonnet-5-5', baseUrl: 'https://api.anthropic.com', mode: 'both', effort: 'auto', tries: 5, hub: process.env.CHATMCP_HUB_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..') };
 
 function printHelp() {
   console.log([
-    'Usage: node CHATMCP-HUB/tests/live/check-anthropic-hub-adapter.mjs [options]',
+    'Usage: node DATGOLD-HUB/tests/live/check-anthropic-hub-adapter.mjs [options]',
     '  --model <id>        model to test (default ' + DEFAULTS.model + '; others: claude-opus-5-5, claude-haiku-5-5, claude-fable-5-1)',
     '  --mode json|stream|both   how the Hub asks (default both)',
     '  --effort <level>    the Hub\'s thinking-effort setting: auto sends nothing (default), or low, medium, high, xhigh, max',
-    '  --hub <folder>      the CHATMCP-HUB folder whose code is tested (default ' + DEFAULTS.hub + ';',
+    '  --hub <folder>      the DATGOLD-HUB folder whose code is tested (default ' + DEFAULTS.hub + ';',
     '                      the environment variable CHATMCP_HUB_DIR also works; an installed copy has the same lib folder)',
     '  --base-url <url>    API base (default ' + DEFAULTS.baseUrl + ')',
     '  --tries <n>         how many times the first request is repeated until the model thinks (default ' + DEFAULTS.tries + ')',
@@ -54,7 +54,7 @@ function printHelp() {
     '',
     'The key comes from ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN). In PowerShell, for this window only:',
     '  $env:ANTHROPIC_API_KEY = "<your key>"',
-    '  node CHATMCP-HUB/tests/live/check-anthropic-hub-adapter.mjs',
+    '  node DATGOLD-HUB/tests/live/check-anthropic-hub-adapter.mjs',
     '  Remove-Item Env:ANTHROPIC_API_KEY',
   ].join('\n'));
 }
@@ -145,7 +145,7 @@ if (!secret) {
 }
 const providerFile = path.join(options.hub, 'lib', 'gateway-provider.mjs');
 if (!fs.existsSync(providerFile)) {
-  console.error('ERROR: the Hub code was not found at ' + providerFile + '. Use --hub <the CHATMCP-HUB folder> (a checkout, or the installed copy under %LOCALAPPDATA%\\Programs\\ChatMCP).');
+  console.error('ERROR: the Hub code was not found at ' + providerFile + '. Use --hub <the Hub folder: DATGOLD-HUB in a checkout, CHATMCP-HUB in the installed copy under %LOCALAPPDATA%\\Programs\\ChatMCP>.');
   process.exit(3);
 }
 let hubVersion = '?';

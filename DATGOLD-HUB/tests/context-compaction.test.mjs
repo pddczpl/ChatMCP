@@ -1,5 +1,5 @@
-// CHATMCP-HUB/tests/context-compaction.test.mjs
-// Automated test suite for CHATMCP-HUB/lib/context-compaction.mjs
+// DATGOLD-HUB/tests/context-compaction.test.mjs
+// Automated test suite for DATGOLD-HUB/lib/context-compaction.mjs
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';

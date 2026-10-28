@@ -25,7 +25,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -53,7 +53,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hub-test-summary-${{ matrix.os }}-node${{ matrix.node }}
-          path: CHATMCP-HUB/test-results/summary.json
+          path: DATGOLD-HUB/test-results/summary.json
           if-no-files-found: ignore
 
   # The browser suites need Chromium, so they run on one OS only. verify-ui-e2e.py starts a real Hub and drives the
@@ -65,7 +65,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -89,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ui-test-summary
-          path: CHATMCP-HUB/test-results/ui-summary.json
+          path: DATGOLD-HUB/test-results/ui-summary.json
           if-no-files-found: ignore
 
   script-tests:

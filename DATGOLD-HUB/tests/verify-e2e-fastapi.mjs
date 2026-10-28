@@ -8,7 +8,7 @@
 //
 // It needs a Python with fastapi, httpx, pytest and uvicorn. Where there is none it reports SKIP, with the exact steps to make one:
 //   python -m venv deploy/.generated/venv-e2e
-//   deploy/.generated/venv-e2e/bin/pip install -r CHATMCP-HUB/tests/requirements-e2e.txt   (from the repository root; Windows: ...\Scripts\pip.exe)
+//   deploy/.generated/venv-e2e/bin/pip install -r DATGOLD-HUB/tests/requirements-e2e.txt   (from the repository root; Windows: ...\Scripts\pip.exe)
 // or point CHATMCP_E2E_PYTHON at any interpreter that has them. The scripted model proves the Hub, its tools and its permission
 // gate work together on a Python project; it does not prove that any real model writes a good FastAPI service.
 import { spawn, spawnSync } from 'node:child_process';
@@ -161,7 +161,7 @@ await runScenario({
 }, async (t) => {
   const python = findPython();
   if (!python.executable) {
-    t.skip(`no Python with ${REQUIRED.join(', ')} found${python.missing.length ? ` (${python.missing.join('; ')})` : ''}. Create one: python -m venv deploy/.generated/venv-e2e, then pip install -r CHATMCP-HUB/tests/requirements-e2e.txt into it (from the repository root), or set CHATMCP_E2E_PYTHON.`);
+    t.skip(`no Python with ${REQUIRED.join(', ')} found${python.missing.length ? ` (${python.missing.join('; ')})` : ''}. Create one: python -m venv deploy/.generated/venv-e2e, then pip install -r DATGOLD-HUB/tests/requirements-e2e.txt into it (from the repository root), or set CHATMCP_E2E_PYTHON.`);
   }
   t.note(`using Python ${python.version} at ${python.executable}`);
   const pythonFolder = path.dirname(python.executable);

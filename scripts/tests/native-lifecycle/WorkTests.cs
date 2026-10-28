@@ -2,7 +2,7 @@ using System.Text.Json;
 using ChatMCP.Native;
 
 // Whether the Hub is doing work that an update would cut off, and the code an installation step that refuses carries. The rule (HubLifecycle.WorkInState and WorkInCoding, which
-// StopInstalledHub applies before it stops the Hub and the shell applies before it exits) is held to ONE list of cases with the page's port of it (CHATMCP-HUB/ui/tests/updates.test.mjs).
+// StopInstalledHub applies before it stops the Hub and the shell applies before it exits) is held to ONE list of cases with the page's port of it (DATGOLD-HUB/ui/tests/updates.test.mjs).
 internal static class WorkTests
 {
     internal static void Run(TestKit kit)

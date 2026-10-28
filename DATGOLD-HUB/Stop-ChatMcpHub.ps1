@@ -6,9 +6,9 @@ script presents it as a bearer token, and only to the process that listens on th
 outlives a crash, and any program can answer the health check). Otherwise it stops with an explanation and sends no secret.
 A Hub from before that secret existed (v3.9.0 and older) has no such file and is stopped with the older session-token flow instead.
 Examples:
-  & 'F:\Personal_Project\Vin\ChatMCP\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd'
-  & 'F:\Personal_Project\Vin\ChatMCP\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd' -Port 3007
-  & 'F:\Personal_Project\Vin\ChatMCP\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd' -Port 3010 -StateDir 'D:\hub-state'
+  & 'F:\Personal_Project\Vin\ChatMCP\DATGOLD-HUB\STOP-CHATMCP-HUB.cmd'
+  & 'F:\Personal_Project\Vin\ChatMCP\DATGOLD-HUB\STOP-CHATMCP-HUB.cmd' -Port 3007
+  & 'F:\Personal_Project\Vin\ChatMCP\DATGOLD-HUB\STOP-CHATMCP-HUB.cmd' -Port 3010 -StateDir 'D:\hub-state'
 #>
 [CmdletBinding()]
 param(

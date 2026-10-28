@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Mutation testing for the native side of the in-app updater (native-shared/, installer/, desktop-shell/).
 //
-// The Hub's suites have a runner for this (CHATMCP-HUB/tests/mutation/run-mutations.mjs); the C# tests in this folder had none, and a test that cannot fail proves nothing. This tool breaks the C# code on
+// The Hub's suites have a runner for this (DATGOLD-HUB/tests/mutation/run-mutations.mjs); the C# tests in this folder had none, and a test that cannot fail proves nothing. This tool breaks the C# code on
 // purpose, ONE small exact replacement at a time, in a THROW-AWAY COPY of the folders it needs (the real files are never touched), builds the copy and runs the native tests against it. A mutation the tests
 // do not notice SURVIVED: a hole in the tests, or dead code.
 //
@@ -9,7 +9,7 @@
 //
 // A list is {"mutations": [{"name", "what", "run"?: "native" | "gate" | "payload", "equivalent"?, "patches": [{"file", "old", "new"}]}]}. `file` is relative to the repository root and must be one of the files the copy holds;
 // `old` must occur exactly once in it (an ambiguous or stale pattern is an ERROR, never guessed at). `run` says what judges the mutation: "native" (the default) builds the native test project and runs it,
-// "gate" runs CHATMCP-HUB/tests/verify-update-apply.mjs, the static gate for the build and the source, "payload" runs scripts/tests/Test-InstallerPayload.ps1, the PowerShell tests of the build's own helpers
+// "gate" runs DATGOLD-HUB/tests/verify-update-apply.mjs, the static gate for the build and the source, "payload" runs scripts/tests/Test-InstallerPayload.ps1, the PowerShell tests of the build's own helpers
 // (the proof of the key list the build embeds). A mutation that does not COMPILE is INVALID, not killed: a compiler error is not a test that noticed
 // something, so the list must hold only mutations that build. The same goes for a mutation of a script that does not PARSE ("gate" and "payload": a ParserError of PowerShell or a SyntaxError of node in the
 // output): the judge failed because the file is not source any more, not because a check noticed what the mutation did. `"equivalent": "why"` marks a mutation that provably changes no behaviour; if it survives it is EQUIVALENT and does not fail the run, and if it
@@ -27,17 +27,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // A PowerShell child that a script starts from node gets the environment of this helper (tests/verify-source-lint.mjs holds every such script to it): without PSModulePath of the PowerShell 7 that may have started node.
-import { powerShellChildEnvironment } from '../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
+import { powerShellChildEnvironment } from '../../../DATGOLD-HUB/tests/support/powershell-environment.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const HERE = path.relative(REPO, path.dirname(fileURLToPath(import.meta.url))).replaceAll('\\', '/');
 const COPIED = [
   'native-shared', 'installer', 'desktop-shell', HERE,
   'scripts/Build-Installer.ps1', 'scripts/tests/Test-NativeLifecycle.ps1',
-  'scripts/InstallerPayload.ps1', 'scripts/tests/Test-InstallerPayload.ps1', 'scripts/intelligence-runtime/licenses/ripgrep', 'CHATMCP-HUB/lib/assemble.mjs', // what the PowerShell tests of the build read
-  'CHATMCP-HUB/lib/release-keys.json', 'CHATMCP-HUB/tests/verify-update-apply.mjs',
-  'CHATMCP-HUB/tests/support/powershell-environment.mjs', 'CHATMCP-HUB/lib/powershell-environment.mjs', // which that gate imports
-  'CHATMCP-HUB/tests/fixtures/release-verify-vectors.json', 'CHATMCP-HUB/tests/fixtures/update-result-vectors.json', 'CHATMCP-HUB/tests/fixtures/active-work-cases.json',
+  'scripts/InstallerPayload.ps1', 'scripts/tests/Test-InstallerPayload.ps1', 'scripts/intelligence-runtime/licenses/ripgrep', 'DATGOLD-HUB/lib/assemble.mjs', // what the PowerShell tests of the build read
+  'DATGOLD-HUB/lib/release-keys.json', 'DATGOLD-HUB/tests/verify-update-apply.mjs',
+  'DATGOLD-HUB/tests/support/powershell-environment.mjs', 'DATGOLD-HUB/lib/powershell-environment.mjs', // which that gate imports
+  'DATGOLD-HUB/tests/fixtures/release-verify-vectors.json', 'DATGOLD-HUB/tests/fixtures/update-result-vectors.json', 'DATGOLD-HUB/tests/fixtures/active-work-cases.json',
   'docs/WINDOWS-SETUP.md', // the recovery by hand that the guide gives is run by Program.cs from this text
 ];
 const SKIPPED = /(^|[\\/])(bin|obj|node_modules|payload\.zip)([\\/]|$)/;
@@ -169,7 +169,7 @@ async function main() {
       finally { await rm(here, { recursive: true, force: true }).catch(() => {}); }
     };
     // the gate must not compare the list of mutations with a copy that has a mutation in it: it is told so
-    const gate = () => run(process.execPath, [path.join(copy, 'CHATMCP-HUB', 'tests', 'verify-update-apply.mjs')], { cwd: copy, timeout: opts.timeout, env: { ...process.env, CHATMCP_NATIVE_MUTATION_COPY: '1' } });
+    const gate = () => run(process.execPath, [path.join(copy, 'DATGOLD-HUB', 'tests', 'verify-update-apply.mjs')], { cwd: copy, timeout: opts.timeout, env: { ...process.env, CHATMCP_NATIVE_MUTATION_COPY: '1' } });
     // the PowerShell tests of the build's helpers: they read the copy of the scripts next to them
     const payload = () => run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(copy, 'scripts', 'tests', 'Test-InstallerPayload.ps1')], { cwd: copy, timeout: opts.timeout, env: powerShellChildEnvironment() });
 

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Kbd } from '@/components/ui/Kbd';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { useTranslation } from '@/lib/i18n';
+import { BrandMark } from './BrandMark';
 import { GitWorkspacePicker } from './GitWorkspacePicker';
 
 /**
@@ -70,7 +71,7 @@ export function Header() {
           <PanelLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <span aria-hidden="true" className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-primary to-accent text-[13px] font-black text-primary-fg">C</span>
+          <BrandMark className="h-6 w-6 shrink-0" />
           <span className="hidden whitespace-nowrap sm:inline">DatGold<span className="hidden font-normal text-muted xl:inline"> Studio</span></span>
         </div>
         <span aria-hidden="true" className="hidden h-4 w-px bg-line md:block" />

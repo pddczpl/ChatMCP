@@ -615,7 +615,7 @@ export async function runSmokeTests() {
 }
 
 // Run immediately if executed as main module
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve('CHATMCP-HUB/tests/windows-sandbox/smoke.mjs')) {
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve('DATGOLD-HUB/tests/windows-sandbox/smoke.mjs')) {
   runSmokeTests().catch((err) => {
     console.error('Smoke test failure:', err);
     process.exit(1);

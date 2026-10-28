@@ -76,15 +76,15 @@ export function flipByte(file, offset) {
 
 // ------------------------------------------------------------------------------------------------------------------------------- keys
 
-/** The text of a key list (CHATMCP-HUB/lib/release-keys.json) holding `entries`. */
+/** The text of a key list (DATGOLD-HUB/lib/release-keys.json) holding `entries`. */
 export function keyListText(entries) {
   return `${JSON.stringify({ version: 1, algorithm: 'ES256', keys: entries }, null, 2)}\n`;
 }
 
-/** The entry for the key list that scripts/new-release-key.mjs prints after "Entry for CHATMCP-HUB/lib/release-keys.json". Throws when the output holds none, or one that is not a release key. */
+/** The entry for the key list that scripts/new-release-key.mjs prints after "Entry for DATGOLD-HUB/lib/release-keys.json". Throws when the output holds none, or one that is not a release key. */
 export function entryFromToolOutput(output) {
   const text = String(output ?? '');
-  const marker = text.indexOf('Entry for CHATMCP-HUB/lib/release-keys.json');
+  const marker = text.indexOf('Entry for DATGOLD-HUB/lib/release-keys.json');
   const open = marker < 0 ? -1 : text.indexOf('{', marker);
   const close = open < 0 ? -1 : text.indexOf('}', open);
   if (close < 0) throw new Error('The output of the key tool holds no entry for the key list.');
