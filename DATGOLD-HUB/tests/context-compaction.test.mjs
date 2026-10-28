@@ -14,6 +14,9 @@ const {
   injectRepoMapIntoInstructions,
   compactSingleToolOutput,
   compactConversationHistory,
+  compactRollingContext,
+  resolveEffectiveContextBudget,
+  PICTURE_TOKEN_CAP,
 } = mod;
 
 async function createMockWorkspace() {
@@ -162,7 +165,68 @@ async function runTests() {
       console.log('  [PASS] 5. Repo Map query made from the words the caller names, focus files from the whole prompt');
     }
 
-    console.log('\nALL 5 SMART CONTEXT COMPACTION TEST SUITES PASSED!');
+    // Test 6: a picture is paid for as a picture. Its base64 is not text: counted as text, a 600 KB picture "cost" 160,000 tokens, the budget of a 200,000-token model removed it from the
+    // request and nothing said so (found on 2026-10-28 with a real Hub and a scripted model: the model's request was 63 KB and held no picture). No provider charges more than a few
+    // thousand tokens for one picture, whatever its bytes.
+    {
+      const MiB = 1024 * 1024;
+      const picture = (bytes) => ({ type: 'input_image', image_url: 'data:image/png;base64,' + 'A'.repeat(Math.ceil(bytes / 3) * 4), detail: 'auto' });
+      const asked = (...parts) => ({ role: 'user', content: [{ type: 'input_text', text: 'Look at this.' }, ...parts] });
+      const without = estimateTokens([asked()]);
+      assert.equal(PICTURE_TOKEN_CAP, 4800, 'the most a picture costs: the largest tier of Anthropic is 4,784 visual tokens');
+      for (const bytes of [600 * 1024, 1.5 * MiB, 3.75 * MiB, 30 * MiB]) {
+        const cost = estimateTokens([asked(picture(bytes))]) - without;
+        assert(cost >= PICTURE_TOKEN_CAP - 20 && cost <= PICTURE_TOKEN_CAP + 60, `a picture of ${bytes} bytes costs about ${PICTURE_TOKEN_CAP} tokens, not ${cost}`);
+      }
+      const twice = estimateTokens([asked(picture(2 * MiB), picture(2 * MiB))]) - without;
+      assert(twice >= 2 * PICTURE_TOKEN_CAP - 20 && twice <= 2 * PICTURE_TOKEN_CAP + 120, `each picture is paid for (${twice})`);
+      const tiny = [asked(picture(6 * 1024))];
+      assert.equal(estimateTokens(tiny), Math.ceil(JSON.stringify(tiny).length / 3.8), 'a small picture costs what its characters say: the cap never makes anything dearer');
+      assert(estimateTokens([asked({ type: 'input_text', text: 'A'.repeat(3_000_000) })]) > 700_000, 'text is not capped: only pictures are');
+      const returned = [{ type: 'function_call_output', call_id: 'c1', output: [{ type: 'input_text', text: 'Screenshot' }, picture(2 * MiB)] }];
+      assert(estimateTokens(returned) < PICTURE_TOKEN_CAP + 200, 'a picture a tool returned costs the same');
+      // What a person sees: the picture of the largest size is still in the request, with a window the Hub knows and with one it does not.
+      for (const window of [200000, 128000, null]) {
+        const budget = resolveEffectiveContextBudget({ contextWindowTokens: window, instructions: 'x'.repeat(6000), tools: [] });
+        assert(estimateTokens([asked(picture(3.75 * MiB))]) < budget.compactAtTokens, `a picture of 3.75 MiB fits the budget of a window of ${window ?? 'unknown size'}`);
+      }
+      console.log('  [PASS] 6. A picture costs what a picture costs in the budget, not the length of its base64');
+    }
+
+    // Test 7: when the history really is over its budget the old messages are replaced by a checkpoint, and the pictures in them go with them. The model is told how many, instead of being
+    // left to find that the user's "this picture" is not in front of it.
+    {
+      const filler = 'x'.repeat(900);
+      const history = (first) => [
+        { role: 'user', content: first },
+        ...Array.from({ length: 30 }, (_, i) => [
+          { type: 'function_call', call_id: `k${i}`, name: 'read_file', arguments: '{"path":"a.css"}' },
+          { type: 'function_call_output', call_id: `k${i}`, output: filler },
+        ]).flat(),
+      ];
+      const text = { type: 'input_text', text: 'Fix the layout shown here.' };
+      const picture = { type: 'input_image', image_url: 'data:image/png;base64,AAAA', detail: 'auto' };
+      const options = { maxTokens: 3000, tailTokens: 2200, taskCheckpoint: 'Original task: fix the layout.' };
+      const withPicture = compactRollingContext(history([text, picture]), options);
+      assert.equal(withPicture.compacted, true, '(the premise: the history is over its budget)');
+      assert(!JSON.stringify(withPicture.history).includes('input_image'), 'the picture left the request with the message it was in');
+      const note = withPicture.history[0].content[0].text;
+      assert(/1 picture/i.test(note) && /attach/i.test(note), 'and the checkpoint says that one picture was left out and that the user can attach it again');
+      const twoPictures = compactRollingContext(history([text, picture, picture]), options).history[0].content[0].text;
+      assert(/2 pictures/i.test(twoPictures), 'it counts them');
+      // A picture a tool returned (a screenshot) is left out the same way, and counted with the user's.
+      const shot = history([text]);
+      shot[2] = { type: 'function_call_output', call_id: 'k0', output: [{ type: 'input_text', text: filler }, picture] };
+      const mixed = compactRollingContext([shot[0], ...shot.slice(1)].map((item, i) => (i === 0 ? { role: 'user', content: [text, picture] } : item)), options).history[0].content[0].text;
+      assert(/2 pictures/i.test(mixed), 'the picture of a tool result and the one of the user are both counted');
+      assert(/1 picture /i.test(compactRollingContext(shot, options).history[0].content[0].text), 'a picture only a tool returned is counted');
+      const plain = compactRollingContext(history([text]), options);
+      assert.equal(plain.compacted, true);
+      assert(!/picture/i.test(plain.history[0].content[0].text), 'no picture was left out: the checkpoint says nothing of pictures');
+      console.log('  [PASS] 7. A checkpoint says how many pictures it left out');
+    }
+
+    console.log('\nALL 7 SMART CONTEXT COMPACTION TEST SUITES PASSED!');
   } finally {
     await cleanup();
   }

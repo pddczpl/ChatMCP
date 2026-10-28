@@ -53,7 +53,9 @@ import { SCENARIOS, call } from './scenarios.mjs';
 import { createThinkingSigner, errorBody, thinkingBinding, validateAnthropicRequest, validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './protocol-validators.mjs';
 
 export const MODEL_IDS = Object.freeze(['mock-coder', 'mock-coder-small']);
-const MAX_BODY_BYTES = 8 * 1024 * 1024;
+// 32 MB is what Anthropic takes for one request. A message of 12 MiB of pictures is 16 MiB of base64 (lib/attachment-limits.mjs), and the request of the model holds it; at 8 MiB this server answered
+// such a request 413 before it recorded it, and the Hub went on asking.
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const DEFAULT_STRICT = Object.freeze({ chat: false, anthropic: true, responses: true, gemini: true });
 const PIECE = 8;
 

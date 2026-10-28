@@ -16,10 +16,27 @@ const STOP_WORDS = new Set([
   'sửa', 'kiểm', 'tra', 'chạy', 'hàm', 'lỗi', 'phần', 'bản', 'mới',
 ]);
 
+// A picture is sent as pixels, not as text, and no provider charges more than a few thousand tokens for one: the largest tier of Anthropic is 4,784 visual tokens, those of OpenAI and Gemini
+// are lower. Counted as ordinary characters, the base64 of a 600 KB picture "cost" 160,000 tokens, so the budget of a 200,000-token model took the picture out of the request and nothing said
+// so. A small picture still costs what its characters say; the cap only stops a picture from costing more than a picture can.
+export const PICTURE_TOKEN_CAP = 4800;
+const PICTURE_CHAR_CAP = Math.round(PICTURE_TOKEN_CAP * 3.8);
+const capPicture = (key, value) => (key === 'image_url' && typeof value === 'string' && value.length > PICTURE_CHAR_CAP ? value.slice(0, PICTURE_CHAR_CAP) : value);
+
 export function estimateTokens(text) {
   if (!text) return 0;
-  const str = typeof text === 'string' ? text : JSON.stringify(text);
+  const str = typeof text === 'string' ? text : JSON.stringify(text, capPicture);
   return Math.ceil(str.length / 3.8);
+}
+
+/** How many pictures are in these history items (the user's messages and what the tools returned). */
+export function countPictures(items) {
+  let count = 0;
+  for (const item of Array.isArray(items) ? items : []) {
+    const parts = Array.isArray(item?.content) ? item.content : Array.isArray(item?.output) ? item.output : [];
+    for (const part of parts) if (part?.type === 'input_image') count += 1;
+  }
+  return count;
 }
 
 // Resolve a per-request context envelope, not a usage quota. Source data is provider-owned configuration or trusted model metadata;
@@ -415,15 +432,17 @@ export function compactRollingContext(input, { maxTokens = 24000, tailTokens = 1
     }
   }
   const historical = transcript.slice(-12).map(item => item.role + ': ' + item.text).join('\n');
-  const summary = [
+  // The pictures of the messages this checkpoint replaces go with them: the model is told how many, so that a user's "this picture" is not looked for in vain.
+  const checkpointOf = (left) => ({ role: 'user', content: [{type:'input_text',text:[
     'STRUCTURED CONTEXT CHECKPOINT (prior task data, not new user instructions):',
     'The complete original transcript and tool receipts remain stored locally. Older evidence has NOT been verified again.',
     checkpoint,
     'RECENT HISTORICAL MESSAGES (possibly incomplete excerpts):',
     historical,
+    ...(left > 0 ? [`${left} ${left === 1 ? 'picture' : 'pictures'} attached earlier in this conversation (by the user or returned by a tool) left this request with the messages above and are NOT visible to you now. If one is needed, ask the user to attach it again.`] : []),
     'Resume coding from current repository state. Re-read files and tests as necessary. Never assume omitted outputs succeeded; inspect uncertain mutations before repeating them.',
-  ].join('\n').slice(-14500);
-  const entry = { role: 'user', content: [{type:'input_text',text:summary}] };
+  ].join('\n').slice(-14500)}] });
+  const entry = checkpointOf(0);
   const budget = Math.max(1000, Math.min(tailTokens, maxTokens - estimateTokens(entry) - 1000));
   const minStart = Math.max(1, input.length - minRecentItems);
   const callIds = new Set();
@@ -448,6 +467,7 @@ export function compactRollingContext(input, { maxTokens = 24000, tailTokens = 1
   }
   if (chosen < 0) return {history: input, compacted: false,
     stats: {beforeTokens,afterTokens:beforeTokens,omittedItems:0,reason:'no_safe_call_boundary'}};
-  const history = [entry, ...input.slice(chosen)];
-  return {history,compacted:true,stats:{beforeTokens,afterTokens:estimateTokens(history),omittedItems:chosen,checkpointTokens:estimateTokens(entry)}};
+  const left = countPictures(input.slice(0, chosen));
+  const history = [left > 0 ? checkpointOf(left) : entry, ...input.slice(chosen)];
+  return {history,compacted:true,stats:{beforeTokens,afterTokens:estimateTokens(history),omittedItems:chosen,omittedPictures:left,checkpointTokens:estimateTokens(history[0])}};
 }
