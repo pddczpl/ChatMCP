@@ -57,7 +57,7 @@ Profiles: off, safe (default), balanced, aggressive. Optional process environmen
 
 ## Deployment and verification
 
-- The installer source allowlist includes tracked CHATMCP-HUB/lib/*.mjs files; adding modules requires successful fresh installer-build CI to verify the actual payload.
+- The installer source allowlist includes tracked DATGOLD-HUB/lib/*.mjs files; adding modules requires successful fresh installer-build CI to verify the actual payload.
 - The Windows installer stages pinned Playwright + playwright-core JavaScript packages into runtimes/browser/node_modules. On Windows, browser launch prefers installed Microsoft Edge; a real Edge/Chromium executable remains an external prerequisite. Development uses the UI node_modules fallback. Installer library staging alone does not prove real browser launch or clean Windows acceptance.
 - The GitHub CLI gh must be installed and authenticated to use repository automation at runtime. User accounts/API credentials must not be copied into the installer.
 - Python and TypeScript LSP features require their bundled servers and Node runtime to initialize successfully, not only existence of source code.
