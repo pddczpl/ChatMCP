@@ -37,7 +37,7 @@ test('a screenshot over 2 MB is made smaller and attached, and what reaches the 
   expect(png.length, 'the picture is over the limit before the page touches it').toBeGreaterThan(2 * MB);
 
   await page.locator('input[type="file"]').setInputFiles({ name: 'image.png', mimeType: 'image/png', buffer: png });
-  await expect(page.getByText(/quá lớn nên đã được thu nhỏ còn/)).toBeVisible();
+  await expect(page.getByText(/^Ảnh image\.png \(.+\) quá lớn nên đã được thu nhỏ còn .+ để gửi\.$/), 'the toast names the picture as it was sent').toBeVisible();
   await expect(page.getByLabel('Tệp đính kèm').getByText('image.jpg')).toBeVisible();
 
   const started = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/tasks/start' && request.method() === 'POST');

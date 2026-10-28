@@ -98,7 +98,7 @@ export function Composer({
           blob = fitted.blob;
           mimeType = fitted.type;
           name = fittedName(file.name, fitted.type);
-          showToast(t('agents_cmp_image_fitted', { name, from: formatBytes(file.size, lang), to: formatBytes(fitted.blob.size, lang) }), 'info');
+          showToast(t('agents_cmp_image_fitted', { name: file.name, from: formatBytes(file.size, lang), to: formatBytes(fitted.blob.size, lang) }), 'info');
         }
         const data = await new Promise<string>((resolve,reject) => {
           const reader = new FileReader();
