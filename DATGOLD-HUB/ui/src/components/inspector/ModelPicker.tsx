@@ -199,7 +199,9 @@ export function ModelPicker(props: ModelFieldProps) {
                   role="option"
                   aria-selected={choice.id === props.value}
                   onClick={() => pick(choice.id)}
-                  onMouseEnter={() => setActive(index)}
+                  // (mousemove, not mouseenter: a list that opens or scrolls under a pointer that is not moving is not the person choosing a row with the mouse, and the browser reports
+                  // that as a mouseenter; the active row is the keyboard's until the pointer really moves.)
+                  onMouseMove={() => setActive(index)}
                   className={`flex cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 px-2.5 py-1.5 text-xs ${index === activeAt ? 'bg-hover' : ''} ${choice.id === props.value ? 'text-primary' : 'text-fg'}`}
                 >
                   <span className="font-mono">{choice.id}</span>{' '}

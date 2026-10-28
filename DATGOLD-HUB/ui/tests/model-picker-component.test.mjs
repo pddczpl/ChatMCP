@@ -344,6 +344,9 @@ test('typing, choosing and the keyboard hand the value of the field to the form;
   assert.deepEqual(taken, ['claude-sonnet-5-5'], 'the second one of the list, by its place');
   optionOf(elements, 0).props.onClick();
   assert.deepEqual(taken, ['claude-sonnet-5-5', 'claude-opus-5-5']);
+  // The pointer moves the active row only when it really moves: a list that opens or scrolls under a pointer that is still is reported by the browser as a mouseenter, which took
+  // the active row from the keyboard (the end-to-end test of the list failed when hiding the deprecated models changed which row lay under the pointer).
+  assert.deepEqual([typeof optionOf(elements, 0).props.onMouseMove, optionOf(elements, 0).props.onMouseEnter], ['function', undefined]);
   // Enter takes the active one (the first, as the list opens), and only in an open list
   taken.length = 0;
   let prevented = 0;
@@ -444,7 +447,7 @@ test('what is done to the field changes what it shows: typing opens the list and
   assert.deepEqual(doing(() => browseOf(closed).props.onClick()), expected(['open', true], ['typed', false], ['active', 0]), 'the browse button opens the list on all of the models');
   assert.deepEqual(doing(() => browseOf(open).props.onClick()), expected(['open', false], ['typed', false], ['active', 0]), 'and closes it');
   assert.deepEqual(doing(() => inputOf(closed).props.onBlur()), expected(['open', false]), 'leaving the field closes the list');
-  assert.deepEqual(doing(() => optionOf(open, 2).props.onMouseEnter()), expected(['active', 2]), 'the mouse makes an option the active one');
+  assert.deepEqual(doing(() => optionOf(open, 2).props.onMouseMove()), expected(['active', 2]), 'the mouse, moving over an option, makes it the active one');
   // the keys
   assert.deepEqual(key(closed, 'ArrowDown'), expected(['open', true], ['typed', false], ['active', 0]), 'the arrow opens a closed list, on all of the models');
   assert.deepEqual(key(open, 'ArrowDown'), expected(['active', 1]), 'and moves through an open one');
