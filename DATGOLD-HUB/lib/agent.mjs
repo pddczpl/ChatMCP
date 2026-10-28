@@ -835,7 +835,7 @@ export class AgentRunner {
     task.goalPlan=acceptObjectiveCriterion(task.goalPlan,task.progress,{
       objectiveId,criterionIndex,receiptId,confirmed});
     // The owner's option: what this acceptance completes may let a check of the next objective be matched too.
-    if(this.agentOptions.autoAcceptChecks)task.goalPlan=autoAcceptVerifiedChecks(task.goalPlan,task.progress);
+    if(this.agentOptions.autoAcceptChecks)await this.#autoAcceptChecks(task);
     task.completionOutcome=classifyTaskCompletion(task.goalPlan,task.progress);
     task.updatedAt=now();
     await this.#persist(task,{at:task.updatedAt,type:'owner_acceptance',
