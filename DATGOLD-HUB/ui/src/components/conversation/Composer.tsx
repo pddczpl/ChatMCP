@@ -3,7 +3,7 @@ import { ArrowUp, Bot, Check, ChevronDown, Eye, Paperclip, ShieldAlert, ShieldCh
 import type { ChatAttachment } from '@/types';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
-import { FILE_LIMIT_BYTES, IMAGE_LIMIT_BYTES, fitImage, fittedName, limitLabel } from '@/lib/image-fit';
+import { FILES_PER_MESSAGE, FILE_LIMIT_BYTES, IMAGE_LIMIT_BYTES, TOTAL_LIMIT_BYTES, fitImage, fittedName, limitLabel } from '@/lib/image-fit';
 import { formatBytes } from '@/lib/project-instructions';
 import { cn } from '@/lib/utils';
 
@@ -76,8 +76,8 @@ export function Composer({
 
   const handleFiles = async (files: File[]) => {
     if (submitting || !files.length) return;
-    if (attachments.length + files.length > 5) {
-      showToast(t('agents_cmp_max_files'),'warning');
+    if (attachments.length + files.length > FILES_PER_MESSAGE) {
+      showToast(t('agents_cmp_max_files', { limit: FILES_PER_MESSAGE }),'warning');
       return;
     }
     try {
@@ -108,7 +108,9 @@ export function Composer({
         });
         collected.push({name,mimeType,dataBase64:data.split(',')[1]||'',size:blob.size});
       }
-      setAttachments(current => [...current,...collected].slice(0,5));
+      // All the files of one message together are limited too (the request the provider takes holds them, and the turns before them): over it the new ones are not added, and the person is told the way around.
+      if ([...attachments, ...collected].reduce((sum, item) => sum + item.size, 0) > TOTAL_LIMIT_BYTES) throw new Error(t('agents_cmp_total_too_large', { limit: limitLabel(TOTAL_LIMIT_BYTES) }));
+      setAttachments(current => [...current,...collected].slice(0,FILES_PER_MESSAGE));
     } catch (error) {
       showToast(error instanceof Error ? error.message : t('agents_cmp_cannot_attach'),'error');
     }
