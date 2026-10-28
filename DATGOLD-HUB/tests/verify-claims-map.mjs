@@ -23,7 +23,7 @@
 //   --update-lines  after a document edit moved a quote, rewrite the line numbers in docs/CLAIMS.json (only when each quote is found once).
 //
 // The same checks run on temporary copies of the files into which defects are put (a marker deleted, a test renamed, a forbidden double
-// added ...); each must be reported. Needs the repository root next to CHATMCP-HUB.
+// added ...); each must be reported. Needs the repository root next to DATGOLD-HUB.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -58,8 +58,8 @@ function triggerSentences(text) {
 
 /** Names that tests/run-all.mjs would run, asked of the runner itself. */
 function discoveredSuites(root) {
-  const runner = path.join(root, 'CHATMCP-HUB', 'tests', 'run-all.mjs');
-  const result = spawnSync(process.execPath, [runner, '--list', '--tests-dir', path.join(root, 'CHATMCP-HUB', 'tests')], { encoding: 'utf8', windowsHide: true });
+  const runner = path.join(root, 'DATGOLD-HUB', 'tests', 'run-all.mjs');
+  const result = spawnSync(process.execPath, [runner, '--list', '--tests-dir', path.join(root, 'DATGOLD-HUB', 'tests')], { encoding: 'utf8', windowsHide: true });
   if (result.status !== 0) throw new Error(`tests/run-all.mjs --list failed: ${result.stderr || result.stdout}`);
   return new Set(result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
 }
@@ -89,11 +89,11 @@ export function checkClaims(root, { base = null } = {}) {
   if (!Number.isInteger(ratchet.maxUnmapped) || ratchet.maxUnmapped < 0) fail('docs/claims-ratchet.json: maxUnmapped must be a non-negative integer');
 
   const suites = discoveredSuites(root);
-  const testsFolder = path.join(root, 'CHATMCP-HUB', 'tests');
+  const testsFolder = path.join(root, 'DATGOLD-HUB', 'tests');
   const markers = new Map(); // suite -> ids
   for (const name of readdirSync(testsFolder).filter((file) => /^verify-.+\.mjs$/.test(file))) {
-    const ids = [...read(root, `CHATMCP-HUB/tests/${name}`).matchAll(MARKER)].map((match) => match[1]);
-    if (ids.length) markers.set(`CHATMCP-HUB/tests/${name}`, ids);
+    const ids = [...read(root, `DATGOLD-HUB/tests/${name}`).matchAll(MARKER)].map((match) => match[1]);
+    if (ids.length) markers.set(`DATGOLD-HUB/tests/${name}`, ids);
   }
 
   const seen = new Set();
@@ -122,7 +122,7 @@ export function checkClaims(root, { base = null } = {}) {
 
     if (entry.seam === 'real') {
       if (entry.kind !== 'claim') fail(`${where}: a disclaimer cannot be mapped to a test; list it as unmapped`);
-      if (typeof entry.test !== 'string' || !/^CHATMCP-HUB\/tests\/verify-[\w-]+\.mjs$/.test(entry.test)) { fail(`${where}: a real claim needs test: CHATMCP-HUB/tests/verify-<name>.mjs`); continue; }
+      if (typeof entry.test !== 'string' || !/^DATGOLD-HUB\/tests\/verify-[\w-]+\.mjs$/.test(entry.test)) { fail(`${where}: a real claim needs test: DATGOLD-HUB/tests/verify-<name>.mjs`); continue; }
       if (typeof entry.seamNote !== 'string' || entry.seamNote.trim().length < 20) fail(`${where}: a real claim needs a seamNote that says what is real and what is scripted`);
       if (!existsSync(path.join(root, entry.test))) { fail(`${where}: the test ${entry.test} does not exist`); continue; }
       if (!suites.has(path.basename(entry.test))) fail(`${where}: ${entry.test} is not listed by tests/run-all.mjs --list, so no run would execute it`);
@@ -209,7 +209,7 @@ function updateLines(root) {
 // =============================================================================================================================================
 const args = process.argv.slice(2);
 if (!existsSync(path.join(REPO, 'README.md')) || !existsSync(path.join(REPO, 'docs', 'CLAIMS.json'))) {
-  console.log('CHATMCP_TEST_SKIP: README.md and docs/CLAIMS.json were not found next to CHATMCP-HUB (the claims map needs the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: README.md and docs/CLAIMS.json were not found next to DATGOLD-HUB (the claims map needs the whole repository)');
   process.exit(0);
 }
 const baseIndex = args.indexOf('--base');
@@ -234,8 +234,8 @@ const scratch = mkdtempSync(path.join(os.tmpdir(), 'chatmcp-claims-'));
 try {
   const copy = (relative) => { mkdirSync(path.dirname(path.join(scratch, relative)), { recursive: true }); cpSync(path.join(REPO, relative), path.join(scratch, relative), { recursive: true }); };
   const claimSources = JSON.parse(readFileSync(path.join(REPO, 'docs', 'CLAIMS.json'), 'utf8')).claims.map((entry) => entry.source.file);
-  for (const relative of new Set(['docs/CLAIMS.json', 'docs/claims-ratchet.json', 'CHATMCP-HUB/tests/run-all.mjs', ...JSON.parse(readFileSync(path.join(REPO, 'docs', 'CLAIMS.json'), 'utf8')).scannedDocuments, ...claimSources])) copy(relative);
-  for (const name of readdirSync(path.join(REPO, 'CHATMCP-HUB', 'tests')).filter((file) => /^verify-.+\.mjs$/.test(file))) copy(`CHATMCP-HUB/tests/${name}`);
+  for (const relative of new Set(['docs/CLAIMS.json', 'docs/claims-ratchet.json', 'DATGOLD-HUB/tests/run-all.mjs', ...JSON.parse(readFileSync(path.join(REPO, 'docs', 'CLAIMS.json'), 'utf8')).scannedDocuments, ...claimSources])) copy(relative);
+  for (const name of readdirSync(path.join(REPO, 'DATGOLD-HUB', 'tests')).filter((file) => /^verify-.+\.mjs$/.test(file))) copy(`DATGOLD-HUB/tests/${name}`);
   assert.deepEqual(checkClaims(scratch).problems, [], 'the temporary copy must be clean before a defect is put in');
 
   const file = (relative) => path.join(scratch, relative);
@@ -253,23 +253,23 @@ try {
     const found = checkClaims(scratch, options).problems;
     assert.ok(found.some((problem) => expected.test(problem)), `defect "${label}" was not reported; problems: ${JSON.stringify(found)}`);
   };
-  const skills = 'CHATMCP-HUB/tests/verify-skill-delivery.mjs';
-  const lsp = 'CHATMCP-HUB/tests/verify-lsp-tier.mjs';
+  const skills = 'DATGOLD-HUB/tests/verify-skill-delivery.mjs';
+  const lsp = 'DATGOLD-HUB/tests/verify-lsp-tier.mjs';
 
   // 1. delete a marker
   let restore = edit(skills, (text) => text.replace(/^\/\/ CLAIM: skills-reach-model\r?\n/m, ''));
   expectProblem('a marker deleted', /has no line "\/\/ CLAIM: skills-reach-model"/); restore();
   // 2. rename a test
-  renameSync(file(skills), file('CHATMCP-HUB/tests/verify-skill-delivery-renamed.mjs'));
+  renameSync(file(skills), file('DATGOLD-HUB/tests/verify-skill-delivery-renamed.mjs'));
   expectProblem('a test renamed', /verify-skill-delivery\.mjs does not exist/);
   // 2b. renamed so that the runner no longer lists it (and the map follows the rename): the file exists but nothing would run it
-  renameSync(file('CHATMCP-HUB/tests/verify-skill-delivery-renamed.mjs'), file('CHATMCP-HUB/tests/skill-delivery.mjs'));
-  restore = editMap((map) => { map.claims.find((entry) => entry.id === 'skills-reach-model').test = 'CHATMCP-HUB/tests/skill-delivery.mjs'; });
-  expectProblem('a test renamed out of the verify-*.mjs pattern', /needs test: CHATMCP-HUB\/tests\/verify-/);
+  renameSync(file('DATGOLD-HUB/tests/verify-skill-delivery-renamed.mjs'), file('DATGOLD-HUB/tests/skill-delivery.mjs'));
+  restore = editMap((map) => { map.claims.find((entry) => entry.id === 'skills-reach-model').test = 'DATGOLD-HUB/tests/skill-delivery.mjs'; });
+  expectProblem('a test renamed out of the verify-*.mjs pattern', /needs test: DATGOLD-HUB\/tests\/verify-/);
   restore();
-  renameSync(file('CHATMCP-HUB/tests/skill-delivery.mjs'), file(skills));
+  renameSync(file('DATGOLD-HUB/tests/skill-delivery.mjs'), file(skills));
   // 2c. the runner itself no longer lists it: a copy of run-all that only lists other suites
-  const runner = 'CHATMCP-HUB/tests/run-all.mjs';
+  const runner = 'DATGOLD-HUB/tests/run-all.mjs';
   restore = edit(runner, (text) => text.replace("/^verify-.+\\.mjs$/.test(name)", "/^verify-(?!skill-delivery).+\\.mjs$/.test(name)"));
   expectProblem('the runner no longer lists the suite', /is not listed by tests\/run-all\.mjs --list/); restore();
   // 3. a forbidden double
@@ -302,10 +302,10 @@ try {
   restore = editMap((map) => { map.claims[1].id = map.claims[0].id; });
   expectProblem('a duplicate id', /duplicate id/); restore();
   // 10. an orphan marker
-  restore = edit('CHATMCP-HUB/tests/verify-docs.mjs', (text) => `// CLAIM: not-in-the-map\n${text}`);
+  restore = edit('DATGOLD-HUB/tests/verify-docs.mjs', (text) => `// CLAIM: not-in-the-map\n${text}`);
   expectProblem('an orphan marker', /orphan marker/); restore();
-  restore = edit('CHATMCP-HUB/tests/verify-docs.mjs', (text) => `// CLAIM: lsp-tier\n${text}`);
-  expectProblem('a marker in the wrong suite', /belongs to CHATMCP-HUB\/tests\/verify-lsp-tier\.mjs/); restore();
+  restore = edit('DATGOLD-HUB/tests/verify-docs.mjs', (text) => `// CLAIM: lsp-tier\n${text}`);
+  expectProblem('a marker in the wrong suite', /belongs to DATGOLD-HUB\/tests\/verify-lsp-tier\.mjs/); restore();
   assert.deepEqual(checkClaims(scratch).problems, [], 'the copy is clean again once the defects are removed');
   ok(`${defects} seeded defects (marker deleted, test renamed, renamed out of the pattern, suite no longer listed by the runner, forbidden double added, unmapped count grown, ratchet not lowered, uncovered sentence, quote moved, quote reworded, bad seam / note / disclaimer / duplicate id, orphan marker, marker in the wrong suite) are each reported; a comment about a double is not one`);
 

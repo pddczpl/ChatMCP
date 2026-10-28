@@ -20,7 +20,7 @@ const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repo = path.resolve(hubRoot, '..');
 const folders = ['desktop-shell', 'native-shared', 'installer', 'scripts'].map((name) => path.join(repo, name));
 if (!folders.every((folder) => fs.existsSync(folder))) {
-  console.log('CHATMCP_TEST_SKIP: desktop-shell/, native-shared/, installer/ and scripts/ were not found next to CHATMCP-HUB (they ship in the repository, not in the Hub bundle)');
+  console.log('CHATMCP_TEST_SKIP: desktop-shell/, native-shared/, installer/ and scripts/ were not found next to DATGOLD-HUB (they ship in the repository, not in the Hub bundle)');
   process.exit(0);
 }
 
@@ -46,7 +46,7 @@ check(/Set-StrictMode -Version 2\.0/.test(buildScript), 'and it runs under stric
 
 const shellProject = read('desktop-shell/ChatMCP.csproj');
 const installerProject = read('installer/ChatMCP.Installer.csproj');
-check(/\$shellKeysFile = if \(\$ReleaseKeysFile -ne ''\) \{ \$ReleaseKeysFile \} else \{ Join-Path \$repoRoot 'CHATMCP-HUB\\lib\\release-keys\.json' \}/.test(buildScript) && /\$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value \$shellKeysFile/.test(buildScript) && /"-p:ReleaseKeysFile=\$shellKeysArgument"/.test(buildScript) && !/@shellKeys\b/.test(buildScript),
+check(/\$shellKeysFile = if \(\$ReleaseKeysFile -ne ''\) \{ \$ReleaseKeysFile \} else \{ Join-Path \$repoRoot 'DATGOLD-HUB\\lib\\release-keys\.json' \}/.test(buildScript) && /\$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value \$shellKeysFile/.test(buildScript) && /"-p:ReleaseKeysFile=\$shellKeysArgument"/.test(buildScript) && !/@shellKeys\b/.test(buildScript),
   'scripts/Build-Installer.ps1 ALWAYS names the key list the shell is built with, written so that MSBuild reads the path back as it is (MSBuild reads an environment variable called ReleaseKeysFile as a property: left to the default of the project, it would be the list the program trusts)');
 check(propertyGroups(shellProject) === 1, 'desktop-shell/ChatMCP.csproj has ONE PropertyGroup (Build-Installer.ps1 reads its Version as one element)', `found ${propertyGroups(shellProject)}`);
 check(propertyGroups(installerProject) === 1, 'installer/ChatMCP.Installer.csproj has ONE PropertyGroup', `found ${propertyGroups(installerProject)}`);
@@ -61,8 +61,8 @@ const shellKeys = strip(read('desktop-shell/ShellKeys.cs'));
 const resourceName = /const string ResourceName = "([^"]+)"/.exec(shellKeys)?.[1];
 const logicalName = /<EmbeddedResource\s+Include="\$\(ReleaseKeysFile\)"\s+LogicalName="([^"]+)"/.exec(shellProject)?.[1];
 check(resourceName && resourceName === logicalName, 'the name the shell reads its keys under is the name the project embeds them under', `${resourceName} / ${logicalName}`);
-check(/<ReleaseKeysFile Condition="'\$\(ReleaseKeysFile\)' == ''">\$\(MSBuildThisFileDirectory\)\.\.\\CHATMCP-HUB\\lib\\release-keys\.json<\/ReleaseKeysFile>/.test(shellProject),
-  'by default the shell embeds the file the Hub reads (CHATMCP-HUB/lib/release-keys.json), and a build can name another with -p:ReleaseKeysFile');
+check(/<ReleaseKeysFile Condition="'\$\(ReleaseKeysFile\)' == ''">\$\(MSBuildThisFileDirectory\)\.\.\\DATGOLD-HUB\\lib\\release-keys\.json<\/ReleaseKeysFile>/.test(shellProject),
+  'by default the shell embeds the file the Hub reads (DATGOLD-HUB/lib/release-keys.json), and a build can name another with -p:ReleaseKeysFile');
 check(/GetManifestResourceStream\(ResourceName\)/.test(shellKeys) && !/\bFile\.|\bDirectory\.|\bPath\.|\bFileStream\b|\bStreamReader\(\s*[a-z]*[Pp]ath/.test(shellKeys),
   'the shell reads its keys from the program and from no file on the disk (nothing added after the build can be trusted)');
 check(fs.existsSync(path.join(hubRoot, 'lib', 'release-keys.json')), 'the key file that is embedded exists');

@@ -142,7 +142,7 @@ export function AgentChannelSection() {
             <Download className="h-3.5 w-3.5" /> {t('chan_zip_link')}
           </a>
           <a className="inline-flex h-9 items-center rounded-lg border border-line bg-surface px-3 text-[13px] text-muted transition-colors hover:border-line-strong hover:bg-hover hover:text-fg"
-            href="https://github.com/pddczpl/ChatMCP/blob/main/CHATMCP-HUB/extension/INSTALL-EXTENSION.txt"
+            href="https://github.com/pddczpl/ChatMCP/blob/main/DATGOLD-HUB/extension/INSTALL-EXTENSION.txt"
             target="_blank" rel="noopener noreferrer">{t('chan_install_guide')}</a>
         </div>
         <p className="text-[12px] leading-5 text-muted">

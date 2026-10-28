@@ -73,7 +73,7 @@ export async function runRealCodingE2ETests() {
   await fs.mkdir(projectDir, { recursive: true });
 
   // 1. Stage GuestSupervisor.exe and its pinned SHA-256
-  const supervisorSource = path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Release/net10.0/win-x64/publish/GuestSupervisor.exe');
+  const supervisorSource = path.resolve('DATGOLD-HUB/windows/sandbox/GuestSupervisor/bin/Release/net10.0/win-x64/publish/GuestSupervisor.exe');
   if (!existsSync(supervisorSource)) {
     throw new Error(`GuestSupervisor.exe must be published at ${supervisorSource} before running real E2E.`);
   }

@@ -15,7 +15,7 @@ const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repo = path.resolve(hubRoot, '..');
 const shellFolders = ['desktop-shell', 'native-shared', 'installer'].map((name) => path.join(repo, name));
 if (!shellFolders.every((folder) => fs.existsSync(folder))) {
-  console.log('CHATMCP_TEST_SKIP: desktop-shell/, native-shared/ and installer/ were not found next to CHATMCP-HUB (they ship in the repository, not in the Hub bundle)');
+  console.log('CHATMCP_TEST_SKIP: desktop-shell/, native-shared/ and installer/ were not found next to DATGOLD-HUB (they ship in the repository, not in the Hub bundle)');
   process.exit(0);
 }
 

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "The result file that the installer writes (--result) and the Hub of whichever version runs afterwards reads: a contract across versions, so every text is literal and the list only grows. `written` is what the installer writes for an outcome (scripts/tests/native-lifecycle/ContractTests.cs holds it to these texts byte for byte); `read` is what the Hub makes of a text while it runs `running` (CHATMCP-HUB/tests/verify-update-applied.mjs). Made by a script, not taken from either implementation.",
+  "about": "The result file that the installer writes (--result) and the Hub of whichever version runs afterwards reads: a contract across versions, so every text is literal and the list only grows. `written` is what the installer writes for an outcome (scripts/tests/native-lifecycle/ContractTests.cs holds it to these texts byte for byte); `read` is what the Hub makes of a text while it runs `running` (DATGOLD-HUB/tests/verify-update-applied.mjs). Made by a script, not taken from either implementation.",
   "written": [
     {"name":"installed","text":"{\"format\":1,\"ok\":true,\"version\":\"3.11.0\",\"previous\":\"3.10.2\",\"state\":\"installed\",\"reason\":null,\"rolledBack\":false}"},
     {"name":"refused before anything changed","text":"{\"format\":1,\"ok\":false,\"version\":\"3.11.0\",\"previous\":\"3.10.2\",\"state\":\"unchanged\",\"reason\":\"tasks_running\",\"rolledBack\":false}"},
