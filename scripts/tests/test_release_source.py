@@ -66,7 +66,7 @@ class ReleaseSourceTests(unittest.TestCase):
     def package(self, extra=None, backslash=False):
         with zipfile.ZipFile(self.root / 'installer/payload.zip', 'w') as z:
             for file in self.ui.iterdir():
-                name = gate.UI + '/' + file.name
+                name = gate.PAYLOAD_UI + '/' + file.name
                 z.writestr(name.replace('/', '\\') if backslash else name, file.read_bytes())
             if extra:
                 z.writestr(*extra)
@@ -115,22 +115,37 @@ class ReleaseSourceTests(unittest.TestCase):
             self.run_gate()
 
     def test_payload_extra_file_rejected(self):
-        self.package((gate.UI + '/stale.js', b'stale'))
+        self.package((gate.PAYLOAD_UI + '/stale.js', b'stale'))
         with self.assertRaises(ValueError):
             self.run_gate()
 
     def test_payload_missing_file_rejected(self):
         with zipfile.ZipFile(self.root / 'installer/payload.zip', 'w') as z:
-            z.writestr(gate.UI + '/index.html', (self.ui / 'index.html').read_bytes())
+            z.writestr(gate.PAYLOAD_UI + '/index.html', (self.ui / 'index.html').read_bytes())
         with self.assertRaises(ValueError):
             self.run_gate()
+
+    def test_payload_under_the_name_of_the_repository_rejected(self):
+        # The payload of an installation names the Hub folder CHATMCP-HUB. A payload that holds the UI under DATGOLD-HUB, the name in the repository, is not what the installer builder writes.
+        with zipfile.ZipFile(self.root / 'installer/payload.zip', 'w') as z:
+            for file in self.ui.iterdir():
+                z.writestr(gate.UI + '/' + file.name, file.read_bytes())
+        with self.assertRaisesRegex(ValueError, 'differ'):
+            self.run_gate()
+
+    def test_payload_prefix_is_the_one_the_installer_builder_writes(self):
+        # The tests above build their payload by hand. This ties the name they use to the one scripts/InstallerPayload.ps1 writes, so that a rename on one side cannot go unseen again
+        # (the publish run of v3.11.1 stopped on exactly that: the gate looked under DATGOLD-HUB, the builder wrote CHATMCP-HUB, and every test here used the gate's own name).
+        builder = (Path(__file__).parents[1] / 'InstallerPayload.ps1').read_text(encoding='utf-8')
+        self.assertIn("'" + gate.PAYLOAD_UI + "/'", builder)
+        self.assertEqual(gate.PAYLOAD_UI, gate.UI.replace('DATGOLD-HUB', 'CHATMCP-HUB', 1))
 
     def test_windows_archive_separators_supported(self):
         self.package(backslash=True)
         self.assertEqual(self.run_gate()['result'], 'PASS')
 
     def test_normalized_duplicate_rejected(self):
-        self.package(((gate.UI + '/fresh.js').replace('/', '\\'), b'fresh UI build\n'))
+        self.package(((gate.PAYLOAD_UI + '/fresh.js').replace('/', '\\'), b'fresh UI build\n'))
         with self.assertRaisesRegex(ValueError, 'Duplicate'):
             self.run_gate()
 

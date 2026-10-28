@@ -19,6 +19,10 @@ import subprocess
 import zipfile
 
 UI = 'DATGOLD-HUB/web/dist'
+# The folder of the Hub is DATGOLD-HUB in the repository and stays CHATMCP-HUB in the installation (scripts/InstallerPayload.ps1, ConvertTo-InstallerPayloadPath, is the one place that maps the
+# one to the other), so the payload names its generated UI under the name of the installation. A gate that looked for it under the name of the repository found nothing in the payload and
+# refused every release: the publish run of v3.11.1 stopped here.
+PAYLOAD_UI = 'CHATMCP-HUB/web/dist'
 # The keys that sign RELEASE-MANIFEST.json (lib/release-signature.mjs). A release of the updater verifies the next release with the keys it ships, so a release whose key file still holds a
 # placeholder, or a test key, is an updater that can never update anything: this gate, which runs on the release commit, refuses it. The Hub's own suites accept the placeholder, so normal CI stays green.
 KEYS = 'DATGOLD-HUB/lib/release-keys.json'
@@ -93,9 +97,9 @@ def verify_ui(root: Path) -> list[dict]:
             seen.add(name.casefold())
             if stat.S_ISLNK(entry.external_attr >> 16):
                 raise ValueError('Linked payload entry')
-            if not name.startswith(UI + '/') or entry.is_dir() or name.endswith('/'):
+            if not name.startswith(PAYLOAD_UI + '/') or entry.is_dir() or name.endswith('/'):
                 continue
-            relative = name[len(UI) + 1:]
+            relative = name[len(PAYLOAD_UI) + 1:]
             if relative not in actual or entry.file_size != actual[relative]['bytes']:
                 raise ValueError('Payload UI file set/size differs: ' + relative)
             with archive.open(entry) as stream:
