@@ -38,16 +38,25 @@ if (busy) { console.error('Port 3007 is already in use; nothing was started or s
 
 const scratch = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'chatmcp-legacy-upgrade-')));
 const started = [];
+// The tree of a ref stands for an INSTALLATION, whose Hub folder is CHATMCP-HUB. A ref from before the rename of the repository folder has that folder; a later one (HEAD) has DATGOLD-HUB, which is
+// renamed when it is unpacked, the way the installer's payload maps it (scripts/InstallerPayload.ps1).
+function hubFolderOf(ref) {
+  const listed = spawnSync('git', ['-C', repo, 'ls-tree', '--name-only', ref, 'DATGOLD-HUB'], { encoding: 'utf8' });
+  assert.equal(listed.status, 0, `git ls-tree ${ref}: ${listed.stderr}`);
+  return listed.stdout.trim() === 'DATGOLD-HUB' ? 'DATGOLD-HUB' : 'CHATMCP-HUB';
+}
 function prepare(name, ref) {
   const root = path.join(scratch, name, 'root');
   fs.mkdirSync(path.join(root, 'runtimes', 'node'), { recursive: true });
   fs.copyFileSync(process.execPath, path.join(root, 'runtimes', 'node', 'node.exe'));
-  const archive = spawnSync('git', ['-C', repo, 'archive', ref, 'CHATMCP-HUB'], { maxBuffer: 1 << 30 });
+  const folder = hubFolderOf(ref);
+  const archive = spawnSync('git', ['-C', repo, 'archive', ref, folder], { maxBuffer: 1 << 30 });
   assert.equal(archive.status, 0, `git archive ${ref}: ${archive.stderr}`);
   // Windows' own bsdtar by full path (Git for Windows ships a GNU tar that treats C: as a host); -f - reads the archive from stdin.
   const tar = path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe');
   const unpack = spawnSync(tar, ['-xf', '-'], { cwd: root, input: archive.stdout });
   assert.equal(unpack.status, 0, String(unpack.stderr));
+  if (folder !== 'CHATMCP-HUB') fs.renameSync(path.join(root, folder), path.join(root, 'CHATMCP-HUB'));
   return { root, state: path.join(scratch, name, 'state') };
 }
 async function startHub({ root, state }) {
