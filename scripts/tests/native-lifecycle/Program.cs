@@ -32,7 +32,7 @@ try
     using var noBuild = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.11.1\"}");
     Throws(() => HubLifecycle.ValidateHealth(noBuild.RootElement, "3.11.1"), "missing UI build refused");
     Check(InstallerEngine.AppVersion == "3.11.1", "installer display version derives from compiled assembly");
-    var script = @"C:\Users\Native Test\ChatMCP\CHATMCP-HUB\hub.mjs";
+    var script = @"C:\Users\Native Test\ChatMCP\DATGOLD-HUB\hub.mjs";
     Check(HubLifecycle.IsHubCommand("node.exe \"" + script + "\" --port 3007 --no-open", script), "quoted Hub entrypoint with spaces is recognized");
     Check(!HubLifecycle.IsHubCommand("node.exe other.mjs \"" + script + "\" --port 3007", script), "Hub path supplied as an unrelated script argument is rejected");
     Check(!HubLifecycle.IsHubCommand("node.exe --eval \"" + script + "\"", script), "Node eval is not an owned Hub entrypoint");
@@ -132,6 +132,7 @@ try
     ApplyTests.Run(kit);
     OwnerQueryTests.Run(kit);
     CloseTests.Run(kit);
+    PruneTests.Run(kit);
 
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);
     File.WriteAllText(Path.Combine(root, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(root, "b.txt"), "old-b");
@@ -266,7 +267,7 @@ try
         Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
         foreach (var unsafePath in new[] { "../escape.txt", "..\\escape.txt", "a/../../b", "/rooted.txt", "C:\\Windows\\x.txt", "bad:name.txt", "trailing.", "dir//file", "" })
             Check(StepCode.Of(Caught(() => InstallTransaction.Normalize(unsafePath))) == "payload_invalid", "a payload path that is not safe is a damaged installer (payload_invalid): " + (unsafePath == "" ? "(empty)" : unsafePath));
-        Check(InstallTransaction.Normalize("CHATMCP-HUB\\lib/x.mjs") == "CHATMCP-HUB/lib/x.mjs", "while a good path is normalized and passes");
+        Check(InstallTransaction.Normalize("DATGOLD-HUB\\lib/x.mjs") == "DATGOLD-HUB/lib/x.mjs", "while a good path is normalized and passes");
         using var tx = new InstallTransaction(Path.Combine(scratch, "payload checks"));
         tx.Add("one.txt", Bytes("one"));
         Check(StepCode.Of(Caught(() => tx.Add("ONE.txt", Bytes("two")))) == "payload_invalid", "a payload that names a file twice (in any letter case) is a damaged installer");

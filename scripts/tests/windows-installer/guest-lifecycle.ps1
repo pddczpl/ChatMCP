@@ -118,10 +118,10 @@ function Launch-Desktop([string]$phase) {
     }
     Start-Sleep -Seconds 2
     $remaining = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.ExecutablePath -eq (Join-Path $installDir 'runtimes\node\node.exe') })
-    $installedVersion = (Get-Content -LiteralPath (Join-Path $installDir 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version
+    $installedVersion = (Get-Content -LiteralPath (Join-Path $installDir 'DATGOLD-HUB\package.json') -Raw | ConvertFrom-Json).version
     if ([version]$installedVersion -ge [version]'3.8.3') {
         Assert-Check ($remaining.Count -eq 1) "$phase session Hub survives GUI close without replay"
-        & (Join-Path $installDir 'CHATMCP-HUB\STOP-CHATMCP-HUB.cmd')
+        & (Join-Path $installDir 'DATGOLD-HUB\STOP-DATGOLD-HUB.cmd')
         Assert-Check ($LASTEXITCODE -eq 0) "$phase explicit session Hub shutdown succeeds"
     } else { Assert-Check ($remaining.Count -eq 0) "$phase legacy owned Hub exits with desktop" }
 }
@@ -145,12 +145,12 @@ try {
     Install-Wizard 'C:\G6Input\BaselineSetup.exe' 'baseline'
     $baselineFiles=@(Get-ChildItem -LiteralPath $installDir -File -Recurse | ForEach-Object { $_.FullName.Substring($installDir.Length+1) })
     [IO.File]::WriteAllText('C:\G6Output\baseline-file-inventory.json',($baselineFiles | ConvertTo-Json))
-    foreach ($file in @('ChatMCP.exe','WebView2Loader.dll','runtimes\node\node.exe','runtimes\node\node.exe.sha256','CHATMCP-HUB\hub.mjs','CHATMCP-HUB\web\dist\index.html','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe.sha256','CHATMCP-HUB\runtimes\ripgrep\rg.exe','CHATMCP-HUB\runtimes\ripgrep\LICENSE-MIT','CHATMCP-HUB\runtimes\ripgrep\UNLICENSE','Uninstall.exe')) {
+    foreach ($file in @('ChatMCP.exe','WebView2Loader.dll','runtimes\node\node.exe','runtimes\node\node.exe.sha256','DATGOLD-HUB\hub.mjs','DATGOLD-HUB\web\dist\index.html','DATGOLD-HUB\runtimes\windows-sandbox\GuestSupervisor.exe','DATGOLD-HUB\runtimes\windows-sandbox\GuestSupervisor.exe.sha256','DATGOLD-HUB\runtimes\ripgrep\rg.exe','DATGOLD-HUB\runtimes\ripgrep\LICENSE-MIT','DATGOLD-HUB\runtimes\ripgrep\UNLICENSE','Uninstall.exe')) {
         Assert-Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "installed layout includes $file"
     }
     Assert-Check ((Test-Path -LiteralPath $desktopLink) -and (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk'))) 'baseline desktop and Start Menu shortcuts exist under the old name'
     Assert-Check ((Get-ItemProperty -LiteralPath $registry).InstallLocation -eq $installDir) 'Windows Installed Apps registration points to installed path'
-    foreach ($file in @('runtimes\node\node.exe','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe')) {
+    foreach ($file in @('runtimes\node\node.exe','DATGOLD-HUB\runtimes\windows-sandbox\GuestSupervisor.exe')) {
         $actual=(Get-FileHash -LiteralPath (Join-Path $installDir $file) -Algorithm SHA256).Hash
         $expected=([IO.File]::ReadAllText((Join-Path $installDir ($file+'.sha256'))).Trim() -split '\s+')[0]
         Assert-Check ($actual -eq $expected) "installed runtime SHA-256 matches $file"
@@ -158,9 +158,9 @@ try {
     Launch-Desktop 'baseline'
     # Current createHubServer stores AI profiles at its BUNDLE_ROOT fallback;
     # the ownership manifest must preserve this real runtime-created file too.
-    $settingsFile=Join-Path $installDir 'CHATMCP-HUB\ai-profiles.json'
+    $settingsFile=Join-Path $installDir 'DATGOLD-HUB\ai-profiles.json'
     $settingsBefore=(Get-FileHash -LiteralPath $settingsFile -Algorithm SHA256).Hash
-    $markers=@((Join-Path $installDir 'unrelated-user-document.txt'),(Join-Path $installDir 'CHATMCP-HUB\user-settings.txt'),(Join-Path $startFolder 'unrelated-user-document.txt'),(Join-Path $env:USERPROFILE 'Documents\unrelated-g6-document.txt'))
+    $markers=@((Join-Path $installDir 'unrelated-user-document.txt'),(Join-Path $installDir 'DATGOLD-HUB\user-settings.txt'),(Join-Path $startFolder 'unrelated-user-document.txt'),(Join-Path $env:USERPROFILE 'Documents\unrelated-g6-document.txt'))
     foreach ($marker in $markers) { [IO.File]::WriteAllText($marker,$RunId) }
     Install-Wizard 'C:\G6Input\CandidateSetup.exe' 'upgrade'
     Assert-Check ((Get-FileHash -LiteralPath (Join-Path $installDir 'Uninstall.exe') -Algorithm SHA256).Hash -eq $report.candidateSha256) 'in-place upgrade replaces baseline installer with candidate'
@@ -168,7 +168,7 @@ try {
     Assert-Check (-not (Test-Path -LiteralPath $desktopLink) -and -not (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk')) -and -not (Test-Path -LiteralPath (Join-Path $startFolder 'Uninstall ChatMCP Studio.lnk'))) 'and removes the three shortcuts the baseline made under the old name'
     Assert-Check ((Get-ItemProperty -LiteralPath $registry).DisplayName -eq 'DatGold Studio') 'Windows Installed Apps lists the product as DatGold Studio'
     # The candidate is the build under test: it carries the license texts of what is compiled into rg.exe, PCRE2 and the Rust standard library included (the baseline may predate them).
-    foreach ($file in @('CHATMCP-HUB\licenses\ripgrep\MANIFEST.json','CHATMCP-HUB\licenses\ripgrep\libpcre2-10.46\LICENCE.md','CHATMCP-HUB\licenses\ripgrep\rust-std-da80ed070\COPYRIGHT')) {
+    foreach ($file in @('DATGOLD-HUB\licenses\ripgrep\MANIFEST.json','DATGOLD-HUB\licenses\ripgrep\libpcre2-10.46\LICENCE.md','DATGOLD-HUB\licenses\ripgrep\rust-std-da80ed070\COPYRIGHT')) {
         Assert-Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "upgraded layout includes $file"
     }
     Assert-Check ((Get-FileHash -LiteralPath $settingsFile -Algorithm SHA256).Hash -eq $settingsBefore) 'upgrade preserves real BYO profile settings byte for byte'
@@ -178,8 +178,8 @@ try {
     # not manufacture ownership metadata for the genuine legacy baseline.
     $maintenanceManifestPath=Join-Path $installDir '.chatmcp-installed-files.json'
     $maintenanceManifest=Get-Content -LiteralPath $maintenanceManifestPath -Raw | ConvertFrom-Json
-    $obsoleteName='CHATMCP-HUB/web/dist/assets/g6-obsolete-owned.js'
-    $modifiedName='CHATMCP-HUB/web/dist/assets/g6-modified-owned.js'
+    $obsoleteName='DATGOLD-HUB/web/dist/assets/g6-obsolete-owned.js'
+    $modifiedName='DATGOLD-HUB/web/dist/assets/g6-modified-owned.js'
     foreach($name in @($obsoleteName,$modifiedName)) {
         $file=Join-Path $installDir $name
         [IO.File]::WriteAllText($file,'original owned fixture')

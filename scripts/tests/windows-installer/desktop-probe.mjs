@@ -82,7 +82,7 @@ try {
     assert.equal(state.ai.profiles.find(p => p.id === 'g6-retained')?.model, 'g6-test-model', 'Hub model settings survive upgrade');
     assert.equal(state.workspace.path, 'C:\\G6EmptyWorkspace', 'selected empty workspace survives upgrade');
     const installRoot = path.resolve(path.dirname(process.execPath), '..', '..');
-    const { probeWindowsSandboxPreflight } = await import(pathToFileURL(path.join(installRoot, 'CHATMCP-HUB/lib/windows-sandbox-probe.mjs')));
+    const { probeWindowsSandboxPreflight } = await import(pathToFileURL(path.join(installRoot, 'DATGOLD-HUB/lib/windows-sandbox-probe.mjs')));
     const preflight = await probeWindowsSandboxPreflight();
     assert.equal(preflight.available, false, 'missing guest Sandbox prerequisites fail closed');
     assert.equal(preflight.osIsolated, false, 'missing Sandbox never claims OS isolation');

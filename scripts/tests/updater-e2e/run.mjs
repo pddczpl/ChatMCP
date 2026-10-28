@@ -313,7 +313,7 @@ async function main() {
   ev.check(versionInfo(paths.exe).productVersion.split('+')[0] === OLD, `the installed program says ${OLD}`);
   ev.check(JSON.parse(fs.readFileSync(paths.hubPackage, 'utf8')).version === OLD, `the installed Hub package says ${OLD}`);
   ev.check(String(registryValue(paths.uninstallKey, 'DisplayVersion')) === OLD, `Windows Installed Apps says ${OLD}`);
-  ev.check(fs.readFileSync(path.join(paths.installDirectory, 'CHATMCP-HUB', 'lib', 'release-keys.json')).equals(fs.readFileSync(keys.run.listFile)), 'the installed Hub trusts exactly the key list of the run');
+  ev.check(fs.readFileSync(path.join(paths.installDirectory, 'DATGOLD-HUB', 'lib', 'release-keys.json')).equals(fs.readFileSync(keys.run.listFile)), 'the installed Hub trusts exactly the key list of the run');
   for (const [name, file] of Object.entries(paths.shortcuts)) ev.check(fs.existsSync(file), `the ${name} shortcut was made`);
   oldExeHash = sha256File(paths.exe);
   ev.note('old ChatMCP.exe sha256', oldExeHash);
@@ -335,7 +335,7 @@ async function main() {
   run.shellCreated = shellProcess.created;
   run.hubPid = (await hub.session()).pid;
   const hubProcess = processInfo(run.hubPid);
-  ev.check(hubProcess !== null && samePath(hubProcess.path, paths.node) && String(hubProcess.commandLine).toLowerCase().includes(path.join(paths.installDirectory, 'CHATMCP-HUB', 'hub.mjs').toLowerCase()), 'the Hub is the installed one (the installed node.exe runs the installed hub.mjs)', JSON.stringify(hubProcess));
+  ev.check(hubProcess !== null && samePath(hubProcess.path, paths.node) && String(hubProcess.commandLine).toLowerCase().includes(path.join(paths.installDirectory, 'DATGOLD-HUB', 'hub.mjs').toLowerCase()), 'the Hub is the installed one (the installed node.exe runs the installed hub.mjs)', JSON.stringify(hubProcess));
   run.hubCreated = hubProcess.created;
   try {
     await attach('the page of the installed shell');
@@ -528,7 +528,7 @@ async function main() {
   ev.check(newShell.info.parentProcessId === installerSeen.pid, `and it is a child of the setup process (its parent is process ${newShell.info.parentProcessId}, the setup is ${installerSeen.pid}): started by the setup, not by this run or by the OLD shell`);
   const newSession = await hub.session();
   const newHubProcess = processInfo(newSession.pid);
-  ev.check(newHubProcess !== null && newHubProcess.created !== oldHubCreated && samePath(newHubProcess.path, paths.node) && String(newHubProcess.commandLine).toLowerCase().includes(path.join(paths.installDirectory, 'CHATMCP-HUB', 'hub.mjs').toLowerCase()),
+  ev.check(newHubProcess !== null && newHubProcess.created !== oldHubCreated && samePath(newHubProcess.path, paths.node) && String(newHubProcess.commandLine).toLowerCase().includes(path.join(paths.installDirectory, 'DATGOLD-HUB', 'hub.mjs').toLowerCase()),
     `the Hub is a new process (${oldHubPid} -> ${newSession.pid}, another start time) of the installed node.exe running the installed hub.mjs`, JSON.stringify(newHubProcess));
   ev.check(!isSameProcessRunning(oldHubPid, oldHubCreated), `and the OLD Hub (pid ${oldHubPid}, the same start time) is not running any more (who ended it, the shell or the setup, is not told here)`);
   run.hubPid = newSession.pid;
@@ -551,7 +551,7 @@ async function main() {
   ev.check(JSON.parse(fs.readFileSync(paths.hubPackage, 'utf8')).version === NEW, `the Hub package on disk is ${NEW}`);
   ev.check(String(registryValue(paths.uninstallKey, 'DisplayVersion')) === NEW, `Windows Installed Apps says ${NEW}`);
   ev.check((await readUpdate()).current === NEW, `the Hub that runs says it is ${NEW}`);
-  ev.check(fs.readFileSync(path.join(paths.installDirectory, 'CHATMCP-HUB', 'lib', 'release-keys.json')).equals(fs.readFileSync(keys.run.listFile)), 'the NEW installation still trusts exactly the key list of the run');
+  ev.check(fs.readFileSync(path.join(paths.installDirectory, 'DATGOLD-HUB', 'lib', 'release-keys.json')).equals(fs.readFileSync(keys.run.listFile)), 'the NEW installation still trusts exactly the key list of the run');
 
   // "Updated to ...": shown once, then consumed
   await run.driver.waitForVisible('update-applied', { timeoutMs: 60_000 });
@@ -587,7 +587,7 @@ async function main() {
   ev.log('--- once: the app is closed, the Hub is stopped, the app is started again');
   ev.log(`asked the NEW app to close (taskkill without /F): ${closeGracefully(run.shellPid) ? 'Windows took the request' : 'Windows did not take the request'}`);
   ev.check(await waitForExit(run.shellPid, 30_000), 'the NEW app closed when asked');
-  const stop = spawnSync(system32('cmd.exe'), ['/c', path.join(paths.installDirectory, 'CHATMCP-HUB', 'STOP-CHATMCP-HUB.cmd'), '-Port', String(HUB_PORT)], { encoding: 'utf8', timeout: 120_000, windowsHide: true });
+  const stop = spawnSync(system32('cmd.exe'), ['/c', path.join(paths.installDirectory, 'DATGOLD-HUB', 'STOP-CHATMCP-HUB.cmd'), '-Port', String(HUB_PORT)], { encoding: 'utf8', timeout: 120_000, windowsHide: true });
   ev.check(stop.status === 0, 'the NEW Hub stopped through its own stop script', `${stop.status} ${stop.stdout} ${stop.stderr}`.slice(0, 300));
   // the WebView2 of the app that closed holds the debugging port for a moment longer: the next app is started when it is free (best effort, 20 s), so that the page is looked for in the new one
   for (let looks = 0; looks < 40 && (await portInUse(run.cdpPort)); looks += 1) await sleep(500);
@@ -616,7 +616,7 @@ function tearDownMachine() {
   if (owned.installation) {
     try {
       for (const id of processIds('ChatMCP.exe')) killTree(id);
-      const stopScript = path.join(paths.installDirectory, 'CHATMCP-HUB', 'STOP-CHATMCP-HUB.cmd');
+      const stopScript = path.join(paths.installDirectory, 'DATGOLD-HUB', 'STOP-CHATMCP-HUB.cmd');
       if (fs.existsSync(stopScript)) spawnSync(system32('cmd.exe'), ['/c', stopScript, '-Port', String(HUB_PORT)], { stdio: 'ignore', timeout: 120_000, windowsHide: true });
     } catch { /* best effort */ }
   }

@@ -4034,8 +4034,8 @@
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
-     "old": "$shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\\lib\\release-keys.json'",
-     "new": "$shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\\lib\\release-key.json'"
+     "old": "$shipped = Join-Path $PayloadDirectory 'DATGOLD-HUB\\lib\\release-keys.json'",
+     "new": "$shipped = Join-Path $PayloadDirectory 'DATGOLD-HUB\\lib\\release-key.json'"
     }
    ]
   },
@@ -6272,7 +6272,7 @@
     {
      "file": "desktop-shell/MainWindow.cs",
      "old": "if (File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")))\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway",
-     "new": "if (File.Exists(Path.Combine(_repoRoot, \"CHATMCP-HUB\", \"package.json\")) && File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")) && false)\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway"
+     "new": "if (File.Exists(Path.Combine(_repoRoot, \"DATGOLD-HUB\", \"package.json\")) && File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")) && false)\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway"
     }
    ]
   },
@@ -6698,6 +6698,50 @@
      "file": "installer/InstallerEngine.cs",
      "old": "if (!InstallRecovery.MarkerPending(targetDir)) return RecoveryResult.NothingToRepair;",
      "new": "if (!InstallRecovery.MarkerExists(targetDir)) return RecoveryResult.NothingToRepair;"
+    }
+   ]
+  },
+  {
+   "name": "hub-folder-legacy-name-not-recognised",
+   "what": "the setup does not know the Hub of an installation made up to 3.11.0 (CHATMCP-HUB) and refuses to stop it",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "|| IsHubCommand(command, Path.GetFullPath(Path.Combine(root, LegacyHubFolder, \"hub.mjs\")));",
+     "new": "|| false;"
+    }
+   ]
+  },
+  {
+   "name": "hub-folder-current-name-not-recognised",
+   "what": "the setup does not know the Hub of an installation under the folder name it has now (DATGOLD-HUB)",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "IsHubCommand(command, Path.GetFullPath(Path.Combine(root, HubFolder, \"hub.mjs\")))",
+     "new": "false"
+    }
+   ]
+  },
+  {
+   "name": "prune-removes-folders-with-files",
+   "what": "the cleanup of the legacy Hub folder removes a folder together with the files in it",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!folder.EnumerateFileSystemInfos().Any()) folder.Delete();",
+     "new": "folder.Delete(true);"
+    }
+   ]
+  },
+  {
+   "name": "prune-stops-at-the-first-level",
+   "what": "the cleanup of the legacy Hub folder looks at the top folder only and leaves the empty folders below it",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "foreach (var child in folder.EnumerateDirectories()) PruneEmptyFolders(child.FullName);",
+     "new": ""
     }
    ]
   }

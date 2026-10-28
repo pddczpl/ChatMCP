@@ -44,7 +44,7 @@ export function installedPaths(env = process.env) {
     hubDirectory: path.join(dataDirectory, 'hub'),
     exe: path.join(installDirectory, 'ChatMCP.exe'),
     node: path.join(installDirectory, 'runtimes', 'node', 'node.exe'),
-    hubPackage: path.join(installDirectory, 'CHATMCP-HUB', 'package.json'),
+    hubPackage: path.join(installDirectory, 'DATGOLD-HUB', 'package.json'),
     uninstallKey: 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ChatMCP',
     shortcuts: {
       desktop: path.join(folders.desktop, 'DatGold Studio.lnk'),

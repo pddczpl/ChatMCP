@@ -21,7 +21,7 @@
     },
     {
       "name": "applied-installation-folder-is-the-bundle",
-      "what": "the Hub looks for the marker in the folder it lives in (CHATMCP-HUB), where the installer never puts it, and not in the folder above",
+      "what": "the Hub looks for the marker in the folder it lives in (DATGOLD-HUB), where the installer never puts it, and not in the folder above",
       "patches": [{ "file": "hub.mjs", "old": "installDirectory: path.dirname(BUNDLE_ROOT),", "new": "installDirectory: BUNDLE_ROOT," }]
     },
     {

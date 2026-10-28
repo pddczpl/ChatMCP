@@ -77,6 +77,15 @@ internal static class OwnerQueryTests
             kit.Check(error == null && text == "" && tries == 1, "a JSON null is an answer, and an empty one: nobody's command line (the real query prints nothing for a program that has gone, which is a try that says nothing readable: the case below) (" + Said(error) + ", " + tries + " tries)");
             kit.Check(!HubLifecycle.IsHubCommand("", hub.Split(' ')[1]) && !HubLifecycle.IsHubCommand("   ", hub.Split(' ')[1]), "and an empty command line is not the installed Hub's");
 
+            // ---- the installed Hub of an installation: under the folder name it has now, or the one it had up to 3.11.0
+            var current = @"C:\Installed\runtimes\node\node.exe C:\Installed\DATGOLD-HUB\hub.mjs --port 3007";
+            kit.Check(HubLifecycle.HubFolder == "DATGOLD-HUB" && HubLifecycle.LegacyHubFolder == "CHATMCP-HUB", "the folder of the Hub is DATGOLD-HUB, and the one an installation had up to 3.11.0 is CHATMCP-HUB");
+            kit.Check(HubLifecycle.IsInstalledHubCommand(current, @"C:\Installed"), "a node that runs the DATGOLD-HUB/hub.mjs of the installation is its Hub");
+            kit.Check(HubLifecycle.IsInstalledHubCommand(hub, @"C:\Installed"), "and so is one that runs CHATMCP-HUB/hub.mjs: the setup that replaces an installation of 3.11.0 or older must still stop the Hub that was started from it");
+            kit.Check(!HubLifecycle.IsInstalledHubCommand(current, @"C:\Other") && !HubLifecycle.IsInstalledHubCommand(hub, @"C:\Other"), "but neither is the Hub of another installation");
+            kit.Check(!HubLifecycle.IsInstalledHubCommand(@"C:\Installed\runtimes\node\node.exe C:\Installed\OTHER-HUB\hub.mjs --port 3007", @"C:\Installed"), "and a hub.mjs in a folder of any other name is not it");
+            kit.Check(!HubLifecycle.IsInstalledHubCommand("", @"C:\Installed") && !HubLifecycle.IsInstalledHubCommand(@"C:\Installed\runtimes\node\node.exe C:\Installed\elsewhere\DATGOLD-HUB\hub.mjs", @"C:\Installed"), "an empty command line, or a hub.mjs deeper in another folder, is not it");
+
             // ---- a try that does not answer in time
             tries = 0; text = null;
             var clock = Stopwatch.StartNew();
@@ -135,7 +144,7 @@ internal static class OwnerQueryTests
                 var found = "";
                 error = Caught(() => found = HubLifecycle.CommandLineOf(target.Id));
                 kit.Check(error == null && found.Contains(pingName, StringComparison.OrdinalIgnoreCase) && found.Contains("127.0.0.1"), "the real query gives the command line of a program that is running (" + Said(error) + ": " + found + ")");
-                kit.Check(!HubLifecycle.IsHubCommand(found, Path.Combine(folder, "CHATMCP-HUB", "hub.mjs")), "and that program is not taken for the installed Hub");
+                kit.Check(!HubLifecycle.IsHubCommand(found, Path.Combine(folder, "DATGOLD-HUB", "hub.mjs")), "and that program is not taken for the installed Hub");
             }
             finally { try { if (!target.HasExited) target.Kill(true); target.WaitForExit(10000); } catch (InvalidOperationException) { /* already gone */ } }
 
@@ -161,10 +170,10 @@ internal static class OwnerQueryTests
             else
             {
                 var installation = Path.Combine(accented, "install");
-                Directory.CreateDirectory(Path.Combine(installation, "runtimes", "node")); Directory.CreateDirectory(Path.Combine(installation, "CHATMCP-HUB"));
+                Directory.CreateDirectory(Path.Combine(installation, "runtimes", "node")); Directory.CreateDirectory(Path.Combine(installation, "DATGOLD-HUB"));
                 var standIn = Path.Combine(installation, "runtimes", "node", "node.exe");
                 File.Copy(node, standIn);
-                var script = Path.Combine(installation, "CHATMCP-HUB", "hub.mjs");
+                var script = Path.Combine(installation, "DATGOLD-HUB", "hub.mjs");
                 File.WriteAllText(script, "setInterval(() => {}, 1000);\n");
                 using var hubLike = Process.Start(Plain(standIn, script, "--port", "3007"))!; // the port is only an argument: nothing listens
                 try
@@ -172,7 +181,7 @@ internal static class OwnerQueryTests
                     var found = "";
                     error = Caught(() => found = HubLifecycle.CommandLineOf(hubLike.Id));
                     kit.Check(error == null && HubLifecycle.IsHubCommand(found, script), "a node.exe that runs the hub.mjs of an installation under such a folder is taken for the installed Hub (" + Said(error) + ": " + found + ")");
-                    kit.Check(!HubLifecycle.IsHubCommand(found, Path.Combine(folder, "other", "CHATMCP-HUB", "hub.mjs")), "and not for the hub.mjs of another installation");
+                    kit.Check(!HubLifecycle.IsHubCommand(found, Path.Combine(folder, "other", "DATGOLD-HUB", "hub.mjs")), "and not for the hub.mjs of another installation");
                 }
                 finally { try { if (!hubLike.HasExited) hubLike.Kill(true); hubLike.WaitForExit(10000); } catch (InvalidOperationException) { /* already gone */ } }
             }

@@ -94,7 +94,9 @@ function Assert-NoNativeError($process, [string]$pattern, [int]$seconds = 8) {
     } while ([DateTime]::UtcNow -lt $deadline)
 }
 function Stop-InstalledHub {
-    & (Join-Path $root 'CHATMCP-HUB\STOP-CHATMCP-HUB.cmd') -Port 3007
+    # The Hub folder of an installation is DATGOLD-HUB; the published baseline (3.9.0) made CHATMCP-HUB, and this is also called while that one is installed.
+    $hubFolder = if (Test-Path -LiteralPath (Join-Path $root 'DATGOLD-HUB\STOP-CHATMCP-HUB.cmd')) { 'DATGOLD-HUB' } else { 'CHATMCP-HUB' }
+    & (Join-Path $root "$hubFolder\STOP-CHATMCP-HUB.cmd") -Port 3007
     if ($LASTEXITCODE -ne 0) { throw 'Owned test Hub shutdown was not confirmed.' }
 }
 function New-PowerShell7ModuleStandIn([string]$Directory) {
@@ -303,14 +305,15 @@ try {
     [IO.File]::WriteAllText($stateCanary,'PRESERVE-STATE')
     Assert-Native ((Quiet-Install) -eq 0) 'real candidate installer upgrades with independent old Hub running'
     Assert-Native ($oldHub.HasExited) 'upgrade confirms exact old Hub exited'
-    Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) "installed Hub package is $ExpectedCandidateVersion"
+    Assert-Native ((Get-Content (Join-Path $root 'DATGOLD-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) "installed Hub package is $ExpectedCandidateVersion"
+    Assert-Native (-not (Test-Path -LiteralPath (Join-Path $root 'CHATMCP-HUB'))) 'the Hub folder of the old installation (CHATMCP-HUB) is gone: the manifest of the setup that made it removed its files, and the folders left empty went with them'
     Assert-Native ((Get-Item (Join-Path $root 'ChatMCP.exe')).VersionInfo.ProductVersion -like "$ExpectedCandidateVersion*") "installed launcher EXE is $ExpectedCandidateVersion"
     Assert-Native ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion) 'Windows Installed Apps reports the assembly version'
     Assert-Native ((Get-ItemProperty $registry).DisplayName -eq 'DatGold Studio') 'Windows Installed Apps lists the product as DatGold Studio'
     Assert-Shortcuts $newShortcuts $true 'the upgrade makes the DatGold Studio shortcuts (Desktop, and Start menu folder DatGold with the launcher and the uninstaller)'
     Assert-Shortcuts $oldShortcuts $false 'and removes the three shortcuts the baseline made under the old name'
     Assert-Native (-not (Test-Path -LiteralPath (Join-Path $programsFolder 'ChatMCP'))) 'and the Start menu folder ChatMCP they leave empty'
-    Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.5.2') 'installed Companion is 1.5.2'
+    Assert-Native ((Get-Content (Join-Path $root 'DATGOLD-HUB\extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.5.2') 'installed Companion is 1.5.2'
     Assert-Native ([IO.File]::ReadAllText($canary) -eq 'PRESERVE-USER-DATA' -and [IO.File]::ReadAllText($stateCanary) -eq 'PRESERVE-STATE') 'upgrade preserves unrelated application and state files'
     $candidate=Start-Desktop; $newHealth=Wait-Health $ExpectedCandidateVersion
     $ownerId=(Get-NetTCPConnection -LocalPort 3007 -State Listen).OwningProcess
@@ -516,7 +519,7 @@ try {
         Assert-Native ($update.WaitForExit(480000) -and $update.ExitCode -eq 0) '[update] once the shell has closed the update goes through (exit code 0) and its window closes by itself'
         $newApp = Wait-InstalledApp $started
         $installedHealth = Wait-Health $ExpectedCandidateVersion
-        Assert-Native (((Get-Item $exe).VersionInfo.ProductVersion -like "$ExpectedCandidateVersion*") -and ((Get-Content (Join-Path $root 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) -and ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion)) ('[update] the installation is the candidate ' + $ExpectedCandidateVersion + ' in the program, in the Hub and in the Windows Installed Apps entry')
+        Assert-Native (((Get-Item $exe).VersionInfo.ProductVersion -like "$ExpectedCandidateVersion*") -and ((Get-Content (Join-Path $root 'DATGOLD-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) -and ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion)) ('[update] the installation is the candidate ' + $ExpectedCandidateVersion + ' in the program, in the Hub and in the Windows Installed Apps entry')
         Assert-Native ($installedHealth.auth -eq 'bearer') '[update] and the app that opened is the new one (its Hub requires the per-launch secret)'
         $applied = $null
         $hubState = Get-HubState

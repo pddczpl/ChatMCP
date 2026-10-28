@@ -125,6 +125,20 @@ class ReleaseSourceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_gate()
 
+    def test_payload_under_the_old_installation_name_rejected(self):
+        # Installations made up to 3.11.0 called the Hub folder CHATMCP-HUB. A payload that holds the UI under that name was made by an older builder, not by this one.
+        with zipfile.ZipFile(self.root / 'installer/payload.zip', 'w') as z:
+            for file in self.ui.iterdir():
+                z.writestr('CHATMCP-HUB/web/dist/' + file.name, file.read_bytes())
+        with self.assertRaisesRegex(ValueError, 'differ'):
+            self.run_gate()
+
+    def test_gate_prefix_is_the_one_the_installer_builder_writes(self):
+        # The tests above build their payload by hand, under the gate's own name. This ties that name to the one scripts/InstallerPayload.ps1 writes: the publish run of v3.11.1 stopped because the
+        # builder wrote CHATMCP-HUB (it kept the old name in the installation) while the gate looked for DATGOLD-HUB, and nothing here could see it.
+        builder = (Path(__file__).parents[1] / 'InstallerPayload.ps1').read_text(encoding='utf-8')
+        self.assertIn("'" + gate.UI + "/'", builder)
+
     def test_windows_archive_separators_supported(self):
         self.package(backslash=True)
         self.assertEqual(self.run_gate()['result'], 'PASS')

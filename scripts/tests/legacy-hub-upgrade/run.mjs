@@ -38,8 +38,8 @@ if (busy) { console.error('Port 3007 is already in use; nothing was started or s
 
 const scratch = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'chatmcp-legacy-upgrade-')));
 const started = [];
-// The tree of a ref stands for an INSTALLATION, whose Hub folder is CHATMCP-HUB. A ref from before the rename of the repository folder has that folder; a later one (HEAD) has DATGOLD-HUB, which is
-// renamed when it is unpacked, the way the installer's payload maps it (scripts/InstallerPayload.ps1).
+// The tree of a ref stands for an INSTALLATION, whose Hub folder is the one the ref has: CHATMCP-HUB for a ref up to 3.11.0 (the published 3.9.0 is one), DATGOLD-HUB for a later one (HEAD). The Hub is
+// started from that folder, the way the desktop shell of that version starts it.
 function hubFolderOf(ref) {
   const listed = spawnSync('git', ['-C', repo, 'ls-tree', '--name-only', ref, 'DATGOLD-HUB'], { encoding: 'utf8' });
   assert.equal(listed.status, 0, `git ls-tree ${ref}: ${listed.stderr}`);
@@ -56,15 +56,14 @@ function prepare(name, ref) {
   const tar = path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe');
   const unpack = spawnSync(tar, ['-xf', '-'], { cwd: root, input: archive.stdout });
   assert.equal(unpack.status, 0, String(unpack.stderr));
-  if (folder !== 'CHATMCP-HUB') fs.renameSync(path.join(root, folder), path.join(root, 'CHATMCP-HUB'));
-  return { root, state: path.join(scratch, name, 'state') };
+  return { root, state: path.join(scratch, name, 'state'), folder };
 }
-async function startHub({ root, state }) {
+async function startHub({ root, state, folder }) {
   fs.mkdirSync(state, { recursive: true });
   const log = fs.openSync(path.join(state, 'hub-out.log'), 'a');
   // Exactly how the desktop shell starts it: the bundled Node, the installed hub.mjs, port 3007, no --state-dir.
-  const child = spawn(path.join(root, 'runtimes', 'node', 'node.exe'), [path.join(root, 'CHATMCP-HUB', 'hub.mjs'), '--port', '3007', '--no-open'], {
-    cwd: path.join(root, 'CHATMCP-HUB'), env: { ...process.env, CHATMCP_STATE_DIR: state, CHATMCP_NO_OPEN: '1', CHATMCP_UPDATE_FEED_URL: 'http://127.0.0.1:9/RELEASE-MANIFEST.json' }, stdio: ['ignore', log, log], windowsHide: true,
+  const child = spawn(path.join(root, 'runtimes', 'node', 'node.exe'), [path.join(root, folder, 'hub.mjs'), '--port', '3007', '--no-open'], {
+    cwd: path.join(root, folder), env: { ...process.env, CHATMCP_STATE_DIR: state, CHATMCP_NO_OPEN: '1', CHATMCP_UPDATE_FEED_URL: 'http://127.0.0.1:9/RELEASE-MANIFEST.json' }, stdio: ['ignore', log, log], windowsHide: true,
   });
   fs.closeSync(log);
   started.push(child);

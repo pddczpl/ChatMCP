@@ -346,7 +346,7 @@ export async function checkNotices(repo) {
   const lifecycle = read(repo, 'scripts', 'tests', 'windows-installer', 'guest-lifecycle.ps1');
   const rustRoot = ripgrep?.manifest.components.find((component) => component.type === 'rust-library')?.files[0].path;
   for (const staged of ripgrep ? ['licenses/ripgrep/MANIFEST.json', ripgrep.files.find((file) => file.kind === 'pcre2')?.staged, `licenses/ripgrep/${rustRoot}`] : []) {
-    const installed = `CHATMCP-HUB\\${String(staged).replaceAll('/', '\\')}`;
+    const installed = `DATGOLD-HUB\\${String(staged).replaceAll('/', '\\')}`;
     if (!lifecycle.includes(installed)) fail(`guest-lifecycle.ps1 does not list ${installed} among the installed files`);
   }
   return { problems, pending, ripgrep };
@@ -824,7 +824,7 @@ try {
     ['.gitattributes no longer keeps the ripgrep notices byte for byte', '.gitattributes', dropLines(/licenses\/ripgrep/), /byte for byte/],
     ['the payload script loses Assert-InstallerRipgrepNotices', 'scripts/InstallerPayload.ps1', (source) => source.replace('function Assert-InstallerRipgrepNotices', 'function Assert-SomethingElse'), /lost Assert-InstallerRipgrepNotices/],
     ['Build-Installer.ps1 no longer checks the ripgrep notices of the payload', 'scripts/Build-Installer.ps1', dropLines(/Assert-InstallerRipgrepNotices/), /does not check the ripgrep notices of the payload/],
-    ['guest-lifecycle.ps1 no longer lists the ripgrep inventory among the installed files', 'scripts/tests/windows-installer/guest-lifecycle.ps1', (source) => source.replace('CHATMCP-HUB\\licenses\\ripgrep\\MANIFEST.json', 'CHATMCP-HUB\\licenses\\ripgrep\\x'), /guest-lifecycle\.ps1 does not list/],
+    ['guest-lifecycle.ps1 no longer lists the ripgrep inventory among the installed files', 'scripts/tests/windows-installer/guest-lifecycle.ps1', (source) => source.replace('DATGOLD-HUB\\licenses\\ripgrep\\MANIFEST.json', 'DATGOLD-HUB\\licenses\\ripgrep\\x'), /guest-lifecycle\.ps1 does not list/],
     ['guest-lifecycle.ps1 no longer lists the Rust standard library text among the installed files', 'scripts/tests/windows-installer/guest-lifecycle.ps1', (source) => source.replace('\\ripgrep\\rust-std-', '\\ripgrep\\rust-gone-'), /guest-lifecycle\.ps1 does not list[^;]*rust-std-/],
   ];
   for (const [label, relative, change, expected] of mutations) {

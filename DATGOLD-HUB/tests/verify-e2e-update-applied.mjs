@@ -121,10 +121,10 @@ await runScenario({
   const lock = hubSource.indexOf('releaseInstance = await acquireInstanceLock');
   const read = hubSource.indexOf('await applied.load()');
   t.check(lock > 0 && read > lock, 'the file is read after this process holds the instance lock, in the source as well');
-  // The marker of an update that stopped halfway is in the folder of the installation, the parent of the folder hub.mjs is in (the installer puts hub.mjs at <installation>\CHATMCP-HUB\hub.mjs and the marker at
+  // The marker of an update that stopped halfway is in the folder of the installation, the parent of the folder hub.mjs is in (the installer puts hub.mjs at <installation>\DATGOLD-HUB\hub.mjs and the marker at
   // <installation>\.chatmcp-update-pending.json). The module holds the guard to its promises (verify-update-applied.mjs); this holds the Hub's wiring of it to the right folder. (A Hub that is run from a source
   // checkout looks in the checkout's own folder, which never holds the marker: the note is read there as before.)
-  t.check(/const BUNDLE_ROOT = path\.dirname\(fileURLToPath\(import\.meta\.url\)\);/.test(hubSource), 'the folder the Hub lives in is the one hub.mjs is in (CHATMCP-HUB)');
+  t.check(/const BUNDLE_ROOT = path\.dirname\(fileURLToPath\(import\.meta\.url\)\);/.test(hubSource), 'the folder the Hub lives in is the one hub.mjs is in (DATGOLD-HUB)');
   t.check(/createAppliedNote\(\{[^}]*\binstallDirectory: (?:path\.dirname\(BUNDLE_ROOT\)|path\.resolve\(BUNDLE_ROOT, ['"]\.\.['"]\)),/.test(hubSource), 'and the note is told that the installation is the folder above it, where the marker of an update that stopped halfway is, so a Hub started by hand behind it leaves the result file alone');
   const dismissCase = hubSource.split('\n').filter((line) => line.includes(`case '${ROUTE}'`)).join('\n');
   t.check(dismissCase.length > 0 && !/requireNoTask|activeTaskId|writeFile|unlink|spawn|fetch/.test(dismissCase), 'and the route reads no body, asks no task, writes no file and starts nothing');
