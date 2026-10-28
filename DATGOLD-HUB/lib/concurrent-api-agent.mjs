@@ -456,7 +456,7 @@ export class ConcurrentApiAgent {
     // The owner's switch for AGENTS.md / CLAUDE.md is the Hub's, not this child's (its manager is a new one): the SAME store, asked again at every run of this runner,
     // which is kept and used for the next message of the conversation.
     const runner = new AgentRunner({ manager, provider: scoped.provider,
-      taskDirectory: path.join(stateDir, 'tasks'), log: this.log, toolSelectionMode: 'auto', projectInstructions: this.manager.projectInstructionsSetting });
+      taskDirectory: path.join(stateDir, 'tasks'), log: this.log, toolSelectionMode: 'auto', projectInstructions: this.manager.projectInstructionsSetting, agentOptions: this.manager.agentOptions });
     await runner.load();
     runner.subscribe(event => this.#event(event));
     const child = { runner, manager };

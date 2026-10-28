@@ -226,7 +226,136 @@ async function runTests() {
       console.log('  [PASS] 7. A checkpoint says how many pictures it left out');
     }
 
-    console.log('\nALL 7 SMART CONTEXT COMPACTION TEST SUITES PASSED!');
+    // Tests 8 to 12: compaction v2 (lib/compaction-v2.mjs). It starts at the owner's percent of the history budget (80 by default), and what the checkpoint holds is checked afterwards.
+    const v2 = await import('../lib/compaction-v2.mjs');
+    const { DEFAULT_COMPACT_PERCENT, buildCheckpoint, cleanCompactPercent, compactTrigger, prepareModelInput, retentionReport } = v2;
+    const smallWindow = resolveEffectiveContextBudget({ contextWindowTokens: 20000, instructions: '', tools: [] });
+    const userMessage = (text) => ({ role: 'user', content: [{ type: 'input_text', text }] });
+    const readPair = (i) => [
+      { type: 'function_call', call_id: `c${i}`, name: 'read_file', arguments: JSON.stringify({ path: `src/module${i}.py` }) },
+      { type: 'function_call_output', call_id: `c${i}`, output: `module${i}: ${'x'.repeat(1100)}` },
+    ];
+    /** A conversation of about `tokens` estimated tokens: the first request, reads, optional extra items after the sixth read, the latest request. */
+    const conversation = (task, tokens, extra = []) => {
+      const items = [userMessage(task.prompts[0].text)];
+      for (let i = 0; estimateTokens(items) < tokens; i += 1) { items.push(...readPair(i)); if (i === 5) items.push(...extra); }
+      items.push(userMessage(task.prompts.at(-1).text));
+      return items;
+    };
+    const failingRun = (id, command, code = 1) => [
+      { type: 'function_call', call_id: id, name: 'run_command', arguments: JSON.stringify({ command }) },
+      { type: 'function_call_output', call_id: id, output: `exit code ${code} · bash\n${code === 0 ? 'all passed' : 'FAILED tests/test_invoice.py::test_invoice_total - AssertionError: 99.0 != 100.0'}` },
+    ];
+    const billing = () => ({
+      prompt: 'Refactor the billing module and keep the public API; never touch config/prod.json.',
+      prompts: [
+        { text: 'Refactor the billing module and keep the public API; never touch config/prod.json.' },
+        { text: 'Also add retries to the invoice sender, at most 3, with exponential backoff.' },
+        { text: 'Use sqlite for the cache, not redis.', attachments: [{ name: 'invoice-sample.pdf', mimeType: 'application/pdf', size: 1234 }] },
+        { text: 'Now fix the failing test test_invoice_total and run the suite again.' },
+      ],
+      progress: { version: 1, changedCandidates: ['billing/invoice.py', 'billing/retry.py'], verifiedFiles: [{ kind: 'edit', step: 4, path: 'billing/invoice.py', sha256: 'a'.repeat(64) }] },
+      goalPlan: { objectives: [{ id: 'objective-1', status: 'working', text: 'Refactor billing and keep the API' }] },
+      unverifiedOperations: [],
+    });
+
+    // Test 8: the percent is the owner's, 80 when none is chosen; both stages start at it.
+    {
+      assert.equal(DEFAULT_COMPACT_PERCENT, 80);
+      assert.deepEqual([49, 50, 95, 96, '80', 80.5, 'x', null, undefined, NaN].map(cleanCompactPercent), [null, 50, 95, null, 80, null, null, null, null, null], 'a whole number from 50 to 95 (as a number or as digits); anything else is no choice');
+      assert.equal(compactTrigger(smallWindow, undefined), compactTrigger(smallWindow, 80), 'no choice is 80');
+      assert.equal(compactTrigger(smallWindow, 80), Math.floor(smallWindow.maxHistoryTokens * 0.8));
+      assert.equal(smallWindow.compactAtTokens, compactTrigger(smallWindow, 80), 'the policy carries the default');
+      const task = billing();
+      const at = (share) => conversation(task, Math.floor(smallWindow.maxHistoryTokens * share));
+      const calm = at(0.74);
+      const calmRun = prepareModelInput(calm, { policy: smallWindow, task });
+      assert.deepEqual(calmRun.steps, [], '74% of the budget: below 80, nothing is done');
+      assert.equal(calmRun.input, calm, 'and what is sent is the history itself');
+      assert.notDeepEqual(prepareModelInput(at(0.86), { policy: smallWindow, task }).steps, [], '86% of the budget: over 80, it is compacted');
+      assert.deepEqual(prepareModelInput(at(0.86), { policy: smallWindow, task, percent: 95 }).steps, [], 'the same history with the percent at 95: nothing yet');
+      assert.notDeepEqual(prepareModelInput(at(0.58), { policy: smallWindow, task, percent: 50 }).steps, [], 'and at 50, a history of 58% is already compacted');
+      assert.equal(prepareModelInput(at(0.58), { policy: smallWindow, task }).steps.length, 0, '(the same history at the default is not)');
+      assert.equal(prepareModelInput(at(1.3), { policy: smallWindow, task }).steps.some((step) => step.kind === 'checkpoint'), true, 'over the budget the old messages are replaced by a checkpoint');
+      console.log('  [PASS] 8. Compaction starts at the owner\'s percent of the history budget, 80 by default');
+    }
+
+    // Test 9: what the checkpoint keeps is checked, and the check can see a loss. Facts that matter in a coding task: every instruction, the files changed, the last failing command, attached files.
+    {
+      const task = billing();
+      const history = conversation(task, Math.floor(smallWindow.maxHistoryTokens * 1.4), failingRun('f1', 'pytest tests/test_invoice.py -x'));
+      const prepared = prepareModelInput(history, { policy: smallWindow, task });
+      const step = prepared.steps.find((entry) => entry.kind === 'checkpoint');
+      assert(step, '(the premise: the history was over its budget and was replaced by a checkpoint)');
+      assert.deepEqual(step.retention.missing, [], 'nothing the checkpoint was to keep is missing from what is sent');
+      assert.equal(step.retention.kept, step.retention.total);
+      assert.equal(step.retention.total, 8, "the facts checked: 4 instructions, 2 files, the failing command, the attached file");
+      const sent = JSON.stringify(prepared.input);
+      for (const needle of ['Refactor the billing module', 'never touch config/prod.json', 'Also add retries to the invoice sender', 'Use sqlite for the cache', 'Now fix the failing test', 'billing/invoice.py', 'billing/retry.py', 'pytest tests/test_invoice.py -x', 'test_invoice_total', 'invoice-sample.pdf']) {
+        assert(sent.includes(needle), `"${needle}" is in what the model is sent`);
+      }
+      // The control: the same compaction with a checkpoint that holds none of it (what the first version kept of an instruction, a file or a failure was whatever fitted): the check finds the loss.
+      const trigger = compactTrigger(smallWindow, 80);
+      const bare = compactRollingContext(history, { maxTokens: trigger, tailTokens: Math.min(trigger, smallWindow.tailTokens), taskCheckpoint: 'Original task: refactor.' });
+      assert.equal(bare.compacted, true);
+      const lost = retentionReport(bare.history, buildCheckpoint(task, history).facts);
+      assert(lost.missing.length >= 4 && lost.kept < lost.total, `a checkpoint without the facts is reported as having lost them (${lost.missing.length} of ${lost.total} missing)`);
+      assert(['file', 'failure', 'attachment'].every((kind) => lost.missing.some((fact) => fact.kind === kind)), 'the files, the failing command and the attached file among them (an instruction can still be in the excerpts of the last messages: they are checked as well)');
+      console.log('  [PASS] 9. After a compaction, the instructions, changed files, the last failing command and the attached files are checked to be in what is sent, and the check sees a loss');
+    }
+
+    // Test 10: more instructions than the budget holds: the first and the latest are kept most fully, the ones in between are counted, never dropped silently.
+    {
+      const task = billing();
+      task.prompts = Array.from({ length: 60 }, (_, i) => ({ text: `Instruction number ${i + 1}: ${'detail '.repeat(40)}` }));
+      task.prompts.push({ text: 'LATEST: now only run the formatter and do nothing else.' });
+      const checkpoint = buildCheckpoint(task, []);
+      assert(checkpoint.omittedInstructions > 0, 'they do not all fit');
+      assert(/\(… \d+ instruction\(s\) in between left out/.test(checkpoint.text), 'and the text says that some were left out');
+      assert(checkpoint.text.includes('1. Instruction number 1:') && checkpoint.text.includes('LATEST: now only run the formatter'), 'the first and the latest are there');
+      const kept = checkpoint.facts.filter((fact) => fact.kind === 'instruction');
+      assert.equal(kept.length + checkpoint.omittedInstructions, 61, 'every instruction is either kept or counted as left out');
+      assert(kept.filter((fact) => fact.critical).length === 2, 'two are critical: the first and the latest');
+      const history = conversation(task, Math.floor(smallWindow.maxHistoryTokens * 1.4));
+      const step = prepareModelInput(history, { policy: smallWindow, task }).steps.find((entry) => entry.kind === 'checkpoint');
+      const sameBudget = buildCheckpoint(task, history, { maxChars: Math.max(4000, Math.min(17000, Math.floor(smallWindow.maxHistoryTokens * 3.8 / 6))) });
+      assert.equal(step.retention.omittedInstructions, sameBudget.omittedInstructions, 'the report carries the count of the checkpoint it was made with (a smaller window gets a smaller checkpoint and leaves out more)');
+      assert(step.retention.omittedInstructions >= checkpoint.omittedInstructions);
+      assert.deepEqual(step.retention.missing.filter((fact) => fact.critical), [], 'no critical fact is missing');
+      assert(buildCheckpoint(task, [], { maxChars: 4000 }).text.length <= 4000, 'a small budget gets a small checkpoint');
+      console.log('  [PASS] 10. Instructions beyond the budget are counted as left out, the first and the latest are always kept');
+    }
+
+    // Test 11: a long checkpoint keeps its front (the request and the instructions of the owner), and the old excerpts of messages give way first.
+    {
+      const front = 'FRONT-MARK the original request and the instructions of the owner. ';
+      const big = [userMessage('first'), ...Array.from({ length: 40 }, (_, i) => userMessage(`message ${i} ${'y'.repeat(3000)}`)), ...[0, 1, 2, 3, 4, 5].flatMap(readPair)];
+      const long = compactRollingContext(big, { maxTokens: 30000, tailTokens: 5000, taskCheckpoint: front + 'z'.repeat(30000) });
+      assert.equal(long.compacted, true, '(the premise: the history is over its budget and a safe boundary exists)');
+      const entry = long.history[0].content[0].text;
+      assert(entry.includes('FRONT-MARK'), 'the front of a checkpoint that is too long is kept');
+      assert(entry.length <= 24000 + 100, `the entry is bounded (${entry.length})`);
+      assert(entry.includes('message 39') && !entry.includes('message 0 '), 'the excerpts of old messages gave way, the oldest first: the latest is there, the first is not');
+      const roomy = compactRollingContext(big, { maxTokens: 30000, tailTokens: 5000, taskCheckpoint: front + 'z'.repeat(3000) }).history[0].content[0].text;
+      assert(roomy.includes('message 28 ') && roomy.includes('message 39'), 'with a checkpoint that leaves room, the twelve last excerpts are all there');
+      console.log('  [PASS] 11. A long checkpoint keeps its front; the old excerpts give way first');
+    }
+
+    // Test 12: the last failing command is the last one that failed and was not fixed since.
+    {
+      const task = billing();
+      const none = (history) => buildCheckpoint(task, history).facts.filter((fact) => fact.kind === 'failure');
+      assert.equal(none([...failingRun('a', 'pytest -x', 1), ...failingRun('b', 'pytest -x', 0)]).length, 0, 'the same command failed and then passed: it is not reported');
+      const other = buildCheckpoint(task, [...failingRun('a', 'pytest -x', 1), ...failingRun('b', 'npm test', 0)]);
+      assert(other.text.includes('Last failing command: pytest -x') && other.text.includes('exit code 1'), 'another command passing does not fix it');
+      const latest = buildCheckpoint(task, [...failingRun('a', 'make lint', 2), ...failingRun('b', 'pytest -x', 1)]);
+      assert(latest.text.includes('Last failing command: pytest -x'), 'the latest failure is the one named');
+      assert(buildCheckpoint(task, [{ type: 'function_call_output', call_id: 'z', output: 'exit code 1 · bash\nboom' }]).text.includes('Last failing command: (not recorded)'), 'a failure whose call is gone still says it failed');
+      assert.doesNotMatch(buildCheckpoint(task, []).text, /Last failing command/, 'none failed: no line');
+      console.log('  [PASS] 12. The last failing command that was not fixed since is named, with the start of its output');
+    }
+
+    console.log('\nALL 12 SMART CONTEXT COMPACTION TEST SUITES PASSED!');
   } finally {
     await cleanup();
   }

@@ -11,6 +11,7 @@ import { compactConversationHistory, resolveEffectiveContextBudget } from '../li
 import { GatewayProvider } from '../lib/gateway-provider.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { createPrimaryAgentRunner } from '../hub.mjs';
+import { agentOptionsView } from '../lib/agent-options.mjs';
 
 const fallback=resolveEffectiveContextBudget({instructions:'policy',tools:[{name:'probe'}]});
 assert.equal(fallback.source,'conservative_fallback');
@@ -80,11 +81,12 @@ const multimodal=[
 compactConversationHistory(multimodal,{maxHistoryTokens:100,preserveRecentOutputs:0});
 assert.deepEqual(multimodal[1].output,image,'multimodal arrays must never be converted to plain text');
 
+let defaultCheckpointStep=0; // the request at which the first checkpoint reached the model, when the owner has chosen no percent
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-context-wiring-'));
 try{
   await fs.mkdir(path.join(root,'src'));
   await fs.writeFile(path.join(root,'src','core.mjs'),'export function startTask(){ return 1; }\n');
-  let locked=false,steps=0,sawMap=false,sawCompact=false;
+  let locked=false,steps=0,sawMap=false,sawCompact=false,sawCheckpoint=false;
   const prompt='Inspect src/core.mjs and report the available function.';
   const manager={
     backend:'local',workspace:root,generation:1,instanceId:'smart-context-test',secrets:[],
@@ -115,17 +117,23 @@ try{
         sawMap=true;
       }
       const received=input.filter(x=>x.type==='function_call_output');
-      assert.equal(received.length,steps-1,'all call_id receipts remain paired in the provider request');
+      const calledIds=input.filter(x=>x.type==='function_call').map(x=>x.call_id);
+      assert.deepEqual(received.map(x=>x.call_id),calledIds,'every receipt in the provider request is paired with its call, in order');
+      // From the owner's percent of the history budget (80 when none is chosen) the old messages are replaced by a checkpoint (lib/compaction-v2.mjs): the receipts that remain are paired
+      // with their calls and the newest are there; until then all of them are.
+      const checkpointed=String(input[0]?.content?.[0]?.text??'').startsWith('STRUCTURED CONTEXT CHECKPOINT');
+      if(checkpointed){sawCheckpoint=true;if(!defaultCheckpointStep)defaultCheckpointStep=steps;assert.ok(received.length<steps-1,'a checkpoint stands for the oldest pairs');}
+      else assert.equal(received.length,steps-1,'until a checkpoint, all call_id receipts remain paired in the provider request');
       if(steps>9){
-        if(received[0].output.length < big.length)sawCompact=true;
+        if(received[0].output.length < big.length||checkpointed)sawCompact=true;
         assert.equal(received.at(-1).output.includes(big.slice(0,90)),true,
           'newest tool output must remain available to model');
         // The compaction works on the copy that is sent. The ledger (the canonical history) still holds every result in full,
         // although its snapshot is a shallow copy that shares the items with it.
         const canonical=runner.context.history.snapshotForModel().filter(x=>x.type==='function_call_output');
-        assert.equal(canonical.length,received.length,'the ledger holds every result the model was offered');
+        assert.equal(canonical.length,steps-1,'the ledger holds every result the model was offered, and the ones a checkpoint stood for');
         assert.ok(canonical[0].output.length>big.length,'the ledger keeps the first result in full');
-        assert.ok(canonical[0].output.length>received[0].output.length,'only the copy sent to the model was compacted');
+        if(!checkpointed)assert.ok(canonical[0].output.length>received[0].output.length,'only the copy sent to the model was compacted');
       }
       if(steps<=12)return {status:'completed',output:[{
         type:'function_call',call_id:'call-'+steps,name:'read_file',status:'completed',
@@ -146,6 +154,7 @@ try{
   assert.ok(finish.events.some(e=>e.type==='context_budget'));
   assert.equal(sawMap,true);
   assert.equal(sawCompact,true,'long history must compact a COPY before model request');
+  assert.equal(sawCheckpoint,true,'with no choice of the owner the checkpoint starts at 80% of the history budget of this run');
   assert.ok(finish.events.some(e=>e.type==='repo_map_injected'));
   assert.ok(finish.events.some(e=>e.type==='context_compaction'));
   const log=await fs.readFile(path.join(root,'tasks',started.id,'transcript.jsonl'),'utf8');
@@ -153,6 +162,90 @@ try{
   await runner.shutdown();
   console.log('PASS Smart Context Compaction wired to AgentRunner, safe Repo Map, paired call IDs, durable full transcript');
 }finally{await fs.rm(root,{recursive:true,force:true});}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The owner's percent (Settings, lib/agent-options.mjs) is read at EVERY model request. The same run (a real AgentRunner and StudioWorkspace; twelve tool results of about 3,750 tokens each, in a
+// history budget of about 21,600 tokens) is given its first checkpoint at the request that the percent decides: later at 95, earlier at 50, the same at a saved 80 as with none chosen, and a percent
+// changed DURING the run is followed from the next request. The transcript says which percent started each checkpoint, and what the checkpoint kept.
+// ---------------------------------------------------------------------------------------------------------------------------------
+{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-context-percent-'));
+  try{
+    await fs.mkdir(path.join(root,'src'));
+    await fs.writeFile(path.join(root,'src','core.mjs'),'export function startTask(){ return 1; }\n');
+    let runs=0;
+    // percentAt: null (the owner chose none), a number, or a function of the requests made so far.
+    const run=async(percentAt)=>{
+      const number=(runs+=1);
+      let locked=false,steps=0,firstCheckpoint=0,promptKept=true;
+      const ask='Inspect src/core.mjs and report the available function.';
+      const manager={
+        backend:'local',workspace:root,generation:1,instanceId:'compact-percent',secrets:[],
+        state(){return {workspace:{path:root},generation:1,instanceId:'compact-percent'};},
+        acquireTask(){if(locked)return false;locked=true;return true;},
+        releaseTask(){locked=false;},
+        async createAgentSession(){return {
+          catalog:{tools:[{name:'local.read_file',originalName:'read_file',server:'local',inputSchema:{type:'object',properties:{path:{type:'string'}}}}],prompts:[],resources:[],resourceTemplates:[],servers:{}},
+          async close(){},
+          async callTool(){return {isError:false,content:[{type:'text',text:big}],structuredContent:{notVerified:true}};},
+        };},
+      };
+      manager.studio=new StudioWorkspace({manager,directory:path.join(root,'state-'+number)});
+      const provider={
+        ready:()=>true,snapshot:()=>({provider:'fixture',model:'fixture'}),
+        async respond({input}){
+          steps++;
+          const first=String(input[0]?.content?.[0]?.text??'');
+          if(first.startsWith('STRUCTURED CONTEXT CHECKPOINT')){
+            if(!firstCheckpoint)firstCheckpoint=steps;
+            if(!first.includes(ask))promptKept=false; // the owner's words, as written, must be in the request that replaced the old messages
+          }
+          if(steps<=12)return {status:'completed',output:[{type:'function_call',call_id:'call-'+steps,name:'read_file',status:'completed',arguments:JSON.stringify({path:'src/'+steps+'.mjs'})}]};
+          return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',content:[{type:'output_text',text:'Inspected, no edit requested.'}]}]};
+        },
+      };
+      const saved=()=>{const percent=typeof percentAt==='function'?percentAt(steps):percentAt;return percent===null?{}:{autoCompactPercent:percent};};
+      const runner=new AgentRunner({manager,provider,taskDirectory:path.join(root,'tasks-'+number),agentOptions:{current:()=>agentOptionsView(saved())}});
+      await runner.load();
+      const started=await runner.start({prompt:ask,maxSteps:20});
+      const finish=await Promise.race([runner.context.done.promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('compact percent integration timed out')),15000))]);
+      assert.equal(finish.status,'completed',finish.error);
+      const log=(await fs.readFile(path.join(root,'tasks-'+number,started.id,'transcript.jsonl'),'utf8')).split('\n').filter(Boolean).map((line)=>JSON.parse(line));
+      const checkpoints=log.filter((x)=>x.type==='context_compaction'&&x.detail?.strategy==='rolling-checkpoint');
+      await runner.shutdown();
+      return {firstCheckpoint,checkpoints,finish,promptKept};
+    };
+    const none=await run(null);
+    const saved80=await run(80);
+    const early=await run(70);
+    const late=await run(95);
+    const lowest=await run(50);
+    const live=await run((requests)=>requests>=3?70:95);
+    assert.ok(none.firstCheckpoint>0,'the default run gets a checkpoint');
+    assert.equal(none.firstCheckpoint,defaultCheckpointStep,'the same request as the run above, which had no options at all');
+    assert.equal(saved80.firstCheckpoint,none.firstCheckpoint,'a saved 80 is the default: the same request');
+    assert.ok(early.firstCheckpoint>0&&early.firstCheckpoint<none.firstCheckpoint,'at 70 the checkpoint starts earlier ('+early.firstCheckpoint+' < '+none.firstCheckpoint+')');
+    assert.ok(late.firstCheckpoint===0||late.firstCheckpoint>none.firstCheckpoint,'at 95 it starts later or not at all within these twelve requests ('+late.firstCheckpoint+' > '+none.firstCheckpoint+')');
+    // the transcript names the percent of every checkpoint, and the retention check ran on each
+    for(const [name,result,percent] of [['none',none,80],['saved 80',saved80,80],['70',early,70],['95',late,95]]){
+      assert.ok(result.checkpoints.every((x)=>x.detail.compactPercent===percent),name+': every checkpoint says it started at '+percent+'%');
+      assert.ok(result.checkpoints.every((x)=>x.detail.retention&&x.detail.retention.total>=1&&x.detail.retention.kept===x.detail.retention.total&&x.detail.retention.missing.length===0),name+': nothing the checkpoint keeps is missing from the request');
+      assert.equal(result.promptKept,true,name+': the request of the owner was in every request that carried a checkpoint');
+    }
+    // 95 from the start, 70 from the fourth request on: the runner follows the option as it is at each request, not as it was when the run began
+    assert.equal(live.finish.agentOptions.autoCompactPercent,95,'the run records the option that applied when it began');
+    assert.ok(live.firstCheckpoint>=4,'nothing started before the request at which the option changed ('+live.firstCheckpoint+')');
+    assert.equal(live.firstCheckpoint,early.firstCheckpoint,'a percent lowered during the run is followed from its next request: the checkpoint comes where a run at 70 all along has it');
+    assert.ok(late.firstCheckpoint===0||live.firstCheckpoint<late.firstCheckpoint);
+    assert.equal(live.checkpoints[0].detail.compactPercent,70,'the first checkpoint of that run started at the percent of ITS request, not the one the run began with');
+    // 50: three pairs of about 3,800 tokens (the Hub keeps at least the three newest pairs whole) do not fit under half of this small budget, so there is no safe boundary: nothing is cut, the run
+    // goes on, and the Hub says so on each request
+    assert.equal(lowest.firstCheckpoint,0,'at 50 no checkpoint can be made from results this big in a budget this small');
+    assert.equal(lowest.finish.status,'completed');
+    assert.ok(lowest.finish.events.some((e)=>e.type==='context_compaction_skipped'),'the skipped compaction is said, not silent');
+    console.log('PASS the owner\'s percent is read at every model request: 70 earlier, 80 = none chosen, 95 later, a change during the run followed, 50 skipped without loss when no safe boundary exists; each checkpoint records its percent and the retention check');
+  }finally{await fs.rm(root,{recursive:true,force:true});}
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The Repo Map a delegated worker is given. Its first prompt is its goal followed by the Hub's handoff (branch names, the predecessors' results, the Hub's own

@@ -194,7 +194,8 @@ export function classifyTaskCompletion(plan, progress, { execution = 'answered' 
   return Object.freeze({
     execution,
     requirements:unresolved.length?'unverified':'verified',
-    verification:categories.ready?(unresolved.length?'evidence_present_not_objective_certified':'owner_accepted_with_fresh_receipts'):'missing_evidence',
+    // "owner_accepted..." only when every acceptance is the owner's; one the Hub made itself, by the owner's option, says so.
+    verification:categories.ready?(unresolved.length?'evidence_present_not_objective_certified':plan.objectives.some(o=>(o.evidence||[]).some(e=>e.acceptedBy&&e.acceptedBy!=='local_owner'))?'accepted_with_fresh_receipts_checks_by_hub':'owner_accepted_with_fresh_receipts'):'missing_evidence',
     unresolvedObjectiveIds:unresolved,
     missingChecks:categories.missing,
     note:unresolved.length
