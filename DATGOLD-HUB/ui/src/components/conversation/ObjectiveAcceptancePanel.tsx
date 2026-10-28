@@ -69,7 +69,7 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
             const accepted=evidenceOf?.receiptId;
             const receiptId=accepted??selection[key]??suggestReceipt(criterion,receipts)?.receiptId??'';
             return <div key={key} className="mt-1.5 space-y-1">
-              <p>{criterion} {matched?'✓':''}{byHub&&<span data-testid="objective-by-hub" className="ml-2 rounded-md border border-line px-1.5 py-0.5 text-[11px] font-medium text-muted">{t('agents_obj_by_hub')}</span>}</p>
+              <p>{criterion} {matched?'✓':''}{byHub&&<span data-testid="objective-by-hub" className="ml-2 rounded-md border border-line px-1.5 py-0.5 text-[12px] font-medium text-muted">{t('agents_obj_by_hub')}</span>}</p>
               <div className="flex items-center gap-2">
                 <select value={receiptId} onChange={e=>setSelection(prev=>({...prev,[key]:e.target.value}))}
                   aria-label={t('agents_obj_aria',{key})}
