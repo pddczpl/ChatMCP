@@ -21,14 +21,14 @@ const NUMBER = String.raw`(\d+\.\d+\.\d+)`;
  * name for a message. The patterns do not use ^ or $, so a file with CRLF is no different from one with LF.
  */
 const PLACES = Object.freeze([
-  { file: 'CHATMCP-HUB/package.json', find: new RegExp(String.raw`("version": ")${NUMBER}(")`, 'g'), count: 1, name: 'the version of the Hub package' },
-  { file: 'CHATMCP-HUB/ui/package.json', find: new RegExp(String.raw`("version": ")${NUMBER}(")`, 'g'), count: 1, name: 'the version of the UI package' },
-  { file: 'CHATMCP-HUB/ui/package-lock.json', find: new RegExp(String.raw`("name": "chatmcp-studio-frontend",\s*"version": ")${NUMBER}(")`, 'g'), count: 2, name: 'the version of the UI package in its lock file (the file and its root package)' },
-  { file: 'CHATMCP-HUB/lib/manager.mjs', find: new RegExp(String.raw`(export const VERSION = ')${NUMBER}(')`, 'g'), count: 1, name: 'VERSION of the Hub' },
-  { file: 'CHATMCP-HUB/hub.mjs', find: new RegExp(String.raw`(export const UI_BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'UI_BUILD of the Hub' },
-  { file: 'CHATMCP-HUB/ui/src/lib/api.ts', find: new RegExp(String.raw`(const UI_BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'UI_BUILD the page sends' },
-  { file: 'CHATMCP-HUB/web/react-app.js', find: new RegExp(String.raw`(const BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'BUILD of the first page' },
-  { file: 'CHATMCP-HUB/web/react-app.js', find: new RegExp(String.raw`(const uiVersion = ')${NUMBER}(')`, 'g'), count: 1, name: 'uiVersion of the first page' },
+  { file: 'DATGOLD-HUB/package.json', find: new RegExp(String.raw`("version": ")${NUMBER}(")`, 'g'), count: 1, name: 'the version of the Hub package' },
+  { file: 'DATGOLD-HUB/ui/package.json', find: new RegExp(String.raw`("version": ")${NUMBER}(")`, 'g'), count: 1, name: 'the version of the UI package' },
+  { file: 'DATGOLD-HUB/ui/package-lock.json', find: new RegExp(String.raw`("name": "chatmcp-studio-frontend",\s*"version": ")${NUMBER}(")`, 'g'), count: 2, name: 'the version of the UI package in its lock file (the file and its root package)' },
+  { file: 'DATGOLD-HUB/lib/manager.mjs', find: new RegExp(String.raw`(export const VERSION = ')${NUMBER}(')`, 'g'), count: 1, name: 'VERSION of the Hub' },
+  { file: 'DATGOLD-HUB/hub.mjs', find: new RegExp(String.raw`(export const UI_BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'UI_BUILD of the Hub' },
+  { file: 'DATGOLD-HUB/ui/src/lib/api.ts', find: new RegExp(String.raw`(const UI_BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'UI_BUILD the page sends' },
+  { file: 'DATGOLD-HUB/web/react-app.js', find: new RegExp(String.raw`(const BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'BUILD of the first page' },
+  { file: 'DATGOLD-HUB/web/react-app.js', find: new RegExp(String.raw`(const uiVersion = ')${NUMBER}(')`, 'g'), count: 1, name: 'uiVersion of the first page' },
   { file: 'desktop-shell/ChatMCP.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the desktop shell' },
   { file: 'installer/ChatMCP.Installer.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the setup' },
 ]);

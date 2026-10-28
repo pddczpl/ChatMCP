@@ -46,7 +46,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -56,7 +56,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: CHATMCP-HUB/tests/requirements-e2e.txt
+          cache-dependency-path: DATGOLD-HUB/tests/requirements-e2e.txt
       - name: Install pinned FastAPI E2E dependencies
         run: python -m pip install -r tests/requirements-e2e.txt
       - name: Configure Git identity for tests that create repositories
@@ -77,7 +77,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hub-test-summary-${{ matrix.os }}-node${{ matrix.node }}
-          path: CHATMCP-HUB/test-results/summary.json
+          path: DATGOLD-HUB/test-results/summary.json
           if-no-files-found: ignore
 
   flaky-gate:
@@ -111,14 +111,14 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: CHATMCP-HUB/ui
+        working-directory: DATGOLD-HUB/ui
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: CHATMCP-HUB/ui/package-lock.json
+          cache-dependency-path: DATGOLD-HUB/ui/package-lock.json
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
       - name: Typecheck and production build
@@ -127,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chatmcp-ui-dist
-          path: CHATMCP-HUB/web/dist
+          path: DATGOLD-HUB/web/dist
           if-no-files-found: error
 
   react-e2e:
@@ -140,14 +140,14 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     defaults:
       run:
-        working-directory: CHATMCP-HUB/ui
+        working-directory: DATGOLD-HUB/ui
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: CHATMCP-HUB/ui/package-lock.json
+          cache-dependency-path: DATGOLD-HUB/ui/package-lock.json
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
       - name: Install headless Chromium and platform dependencies
@@ -161,7 +161,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: react-e2e-${{ matrix.os }}
-          path: CHATMCP-HUB/ui/test-results
+          path: DATGOLD-HUB/ui/test-results
           if-no-files-found: error
 
   windows-installer:
@@ -180,8 +180,8 @@ jobs:
         env:
           CHATMCP_REQUIRE_HOST_SUPERVISOR: '1'
         run: |
-          dotnet build CHATMCP-HUB/windows/sandbox/GuestSupervisor/GuestSupervisor.csproj --configuration Debug --nologo
-          node CHATMCP-HUB/tests/windows-sandbox/smoke.mjs
+          dotnet build DATGOLD-HUB/windows/sandbox/GuestSupervisor/GuestSupervisor.csproj --configuration Debug --nologo
+          node DATGOLD-HUB/tests/windows-sandbox/smoke.mjs
       - name: Required installer payload and cleanup regression tests
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-InstallerPayload.ps1
@@ -207,7 +207,7 @@ jobs:
         run: |
           set -euo pipefail
           export CHATMCP_LSP_NODE_MODULES="$RUNNER_TEMP/chatmcp-intelligence-runtime/runtimes/lsp/node_modules"
-          node CHATMCP-HUB/tests/verify-lsp-tier.mjs
+          node DATGOLD-HUB/tests/verify-lsp-tier.mjs
       - name: Build fresh UI and Windows installer
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
@@ -215,7 +215,7 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-BrowserCompanion.ps1 -VerifyInstallerPayload
       - name: Required native WinForms / WebView2 smoke (current React + Local Hub)
-        run: node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
+        run: node DATGOLD-HUB/ui/e2e/webview2-smoke.mjs
       - name: Verify installer and checksum
         shell: powershell
         run: |
@@ -286,7 +286,7 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/DatGoldSetup.exe -ExpectedBaselineVersion 3.9.0 -ExpectedCandidateVersion 3.11.0 -OutputDirectory "$env:RUNNER_TEMP/native-lifecycle-evidence"
           if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
       - name: Native WebView2 smoke (shell attaches with the secret; new-window payload runs no script)
-        run: node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
+        run: node DATGOLD-HUB/ui/e2e/webview2-smoke.mjs
       - name: Upload lifecycle evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -333,7 +333,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $current = [version](Get-Content CHATMCP-HUB/package.json -Raw | ConvertFrom-Json).version
+          $current = [version](Get-Content DATGOLD-HUB/package.json -Raw | ConvertFrom-Json).version
           $old = '{0}.{1}.{2}' -f $current.Major, $current.Minor, ($current.Build + 1)
           $new = '{0}.{1}.{2}' -f $current.Major, $current.Minor, ($current.Build + 2)
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/updater-e2e/Build-TestPair.ps1 -Work (Join-Path $env:RUNNER_TEMP 'updater-e2e') -KeysFile (Join-Path $env:RUNNER_TEMP 'updater-e2e-keys\run-release-keys.json') -OldVersion $old -NewVersion $new -KeepWorkTrees
@@ -370,13 +370,13 @@ jobs:
           node-version: '22'
       - name: Claims map against the base branch
         if: github.event_name == 'pull_request'
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
         env:
           BASE_REF: ${{ github.base_ref }}
         run: node tests/verify-claims-map.mjs --base "origin/$BASE_REF"
       - name: Claims map
         if: github.event_name != 'pull_request'
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
         run: node tests/verify-claims-map.mjs
 
   hygiene:
@@ -395,7 +395,7 @@ jobs:
           fi
       - name: No bearer tokens or private keys in tracked files
         run: |
-          if git grep -I -n -E 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' -- . ':(exclude)scripts/tests' ':(exclude)CHATMCP-HUB/tests' ':(exclude)docs' ':(exclude).github'; then
+          if git grep -I -n -E 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' -- . ':(exclude)scripts/tests' ':(exclude)DATGOLD-HUB/tests' ':(exclude)docs' ':(exclude).github'; then
             echo "A credential-looking value is tracked. Remove it and rotate the credential."
             exit 1
           fi

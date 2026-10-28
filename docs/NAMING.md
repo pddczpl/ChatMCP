@@ -15,21 +15,21 @@ The legal name of the copyright holder did not change: **Phan Danh Dat** (see [N
 - The title and status texts of the desktop window, and the product, company and description fields of the application file.
 - The setup wizard and the uninstaller (title, header, every text, the file properties of the setup file), the shortcuts they make (Desktop `DatGold Studio`, Start menu folder `DatGold`) and the entry in Apps & features (`DatGold Studio`). Setup also removes the shortcuts that versions up to 3.10.1 made under the old name, and the uninstaller removes both sets (see below).
 - The files you download from a release: `DatGoldSetup.exe` with its `.sha256`, and `DatGold-Browser-Companion.zip` (from the first release after 3.10.2). Releases up to 3.10.2 published `ChatMCPSetup.exe` and `ChatMCP-Browser-Companion.zip` and keep those file names; every later release also publishes the Companion under the old name, as a copy (see the table). The setup file inside is built as `DatGoldSetup.exe`, so its properties, and those of the `Uninstall.exe` that it copies, name DatGold; setup still recognises an `Uninstall.exe` of an earlier version by its old names (`IsOwnVersionInfo` in `installer/InstallerEngine.cs`).
-- The icon: a gold D on a dark rounded square, drawn by `scripts/generate-brand-icon.py` without a font. It is the icon of the application, the setup file, the shortcuts, the Apps & features entry and the browser tab (the files keep their old names: `assets/icons/chatmcp.ico`, `CHATMCP-HUB/web/favicon.ico`).
+- The icon: a gold D on a dark rounded square, drawn by `scripts/generate-brand-icon.py` without a font. It is the icon of the application, the setup file, the shortcuts, the Apps & features entry and the browser tab (the files keep their old names: `assets/icons/chatmcp.ico`, `DATGOLD-HUB/web/favicon.ico`).
 - The Browser Companion: the name Chrome and Edge show (`DatGold Hub Companion`), its button, popup and instructions.
 - The messages and sentences the Hub writes for a person: the sign-in and pairing errors, the Windows Sandbox probe, the verification and hook notes at the end of an answer, the "withheld" notice for a protected file, the header of the exported ChatGPT-web transcript, the names of the files it offers to save, the authors of the built-in skills, the hooks schema.
 - The README, NOTICE, SECURITY, CONTRIBUTING, the third-party notices and the living documents in `docs/` and `design/`.
 
-`CHATMCP-HUB/tests/verify-display-name.mjs` reads those places and fails for any ChatMCP that is not one of the exceptions below, so the old name cannot come back unnoticed.
+`DATGOLD-HUB/tests/verify-display-name.mjs` reads those places and fails for any ChatMCP that is not one of the exceptions below, so the old name cannot come back unnoticed.
 
 ## What still says ChatMCP, and why
 
 | Where | What | Why it stays | Changes with |
 | --- | --- | --- | --- |
 | Repository and releases | `github.com/pddczpl/ChatMCP`, the release workflows, the file names of releases up to 3.10.2 (`ChatMCPSetup.exe`, `ChatMCP-Browser-Companion.zip`), and `ChatMCP-Browser-Companion.zip` as a copy of the Companion in every later release | A published file cannot be renamed; the upgrade test downloads the published 3.9.0 as `ChatMCPSetup.exe`; every installed version links to `releases/latest/download/ChatMCP-Browser-Companion.zip`, so a release without that file would break the link in the app | The release pipeline step (P5); the copy can go when no supported version links to it |
-| Installer and installed program | `ChatMCP.exe`, `%LOCALAPPDATA%\Programs\ChatMCP`, the registry key `...\Uninstall\ChatMCP`, the update folder `.ChatMCP-update-*` | The installer finds, replaces and removes what an earlier version made by these names, and CI installs the published 3.9.0 first and upgrades it | The identifier step, with the same upgrade test |
+| Installer and installed program | `ChatMCP.exe`, `%LOCALAPPDATA%\Programs\ChatMCP`, the registry key `...\Uninstall\ChatMCP`, the update folder `.ChatMCP-update-*`, and the Hub folder `CHATMCP-HUB\` inside the installation (the source folder is `DATGOLD-HUB/`; `scripts/InstallerPayload.ps1` is the one place that maps the one to the other) | The installer finds, replaces and removes what an earlier version made by these names, and CI installs the published 3.9.0 first and upgrades it | The identifier step, with the same upgrade test |
 | User data | `%LOCALAPPDATA%\ChatMCP` (Hub state, logs, WebView2 data) | The history, key store and settings of every existing install are there | The identifier step, with a migration |
-| Source tree | the folder `CHATMCP-HUB/`, file names `chatmcp-*`, namespaces `ChatMCP.*`, environment variables `CHATMCP_*`, request headers `X-ChatMCP-*`, browser storage keys `chatmcp:*`, project files `.chatmcp/`, the health id `chatmcp-local-hub` | They are interfaces: scripts, stored data, the extension and other programs use them | The identifier step, one family at a time, each with an alias for the old name |
+| Source tree | file names `chatmcp-*`, namespaces `ChatMCP.*`, environment variables `CHATMCP_*`, request headers `X-ChatMCP-*`, browser storage keys `chatmcp:*`, project files `.chatmcp/`, the health id `chatmcp-local-hub` | They are interfaces: scripts, stored data, the extension and other programs use them | The identifier step, one family at a time, each with an alias for the old name |
 | What models are told | The system prompts and the text of the gateway and Gemini contracts ("You are the task agent in ChatMCP Hub") | They are instructions, not a display name; changing a word changes what a model is told and needs its own test | The next revision of the prompts |
 | Tasks saved by an older Hub | A final text that ends `[Verification notice] ChatMCP has NOT independently verified ...` | It is stored data. The Hub reads both wordings and writes the new one | Stays |
 | Developer tools | Git identities used by the coding agent (`ChatMCP Coding Agent`), the console banners of the test and smoke scripts, the old checkout installer `scripts/install-desktop.ps1` and `uninstall-desktop.ps1` (they make `ChatMCP Studio` shortcuts that point into a checkout, which setup leaves alone), comments in the code | Not shown to a person using the product | With the identifier step |
@@ -42,7 +42,7 @@ Two phrases keep the old name on purpose because they describe a real folder: "t
 ## Checking
 
 ```
-node CHATMCP-HUB/tests/verify-display-name.mjs
+node DATGOLD-HUB/tests/verify-display-name.mjs
 ```
 
 A new string, screen or document must say DatGold. If something truly has to keep the old spelling, add it to this table and to the `TECHNICAL` list in that test, with the reason.

@@ -5,25 +5,25 @@ on:
   push:
     branches: [main]
     paths:
-      - 'CHATMCP-HUB/windows/Select-Workspace.ps1'
+      - 'DATGOLD-HUB/windows/Select-Workspace.ps1'
       - 'desktop-shell/MainWindow.cs'
-      - 'CHATMCP-HUB/ui/src/lib/native-folder-picker.ts'
-      - 'CHATMCP-HUB/tests/verify-native-picker-bridge.mjs'
-      - 'CHATMCP-HUB/lib/manager.mjs'
-      - 'CHATMCP-HUB/lib/browser-runner.mjs'
-      - 'CHATMCP-HUB/lib/dual-agent.mjs'
-      - 'CHATMCP-HUB/tests/verify-browser-web-workspaces.mjs'
+      - 'DATGOLD-HUB/ui/src/lib/native-folder-picker.ts'
+      - 'DATGOLD-HUB/tests/verify-native-picker-bridge.mjs'
+      - 'DATGOLD-HUB/lib/manager.mjs'
+      - 'DATGOLD-HUB/lib/browser-runner.mjs'
+      - 'DATGOLD-HUB/lib/dual-agent.mjs'
+      - 'DATGOLD-HUB/tests/verify-browser-web-workspaces.mjs'
       - '.github/workflows/browser-companion-regression.yml'
   pull_request:
     paths:
-      - 'CHATMCP-HUB/windows/Select-Workspace.ps1'
+      - 'DATGOLD-HUB/windows/Select-Workspace.ps1'
       - 'desktop-shell/MainWindow.cs'
-      - 'CHATMCP-HUB/ui/src/lib/native-folder-picker.ts'
-      - 'CHATMCP-HUB/tests/verify-native-picker-bridge.mjs'
-      - 'CHATMCP-HUB/lib/manager.mjs'
-      - 'CHATMCP-HUB/lib/browser-runner.mjs'
-      - 'CHATMCP-HUB/lib/dual-agent.mjs'
-      - 'CHATMCP-HUB/tests/verify-browser-web-workspaces.mjs'
+      - 'DATGOLD-HUB/ui/src/lib/native-folder-picker.ts'
+      - 'DATGOLD-HUB/tests/verify-native-picker-bridge.mjs'
+      - 'DATGOLD-HUB/lib/manager.mjs'
+      - 'DATGOLD-HUB/lib/browser-runner.mjs'
+      - 'DATGOLD-HUB/lib/dual-agent.mjs'
+      - 'DATGOLD-HUB/tests/verify-browser-web-workspaces.mjs'
       - '.github/workflows/browser-companion-regression.yml'
   workflow_dispatch:
 permissions:
@@ -41,7 +41,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     defaults:
       run:
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

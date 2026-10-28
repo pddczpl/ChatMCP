@@ -100,7 +100,7 @@ function Stop-InstalledHub {
 function New-PowerShell7ModuleStandIn([string]$Directory) {
     # A process started from a PowerShell 7 session hands PSModulePath on with PowerShell 7's module folders first, and the Windows PowerShell it starts then
     # loses Get-FileHash (measured under pwsh 7.6.7 on windows-latest). This is the module folder that does the same on any machine: Microsoft.PowerShell.Utility
-    # 7.0.0.0 for the Core edition, exporting every command of Windows PowerShell's own module (CHATMCP-HUB/tests/support/powershell-environment.mjs does it for node).
+    # 7.0.0.0 for the Core edition, exporting every command of Windows PowerShell's own module (DATGOLD-HUB/tests/support/powershell-environment.mjs does it for node).
     $names = @((Get-Command -Module Microsoft.PowerShell.Utility).Name | Where-Object { $_ -match '^[A-Za-z]+-[A-Za-z]+$' })
     if ($names -notcontains 'Get-FileHash') { throw 'Windows PowerShell did not list the commands of Microsoft.PowerShell.Utility.' }
     $modules = Join-Path $Directory 'Modules'

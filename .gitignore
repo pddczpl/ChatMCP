@@ -4,8 +4,8 @@
 #
 # NOTE: this repository is created on Windows with core.ignorecase=true, so every
 # pattern below is matched case-INSENSITIVELY. Do not add broad directory names
-# (for example "chatmcp-hub/") that would also match the product source folder
-# "CHATMCP-HUB/".
+# (for example "datgold-hub/") that would also match the product source folder
+# "DATGOLD-HUB/".
 
 # --- Secrets and local environment (never commit) ---------------------------
 .env
@@ -60,8 +60,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 dist/
-!CHATMCP-HUB/web/dist/
-!CHATMCP-HUB/web/dist/**
+!DATGOLD-HUB/web/dist/
+!DATGOLD-HUB/web/dist/**
 build/
 bin/
 obj/
@@ -89,5 +89,5 @@ desktop.ini
 .DS_Store
 
 # Bundled Python and ripgrep runtime binaries
-/CHATMCP-HUB/runtimes/python/
-/CHATMCP-HUB/runtimes/ripgrep/
+/DATGOLD-HUB/runtimes/python/
+/DATGOLD-HUB/runtimes/ripgrep/

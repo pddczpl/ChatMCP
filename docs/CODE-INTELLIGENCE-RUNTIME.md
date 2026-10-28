@@ -3,12 +3,12 @@
 ## Installed layout
 
 - `runtimes/node/node.exe` — pinned portable Node runtime from the Windows build host.
-- `CHATMCP-HUB/runtimes/lsp/node_modules/` — locked TypeScript, Pyright and Tree-sitter runtimes.
-- `CHATMCP-HUB/grammars/` — JavaScript, TypeScript, TSX and Python WASM grammars.
-- `CHATMCP-HUB/runtimes/python/` — official CPython 3.11.9 Windows embeddable distribution.
-- `CHATMCP-HUB/runtimes/ripgrep/` — official ripgrep 15.2.0 `rg.exe` (x86_64-pc-windows-msvc) with its `LICENSE-MIT`, `UNLICENSE` and `COPYING`; the engine of `search_files` and `find_files` (`CHATMCP-HUB/lib/ripgrep.mjs`).
-- `CHATMCP-HUB/licenses/ripgrep/` — the license texts of PCRE2, of the Rust standard library and of the Rust crates that `rg.exe` is linked with (the ripgrep archive does not carry them), and `MANIFEST.json`, their inventory; vendored in `scripts/intelligence-runtime/licenses/ripgrep/`.
-- `CHATMCP-HUB/runtime-manifest.json` — verified file hashes and dependency information.
+- `DATGOLD-HUB/runtimes/lsp/node_modules/` — locked TypeScript, Pyright and Tree-sitter runtimes.
+- `DATGOLD-HUB/grammars/` — JavaScript, TypeScript, TSX and Python WASM grammars.
+- `DATGOLD-HUB/runtimes/python/` — official CPython 3.11.9 Windows embeddable distribution.
+- `DATGOLD-HUB/runtimes/ripgrep/` — official ripgrep 15.2.0 `rg.exe` (x86_64-pc-windows-msvc) with its `LICENSE-MIT`, `UNLICENSE` and `COPYING`; the engine of `search_files` and `find_files` (`DATGOLD-HUB/lib/ripgrep.mjs`).
+- `DATGOLD-HUB/licenses/ripgrep/` — the license texts of PCRE2, of the Rust standard library and of the Rust crates that `rg.exe` is linked with (the ripgrep archive does not carry them), and `MANIFEST.json`, their inventory; vendored in `scripts/intelligence-runtime/licenses/ripgrep/`.
+- `DATGOLD-HUB/runtime-manifest.json` — verified file hashes and dependency information.
 
 ## Build procedure
 
