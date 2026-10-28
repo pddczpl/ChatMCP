@@ -198,7 +198,7 @@ try {
 
   console.log('# 7. PowerShell configuration.ps1 Parity');
   {
-    const psScript = path.resolve('CHATMCP-HUB/windows/sandbox/configuration.ps1');
+    const psScript = path.resolve('DATGOLD-HUB/windows/sandbox/configuration.ps1');
     if (process.platform === 'win32' && fs.existsSync(psScript)) {
       const outConfig = path.join(testBaseDir, 'generated.wsb');
       const stdout = execFileSync(

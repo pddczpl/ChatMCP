@@ -61,12 +61,12 @@ Launcher **không** tự đổi chính sách của bạn.
    ```
 2. **Không dùng PowerShell**: chạy Hub trực tiếp bằng Node (không cần chính sách nào):
    ```powershell
-   node .\CHATMCP-HUB\hub.mjs --backend local --project C:\duong\dan\du-an --port 3007
+   node .\DATGOLD-HUB\hub.mjs --backend local --project C:\duong\dan\du-an --port 3007
    ```
    Nhược điểm: cửa sổ này giữ Hub (đóng cửa sổ = dừng Hub) và không tự mở trình duyệt; mở `http://127.0.0.1:3007` bằng tay.
 3. **Chỉ cho một lần chạy**, không đổi cấu hình máy:
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\CHATMCP-HUB\Start-ChatMcpHub.ps1 -ProjectPath C:\duong\dan\du-an
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\DATGOLD-HUB\Start-ChatMcpHub.ps1 -ProjectPath C:\duong\dan\du-an
    ```
 4. **Đổi chính sách cho tài khoản của bạn** (quyết định của bạn; ảnh hưởng mọi script PowerShell chạy dưới tài khoản này):
    ```powershell
@@ -235,7 +235,7 @@ Xem [USER-GUIDE.md, mục 8](USER-GUIDE.md#8-khi-tác-vụ-dừng-giữa-chừng
 
 - Khi chạy bằng launcher, Hub ghi vào **`hub.log`** trong thư mục dữ liệu (mặc định `%LOCALAPPDATA%\ChatMCP\hub\hub.log`). Mở bằng Notepad.
 - Trong giao diện: tab **Hoạt động** → *Hub Logs* (24 dòng cuối) và *Timeline*.
-- Chạy `node CHATMCP-HUB\hub.mjs …` thì nhật ký hiện ngay trong cửa sổ; thêm `--log-file <tệp>` để ghi ra tệp.
+- Chạy `node DATGOLD-HUB\hub.mjs …` thì nhật ký hiện ngay trong cửa sổ; thêm `--log-file <tệp>` để ghi ra tệp.
 - Nhật ký đã che các dạng bí mật quen thuộc nhưng **đọc lại trước khi gửi cho ai**.
 
 ### Không ghi được xuống đĩa
@@ -258,7 +258,7 @@ Lịch sử cũ nằm trong `hub.bak` (đọc được bằng trình soạn th�
 
 ### Terminal tương tác, ConPTY
 
-Thông báo "ConPTY chưa được cài" / `Mode: pipes` là bình thường: terminal tương tác dùng pipe (không có đầy đủ TTY). Agent không cần terminal tương tác. Muốn đủ tính năng, chạy `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1 -Install` (xem [WINDOWS-SETUP.md](WINDOWS-SETUP.md)); nếu `node-pty` cài được nhưng không chạy, Hub nói rõ lý do và tiếp tục dùng pipe.
+Thông báo "ConPTY chưa được cài" / `Mode: pipes` là bình thường: terminal tương tác dùng pipe (không có đầy đủ TTY). Agent không cần terminal tương tác. Muốn đủ tính năng, chạy `DATGOLD-HUB\windows\Install-OptionalConPTY.ps1 -Install` (xem [WINDOWS-SETUP.md](WINDOWS-SETUP.md)); nếu `node-pty` cài được nhưng không chạy, Hub nói rõ lý do và tiếp tục dùng pipe.
 
 ---
 

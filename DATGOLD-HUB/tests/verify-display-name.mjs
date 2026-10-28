@@ -20,7 +20,7 @@ const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(HUB, '..');
 
 if (!existsSync(path.join(REPO, 'README.md')) || !existsSync(path.join(REPO, 'desktop-shell', 'MainWindow.cs'))) {
-  console.log('CHATMCP_TEST_SKIP: README.md and desktop-shell/ were not found next to CHATMCP-HUB (the naming checks need the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: README.md and desktop-shell/ were not found next to DATGOLD-HUB (the naming checks need the whole repository)');
   process.exit(0);
 }
 
@@ -66,17 +66,17 @@ function scan(files, { comments = false } = {}) {
 }
 const load = (names) => Object.fromEntries(names.map((name) => [name, readText(name)]));
 
-const UI = [...walk('CHATMCP-HUB/ui/src', /\.(?:tsx?|css)$/), 'CHATMCP-HUB/ui/index.html'];
-const COMPANION = ['manifest.json', 'popup.html', 'popup.js', 'bridge.js', 'INSTALL-EXTENSION.txt', 'HUONG-DAN.txt'].map((name) => `CHATMCP-HUB/extension/${name}`);
+const UI = [...walk('DATGOLD-HUB/ui/src', /\.(?:tsx?|css)$/), 'DATGOLD-HUB/ui/index.html'];
+const COMPANION = ['manifest.json', 'popup.html', 'popup.js', 'bridge.js', 'INSTALL-EXTENSION.txt', 'HUONG-DAN.txt'].map((name) => `DATGOLD-HUB/extension/${name}`);
 const DESKTOP = ['desktop-shell/MainWindow.cs', 'native-shared/HubLifecycle.cs', 'native-shared/HubSession.cs'];
 const INSTALLER = ['InstallerEngine.cs', 'InstallTransaction.cs', 'Program.cs', 'SetupForm.cs', 'UninstallForm.cs', 'ChatMCP.Installer.csproj'].map((name) => `installer/${name}`);
 const LIVING_DOCUMENTS = [
-  'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'NOTICE', 'HUONG-DAN.txt', 'THIRD-PARTY-NOTICES.md', 'CHATMCP-HUB/README.md', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt',
+  'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'NOTICE', 'HUONG-DAN.txt', 'THIRD-PARTY-NOTICES.md', 'DATGOLD-HUB/README.md', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt',
   ...['AGENT-TOOL-CAPABILITIES', 'ARCHITECTURE', 'COMPANION-PRIVACY', 'DEPLOYMENT', 'DESKTOP-APP', 'DEVELOPMENT', 'EVALUATION', 'HOOKS', 'HUB-AUTH', 'INDEX', 'LICENSE-SCAN',
     'TESTING-WITH-REAL-MODELS', 'THREAT-MODEL', 'USER-GUIDE', 'WINDOWS-SETUP', 'TROUBLESHOOTING', 'CI-HEALTH'].map((name) => `docs/${name}.md`),
   'design/DESIGN-DIRECTION.md', 'design/ADR-001-frontend-stack.md',
 ];
-const SCHEMA = ['CHATMCP-HUB/schemas/hooks.schema.json'];
+const SCHEMA = ['DATGOLD-HUB/schemas/hooks.schema.json'];
 
 // ------------------------------------------------------------------------------------------------------------------------------- 1. the real files
 const real = {
@@ -96,9 +96,9 @@ for (const [surface, files] of Object.entries(real)) {
   assert.match(readText('README.md'), /\]\(docs\/NAMING\.md\)/, 'and links the naming note');
   assert.match(readText('NOTICE'), /^DatGold \(formerly ChatMCP\)\n/, 'the NOTICE is headed the same way');
   assert.match(readText('NOTICE'), /Copyright 2026 Phan Danh Dat/, 'and the legal name of the copyright holder is unchanged');
-  assert.match(readText('CHATMCP-HUB/ui/index.html'), /<title>DatGold Studio<\/title>/, 'the page title');
-  assert.equal(JSON.parse(readText('CHATMCP-HUB/extension/manifest.json')).name, 'DatGold Hub Companion', 'the extension\'s name');
-  assert.equal(JSON.parse(readText('CHATMCP-HUB/extension/manifest.json')).action.default_title, 'DatGold Hub Companion', 'and the title of its button');
+  assert.match(readText('DATGOLD-HUB/ui/index.html'), /<title>DatGold Studio<\/title>/, 'the page title');
+  assert.equal(JSON.parse(readText('DATGOLD-HUB/extension/manifest.json')).name, 'DatGold Hub Companion', 'the extension\'s name');
+  assert.equal(JSON.parse(readText('DATGOLD-HUB/extension/manifest.json')).action.default_title, 'DatGold Hub Companion', 'and the title of its button');
   const window = readText('desktop-shell/MainWindow.cs');
   assert.match(window, /Text = "DatGold Studio " \+ HubLifecycle\.Version/, 'the title of the desktop window');
   const project = readText('desktop-shell/ChatMCP.csproj');
@@ -114,13 +114,13 @@ for (const [surface, files] of Object.entries(real)) {
   const setupProject = readText('installer/ChatMCP.Installer.csproj');
   for (const element of ['Company', 'Product', 'Description', 'AssemblyTitle']) assert.match(setupProject, new RegExp(`<${element}>DatGold\\b`), `the ${element} of the setup file (AssemblyTitle is the "File description" that Windows shows)`);
   assert.match(setupProject, /<AssemblyName>DatGoldSetup<\/AssemblyName>/, 'and the file name of the setup is DatGoldSetup.exe (section 4 reads the rest of the downloads)');
-  const plugins = readText('CHATMCP-HUB/lib/plugins.mjs');
+  const plugins = readText('DATGOLD-HUB/lib/plugins.mjs');
   assert.equal(/author: 'ChatMCP/.test(plugins), false, 'no built-in skill is by "ChatMCP Team" any more');
   assert.match(plugins, /author: 'DatGold Team'/);
   // the names of the files a person saves (the audit export, a transcript, the workspace instructions) are not the old name's either
-  assert.equal(/filename="CHATMCP-/.test(readText('CHATMCP-HUB/hub.mjs')), false, 'the files the Hub offers for download are named DATGOLD-...');
-  assert.match(readText('CHATMCP-HUB/hub.mjs'), /filename="DATGOLD-WORKSPACE-INSTRUCTIONS\.txt"/);
-  assert.match(readText('CHATMCP-HUB/ui/src/components/settings/AboutSection.tsx'), /datgold-audit-/, 'and so is the audit export');
+  assert.equal(/filename="CHATMCP-/.test(readText('DATGOLD-HUB/hub.mjs')), false, 'the files the Hub offers for download are named DATGOLD-...');
+  assert.match(readText('DATGOLD-HUB/hub.mjs'), /filename="DATGOLD-WORKSPACE-INSTRUCTIONS\.txt"/);
+  assert.match(readText('DATGOLD-HUB/ui/src/components/settings/AboutSection.tsx'), /datgold-audit-/, 'and so is the audit export');
   assert.ok(existsSync(path.join(REPO, 'docs', 'NAMING.md')), 'docs/NAMING.md exists');
   assert.match(readText('docs/INDEX.md'), /\]\(NAMING\.md\)/, 'and the documentation index links it');
   ok('the name stands in the README, NOTICE, page title, extension, desktop window and application file; the legal name and the file name of the application are unchanged');
@@ -129,12 +129,12 @@ for (const [surface, files] of Object.entries(real)) {
 // ------------------------------------------------------------------------------------------------------------------------------- 3. the check can fail, and the exceptions pass
 {
   const ui = real['the UI'];
-  const dictionary = 'CHATMCP-HUB/ui/src/lib/i18n.ts';
+  const dictionary = 'DATGOLD-HUB/ui/src/lib/i18n.ts';
   const defects = [
     ['the old name in a dictionary value', { ...ui, [dictionary]: `${ui[dictionary]}\n    welcome_title: 'ChatMCP Studio',` }, { comments: true }],
-    ['the old name in a component', { ...ui, 'CHATMCP-HUB/ui/src/App.tsx': `${ui['CHATMCP-HUB/ui/src/App.tsx']}\nconst x = <h1>ChatMCP</h1>;` }, { comments: true }],
-    ['the old name in the page title', { 'CHATMCP-HUB/ui/index.html': '<title>ChatMCP Studio</title>' }, { comments: true }],
-    ['the old name in the extension manifest', { 'CHATMCP-HUB/extension/manifest.json': '{ "name": "ChatMCP Hub Companion" }' }, { comments: true }],
+    ['the old name in a component', { ...ui, 'DATGOLD-HUB/ui/src/App.tsx': `${ui['DATGOLD-HUB/ui/src/App.tsx']}\nconst x = <h1>ChatMCP</h1>;` }, { comments: true }],
+    ['the old name in the page title', { 'DATGOLD-HUB/ui/index.html': '<title>ChatMCP Studio</title>' }, { comments: true }],
+    ['the old name in the extension manifest', { 'DATGOLD-HUB/extension/manifest.json': '{ "name": "ChatMCP Hub Companion" }' }, { comments: true }],
     ['the old name in a heading of a document', { 'README.md': '# ChatMCP\n' }, { comments: false }],
     ['the old name in a sentence of a document that starts with #', { 'docs/USER-GUIDE.md': '# Hướng dẫn sử dụng ChatMCP Studio' }, { comments: false }],
     ['the old name in the title of the desktop window', { 'desktop-shell/MainWindow.cs': 'Text = "ChatMCP Studio " + HubLifecycle.Version;' }, { comments: true }],
@@ -156,7 +156,7 @@ for (const [surface, files] of Object.entries(real)) {
     ['the old names the installer finds and removes', 'internal const string LegacyAppName = "ChatMCP Studio"; internal const string LegacyStartMenuFolder = "ChatMCP";'],
     ['the folders, the process and the update folder of the installer', 'Path.Combine(local, "Programs", "ChatMCP"); Path.Combine(local, "ChatMCP", "logs"); Process.GetProcessesByName("ChatMCP"); name.Contains("ChatMCP", x); ".ChatMCP-update-"'],
   ];
-  for (const [label, line] of allowed) assert.deepEqual(scan({ 'CHATMCP-HUB/ui/src/x.tsx': line }, { comments: true }), [], `allowed: ${label}`);
+  for (const [label, line] of allowed) assert.deepEqual(scan({ 'DATGOLD-HUB/ui/src/x.tsx': line }, { comments: true }), [], `allowed: ${label}`);
   assert.equal(scan({ 'docs/x.md': '# ChatMCP' }, { comments: false }).length, 1, 'a heading of a document is read as a sentence, not skipped as a comment');
   assert.equal(scan({ 'docs/x.md': '# ChatMCP' }, { comments: true }).length, 1, 'even when comments are skipped for code');
   ok(`${defects.length} defects are reported, ${allowed.length} exceptions pass, and a heading of a document is never mistaken for a comment`);
@@ -173,7 +173,7 @@ for (const [surface, files] of Object.entries(real)) {
   const DOWNLOAD_FILES = {
     project: 'installer/ChatMCP.Installer.csproj', usage: 'native-shared/UpdateContract.cs', build: 'scripts/Build-Installer.ps1', companion: 'scripts/Build-BrowserCompanion.ps1',
     ci: '.github/workflows/ci.yml', package: '.github/workflows/browser-companion-package.yml', gate: 'scripts/verify-release-source.py',
-    upgrade: 'scripts/tests/legacy-hub-upgrade/run.mjs', link: 'CHATMCP-HUB/ui/src/components/settings/AgentChannelSection.tsx',
+    upgrade: 'scripts/tests/legacy-hub-upgrade/run.mjs', link: 'DATGOLD-HUB/ui/src/components/settings/AgentChannelSection.tsx',
   };
   const TELL_A_PERSON = ['README.md', 'HUONG-DAN.txt', 'docs/WINDOWS-SETUP.md', 'docs/DESKTOP-APP.md'];
   /** `files` maps a path to its text. Returns what is wrong with the names of the downloads, one sentence each. */

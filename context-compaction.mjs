@@ -1,4 +1,4 @@
-// CHATMCP-HUB/lib/context-compaction.mjs
+// DATGOLD-HUB/lib/context-compaction.mjs
 // Smart Context Compaction & Auto Repo-Map Injection for ChatMCP Studio Local.
 // 1. Automatically generates and injects a query-aware Repo Map into agent system instructions.
 // 2. Compacts conversation & tool call history in-place without breaking call_id pairing.

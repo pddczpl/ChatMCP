@@ -154,7 +154,7 @@ class ReleaseSourceTests(unittest.TestCase):
         self.assertFalse(gate.metadata_update(original, original.replace(b'a'*64, b'c'*64), self.checksum))
         self.assertFalse(gate.metadata_update(original*2, (original*2).replace(b'a'*64, self.checksum.encode()), self.checksum))
 
-    # ---- the key file of the release commit (CHATMCP-HUB/lib/release-keys.json): the updater of a release verifies the next one with these keys, so a release that ships a placeholder or a test key
+    # ---- the key file of the release commit (DATGOLD-HUB/lib/release-keys.json): the updater of a release verifies the next one with these keys, so a release that ships a placeholder or a test key
     # would be an updater that can never update anything. The Hub's own suites accept the placeholder (normal CI stays green); this gate, which runs on the release commit, does not.
     def refused_keys(self, text, pattern):
         self.build(text)

@@ -22,7 +22,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { powerShell7ModuleStandIn, powerShellChildEnvironment, windowsPowerShellPath } from '../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
+import { powerShell7ModuleStandIn, powerShellChildEnvironment, windowsPowerShellPath } from '../../../DATGOLD-HUB/tests/support/powershell-environment.mjs';
 
 if (process.platform !== 'win32') { console.log('SKIP: the installer preflight is Windows-only'); process.exit(0); }
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -42,12 +42,16 @@ function prepare(name, ref) {
   const root = path.join(scratch, name, 'root');
   fs.mkdirSync(path.join(root, 'runtimes', 'node'), { recursive: true });
   fs.copyFileSync(process.execPath, path.join(root, 'runtimes', 'node', 'node.exe'));
-  const archive = spawnSync('git', ['-C', repo, 'archive', ref, 'CHATMCP-HUB'], { maxBuffer: 1 << 30 });
+  // An installation has the folder CHATMCP-HUB: the payload builder maps the DATGOLD-HUB of a checkout onto it, and a release before the rename has it in its tree.
+  const listed = spawnSync('git', ['-C', repo, 'ls-tree', '--name-only', ref, 'DATGOLD-HUB'], { encoding: 'utf8' });
+  const sourceFolder = listed.status === 0 && listed.stdout.trim() === 'DATGOLD-HUB' ? 'DATGOLD-HUB' : 'CHATMCP-HUB';
+  const archive = spawnSync('git', ['-C', repo, 'archive', ref, sourceFolder], { maxBuffer: 1 << 30 });
   assert.equal(archive.status, 0, `git archive ${ref}: ${archive.stderr}`);
   // Windows' own bsdtar by full path (Git for Windows ships a GNU tar that treats C: as a host); -f - reads the archive from stdin.
   const tar = path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe');
   const unpack = spawnSync(tar, ['-xf', '-'], { cwd: root, input: archive.stdout });
   assert.equal(unpack.status, 0, String(unpack.stderr));
+  if (sourceFolder !== 'CHATMCP-HUB') fs.renameSync(path.join(root, sourceFolder), path.join(root, 'CHATMCP-HUB'));
   return { root, state: path.join(scratch, name, 'state') };
 }
 async function startHub({ root, state }) {
@@ -111,7 +115,7 @@ try {
   check('the installer preflight stops it through the legacy flow, and the Hub exits', first.code === 0 && /STOPPED/.test(first.out) && await gone(legacy), first.out);
 
   const legacyAgain = await startHub(old);
-  const stop = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repo, 'CHATMCP-HUB', 'Stop-ChatMcpHub.ps1'), '-Port', '3007'], { env: powerShellChildEnvironment({ CHATMCP_STATE_DIR: old.state }), encoding: 'utf8', timeout: 180_000 });
+  const stop = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repo, 'DATGOLD-HUB', 'Stop-ChatMcpHub.ps1'), '-Port', '3007'], { env: powerShellChildEnvironment({ CHATMCP_STATE_DIR: old.state }), encoding: 'utf8', timeout: 180_000 });
   check('Stop-ChatMcpHub.ps1 stops it too', stop.status === 0 && await gone(legacyAgain), `${stop.stdout}${stop.stderr}`.trim().split(/\r?\n/).slice(-1)[0]);
 
   const current = prepare('current', 'HEAD');

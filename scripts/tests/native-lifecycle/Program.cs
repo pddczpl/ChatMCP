@@ -131,6 +131,7 @@ try
     RecoverTests.Run(kit);
     ApplyTests.Run(kit);
     OwnerQueryTests.Run(kit);
+    HubFolderTests.Run(kit);
     CloseTests.Run(kit);
 
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);

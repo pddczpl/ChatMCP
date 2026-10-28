@@ -19,7 +19,7 @@ Phase 4 trang bị cho ChatMCP hệ sinh thái mở rộng và kiến trúc qu�
 
 ### 2.1. Chợ kỹ năng & Quản lý Plugin (`PluginManager`)
 
-Nằm tại [`CHATMCP-HUB/lib/plugins.mjs`](../CHATMCP-HUB/lib/plugins.mjs).
+Nằm tại [`DATGOLD-HUB/lib/plugins.mjs`](../DATGOLD-HUB/lib/plugins.mjs).
 
 - **Danh mục Chợ kỹ năng tuyển chọn (`MARKETPLACE_CATALOG`):**
   - `git-workflow-pro` (coding): Tự động hóa commit ngữ nghĩa, tạo PR template, hỗ trợ gộp nhánh.
@@ -38,7 +38,7 @@ Nằm tại [`CHATMCP-HUB/lib/plugins.mjs`](../CHATMCP-HUB/lib/plugins.mjs).
 
 ### 2.2. Quản trị Doanh nghiệp, RBAC & Cô lập Tenant (`GovernanceManager`)
 
-Nằm tại [`CHATMCP-HUB/lib/governance.mjs`](../SECURITY.md) (historical multi-tenant governance module was removed).
+Nằm tại [`DATGOLD-HUB/lib/governance.mjs`](../SECURITY.md) (historical multi-tenant governance module was removed).
 
 - **Ma trận phân quyền (RBAC Matrix):**
   - **`viewer`**: Chỉ đọc (`read`, `search`, `view_diff`, `view_status`, `view_audit`). Không được sửa file, không được chạy lệnh, không được cấu hình AI.
@@ -81,5 +81,5 @@ Nằm tại [`CHATMCP-HUB/lib/governance.mjs`](../SECURITY.md) (historical multi
 
 ## 4. Kiểm chứng an toàn và tính toàn vẹn
 
-- Bộ kiểm thử tự động [`tests/verify-phase4-features.mjs`](../CHATMCP-HUB/tests/verify-phase4-features.mjs) xác minh 18/18 tiêu chí (Chợ kỹ năng, lọc danh mục, cài đặt, bật/tắt, gỡ bỏ, ma trận RBAC, cô lập tenant, audit log và HTTP API Hub).
+- Bộ kiểm thử tự động [`tests/verify-phase4-features.mjs`](../DATGOLD-HUB/tests/verify-phase4-features.mjs) xác minh 18/18 tiêu chí (Chợ kỹ năng, lọc danh mục, cài đặt, bật/tắt, gỡ bỏ, ma trận RBAC, cô lập tenant, audit log và HTTP API Hub).
 - Không hồi quy bất kỳ tính năng nào của các Phase trước (55/55 bộ Node kiểm thử đều đạt).

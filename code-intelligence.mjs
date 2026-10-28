@@ -1,4 +1,4 @@
-// CHATMCP-HUB/lib/code-intelligence.mjs
+// DATGOLD-HUB/lib/code-intelligence.mjs
 // Zero-dependency Code Intelligence Engine for ChatMCP Studio Local.
 // Provides AST-like structural symbol extraction, PageRank-style Repository Map generation,
 // Go-to-Definition, Scope-Aware Find References, Dependency/Impact Graph, and Static Diagnostics.

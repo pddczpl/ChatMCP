@@ -1,5 +1,5 @@
 {
- "about": "Mutations of the native side of the in-app updater, run by run-mutations.mjs: one exact replacement at a time in a throw-away copy; the native tests (or, for run \"gate\", CHATMCP-HUB/tests/verify-update-apply.mjs) must notice each. See docs/DEVELOPMENT.md.",
+ "about": "Mutations of the native side of the in-app updater, run by run-mutations.mjs: one exact replacement at a time in a throw-away copy; the native tests (or, for run \"gate\", DATGOLD-HUB/tests/verify-update-apply.mjs) must notice each. See docs/DEVELOPMENT.md.",
  "mutations": [
   {
    "name": "link-no-length-limit",
@@ -6698,6 +6698,109 @@
      "file": "installer/InstallerEngine.cs",
      "old": "if (!InstallRecovery.MarkerPending(targetDir)) return RecoveryResult.NothingToRepair;",
      "new": "if (!InstallRecovery.MarkerExists(targetDir)) return RecoveryResult.NothingToRepair;"
+    }
+   ]
+  },
+  {
+   "name": "hubfolder-checkout-folder-ignored",
+   "what": "a checkout is never looked for: every root is asked for the folder of an installation",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal static string Name(string root) => Directory.Exists(Path.Combine(root, Source)) ? Source : Installed;",
+     "new": "internal static string Name(string root) => Installed;"
+    }
+   ]
+  },
+  {
+   "name": "hubfolder-installation-folder-lost",
+   "what": "a root is always taken for a checkout, even one that has only the folder of an installation",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal static string Name(string root) => Directory.Exists(Path.Combine(root, Source)) ? Source : Installed;",
+     "new": "internal static string Name(string root) => Source;"
+    }
+   ]
+  },
+  {
+   "name": "hubfolder-old-folder-preferred",
+   "what": "a checkout that still has the old folder beside the new one uses the old one",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal static string Name(string root) => Directory.Exists(Path.Combine(root, Source)) ? Source : Installed;",
+     "new": "internal static string Name(string root) => Directory.Exists(Path.Combine(root, Installed)) ? Installed : Source;"
+    }
+   ]
+  },
+  {
+   "name": "hubfolder-found-by-checkout-name-only",
+   "what": "a root is found only by the folder of a checkout, so that no installation is found",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal static bool Exists(string root) => Directory.Exists(Path.Combine(root, Source)) || Directory.Exists(Path.Combine(root, Installed));",
+     "new": "internal static bool Exists(string root) => Directory.Exists(Path.Combine(root, Source));"
+    }
+   ]
+  },
+  {
+   "name": "hubfolder-found-by-installation-name-only",
+   "what": "a root is found only by the folder of an installation, so that no checkout is found",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal static bool Exists(string root) => Directory.Exists(Path.Combine(root, Source)) || Directory.Exists(Path.Combine(root, Installed));",
+     "new": "internal static bool Exists(string root) => Directory.Exists(Path.Combine(root, Installed));"
+    }
+   ]
+  },
+  {
+   "name": "payload-hub-folder-not-mapped",
+   "what": "the Hub folder of the source tree ships under its own name, so that the installation has no CHATMCP-HUB",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "RelativePath = (ConvertTo-InstalledRelativePath -SourceRelativePath $relative); Source = $source",
+     "new": "RelativePath = $relative; Source = $source"
+    }
+   ]
+  },
+  {
+   "name": "payload-hub-folder-prefix-without-slash",
+   "what": "a folder whose name only starts like the source folder is mapped too, and the path of every file loses its separator",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$sourceFolder = 'DATGOLD-HUB/'",
+     "new": "$sourceFolder = 'DATGOLD-HUB'"
+    }
+   ]
+  },
+  {
+   "name": "payload-lists-the-old-folder",
+   "what": "the tracked files are listed from the old folder, which the source tree no longer has",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "'ls-files --stage -z -- assets DATGOLD-HUB scripts START-CHATMCP-DESKTOP.cmd LICENSE NOTICE THIRD-PARTY-NOTICES.md'",
+     "new": "'ls-files --stage -z -- assets CHATMCP-HUB scripts START-CHATMCP-DESKTOP.cmd LICENSE NOTICE THIRD-PARTY-NOTICES.md'"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-ui-under-the-source-name",
+   "what": "the freshly built UI is put under the name of the source folder, not of the installation",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "RelativePath = 'CHATMCP-HUB/web/dist/' + $relativeUi",
+     "new": "RelativePath = 'DATGOLD-HUB/web/dist/' + $relativeUi"
     }
    ]
   }

@@ -9,7 +9,7 @@ Làm theo thứ tự: **chuẩn bị (mục 1) → dự án thử (mục 2) → 
 - **Key riêng cho việc thử.** Tạo key mới ở nhà cung cấp, đặt **hạn mức chi tiêu thấp**, và thu hồi sau khi thử. Agent có thể gọi model nhiều lần cho mỗi việc (mỗi lần gửi cả hội thoại), nên chi phí lớn hơn một câu hỏi chat đơn lẻ.
 - **Thư mục dữ liệu riêng.** Chạy Hub với `-StateDir` riêng để lịch sử thử nghiệm không lẫn với công việc thật:
   ```powershell
-  .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -StateDir C:\tmp\chatmcp-trial-state -ProjectPath C:\tmp\trial-project
+  .\DATGOLD-HUB\START-CHATMCP-HUB.cmd -StateDir C:\tmp\chatmcp-trial-state -ProjectPath C:\tmp\trial-project
   ```
 - **Chế độ Review** cho mọi phép thử (trừ khi mục đó nói khác), và đọc từng khung duyệt.
 - **Chỉ dùng dự án bỏ đi** ở mục 2. Không trỏ vào repository thật, không có `.env` thật trong đó.
@@ -131,19 +131,19 @@ Chỉ sau khi phép 1–4 đạt với một mô hình thật, mới có cơ s�
 
 Dự án **chưa có** bộ test tự động chạy với nhà cung cấp thật (cần key và tốn tiền, nên không phù hợp để chạy trong CI mặc định). Nếu bạn muốn, có thể thêm một bộ `verify-real-model.mjs` đọc key và nhà cung cấp từ biến môi trường và tự bỏ qua (`CHATMCP_TEST_SKIP:`) khi thiếu — đây là việc tiếp theo hợp lý sau khi bạn cho phép dùng key, không phải thứ đã có.
 
-Có hai phép kiểm **chạy tay** với API thật của Anthropic, chỉ về một việc: khối `thinking` mà mô hình trả về có được gửi lại đúng không ([docs/ARCHITECTURE.md](ARCHITECTURE.md), "Khối suy luận của Anthropic (prov-18)"). Chúng nằm ở `CHATMCP-HUB/tests/live/`, không tên `verify-*` nên `run-all` và CI không chạy chúng với API thật (CI chỉ chạy `verify-live-checks.mjs`, bài tự kiểm hai script này offline với máy chủ giả, không cần key). Mỗi lần chạy gửi vài chục yêu cầu ngắn, tốn vài xu. Key chỉ đọc từ biến môi trường (`ANTHROPIC_API_KEY`, hoặc `ANTHROPIC_AUTH_TOKEN` cho cổng dùng bearer) và không bao giờ được in ra. Trong PowerShell, chỉ cho cửa sổ này:
+Có hai phép kiểm **chạy tay** với API thật của Anthropic, chỉ về một việc: khối `thinking` mà mô hình trả về có được gửi lại đúng không ([docs/ARCHITECTURE.md](ARCHITECTURE.md), "Khối suy luận của Anthropic (prov-18)"). Chúng nằm ở `DATGOLD-HUB/tests/live/`, không tên `verify-*` nên `run-all` và CI không chạy chúng với API thật (CI chỉ chạy `verify-live-checks.mjs`, bài tự kiểm hai script này offline với máy chủ giả, không cần key). Mỗi lần chạy gửi vài chục yêu cầu ngắn, tốn vài xu. Key chỉ đọc từ biến môi trường (`ANTHROPIC_API_KEY`, hoặc `ANTHROPIC_AUTH_TOKEN` cho cổng dùng bearer) và không bao giờ được in ra. Trong PowerShell, chỉ cho cửa sổ này:
 
 ```powershell
 $env:ANTHROPIC_API_KEY = "<key của bạn>"
-node CHATMCP-HUB/tests/live/check-anthropic-thinking.mjs
-node CHATMCP-HUB/tests/live/check-anthropic-hub-adapter.mjs
+node DATGOLD-HUB/tests/live/check-anthropic-thinking.mjs
+node DATGOLD-HUB/tests/live/check-anthropic-hub-adapter.mjs
 Remove-Item Env:ANTHROPIC_API_KEY
 ```
 
 - `check-anthropic-thinking.mjs` gửi năm yêu cầu tự dựng và cho biết **API** làm gì: lượt `tool_use` gửi lại không kèm khối có được nhận không, tài khoản có áp ràng buộc "khối gắn với hội thoại đứng trước nó" không, `drop_block` có chạy không.
 - `check-anthropic-hub-adapter.mjs` hỏi lại cùng những điều đó qua chính `GatewayProvider` của Hub, ở chế độ JSON và stream, và cho biết **Hub** làm gì: gửi lại đúng khối, giữ khối ở nhà khi hội thoại đổi, và khi API từ chối thì gửi lại đúng một lần không kèm khối (một yêu cầu bị sửa có chủ ý để gây ra lỗi 400 đó).
 - Mã thoát: 0 là đúng như Hub hứa; 1 là có dòng `PROBLEM` (một phát hiện thật về Hub); 2 là chưa quyết định được (mô hình không suy luận, key bị từ chối, API bận: chạy lại); 3 là thiếu key hoặc thiếu thư mục Hub. `--dry-run` chỉ in kế hoạch, không cần key; `--model` chọn mô hình khác.
-- Kết quả đã ghi: 2026-10-25, `claude-sonnet-5-5` (xem ARCHITECTURE.md). `CHATMCP-HUB/tests/verify-live-checks.mjs` chạy cả hai script offline với máy chủ giả (kể cả bốn lỗi cấy vào bản sao của Hub, phải bị báo) để chúng không hỏng âm thầm.
+- Kết quả đã ghi: 2026-10-25, `claude-sonnet-5-5` (xem ARCHITECTURE.md). `DATGOLD-HUB/tests/verify-live-checks.mjs` chạy cả hai script offline với máy chủ giả (kể cả bốn lỗi cấy vào bản sao của Hub, phải bị báo) để chúng không hỏng âm thầm.
 
 ## Long-task autonomy acceptance (v3.0.3 runtime follow-up)
 

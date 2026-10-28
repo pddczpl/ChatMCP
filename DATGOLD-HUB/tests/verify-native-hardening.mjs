@@ -15,7 +15,7 @@ const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repo = path.resolve(hubRoot, '..');
 const shellFolders = ['desktop-shell', 'native-shared', 'installer'].map((name) => path.join(repo, name));
 if (!shellFolders.every((folder) => fs.existsSync(folder))) {
-  console.log('CHATMCP_TEST_SKIP: desktop-shell/, native-shared/ and installer/ were not found next to CHATMCP-HUB (they ship in the repository, not in the Hub bundle)');
+  console.log('CHATMCP_TEST_SKIP: desktop-shell/, native-shared/ and installer/ were not found next to DATGOLD-HUB (they ship in the repository, not in the Hub bundle)');
   process.exit(0);
 }
 
@@ -129,6 +129,22 @@ check(/AreDevToolsEnabled\s*=\s*false/.test(window.text), 'a release build turns
   check(!guarded('await Task.Run(() => { InstallerEngine.Uninstall(dir, report); });\nMessageBox.Show("done");', 'InstallerEngine\\.Uninstall'), '(the pattern can fail: a window with no catch around the call is not accepted)');
   check(!guarded('try { LoadIcon(); } catch { }\nawait Task.Run(() => { InstallerEngine.Uninstall(dir, report); });\ntry { Tidy(); } catch (Exception ex) { MessageBox.Show(ex.Message); }', 'InstallerEngine\\.Uninstall'), '(nor is a call that sits outside the try block while another try/catch exists in the file)');
   check(guarded('try { await Task.Run(() => { InstallerEngine.Uninstall(dir, (p, m) => { Invoke(new Action(() => { bar.Value = p; })); }); }); } catch (Exception ex) { MessageBox.Show(ex.Message); }', 'InstallerEngine\\.Uninstall'), '(and the shape the windows use is accepted, lambdas and braces inside the try included)');
+}
+
+// The folder that holds the Hub is DATGOLD-HUB in a source checkout and CHATMCP-HUB in an installation (scripts/InstallerPayload.ps1 maps the one onto the other). The shell and the Hub
+// ownership check ask HubFolder (native-shared/HubLifecycle.cs), the one C# place that names the two. A literal anywhere else would look for one of them only, and fail in the other
+// layout: a checkout whose shell cannot find its Hub, or an update that does not recognise the Hub of an installation. The behaviour is pinned by the native unit tests (HubFolderTests).
+{
+  const named = (entry) => (strip(entry.text).match(/"(?:CHATMCP|DATGOLD)-HUB"/g) ?? []).length;
+  const files = shell.filter((entry) => named(entry) > 0).map((entry) => entry.file + ' (' + named(entry) + ')');
+  check(files.length === 1 && files[0] === 'native-shared/HubLifecycle.cs (2)', 'the two names of the Hub folder are written in ONE C# place, HubFolder in native-shared/HubLifecycle.cs, once each', files.join(', '));
+  const lifecycle = shell.find((entry) => entry.file === 'native-shared/HubLifecycle.cs');
+  const program = shell.find((entry) => entry.file === 'desktop-shell/Program.cs');
+  const folder = /internal static class HubFolder\s*\{[\s\S]*?\n\}/.exec(strip(lifecycle.text));
+  check(folder && /Source = "DATGOLD-HUB"/.test(folder[0]) && /Installed = "CHATMCP-HUB"/.test(folder[0]), 'HubFolder names DATGOLD-HUB as the folder of a checkout and CHATMCP-HUB as the folder of an installation');
+  check((strip(window.text).match(/HubFolder\.Name\(_repoRoot\)/g) ?? []).length === 3, 'the window asks HubFolder for the folder of the package.json, of the hub.mjs and of the working directory of the Hub it starts');
+  check(program && /HubFolder\.Exists\(/.test(strip(program.text)), 'the program finds its root by the folder of either kind');
+  check(/HubFolder\.Name\(root\)/.test(strip(lifecycle.text)), 'and the Hub ownership query expects the hub.mjs of the folder that is there');
 }
 
 console.log(`PASS: ${checks} checks - no script injection of page addresses, one http/https-only new-window handler (the system browser opens a release page of the project and nothing else), DevTools only in DEBUG, Windows PowerShell started in one place without PSModulePath, the setup and uninstall windows report errors`);

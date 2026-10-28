@@ -18,7 +18,7 @@ const REPO = path.resolve(HUB, '..');
 const SCRIPT = path.join(REPO, 'scripts', 'ci-health.mjs');
 const FIXTURE = path.join(HUB, 'tests', 'fixtures', 'ci-health', 'gh-output.json');
 if (!existsSync(SCRIPT)) {
-  console.log('CHATMCP_TEST_SKIP: scripts/ci-health.mjs was not found next to CHATMCP-HUB (the CI health check needs the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: scripts/ci-health.mjs was not found next to DATGOLD-HUB (the CI health check needs the whole repository)');
   process.exit(0);
 }
 const { GH_ALLOWED, buildReport, ghArguments, runGh } = await import(pathToFileURL(SCRIPT).href);

@@ -66,13 +66,13 @@ function Assert-InstallerNoReparsePath {
 }
 
 # For a TEST build only (Build-Installer.ps1 -ReleaseKeysFile): the full path of a key list that the desktop shell is built with and that the Hub the installer installs reads, so that the
-# end-to-end test of the updater can build two versions that trust a key made for the run. A release is built from the committed CHATMCP-HUB\lib\release-keys.json and from nothing else, so a
+# end-to-end test of the updater can build two versions that trust a key made for the run. A release is built from the committed DATGOLD-HUB\lib\release-keys.json and from nothing else, so a
 # publish workflow refuses it. What is checked is the FILE: where it is, that nothing on its way is a link, that it is small, and that it holds an entry that says use "release" with a key of the
 # size of a P-256 SubjectPublicKeyInfo (91 bytes, 124 characters of base64). The shell and the Hub read the keys themselves, strictly (native-shared/UpdatePackage.cs, lib/release-signature.mjs).
 function Resolve-InstallerReleaseKeysFile {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$Path)
-    if ($env:GITHUB_WORKFLOW -like 'Publish*') { throw 'A release is built from the committed CHATMCP-HUB\lib\release-keys.json and from nothing else: -ReleaseKeysFile is for test builds.' }
+    if ($env:GITHUB_WORKFLOW -like 'Publish*') { throw 'A release is built from the committed DATGOLD-HUB\lib\release-keys.json and from nothing else: -ReleaseKeysFile is for test builds.' }
     if ($Path -notmatch '^(?:[A-Za-z]:[\\/]|\\\\)') { throw "-ReleaseKeysFile must be a full path: $Path" }
     $full = [IO.Path]::GetFullPath($Path)
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "-ReleaseKeysFile is not a file: $full" }
@@ -107,7 +107,7 @@ function Assert-InstallerNoAmbientReleaseKeysFile {
     [CmdletBinding()]
     param()
     if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {
-        throw 'A release is built from the committed CHATMCP-HUB\lib\release-keys.json and from nothing else: the environment variable ReleaseKeysFile is set in this publish workflow, and MSBuild would read it as a property. Remove it.'
+        throw 'A release is built from the committed DATGOLD-HUB\lib\release-keys.json and from nothing else: the environment variable ReleaseKeysFile is set in this publish workflow, and MSBuild would read it as a property. Remove it.'
     }
 }
 
@@ -141,7 +141,7 @@ function Test-InstallerFileContains {
 }
 
 # The desktop shell carries its key list as an embedded resource, which is the file byte for byte. So the program that was published must hold the exact bytes of the list the build meant to give it:
-# the committed CHATMCP-HUB\lib\release-keys.json, or the one a TEST build named. A program that holds anything else would trust other keys than the build says.
+# the committed DATGOLD-HUB\lib\release-keys.json, or the one a TEST build named. A program that holds anything else would trust other keys than the build says.
 # What is proved is that these bytes OCCUR in the published program, which is what an embedded resource of that file looks like; that the resource IS those bytes is not proved (the same bytes held elsewhere
 # in the program, a string or a second resource, would pass too). The project embeds the list one way only, and the shell reads it from there; docs/THREAT-MODEL.md U23 says the same.
 function Assert-InstallerReleaseKeysBuiltIn {
@@ -168,6 +168,16 @@ function Assert-InstallerReleaseKeysShipped {
     }
 }
 
+# The folder of the Hub is DATGOLD-HUB in the source tree. In an installation it keeps the name it has always had, CHATMCP-HUB: the shell, the installer and the
+# update look for it by that name, and the installations of earlier versions have it. This is the one place where the path of a tracked file becomes its path there.
+function ConvertTo-InstalledRelativePath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$SourceRelativePath)
+    $sourceFolder = 'DATGOLD-HUB/'
+    if ($SourceRelativePath.StartsWith($sourceFolder, [StringComparison]::Ordinal)) { return 'CHATMCP-HUB/' + $SourceRelativePath.Substring($sourceFolder.Length) }
+    return $SourceRelativePath
+}
+
 function Get-InstallerPayloadFiles {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
@@ -179,7 +189,7 @@ function Get-InstallerPayloadFiles {
         throw 'Installer source must be the root of its Git checkout.'
     }
     # NUL records preserve spaces and Unicode without relying on Git quotePath.
-    $raw = Invoke-InstallerGitRead -Git $git.Path -Root $root -Arguments 'ls-files --stage -z -- assets CHATMCP-HUB scripts START-CHATMCP-DESKTOP.cmd LICENSE NOTICE THIRD-PARTY-NOTICES.md'
+    $raw = Invoke-InstallerGitRead -Git $git.Path -Root $root -Arguments 'ls-files --stage -z -- assets DATGOLD-HUB scripts START-CHATMCP-DESKTOP.cmd LICENSE NOTICE THIRD-PARTY-NOTICES.md'
     $files = New-Object 'System.Collections.Generic.List[object]'
     foreach ($record in $raw.Split([char]0)) {
         if (-not $record) { continue }
@@ -191,28 +201,28 @@ function Get-InstallerPayloadFiles {
             $relative -match '^scripts/(Start-DesktopApp|install-desktop|uninstall-desktop)\.ps1$' -or
             $relative -eq 'START-CHATMCP-DESKTOP.cmd' -or
             $relative -match '^(LICENSE|NOTICE|THIRD-PARTY-NOTICES\.md)$' -or
-            $relative -match '^CHATMCP-HUB/(lib|workers|extension|windows)/' -or
-            ($relative -match '^CHATMCP-HUB/web/' -and $relative -notmatch '^CHATMCP-HUB/web/dist/') -or
-            $relative -match '^CHATMCP-HUB/(hub\.mjs|package\.json|README\.md|THIRD-PARTY-NOTICES\.txt|Start-ChatMcpHub\.ps1|Stop-ChatMcpHub\.ps1|START-CHATMCP-HUB\.cmd|STOP-CHATMCP-HUB\.cmd)$'
+            $relative -match '^DATGOLD-HUB/(lib|workers|extension|windows)/' -or
+            ($relative -match '^DATGOLD-HUB/web/' -and $relative -notmatch '^DATGOLD-HUB/web/dist/') -or
+            $relative -match '^DATGOLD-HUB/(hub\.mjs|package\.json|README\.md|THIRD-PARTY-NOTICES\.txt|Start-ChatMcpHub\.ps1|Stop-ChatMcpHub\.ps1|START-CHATMCP-HUB\.cmd|STOP-CHATMCP-HUB\.cmd)$'
         # Native helper is published as a pinned self-contained runtime. Never ship its
         # tracked development source, generated obj/bin or raw fixture helpers.
-        if ($relative -match '^CHATMCP-HUB/windows/sandbox/GuestSupervisor/' -or
+        if ($relative -match '^DATGOLD-HUB/windows/sandbox/GuestSupervisor/' -or
             $relative -match '(^|/)(bin|obj|publish)/') { continue }
         if (-not $include -or $relative -match '(^|/)(tests|test-results|node_modules|\.git)/' -or
-            $relative -match '^CHATMCP-HUB/windows/(Test-|Run-StudioSmoke|Run-StudioSoak)') { continue }
+            $relative -match '^DATGOLD-HUB/windows/(Test-|Run-StudioSmoke|Run-StudioSoak)') { continue }
         if ($mode -notin @('100644', '100755') -or $stage -ne '0') { throw "Installer source must be a regular, resolved Git file: $relative" }
         if ($relative -match '(^|/)\.\.?(/|$)|[:\\]' -or $relative.StartsWith('/')) { throw "Unsafe installer source path: $relative" }
         $source = [IO.Path]::GetFullPath((Join-Path $root $relative))
         if (-not $source.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Source escaped checkout: $relative" }
         Assert-InstallerNoReparsePath -Path $source
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Tracked runtime file is missing: $relative" }
-        $files.Add([pscustomobject]@{ RelativePath = $relative; Source = $source })
+        $files.Add([pscustomobject]@{ RelativePath = (ConvertTo-InstalledRelativePath -SourceRelativePath $relative); Source = $source })
     }
 
     # Vite empties this directory immediately before building. Its new hashed
     # assets are intentionally not required to be tracked yet; old tracked
     # hashes must never be resurrected from the Git index.
-    $uiRoot = Join-Path $root 'CHATMCP-HUB\web\dist'
+    $uiRoot = Join-Path $root 'DATGOLD-HUB\web\dist'
     Assert-InstallerNoReparsePath -Path $uiRoot
     if (-not (Test-Path -LiteralPath (Join-Path $uiRoot 'index.html') -PathType Leaf)) { throw 'Fresh React build is missing index.html.' }
     $pending = New-Object 'System.Collections.Generic.Stack[string]'

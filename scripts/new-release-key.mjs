@@ -7,11 +7,11 @@
 // written. Make it in a folder that only you can open (a folder under your own profile is one), on a disk with NTFS permissions (an exFAT or FAT32 drive has no access list, and the tool refuses to make the
 // key there), and then move it to the place you keep it offline: a copy that is kept elsewhere has the access list of that place, which is yours to look after. A passphrase can protect it: set DATGOLD_RELEASE_KEY_PASSPHRASE in the environment (never on the command line).
 //
-// It prints the key id and the public key and the entry for CHATMCP-HUB/lib/release-keys.json, which replaces the placeholder there (a small pull request). It NEVER prints the private key.
+// It prints the key id and the public key and the entry for DATGOLD-HUB/lib/release-keys.json, which replaces the placeholder there (a small pull request). It NEVER prints the private key.
 // Exit code: 0 when the key was made, 1 when it was refused (nothing is left behind), 2 for a bad use.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { KEY_PASSPHRASE_VARIABLE, ToolError, createReleaseKey } from '../CHATMCP-HUB/tools/release-tools.mjs';
+import { KEY_PASSPHRASE_VARIABLE, ToolError, createReleaseKey } from '../DATGOLD-HUB/tools/release-tools.mjs';
 
 const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const USAGE = [
@@ -34,7 +34,7 @@ try {
     'public key (base64 SPKI):',
     made.spki,
     '',
-    'Entry for CHATMCP-HUB/lib/release-keys.json (replace the placeholder with it, in a small pull request):',
+    'Entry for DATGOLD-HUB/lib/release-keys.json (replace the placeholder with it, in a small pull request):',
     JSON.stringify(made.entry, null, 2),
     '',
     `The private key is in ${made.file}${made.encrypted ? ' (protected by the passphrase you gave)' : ''}. It is the one secret of the update system: whoever has it can make every installed copy download their program.`,

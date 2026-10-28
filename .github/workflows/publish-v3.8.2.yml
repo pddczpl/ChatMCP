@@ -42,9 +42,9 @@ jobs:
           $main = ((git ls-remote origin refs/heads/main) -split '\s+')[0]
           if ($main -ne $env:GITHUB_SHA) { throw 'main moved since release commit; refusing stale release' }
           if ((git show -s --format=%s HEAD).Trim() -ne 'release: ChatMCP v3.8.2') { throw 'Wrong release commit title' }
-          $hub = (Get-Content CHATMCP-HUB/package.json -Raw | ConvertFrom-Json).version
-          $ui = (Get-Content CHATMCP-HUB/ui/package.json -Raw | ConvertFrom-Json).version
-          $lock = (node -p "require('./CHATMCP-HUB/ui/package-lock.json').version").Trim()
+          $hub = (Get-Content DATGOLD-HUB/package.json -Raw | ConvertFrom-Json).version
+          $ui = (Get-Content DATGOLD-HUB/ui/package.json -Raw | ConvertFrom-Json).version
+          $lock = (node -p "require('./DATGOLD-HUB/ui/package-lock.json').version").Trim()
           if ($hub -ne '3.8.2' -or $ui -ne '3.8.2' -or $lock -ne '3.8.2') { throw 'Version mismatch: Hub/UI/lockfile' }
           if (-not (Get-Content desktop-shell/ChatMCP.csproj -Raw).Contains('<Version>3.8.2</Version>')) { throw 'Desktop version mismatch' }
           if (-not (Get-Content installer/ChatMCP.Installer.csproj -Raw).Contains('<Version>3.8.2</Version>')) { throw 'Installer version mismatch' }
@@ -55,11 +55,11 @@ jobs:
       - name: Verify pinned release metadata and regression suites
         shell: pwsh
         run: |
-          python -m pip install -r CHATMCP-HUB/tests/requirements-e2e.txt
+          python -m pip install -r DATGOLD-HUB/tests/requirements-e2e.txt
           if ($LASTEXITCODE -ne 0) { throw 'Pinned test dependencies failed to install' }
           git config --global user.email 'ci@example.invalid'
           git config --global user.name 'ci'
-          node CHATMCP-HUB/tests/run-all.mjs --no-skip all
+          node DATGOLD-HUB/tests/run-all.mjs --no-skip all
           if ($LASTEXITCODE -ne 0) { throw 'Release Hub regression suite failed' }
       - name: Build self-contained Windows installer
         shell: pwsh
@@ -69,13 +69,13 @@ jobs:
       - name: Native Windows WebView2 smoke test
         shell: pwsh
         run: |
-          node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
+          node DATGOLD-HUB/ui/e2e/webview2-smoke.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Native WebView2 smoke test failed' }
       - name: Build and verify matching Browser Companion 1.5.1 ZIP
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $manifest = Get-Content CHATMCP-HUB/extension/manifest.json -Raw | ConvertFrom-Json
+          $manifest = Get-Content DATGOLD-HUB/extension/manifest.json -Raw | ConvertFrom-Json
           if ($manifest.manifest_version -ne 3 -or $manifest.version -ne '1.5.1') { throw 'Companion extension version/manifest mismatch' }
           powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-BrowserCompanion.ps1 -VerifyInstallerPayload
           if ($LASTEXITCODE -ne 0) { throw 'Browser Companion ZIP/package parity validation failed' }

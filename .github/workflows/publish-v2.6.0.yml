@@ -40,9 +40,9 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ] || exit 1
           [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA" ] || { echo 'main moved after CI; refusing stale release'; exit 1; }
           [ "$(git show -s --format=%s HEAD)" = 'release: ChatMCP v2.6.0 (local-only)' ] || { echo 'Not the authorized v2.6.0 merge'; exit 1; }
-          [ "$(node -p "require('./CHATMCP-HUB/package.json').version")" = '2.6.0' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package.json').version")" = '2.6.0' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').version")" = '2.6.0' ]
+          [ "$(node -p "require('./DATGOLD-HUB/package.json').version")" = '2.6.0' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package.json').version")" = '2.6.0' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package-lock.json').version")" = '2.6.0' ]
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id >/dev/null 2>&1; then
             echo 'Existing release found; will not overwrite its artifacts'
             echo 'already_released=true' >> "$GITHUB_OUTPUT"

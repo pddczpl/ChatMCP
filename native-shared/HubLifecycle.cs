@@ -218,7 +218,7 @@ internal static class HubLifecycle
             // Confirm the exact script as well as the bundled executable. WMI is
             // read-only; the only generated query argument is an integer PID.
             var command = CommandLineOf(pid.Value);
-            var script = Path.GetFullPath(Path.Combine(root, "CHATMCP-HUB", "hub.mjs"));
+            var script = Path.GetFullPath(Path.Combine(root, HubFolder.Name(root), "hub.mjs"));
             if (!IsHubCommand(command, script))
                 throw new InvalidOperationException("The listener is not the installed Hub script. It was not stopped.").Tag("foreign_listener");
             if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed during inspection; retry.").Tag("hub_stop_failed");
@@ -229,7 +229,7 @@ internal static class HubLifecycle
     /// <summary>
     /// The words that say why the Hub's state (GET /api/state) holds work that an update would cut off, or null when it holds none: an agent that is not idle, or terminals and workers that run. A state with no
     /// `agent`, or one that is not an object (null, a string, a list), is work too (the Hub has not loaded its agent, or is not a Hub: fail closed). The rule the installer applies before it stops the Hub and
-    /// the shell applies before it exits, held to one list of cases with the page's port of it (CHATMCP-HUB/tests/fixtures/active-work-cases.json).
+    /// the shell applies before it exits, held to one list of cases with the page's port of it (DATGOLD-HUB/tests/fixtures/active-work-cases.json).
     /// </summary>
     internal static string? WorkInState(JsonElement data)
     {
@@ -328,6 +328,21 @@ internal sealed record UpdatePreflight(string? BlockingWork, string? OfferedVers
 /// The code that a step of an installation carries when it refuses or fails, so that the result file (and through it the page) can say WHY in words of its own without reading the text of an exception, which can
 /// hold a path. It is put in Exception.Data, so it works on any type of exception and changes none (a catch that looks for an IOException still finds it). The codes are a closed list.
 /// </summary>
+/// <summary>
+/// The folder that holds the Hub (hub.mjs, lib, web) inside a root. A source checkout has DATGOLD-HUB, since the folder of the repository was renamed. An installation keeps the name it has
+/// always had, CHATMCP-HUB: the installer, the update and the Hub ownership check look for it by that name, and every earlier installation has it (the payload builder,
+/// scripts/InstallerPayload.ps1, maps the one onto the other). This is the one place that names them; the shell and the ownership check ask here.
+/// </summary>
+internal static class HubFolder
+{
+    internal const string Source = "DATGOLD-HUB";
+    internal const string Installed = "CHATMCP-HUB";
+    /// <summary>The name of the Hub's folder in <paramref name="root"/>: the checkout's when there is one, the installation's otherwise.</summary>
+    internal static string Name(string root) => Directory.Exists(Path.Combine(root, Source)) ? Source : Installed;
+    /// <summary>Whether <paramref name="root"/> holds a Hub folder of either kind.</summary>
+    internal static bool Exists(string root) => Directory.Exists(Path.Combine(root, Source)) || Directory.Exists(Path.Combine(root, Installed));
+}
+
 internal static class StepCode
 {
     private const string Key = "datgold.step-code";

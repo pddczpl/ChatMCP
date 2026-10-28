@@ -61,7 +61,7 @@ try {
   ok('fresh host execution slot; no unrelated guest');
   const runtime=path.join(root,'runtime'),toolchain=path.join(root,'toolchain'),workspace=path.join(root,'project');
   for(const dir of [runtime,toolchain,path.join(workspace,'chatmcp.checks')])await fs.mkdir(dir,{recursive:true});
-  const supervisorPath=path.join(repo,'CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Release/net10.0/win-x64/publish/GuestSupervisor.exe');
+  const supervisorPath=path.join(repo,'DATGOLD-HUB/windows/sandbox/GuestSupervisor/bin/Release/net10.0/win-x64/publish/GuestSupervisor.exe');
   const supervisor=await fs.readFile(supervisorPath),node=await fs.readFile(process.execPath);
   report.supervisorSha256=sha(supervisor);report.nodeSha256=sha(node);
   for(const [directory,name,bytes] of [[runtime,'GuestSupervisor.exe',supervisor],[toolchain,'node.exe',node]]){

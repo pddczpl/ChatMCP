@@ -91,7 +91,8 @@ export function ModelPicker(props: ModelFieldProps) {
     retry: false,
   });
   const { data: info } = useModelInfo({ preset: props.preset, protocol: props.protocol, apiBaseUrl: props.apiBaseUrl, model: props.value });
-  const choices = useMemo(() => mergeChoices(list.data?.models, mine.models), [list.data, mine.models]);
+  // A model the catalog marks deprecated is not offered, except the one in the field: a connection that uses it still shows it.
+  const choices = useMemo(() => mergeChoices(list.data?.models, mine.models, { keep: [props.value] }), [list.data, mine.models, props.value]);
   const { shown, total } = filterChoices(choices, typed ? props.value : '', SHOWN);
   // A list that typing opened is drawn only when it has something to offer: a person typing a name the catalog does not have (a new model, an Ollama tag, a private deployment) is not shown a
   // box that says there is no list. The browse button and the arrow keys open it whatever it holds, and then it says why when it is empty.

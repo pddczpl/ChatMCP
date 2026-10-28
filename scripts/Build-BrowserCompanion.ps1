@@ -11,7 +11,7 @@ param([switch]$VerifyInstallerPayload)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$extension = Join-Path $root 'CHATMCP-HUB\extension'
+$extension = Join-Path $root 'DATGOLD-HUB\extension'
 $dist = Join-Path $root 'dist'
 $filename = 'DatGold-Browser-Companion.zip'
 # Releases up to 3.10.2 published this file as ChatMCP-Browser-Companion.zip, and every installed version links to

@@ -15,7 +15,7 @@
 //   --allow-unchecked-installer   sign without comparing an installer (you have compared the sha256 below with the Publish run yourself)
 //   --manifest <file>       sign this file instead of fetching the manifest of the tag (it must be the file as published)
 //   --out <file|folder>     where to write RELEASE-MANIFEST.json.sig (default: a folder of its own in the temporary files)
-//   --keys-file <file>      the list of keys the installed apps trust (default: CHATMCP-HUB/lib/release-keys.json); the key must be in it
+//   --keys-file <file>      the list of keys the installed apps trust (default: DATGOLD-HUB/lib/release-keys.json); the key must be in it
 //   --allow-unlisted-key    sign even though the key is not in that list (installed apps will reject the signature until it is)
 //   --release-base <url>    a stand-in on this machine instead of github.com (loopback addresses only; for tests)
 //
@@ -23,7 +23,7 @@
 // Exit code: 0 when the signature was made, 1 when it was refused, 2 for a bad use.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { KEY_PASSPHRASE_VARIABLE, KEY_PATH_VARIABLE, ToolError, signRelease } from '../CHATMCP-HUB/tools/release-tools.mjs';
+import { KEY_PASSPHRASE_VARIABLE, KEY_PATH_VARIABLE, ToolError, signRelease } from '../DATGOLD-HUB/tools/release-tools.mjs';
 
 const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const USAGE = 'usage: node scripts/sign-release.mjs --tag v3.11.0 --key <private key file> --installer <file> [--manifest <file>] [--out <file|folder>] [--keys-file <file>] [--allow-unlisted-key] [--allow-unchecked-installer]\n'

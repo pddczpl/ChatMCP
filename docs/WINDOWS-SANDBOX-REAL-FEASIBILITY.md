@@ -109,7 +109,7 @@ Configuration generated via `createSandboxConfiguration()` conforming to Phase 1
 
 ## 5. Real Guest Execution Evidence (Current 25-Check Suite)
 
-The test suite `CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs` executed on the host:
+The test suite `DATGOLD-HUB/tests/windows-sandbox/real-guest.mjs` executed on the host:
 
 ```
 === CHATMCP PHASE 1: REAL WINDOWS SANDBOX GUEST VALIDATION ===
