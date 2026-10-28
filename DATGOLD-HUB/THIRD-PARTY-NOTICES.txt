@@ -13,26 +13,26 @@ RUNTIME COMPONENTS
  1. Node.js (runtimes/node/node.exe) - MIT, with bundled V8 (BSD-3-Clause), OpenSSL (Apache-2.0), ICU (Unicode license), zlib, c-ares,
     nghttp2, undici and others. Version: the Node.js that built the installer (release workflow: 24.x).
     License text: runtimes/node/LICENSE (the LICENSE file of the Node.js archive). Status: shipped; the build fails without it.
- 2. CPython embeddable 3.11.9 (CHATMCP-HUB/runtimes/python) - PSF-2.0, plus the libraries its archive bundles (OpenSSL, SQLite, libffi,
+ 2. CPython embeddable 3.11.9 (DATGOLD-HUB/runtimes/python) - PSF-2.0, plus the libraries its archive bundles (OpenSSL, SQLite, libffi,
     expat, zlib, bzip2, liblzma, mpdecimal) as named in its license file.
-    License text: CHATMCP-HUB/runtimes/python/LICENSE.txt. Status: shipped; the build fails without it.
+    License text: DATGOLD-HUB/runtimes/python/LICENSE.txt. Status: shipped; the build fails without it.
  3. Microsoft Visual C++ runtime (vcruntime140.dll, vcruntime140_1.dll inside the CPython archive) - Microsoft proprietary
     redistributable terms (not OSI-approved, not Apache-2.0). Status: documented on 2026-10-25 - the terms that Microsoft publishes are summarised,
     not reproduced, in the section MICROSOFT C/C++ RUNTIME COMPONENTS below (THIRD-PARTY-NOTICES.md has the same text with links, under the heading
     "Microsoft C/C++ runtime components").
- 4. pyright 1.1.407 - MIT. CHATMCP-HUB/runtimes/lsp/node_modules/pyright/LICENSE.txt; typeshed stubs: dist/typeshed-fallback/LICENSE.
- 5. typescript 5.9.3 - Apache-2.0. CHATMCP-HUB/runtimes/lsp/node_modules/typescript/LICENSE.txt and ThirdPartyNoticeText.txt.
- 6. typescript-language-server 4.3.4 - Apache-2.0 with portions from VS Code (MIT). CHATMCP-HUB/runtimes/lsp/node_modules/typescript-language-server/LICENSE.
- 7. web-tree-sitter 0.25.10 - MIT. CHATMCP-HUB/runtimes/lsp/node_modules/web-tree-sitter/LICENSE.
- 8. tree-sitter-wasms 0.1.13 (the four compiled grammars in CHATMCP-HUB/grammars) - Unlicense, which covers the packaging only.
-    CHATMCP-HUB/licenses/tree-sitter-wasms/LICENSE. Status: shipped; staging fails without it.
+ 4. pyright 1.1.407 - MIT. DATGOLD-HUB/runtimes/lsp/node_modules/pyright/LICENSE.txt; typeshed stubs: dist/typeshed-fallback/LICENSE.
+ 5. typescript 5.9.3 - Apache-2.0. DATGOLD-HUB/runtimes/lsp/node_modules/typescript/LICENSE.txt and ThirdPartyNoticeText.txt.
+ 6. typescript-language-server 4.3.4 - Apache-2.0 with portions from VS Code (MIT). DATGOLD-HUB/runtimes/lsp/node_modules/typescript-language-server/LICENSE.
+ 7. web-tree-sitter 0.25.10 - MIT. DATGOLD-HUB/runtimes/lsp/node_modules/web-tree-sitter/LICENSE.
+ 8. tree-sitter-wasms 0.1.13 (the four compiled grammars in DATGOLD-HUB/grammars) - Unlicense, which covers the packaging only.
+    DATGOLD-HUB/licenses/tree-sitter-wasms/LICENSE. Status: shipped; staging fails without it.
  9. Tree-sitter grammars compiled into those files, each MIT, built from the version range tree-sitter-wasms 0.1.13 declares:
-      tree-sitter-javascript (MIT, ^0.20.3)  -> CHATMCP-HUB/grammars/tree-sitter-javascript.wasm, text: CHATMCP-HUB/licenses/tree-sitter-javascript/LICENSE
-      tree-sitter-typescript (MIT, ^0.20.5)  -> tree-sitter-typescript.wasm and tree-sitter-tsx.wasm, text: CHATMCP-HUB/licenses/tree-sitter-typescript/LICENSE
-      tree-sitter-python (MIT, ^0.21.0)      -> tree-sitter-python.wasm, text: CHATMCP-HUB/licenses/tree-sitter-python/LICENSE
+      tree-sitter-javascript (MIT, ^0.20.3)  -> DATGOLD-HUB/grammars/tree-sitter-javascript.wasm, text: DATGOLD-HUB/licenses/tree-sitter-javascript/LICENSE
+      tree-sitter-typescript (MIT, ^0.20.5)  -> tree-sitter-typescript.wasm and tree-sitter-tsx.wasm, text: DATGOLD-HUB/licenses/tree-sitter-typescript/LICENSE
+      tree-sitter-python (MIT, ^0.21.0)      -> tree-sitter-python.wasm, text: DATGOLD-HUB/licenses/tree-sitter-python/LICENSE
     Status: shipped; staging fails without them. The texts are the upstream LICENSE files, copied unchanged from the default branch of each upstream
     repository on 2026-10-19; the versions of the grammars inside tree-sitter-wasms are not recorded in its package.
-10. playwright and playwright-core 1.64.0 (JavaScript only, CHATMCP-HUB/runtimes/browser/node_modules) - Apache-2.0. LICENSE and NOTICE in each
+10. playwright and playwright-core 1.64.0 (JavaScript only, DATGOLD-HUB/runtimes/browser/node_modules) - Apache-2.0. LICENSE and NOTICE in each
     package folder, ThirdPartyNotices.txt in playwright-core. The browser executable is not bundled.
 11. Microsoft.Web.WebView2 1.0.4258.31 (managed assemblies and WebView2Loader.dll beside ChatMCP.exe) - Microsoft BSD-3-Clause-style license;
     its NOTICE adds Antlr3.Runtime and StringTemplate4 (BSD-3-Clause). Status: pending.
@@ -40,17 +40,17 @@ RUNTIME COMPONENTS
     third-party notice file is not shipped).
 13. Inter variable and JetBrains Mono 400 web fonts (@fontsource-variable/inter, @fontsource/jetbrains-mono 5.3.0) - SIL Open Font License 1.1.
     Status: pending.
-14. React 16.0.0 and ReactDOM 16.0.1 UMD files (CHATMCP-HUB/web/vendor, legacy dashboards; ReactDOM includes Modernizr) - MIT. The files keep
+14. React 16.0.0 and ReactDOM 16.0.1 UMD files (DATGOLD-HUB/web/vendor, legacy dashboards; ReactDOM includes Modernizr) - MIT. The files keep
     their upstream headers; the permission text is at the end of this file. Status: shipped.
-15. UI libraries compiled into CHATMCP-HUB/web/dist (167 packages: MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1; the complete list is in
+15. UI libraries compiled into DATGOLD-HUB/web/dist (167 packages: MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1; the complete list is in
     THIRD-PARTY-NOTICES.md). Status: pending (the bundle keeps the license comments of React and lucide-react only).
-16. Model catalog data from models.dev (CHATMCP-HUB/lib/model-catalog.data.json: a compact extract of https://models.dev/api.json, dated inside the
+16. Model catalog data from models.dev (DATGOLD-HUB/lib/model-catalog.data.json: a compact extract of https://models.dev/api.json, dated inside the
     file; data only, nothing is downloaded when the Hub runs) - MIT. The permission text is at the end of this file. Status: shipped.
-17. ripgrep 15.2.0 (CHATMCP-HUB/runtimes/ripgrep/rg.exe, the search of search_files and find_files) - MIT OR Unlicense (dual-licensed: the licensee
+17. ripgrep 15.2.0 (DATGOLD-HUB/runtimes/ripgrep/rg.exe, the search of search_files and find_files) - MIT OR Unlicense (dual-licensed: the licensee
     chooses). The binary also contains PCRE2 (BSD-3-Clause, with an exemption for binary library-like packages), the Rust standard library of the toolchain
     that built it, 30 Rust crates of ripgrep's own build and 2 more that the standard library links, listed below, and the static Microsoft C runtime (see
-    MICROSOFT C/C++ RUNTIME COMPONENTS). License texts of ripgrep itself: CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the
-    archive). Texts of PCRE2, of the Rust standard library and of the crates: CHATMCP-HUB/licenses/ripgrep/<folder>/, copied unchanged from the upstream
+    MICROSOFT C/C++ RUNTIME COMPONENTS). License texts of ripgrep itself: DATGOLD-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the
+    archive). Texts of PCRE2, of the Rust standard library and of the crates: DATGOLD-HUB/licenses/ripgrep/<folder>/, copied unchanged from the upstream
     repositories; MANIFEST.json there gives the source, the SHA-256 and the git blob id of each. Status: shipped; the build fails without them. The list is
     derived from the sources and from the release record of ripgrep 15.2.0, not from opening the binary; the installer build checks against rg.exe that the
     version string of the PCRE2 library (10.46 2025-08-27) is in it, that it carries the source paths /rustc/<commit> of the Rust toolchain named below, and
@@ -172,7 +172,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-models.dev - MIT License (Copyright (c) 2025 models.dev; the data in CHATMCP-HUB/lib/model-catalog.data.json)
+models.dev - MIT License (Copyright (c) 2025 models.dev; the data in DATGOLD-HUB/lib/model-catalog.data.json)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -18,6 +18,8 @@ This is a normal release and is published as the latest release. It contains eve
 
 **Smaller things.** "View evidence" on the banner of a failed turn opens the evidence; the top bar shows the new gold D mark; the source folder is `DATGOLD-HUB` (an installation keeps its `CHATMCP-HUB` folder, see [docs/NAMING.md](docs/NAMING.md)).
 
+**The Hub folder inside an installation is `DATGOLD-HUB`.** Up to 3.11.0 it was `CHATMCP-HUB` (the repository already used the new name). The setup of this version installs the new folder, removes the files of the old one that the earlier setup put there (a file you changed stays) together with the folders left empty, and still recognises, and stops, the Hub that an installation of 3.11.0 or older started. **If you loaded the Browser Companion into Chrome or Edge straight from `CHATMCP-HUB\extension`, it stops working after the update** (the folder is gone): load it again from `DATGOLD-HUB\extension`, or from the extracted `DatGold-Browser-Companion.zip`. Your settings and history are not in that folder and are not touched.
+
 **Downloads.** A release now carries `DatGoldSetup.exe` and `DatGold-Browser-Companion.zip` (each with its `.sha256`) and `RELEASE-MANIFEST.json` with its signature. **`ChatMCP-Browser-Companion.zip` is no longer published.** An app of v3.10.x or older links to that name from its "download the Companion" button, which answers 404 until that copy is replaced by v3.11.0 or later.
 
 ## Upgrade
@@ -32,12 +34,14 @@ The Hub's health version is `3.11.1` and the UI build identifier is `3.11.1-reac
 
 ## What to try
 
+- After the update the folder `CHATMCP-HUB` is no longer in the installation folder, and `DATGOLD-HUB` is. If a browser had the Companion loaded from the old folder, load it again.
 - Settings → Dự án → Tác tử: choose 70, send a long task and look at the activity log for `Kiểm tra giữ lại thông tin`.
 - Leave the Hub-accepts-checks switch off and check that the acceptance panel shows no tag; turn it on, run a task that ends with a passing check, accept the first objective yourself and see the tag on the check of the next.
 - Ask a question in Vietnamese in a project with a `package.json` and look at the line under the turn that says which skills were selected.
 
 ## What is not verified
 
+- **The move of the Hub folder** was run by the CI job that installs the published v3.9.0 (folder `CHATMCP-HUB`), starts its Hub, and upgrades it with the setup of this build; that the Update button does the same from a v3.11.0 on a real machine is the thing nobody has seen yet.
 - **The Update button has not yet been used on a real release.** v3.11.0 was signed with the project's real key and its signature was read back from GitHub by the Hub's own code, and a CI job drives the click on a hosted Windows runner with a stand-in for GitHub and a key made for the run. This release is the first that a v3.11.0 installed on a real machine can be updated to; whether it works there is for the first person who tries.
 - The compaction was tested with a scripted model. No test shows that a real model does better after a compaction, and the retention check shows that the Hub's facts are in the request, not that the model uses them.
 - **With the Hub-accepts-checks switch on, a check that passes proves little**: the model chooses the command, and an empty test suite exits with 0.
