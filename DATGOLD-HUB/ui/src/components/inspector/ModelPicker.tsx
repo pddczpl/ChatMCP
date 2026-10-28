@@ -91,7 +91,8 @@ export function ModelPicker(props: ModelFieldProps) {
     retry: false,
   });
   const { data: info } = useModelInfo({ preset: props.preset, protocol: props.protocol, apiBaseUrl: props.apiBaseUrl, model: props.value });
-  const choices = useMemo(() => mergeChoices(list.data?.models, mine.models), [list.data, mine.models]);
+  // A model the catalog marks deprecated is not offered, except the one in the field: a connection that uses it still shows it.
+  const choices = useMemo(() => mergeChoices(list.data?.models, mine.models, { keep: [props.value] }), [list.data, mine.models, props.value]);
   const { shown, total } = filterChoices(choices, typed ? props.value : '', SHOWN);
   // A list that typing opened is drawn only when it has something to offer: a person typing a name the catalog does not have (a new model, an Ollama tag, a private deployment) is not shown a
   // box that says there is no list. The browse button and the arrow keys open it whatever it holds, and then it says why when it is empty.
@@ -198,7 +199,9 @@ export function ModelPicker(props: ModelFieldProps) {
                   role="option"
                   aria-selected={choice.id === props.value}
                   onClick={() => pick(choice.id)}
-                  onMouseEnter={() => setActive(index)}
+                  // (mousemove, not mouseenter: a list that opens or scrolls under a pointer that is not moving is not the person choosing a row with the mouse, and the browser reports
+                  // that as a mouseenter; the active row is the keyboard's until the pointer really moves.)
+                  onMouseMove={() => setActive(index)}
                   className={`flex cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 px-2.5 py-1.5 text-xs ${index === activeAt ? 'bg-hover' : ''} ${choice.id === props.value ? 'text-primary' : 'text-fg'}`}
                 >
                   <span className="font-mono">{choice.id}</span>{' '}
