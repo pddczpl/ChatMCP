@@ -77,11 +77,29 @@
       ]
     },
     {
+      "id": "agent-options",
+      "claim": "The owner chooses from which percent of its budget (50 to 95, 80 when none is chosen) the history is compacted, and whether the Hub accepts the checks it ran (off unless turned on); the choice is saved, applies from the next model request of every runner, and an acceptance made by the Hub is marked acceptedBy auto_hub_check.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 244,
+        "quote": "lưu cùng dữ liệu Hub, áp dụng từ lượt gọi model kế tiếp (kể cả với cuộc trò chuyện đang mở)"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "DATGOLD-HUB/tests/verify-e2e-agent-options.mjs",
+      "seamNote": "A real Hub process (real route with the bearer, CSRF and Origin layers, the saved store, the real runner) and a scripted model server: the route and what it refuses, the file and a restart, the task that records the options, a change while an approval is pending, a file the Hub cannot read. That the compaction starts at the chosen percent, request by request, is pinned with the real AgentRunner in verify-smart-context-compaction.mjs; that the Hub matches a check only after the owner accepted the objective before it, and the tag on the page, in ui/e2e/agent-options.spec.mjs.",
+      "forbiddenDoubles": [
+        "createHubServer\\(",
+        "\\bnew\\s+AgentRunner\\(",
+        "\\bpermissions\\s*[:=]\\s*\\{"
+      ]
+    },
+    {
       "id": "skills-on-demand",
       "claim": "A skill too big for the index is read through skill_load: bounded, once per load, with the Hub's redaction, and without any effect on permissions.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 245,
+        "line": 246,
         "quote": "mỗi lần nạp tối đa 16 KiB, một lần cho mỗi lần gọi"
       },
       "kind": "claim",
@@ -352,7 +370,7 @@
     },
     {
       "id": "owner-acceptance",
-      "claim": "The owner accepts each objective criterion against fresh first-party receipts.",
+      "claim": "The owner accepts each objective criterion against fresh first-party receipts; only when the owner turns on \"the Hub accepts the checks it ran\" (off by default) does the Hub match the criteria that ask for a check itself, and the evidence then says acceptedBy auto_hub_check.",
       "source": {
         "file": "RELEASE-NOTES-v3.9.0.md",
         "line": 7,
@@ -362,7 +380,7 @@
       "seam": "unmapped",
       "test": null,
       "candidateTest": "DATGOLD-HUB/tests/verify-objective-acceptance.mjs",
-      "reason": "verify-objective-acceptance.mjs calls the real acceptObjectiveCriterion with hand-written receipts (progress objects), not receipts produced by the agent.",
+      "reason": "verify-objective-acceptance.mjs calls the real acceptObjectiveCriterion and autoAcceptVerifiedChecks with hand-written receipts (progress objects), not receipts produced by the agent. The option itself is mapped in the claim agent-options.",
       "phase": null
     },
     {
