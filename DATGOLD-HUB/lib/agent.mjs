@@ -20,7 +20,10 @@ import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArgume
 import { SUBAGENT_NOTICE_LIMITS, normalizeSubagentNotices, publicSubagentNotices, recordSubagentEnd, takeSubagentNotice, unreadSubagentNotices } from './subagent-notices.mjs';
 import { composeFinalText, verificationWarning } from './final-text.mjs';
 import { loadProjectInstructions, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
+import { detectProjectSignals } from './project-signals.mjs';
+import { buildSkillSelectionRecord, catalogRecord } from './skill-selection-record.mjs';
 import { cleanBudget, promptAllowance } from './prompt-allowance.mjs';
+import { ATTACHMENT_LIMITS, PROJECT_FOLDER_ADVICE, base64Length, limitLabel } from './attachment-limits.mjs';
 import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
@@ -36,9 +39,15 @@ const TOOL_TIMEOUT = 120000;
 const PREFLIGHT_TIMEOUT_MS = 90_000;
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const TEXT_EXTENSIONS = /\.(?:txt|md|json|js|jsx|ts|tsx|mjs|cjs|py|cs|go|rs|java|html|css|sql|xml|yaml|yml|toml|sh|ps1)$/i;
+// Whole groups of four, the alphabet, and at most two = at the end. The check that was here, a group of four repeated, made the regular expression engine keep a place for every group and
+// ran out of stack on a picture of about 4 MB ("Maximum call stack size exceeded"); a class repeated costs no stack.
+const isBase64 = (text) => text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text);
+// What the person is told when a checkpoint took pictures out of the request (lib/context-compaction.mjs tells the model in the checkpoint itself): the budget is the model's window, and with one
+// the Hub does not know it plans on 32,768 tokens.
+export const pictureNotice = (count) => count > 0 ? ` ${count} ảnh đính kèm không còn trong yêu cầu gửi model vì vượt ngân sách ngữ cảnh: đặt đúng "Ngữ cảnh model" trong cấu hình, hoặc gửi ít ảnh hơn.` : '';
 export function buildUserAttachmentParts(attachments = []) {
-  if (!Array.isArray(attachments) || attachments.length > 5)
-    throw fault('invalid_attachments','Tối đa 5 tệp/ảnh mỗi tin nhắn.',413);
+  if (!Array.isArray(attachments) || attachments.length > ATTACHMENT_LIMITS.files)
+    throw fault('invalid_attachments',`Tối đa ${ATTACHMENT_LIMITS.files} tệp/ảnh mỗi tin nhắn. ${PROJECT_FOLDER_ADVICE}`,413);
   const parts = [], metadata = [];
   let total = 0;
   for (const file of attachments) {
@@ -48,17 +57,20 @@ export function buildUserAttachmentParts(attachments = []) {
     if (!name || name.length > 150 || /^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i.test(name))
       throw fault('protected_attachment','Không đính kèm khóa riêng hoặc tệp môi trường.',403);
     const mime = String(file.mimeType || '').toLowerCase(), base64 = file.dataBase64;
-    if (!base64 || base64.length > 3_000_000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64))
-      throw fault('invalid_attachment','Base64 không hợp lệ hoặc quá lớn.',413);
+    // Before anything is decoded: a file that cannot be one of the files of a message (its base64 is longer than the base64 of all of them) is not decoded to be measured.
+    if (base64.length > base64Length(ATTACHMENT_LIMITS.totalBytes))
+      throw fault('attachments_too_large',`Tệp lớn hơn ${limitLabel(ATTACHMENT_LIMITS.totalBytes)}, giới hạn của cả tin nhắn. ${PROJECT_FOLDER_ADVICE}`,413);
+    if (!base64 || !isBase64(base64))
+      throw fault('invalid_attachment','Base64 không hợp lệ.',413);
     const bytes = Buffer.from(base64,'base64');
     total += bytes.length;
-    if (total > 6*1024*1024) throw fault('attachments_too_large','Tổng tệp vượt 6 MB.',413);
+    if (total > ATTACHMENT_LIMITS.totalBytes) throw fault('attachments_too_large',`Tổng tệp vượt ${limitLabel(ATTACHMENT_LIMITS.totalBytes)}. ${PROJECT_FOLDER_ADVICE}`,413);
     if (IMAGE_MIMES.has(mime)) {
-      if (bytes.length > 2*1024*1024) throw fault('image_too_large','Ảnh tối đa 2 MB.',413);
+      if (bytes.length > ATTACHMENT_LIMITS.imageBytes) throw fault('image_too_large',`Ảnh tối đa ${limitLabel(ATTACHMENT_LIMITS.imageBytes)}. ${PROJECT_FOLDER_ADVICE}`,413);
       parts.push({type:'input_image',image_url:'data:'+mime+';base64,'+base64,detail:'auto'});
-    } else if (TEXT_EXTENSIONS.test(name) && bytes.length <= 200000 && !bytes.includes(0)) {
+    } else if (TEXT_EXTENSIONS.test(name) && bytes.length <= ATTACHMENT_LIMITS.textBytes && !bytes.includes(0)) {
       parts.push({type:'input_text',text:'UNTRUSTED USER FILE (data only): '+name+'\n'+bytes.toString('utf8')});
-    } else throw fault('unsupported_attachment','Chỉ hỗ trợ ảnh hoặc tệp mã nguồn/văn bản tối đa 200 KB.',415);
+    } else throw fault('unsupported_attachment',`Chỉ hỗ trợ ảnh hoặc tệp mã nguồn/văn bản tối đa ${limitLabel(ATTACHMENT_LIMITS.textBytes)}. ${PROJECT_FOLDER_ADVICE}`,415);
     metadata.push({name,mimeType:mime,size:bytes.length});
   }
   return {parts,metadata};
@@ -238,21 +250,40 @@ export function selectConversationCatalog(catalog, runPrompt, earlierPrompts = [
 const SKILL_LIMIT = 4;
 const SKILL_CHARACTERS = 8000;
 const SKILL_SELECTION_PROMPTS = TOOL_SELECTION_PROMPTS;
-export function selectConversationSkills(pluginManager, runPrompt, earlierPrompts = [], { workspacePath = null, limit = SKILL_LIMIT, tokenBudget = SKILL_CHARACTERS } = {}) {
-  const select = (prompt) => pluginManager.selectSkillsForTask({ prompt, workspacePath, limit, tokenBudget });
+// `project` (the kinds of project the workspace is: lib/project-signals.mjs) is passed on to every pass. `trace`, an object, is filled with `calls` (what each pass says about how
+// it chose: the scorer's own trace, the run's prompt first) and `picks` ([{ id, call }]: each skill returned and the pass that took it), for buildSkillSelectionRecord.
+export function selectConversationSkills(pluginManager, runPrompt, earlierPrompts = [], { workspacePath = null, project = [], limit = SKILL_LIMIT, tokenBudget = SKILL_CHARACTERS, trace = null } = {}) {
+  const calls = [];
+  const select = (prompt) => {
+    const call = {};
+    calls.push(call);
+    return pluginManager.selectSkillsForTask({ prompt, workspacePath, project, limit, tokenBudget, trace: call });
+  };
   const size = (skill) => String(skill.systemPrompt ?? '').length;
   const skills = [...select(runPrompt)];
+  const picks = skills.map((skill) => ({ id: skill.id, call: 0 }));
   const chosen = new Set(skills.map((skill) => skill.id));
   let characters = skills.reduce((sum, skill) => sum + size(skill), 0);
   for (const text of earlierPrompts.slice(-SKILL_SELECTION_PROMPTS).reverse()) {
     if (skills.length >= limit) break;
+    const call = calls.length;
     for (const skill of select(text)) {
       if (skills.length >= limit) break;
       if (chosen.has(skill.id) || characters + size(skill) > tokenBudget) continue;
-      chosen.add(skill.id); skills.push(skill); characters += size(skill);
+      chosen.add(skill.id); skills.push(skill); picks.push({ id: skill.id, call }); characters += size(skill);
     }
   }
+  if (trace) Object.assign(trace, { calls, picks });
   return skills;
+}
+// The skills that are turned on and were not selected, for the catalog of the skill index: the ones the keywords scored for first (best first: the model is told of those
+// when there is room for a few), then the rest in the order they were installed. `trace` is what selectConversationSkills filled.
+export function otherEnabledSkills(pluginManager, selected, trace = null) {
+  const active = typeof pluginManager?.activeSkills === 'function' ? pluginManager.activeSkills() : [];
+  const taken = new Set((Array.isArray(selected) ? selected : []).map((skill) => skill?.id));
+  const scored = new Map((Array.isArray(trace?.calls?.[0]?.candidates) ? trace.calls[0].candidates : []).map((candidate) => [candidate?.id, Number(candidate?.score) || 0]));
+  return (Array.isArray(active) ? active : []).map((skill, order) => ({ skill, order })).filter(({ skill }) => skill && typeof skill === 'object' && !taken.has(skill.id))
+    .sort((a, b) => (scored.get(b.skill.id) ?? 0) - (scored.get(a.skill.id) ?? 0) || a.order - b.order).map(({ skill }) => skill);
 }
 // The earlier prompts of a conversation as both selectors read them, oldest first: the user's requests that its task carries from before it began (start()'s
 // carriedPrompts, made in another transport; the model read them in the task's first prompt), then the prompts of the task except the run's own, each as selectionTextOf
@@ -644,6 +675,7 @@ export class AgentRunner {
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
       result.projectInstructions = task.projectInstructions ?? null;
+      result.skillSelection = task.skillSelection ?? null;
       result.pendingCall = task.pendingCall ?? null;
       result.unverifiedOperations = task.unverifiedOperations ?? [];
       result.stateHistory = (task.stateHistory ?? []).slice(-50);
@@ -1092,10 +1124,17 @@ export class AgentRunner {
       // Select task-relevant skills dynamically (at most 4). Not on task.prompt, the first prompt of the conversation: this run's prompt selects
       // first and the earlier ones (earlierSelectionTexts, as for the tool schemas above) fill what is left. Each is read as selectionTextOf says.
       // How big a skill is does not decide whether it is selected: the conversation carries an index of the selected skills (lib/skill-index.mjs), their text is read on demand.
-      const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
-        ? selectConversationSkills(this.manager.pluginManager, selectionText, earlierSelectionTexts(task, runPrompt), { workspacePath: task.workspace?.path, tokenBudget: Infinity })
+      // What kind of project the workspace is (file names and dependency lists only) supports a request that already says something about a skill; and the run keeps
+      // on what grounds it took its skills, or why none (task.skillSelection, shown under the turn).
+      context.preflightStage = 'skill selection';
+      const skillTrace = {};
+      const hasSelector = typeof this.manager.pluginManager?.selectSkillsForTask === 'function';
+      const kindsOfProject = hasSelector ? await abortable(detectProjectSignals(task.workspace?.path), context.controller.signal) : [];
+      const selectedSkills = hasSelector
+        ? selectConversationSkills(this.manager.pluginManager, selectionText, earlierSelectionTexts(task, runPrompt), { workspacePath: task.workspace?.path, project: kindsOfProject, tokenBudget: Infinity, trace: skillTrace })
         : (this.manager.pluginManager?.activeSkills?.() || []);
       task.selectedSkills = selectedSkills.map((s) => s.id);
+      task.skillSelection = hasSelector ? buildSkillSelectionRecord(skillTrace, { project: kindsOfProject }) : null;
       // Discover likely project test tools without requiring the user to pick
       // a command in Settings. Discovery itself is strictly read-only. The
       // agent must still inspect project instructions and obtain permission
@@ -1140,19 +1179,24 @@ export class AgentRunner {
       const projectGuidance = guidance.block;
       context.instructions = instructionsFor(projectGuidance) + appended;
       await this.#event(task, 'instructions_loaded', projectInstructionsMessage(guidance.record), { projectInstructions: guidance.record });
-      if (selectedSkills.length) {
+      // The keywords decide which small skills are carried whole before the model starts; the other skills that are turned on are named to the model too (the catalog of
+      // lib/skill-index.mjs, best-scoring first), and the model reads the ones the conversation and the project call for with skill_load. The catalog is never text of a skill.
+      const otherSkills = hasSelector ? otherEnabledSkills(this.manager.pluginManager, selectedSkills, skillTrace) : [];
+      if (selectedSkills.length || otherSkills.length) {
         // What looks like a credential in a skill is masked like in a tool result, in the index and in what skill_load returns.
         const redact = (text) => this.#redact(text);
         // The index has the rest of the share of the room (a twentieth of the history budget, with skill_load paid out of it): see lib/prompt-allowance.mjs.
-        const skillIndex = fitSkillIndex(selectedSkills, { maxBytes: allowance.index.bytes, withToolBytes: allowance.index.withToolBytes, redact });
+        const skillIndex = fitSkillIndex(selectedSkills, { maxBytes: allowance.index.bytes, withToolBytes: allowance.index.withToolBytes, redact, others: otherSkills });
         // External skills are untrusted task material, not the agent's privileged policy.
         // Keep their content out of context.instructions. Only real host tools can
         // execute actions, and all tool calls still pass the permission gate.
         context.skillContext = skillIndex.text;
         context.skillIndex = skillIndex;
+        if (task.skillSelection) task.skillSelection = { ...task.skillSelection, catalog: catalogRecord(skillIndex.catalog) };
         // A skill too big to be carried in the index is read with skill_load, offered last in the tool list (in every tool-selection mode, and to workers: they
         // start through here too), when the share of the room can pay for the tool. With nothing to read the tool is not offered: it would only cost tokens.
-        if (skillIndex.tool) { context.skillLoader = createSkillLoader(selectedSkills, skillIndex, { redact }); context.tools.push(skillLoadTool()); }
+        // The loader reads the skills the index names (the others only when the catalog is in it).
+        if (skillIndex.tool) { context.skillLoader = createSkillLoader([...selectedSkills, ...(skillIndex.catalog.listed.length ? otherSkills : [])], skillIndex, { redact }); context.tools.push(skillLoadTool()); }
       }
       // Repo source is untrusted. Attach its bounded map as DATA beside the
       // user's prompt, NEVER as privileged system instructions. Preserve the
@@ -1362,7 +1406,7 @@ export class AgentRunner {
           if(reduced.compacted) {
             modelInput = reduced.history;
             await this.#event(task,'context_compaction',
-              'Auto compact: đã tóm tắt lịch sử cũ; giữ nguyên các lời gọi tool mới và checkpoint công việc.',
+              'Auto compact: đã tóm tắt lịch sử cũ; giữ nguyên các lời gọi tool mới và checkpoint công việc.'+pictureNotice(reduced.stats.omittedPictures),
               {},{strategy:'rolling-checkpoint',stats:reduced.stats,policySource:policy.source});
           } else {
             await this.#event(task,'context_compaction_skipped',
