@@ -23,10 +23,10 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startHub } from '../../../CHATMCP-HUB/tests/e2e/hub-process.mjs';
-import { startUpdateFeed, feedManifest } from '../../../CHATMCP-HUB/tests/e2e/update-feed-server.mjs';
-import { startMockModel } from '../../../CHATMCP-HUB/tests/e2e/mock-model-server.mjs';
-import { dashboardUrl, requestTicket } from '../../../CHATMCP-HUB/lib/hub-session.mjs';
+import { startHub } from '../../../DATGOLD-HUB/tests/e2e/hub-process.mjs';
+import { startUpdateFeed, feedManifest } from '../../../DATGOLD-HUB/tests/e2e/update-feed-server.mjs';
+import { startMockModel } from '../../../DATGOLD-HUB/tests/e2e/mock-model-server.mjs';
+import { dashboardUrl, requestTicket } from '../../../DATGOLD-HUB/lib/hub-session.mjs';
 import { buildReleaseManifest, flipByte, makeTestKeys, signWithTool } from './release-files.mjs';
 import { connectPage, sleep } from './lib/cdp.mjs';
 import { PageDriver } from './lib/page-driver.mjs';
@@ -35,7 +35,7 @@ import { assertHostedRunnerEnvironment, clearDebugPolicy, environmentWithout, ki
 import { startRunningWork } from './lib/work.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const HUB_ROOT = path.resolve(HERE, '..', '..', '..', 'CHATMCP-HUB');
+const HUB_ROOT = path.resolve(HERE, '..', '..', '..', 'DATGOLD-HUB');
 const keep = process.argv.includes('--keep');
 const evidenceIndex = process.argv.indexOf('--evidence');
 const evidenceFolder = evidenceIndex > 0 ? process.argv[evidenceIndex + 1] : null;

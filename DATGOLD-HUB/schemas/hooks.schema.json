@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pddczpl/ChatMCP/blob/main/DATGOLD-HUB/schemas/hooks.schema.json",
+  "title": "DatGold hooks.json",
+  "description": "Lifecycle hooks for the DatGold Hub: the documented subset of the Claude Code hooks schema. The owner's file is <Hub data folder>/hooks.json; a project may ship .chatmcp/hooks.json, which is ignored until the owner approves its sha256. The Hub validates in code (lib/hooks.mjs); tests/verify-hooks-core.mjs checks that this file and the loader accept and refuse the same configurations.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "hooks": {
+      "description": "Event name -> matcher groups. PreToolUse, PostToolUse and PostToolUseFailure fire for every tool call; Stop, TaskCompleted and SubagentStop are accepted and run by the hooks runner but are wired to the agent loop in a later release. Every other Claude Code event name is accepted and ignored (the loader warns).",
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "SessionStart", "Setup", "UserPromptSubmit", "UserPromptExpansion", "PreToolUse", "PermissionRequest", "PermissionDenied",
+          "PostToolUse", "PostToolUseFailure", "PostToolBatch", "Notification", "MessageDisplay", "SubagentStart", "SubagentStop",
+          "TaskCreated", "TaskCompleted", "Stop", "StopFailure", "TeammateIdle", "InstructionsLoaded", "ConfigChange", "CwdChanged",
+          "DirectoryAdded", "FileChanged", "WorktreeCreate", "WorktreeRemove", "PreCompact", "PostCompact", "PreModelSwitch",
+          "PostModelSwitch", "Elicitation", "ElicitationResult", "SessionEnd"
+        ]
+      },
+      "properties": {
+        "PreToolUse": { "$ref": "#/$defs/groups" },
+        "PostToolUse": { "$ref": "#/$defs/groups" },
+        "PostToolUseFailure": { "$ref": "#/$defs/groups" },
+        "Stop": { "$ref": "#/$defs/groups" },
+        "TaskCompleted": { "$ref": "#/$defs/groups" },
+        "SubagentStop": { "$ref": "#/$defs/groups" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/groups" }
+    }
+  },
+  "$defs": {
+    "groups": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/group" }
+    },
+    "group": {
+      "type": "object",
+      "required": ["hooks"],
+      "properties": {
+        "matcher": {
+          "description": "Tested against the tool name of the tool events. Empty, \"*\" or absent: every tool. Only letters, digits, _ - space , and |: an exact name or a list of exact names. Anything else is an unanchored JavaScript regular expression. A DatGold name (local.run_command) and the Claude Code name (Bash) both match; an external tool answers to mcp__server__tool. Ignored by Stop, TaskCompleted and SubagentStop.",
+          "type": "string",
+          "maxLength": 512
+        },
+        "hooks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/handler" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "handler": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["command", "http", "mcp_tool", "prompt", "agent"] }
+      },
+      "if": { "properties": { "type": { "const": "command" } }, "required": ["type"] },
+      "then": { "$ref": "#/$defs/commandHandler" }
+    },
+    "commandHandler": {
+      "description": "The only handler type this build runs. Exec form (args present): command is the program, started without a shell. Shell form (no args): command is a script for bash, powershell or cmd. Exit 0: stdout is read as one JSON object. Exit 2: blocks (PreToolUse, Stop, TaskCompleted, SubagentStop) with stderr as the reason; on the Post events it is feedback to the model. Any other exit code does not block unless onFailure is block (on Stop, SubagentStop and TaskCompleted onFailure has no effect: only exit 2 or a block decision holds the agent back).",
+      "type": "object",
+      "required": ["type", "command"],
+      "properties": {
+        "type": { "const": "command" },
+        "command": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "args": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 8192 } },
+        "shell": { "enum": ["bash", "powershell", "cmd"] },
+        "timeout": { "description": "Seconds. Default 600 (the Claude Code default). The process and everything it started are killed when the time is up.", "type": "integer", "minimum": 1, "maximum": 3600 },
+        "onFailure": { "description": "block: a non-zero exit other than 2, a timeout or a program that cannot be started blocks the action. continue (default): it does not. No effect on Stop, SubagentStop and TaskCompleted: a failure there is logged and never blocks.", "enum": ["continue", "block"] },
+        "if": { "description": "One permission-rule style condition, for example Bash(git *) or Edit(src/**). Only for the tool events. A condition that cannot be evaluated lets the hook run.", "type": "string", "maxLength": 512 },
+        "async": { "description": "Accepted for compatibility; this build runs the hook synchronously.", "type": "boolean" },
+        "asyncRewake": { "description": "Accepted for compatibility; this build runs the hook synchronously.", "type": "boolean" },
+        "statusMessage": { "type": "string", "maxLength": 500 },
+        "once": { "description": "Accepted for compatibility; only skill frontmatter honours it in Claude Code.", "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds CHATMCP-HUB/lib/model-catalog.data.json, the compact snapshot of https://models.dev/api.json (MIT) that lib/model-catalog.mjs answers from.
+// Builds DATGOLD-HUB/lib/model-catalog.data.json, the compact snapshot of https://models.dev/api.json (MIT) that lib/model-catalog.mjs answers from.
 //
 //   node scripts/update-model-catalog.mjs                     download api.json (HTTPS to models.dev, 12 MiB cap, 30 s) and write the snapshot
 //   node scripts/update-model-catalog.mjs --from api.json     build it from a file instead (what the tests do; no network)
@@ -12,12 +12,12 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FLAG, FORMAT_VERSION, SOURCE_URL, ageInDays, compactCatalog, fetchRawCatalog, snapshotIsIntact, validateRaw } from '../CHATMCP-HUB/lib/model-catalog-build.mjs';
+import { FLAG, FORMAT_VERSION, SOURCE_URL, ageInDays, compactCatalog, fetchRawCatalog, snapshotIsIntact, validateRaw } from '../DATGOLD-HUB/lib/model-catalog-build.mjs';
 
 export { FLAG, FORMAT_VERSION, SOURCE_URL, ageInDays, compactCatalog, snapshotIsIntact, validateRaw };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const SNAPSHOT_FILE = path.resolve(HERE, '..', 'CHATMCP-HUB', 'lib', 'model-catalog.data.json');
+export const SNAPSHOT_FILE = path.resolve(HERE, '..', 'DATGOLD-HUB', 'lib', 'model-catalog.data.json');
 
 function option(args, name) {
   const at = args.indexOf(name);

@@ -40,13 +40,13 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ] || exit 1
           [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA" ] || { echo 'main moved after CI; refusing stale release'; exit 1; }
           [ "$(git show -s --format=%s HEAD)" = 'release: ChatMCP v3.0.3 (agent progress)' ] || { echo 'Not the authorized v3.0.3 merge'; exit 1; }
-          [ "$(node -p "require('./CHATMCP-HUB/package.json').version")" = '3.0.3' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package.json').version")" = '3.0.3' ]
-          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').version")" = '3.0.3' ]
+          [ "$(node -p "require('./DATGOLD-HUB/package.json').version")" = '3.0.3' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package.json').version")" = '3.0.3' ]
+          [ "$(node -p "require('./DATGOLD-HUB/ui/package-lock.json').version")" = '3.0.3' ]
           grep -q '<Version>3.0.3</Version>' desktop-shell/ChatMCP.csproj
           grep -q '<Version>3.0.3</Version>' installer/ChatMCP.Installer.csproj
-          grep -q "export const VERSION = '3.0.3'" CHATMCP-HUB/lib/manager.mjs
-          grep -q "UI_BUILD = '3.0.3-react-agent'" CHATMCP-HUB/hub.mjs
+          grep -q "export const VERSION = '3.0.3'" DATGOLD-HUB/lib/manager.mjs
+          grep -q "UI_BUILD = '3.0.3-react-agent'" DATGOLD-HUB/hub.mjs
           test -s RELEASE-NOTES-v3.0.3.md
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id >/dev/null 2>&1; then
             echo 'Existing release found; will not overwrite its artifacts'

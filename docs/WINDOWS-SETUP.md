@@ -21,14 +21,14 @@ cd ChatMCP
 # Chỉ khi kiểm thử nhánh PR local-only chưa merge:
 # git fetch origin
 # git switch refactor/local-only-remove-cloud
-npm ci --prefix .\CHATMCP-HUB\ui
-npm run build --prefix .\CHATMCP-HUB\ui
+npm ci --prefix .\DATGOLD-HUB\ui
+npm run build --prefix .\DATGOLD-HUB\ui
 ~~~
 
 ## 3. Khởi động Hub
 
 ~~~powershell
-.\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
+.\DATGOLD-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
 # Hoặc mở native desktop
 .\START-CHATMCP-DESKTOP.cmd
 ~~~
@@ -38,7 +38,7 @@ Launcher hỗ trợ -ProjectPath, -Port, -StateDir, -NoOpen và -Backend local �
 Dừng bằng:
 
 ~~~powershell
-.\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd
+.\DATGOLD-HUB\STOP-CHATMCP-HUB.cmd
 ~~~
 
 ## 4. Lần đầu sử dụng
@@ -59,7 +59,7 @@ Dữ liệu Hub theo mặc định ở %LOCALAPPDATA%\ChatMCP\hub; ứng dụng 
 ## 7. Kiểm thử trước khi phát hành
 
 ~~~powershell
-node .\CHATMCP-HUB\tests\run-all.mjs
+node .\DATGOLD-HUB\tests\run-all.mjs
 .\scripts\Build-Installer.ps1
 Get-FileHash .\dist\DatGoldSetup.exe -Algorithm SHA256
 ~~~
@@ -95,7 +95,7 @@ Exit 1 indicates failure. Installing the desktop does not silently replace a Bro
 - **With the setup wizard.** Run `DatGoldSetup.exe`: when the folder you install into holds the marker, the wizard asks whether to repair it first and then installs.
 - **With the repair form.** `DatGoldSetup.exe --quiet --recover --install-dir "<the DatGold folder>"` repairs the installation and nothing else. The setup is a Windows program with no console of its own, so a prompt that is just given the command shows nothing and does not wait: run it so that the shell waits and shows the line, for instance `.\DatGoldSetup.exe --quiet --recover --install-dir "<the DatGold folder>" 2>&1 | Out-Host; $LASTEXITCODE` in Windows PowerShell. It prints one line and exits 0 when the installation is whole (repaired, or there was nothing to repair) and 1 for everything else: the repair was refused (nothing was changed), it stopped halfway (run it again), a task runs or another update works on the folder, the folder is not there, or the arguments are wrong. It must be run from a DatGoldSetup.exe that is not in the DatGold folder; it takes no other argument.
 
-The repair puts a file back only when it is the bytes the update wrote or the old ones, and removes a file the update created only when it is the bytes the update wrote. **It refuses, and changes nothing,** when it cannot prove that the installation is what the journal says: the backup is missing or damaged, `journal.json` cannot be read (setups up to 3.10.2 did not flush it to the disk), a file was changed by something else after the update began, or a name leads outside the installation or through a link. Nothing is put back outside the DatGold folder, and a name in the data folder of the Hub is refused; the only other things written are the repair's own log (in `%LOCALAPPDATA%\ChatMCP\logs`, also when it refuses) and, in the window of an update, the result file. A stop in the middle (the power goes again, a file is held open) is repaired by running it again. After a repair made by the window of an update, the next start of DatGold says that the update did not go through (only that window writes the result file, and only when no program listens on port 3007: a repair made by the wizard or by `--recover`, or after a setup that was killed, leaves none, and DatGold then says nothing); a Hub that you start by hand, with `CHATMCP-HUB\START-CHATMCP-HUB.cmd` or `node hub.mjs`, leaves it alone while the marker is there, so it says nothing early. The repair was built for a rollback that could not finish and for a stop in the middle; it was run on what a commit killed in the middle leaves and by the lifecycle script on a disposable machine, and **not** after a real power cut or a real failed update.
+The repair puts a file back only when it is the bytes the update wrote or the old ones, and removes a file the update created only when it is the bytes the update wrote. **It refuses, and changes nothing,** when it cannot prove that the installation is what the journal says: the backup is missing or damaged, `journal.json` cannot be read (setups up to 3.10.2 did not flush it to the disk), a file was changed by something else after the update began, or a name leads outside the installation or through a link. Nothing is put back outside the DatGold folder, and a name in the data folder of the Hub is refused; the only other things written are the repair's own log (in `%LOCALAPPDATA%\ChatMCP\logs`, also when it refuses) and, in the window of an update, the result file. A stop in the middle (the power goes again, a file is held open) is repaired by running it again. After a repair made by the window of an update, the next start of DatGold says that the update did not go through (only that window writes the result file, and only when no program listens on port 3007: a repair made by the wizard or by `--recover`, or after a setup that was killed, leaves none, and DatGold then says nothing); a Hub that you start by hand, with `DATGOLD-HUB\START-CHATMCP-HUB.cmd` or `node hub.mjs`, leaves it alone while the marker is there, so it says nothing early. The repair was built for a rollback that could not finish and for a stop in the middle; it was run on what a commit killed in the middle leaves and by the lifecycle script on a disposable machine, and **not** after a real power cut or a real failed update.
 
 **Recovering an installation by hand.** What can still be done when the repair above refuses because a file is neither what the update wrote nor what it replaced (somebody changed it, or an update that was cut off left it unfinished), and the only way for an older setup. It puts the installation back to what it was before the update whatever the files hold now, so read what it does first. Close DatGold, then run this in Windows PowerShell as the same user (set `$install` to the folder DatGold is installed in). It first checks that the journal lists something and that every backup is the file it was made from (the SHA-256 in the journal), and stops, changing nothing, when one is not: with a damaged backup there is nothing to put back from. Then it puts back every file the update replaced or removed from the backup folder of this installation, removes every file that the journal lists as created by the update, and removes the marker and the backup, so that DatGold and the setup work again:
 
@@ -131,4 +131,4 @@ It stops at the first error. Up to the line that removes the marker nothing has 
 
 To test the updater, build two versions that trust a key made for the run: `.\scripts\Build-Installer.ps1 -ReleaseKeysFile <full path of a key file>` builds that key list into the desktop shell and copies it over `CHATMCP-HUB\lib\release-keys.json` of the payload, so that the Hub the setup installs trusts the same list. The committed file is not touched, the script says that it is a test build, a publish workflow refuses the parameter, and the file must be a plain file of at most 16 KiB with an entry that says use `release` and a 91-byte key. The CI job "Windows in-app updater, end to end" does this for real on a hosted runner (`scripts/tests/updater-e2e/`): `Build-TestPair.ps1` builds an old and a newer setup of the commit under test side by side, with the versions given at build time and a key list that `scripts/new-release-key.mjs` made for the run, and `run.mjs` installs the old one, drives the page of the installed app with presses of the mouse that the browser takes for a person's (trusted clicks injected through the DevTools protocol, not the operating system's mouse), and lets the app update itself to the new one (a version is a plain `x.y.z`: the feed carries releases only, so a suffix such as `-test` is refused by the Hub and by the shell).
 
-The installer and the uninstaller start Windows PowerShell as a child in two places: the helper that deletes `Uninstall.exe` once the uninstaller has ended, and the Hub ownership check of the preflight. Both go through `HubLifecycle.WindowsPowerShell` (`native-shared/HubLifecycle.cs`) and get no `PSModulePath`. A program started from a PowerShell 7 window hands PowerShell 7's module folders on, and Windows PowerShell would load them before its own and lose `Get-FileHash` (an uninstaller started that way used to leave `Uninstall.exe` behind). `scripts/tests/legacy-hub-upgrade/run.mjs` and `scripts/tests/Test-NativeLifecycle.ps1` start both from a stand-in for PowerShell 7's module folder, and `CHATMCP-HUB/tests/verify-native-hardening.mjs` keeps `HubLifecycle.cs` the only C# file that names `powershell.exe`.
+The installer and the uninstaller start Windows PowerShell as a child in two places: the helper that deletes `Uninstall.exe` once the uninstaller has ended, and the Hub ownership check of the preflight. Both go through `HubLifecycle.WindowsPowerShell` (`native-shared/HubLifecycle.cs`) and get no `PSModulePath`. A program started from a PowerShell 7 window hands PowerShell 7's module folders on, and Windows PowerShell would load them before its own and lose `Get-FileHash` (an uninstaller started that way used to leave `Uninstall.exe` behind). `scripts/tests/legacy-hub-upgrade/run.mjs` and `scripts/tests/Test-NativeLifecycle.ps1` start both from a stand-in for PowerShell 7's module folder, and `DATGOLD-HUB/tests/verify-native-hardening.mjs` keeps `HubLifecycle.cs` the only C# file that names `powershell.exe`.

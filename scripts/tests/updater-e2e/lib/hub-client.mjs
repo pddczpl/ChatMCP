@@ -1,7 +1,7 @@
 // What the page does to a running Hub, as calls from the proof: the Hub's session file (run/hub-session.json in its data folder, readable by this Windows account only) holds the secret of this launch, and every
 // call carries it as a bearer; a call that changes something carries the headers the Hub demands of the dashboard (Origin, the request marker, the CSRF token of the state it just read). This is the way
 // tests/e2e/hub-process.mjs and ui/e2e/fixtures.mjs talk to a Hub they started, for a Hub that something else started (the installed desktop shell).
-import { bearerHeaders, mutationHeaders, readSession } from '../../../../CHATMCP-HUB/lib/hub-session.mjs';
+import { bearerHeaders, mutationHeaders, readSession } from '../../../../DATGOLD-HUB/lib/hub-session.mjs';
 
 export class HubClient {
   /** @param {{origin: string, stateDirectory: string}} options the origin of the Hub (http://127.0.0.1:<port>) and its data folder (where run/hub-session.json is) */

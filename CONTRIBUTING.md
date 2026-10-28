@@ -92,20 +92,20 @@ You need Node.js 22.12 or newer and Git. A Windows machine is needed for the ins
 Hub (no build step):
 
 ```bash
-cd CHATMCP-HUB
+cd DATGOLD-HUB
 node tests/run-all.mjs
 ```
 
 `run-all.mjs` runs every `tests/verify-*.mjs` suite in its own process and exits non-zero if one fails. Useful options: `--list`, `--filter <text>`, `--verbose`, and `--no-skip all` (CI uses it: a skipped suite counts as a failure). Some suites report SKIP when their prerequisites are missing; install the pinned Python packages to run them:
 
 ```bash
-python -m pip install -r CHATMCP-HUB/tests/requirements-e2e.txt
+python -m pip install -r DATGOLD-HUB/tests/requirements-e2e.txt
 ```
 
 React user interface (TypeScript, Vite):
 
 ```bash
-cd CHATMCP-HUB/ui
+cd DATGOLD-HUB/ui
 npm ci --no-audit --no-fund
 npm run build
 npm run test:unit

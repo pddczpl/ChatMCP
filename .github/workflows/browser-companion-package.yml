@@ -5,13 +5,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'CHATMCP-HUB/extension/**'
+      - 'DATGOLD-HUB/extension/**'
       - 'scripts/Build-BrowserCompanion.ps1'
       - 'scripts/InstallerPayload.ps1'
       - '.github/workflows/browser-companion-package.yml'
   pull_request:
     paths:
-      - 'CHATMCP-HUB/extension/**'
+      - 'DATGOLD-HUB/extension/**'
       - 'scripts/Build-BrowserCompanion.ps1'
       - 'scripts/InstallerPayload.ps1'
       - '.github/workflows/browser-companion-package.yml'
