@@ -15,6 +15,7 @@ const tones: Record<ProofTone, { box: string; icon: string }> = {
 
 const icons: Record<ProofKind, LucideIcon> = {
   errors: XCircle,
+  'failed-turn': XCircle,
   accepted: ShieldCheck,
   'checks-verified': ShieldCheck,
   incomplete: AlertTriangle,
@@ -26,7 +27,7 @@ const icons: Record<ProofKind, LucideIcon> = {
 export function ProofStrip({ task }: { task: Task }) {
   const { lang } = useTranslation();
   const vi = lang === 'vi';
-  const { setActiveTab } = useAppStore();
+  const { setActiveTab, showToast } = useAppStore();
   const { data } = useQuery({
     queryKey: ['verification-evidence', task.id],
     queryFn: () => api.getVerifications(task.id),
@@ -37,6 +38,13 @@ export function ProofStrip({ task }: { task: Task }) {
   const proof = assessProof(task, runs, vi);
   if (!proof) return null;
 
+  // The evidence is a section of the Progress tab. When that tab is open already nothing changes on screen, so the section is brought into view; when the Hub has recorded no check the strip
+  // says so, instead of doing nothing. (setActiveTab also opens the panel when it was closed.)
+  const showEvidence = () => {
+    setActiveTab('plan');
+    if (typeof document !== 'undefined') requestAnimationFrame(() => document.querySelector('[data-testid="verification-receipts"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    if (runs.length === 0) showToast(vi ? 'Hub chưa ghi nhận kiểm tra nào cho lượt này.' : 'The Hub has not recorded a check for this turn.', 'info');
+  };
   const style = tones[proof.tone];
   const Icon = icons[proof.kind];
   return (
@@ -53,11 +61,13 @@ export function ProofStrip({ task }: { task: Task }) {
           </div>
           <p className="mt-1 text-[13px] leading-5 text-muted">{proof.note}</p>
         </div>
-        <button type="button" onClick={() => setActiveTab('plan')}
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium text-primary transition-colors hover:bg-hover">
-          {vi ? 'Xem bằng chứng' : 'View evidence'}
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
+        {proof.evidence && (
+          <button type="button" onClick={showEvidence}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium text-primary transition-colors hover:bg-hover">
+            {vi ? 'Xem bằng chứng' : 'View evidence'}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
     </section>
   );
