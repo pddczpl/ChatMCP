@@ -1,6 +1,21 @@
 # Lịch sử thay đổi
 
-## [3.11.0] — 2026-10-27 — The Update button, signed releases and a repair for an update that stopped halfway (latest release)
+## [3.11.1] — 2026-10-28 — Skills chosen from the project, bigger attachments and a compaction you can tune (latest release)
+
+It contains everything of 3.11.0 and what was merged after it. It is the first release that an installed 3.11.0 can offer through the Update button.
+
+- **Compaction you can tune, and a check of what it kept.** Settings → Dự án → Tác tử: the percent of its history budget from which the agent compacts the conversation (a whole number from 50 to 95, 80 when none is chosen), read at every model request. The checkpoint is built from the Hub's own record of the task (your requests, the files looked at or changed, the latest failing command that was not fixed since, the pictures that left the request); after each compaction the activity log says `Kiểm tra giữ lại thông tin: n/m` and names what is missing. The three newest call/result pairs are always kept whole, so with a low percent, a small window and very large results there may be no safe place to cut: the Hub says so and deletes nothing.
+- **The Hub can accept the checks it ran, only if you turn it on (off by default).** A criterion of the objective acceptance that asks for a check is matched to the latest passing check the Hub ran, once the objective before it is accepted. This relaxes "only the owner accepts" for checks: the evidence says `acceptedBy: auto_hub_check`, the panel tags the criterion and you can confirm over it; "observed" and "edited" stay yours.
+- **Objective acceptance:** the latest receipt of the right kind is chosen for each criterion, and one button confirms the whole plan in the order the Hub needs.
+- **Skills:** the selector reads Vietnamese phrases and the kind of project (file names of its root, declared dependencies); the skill index names every enabled skill so that the model can read one with `skill_load`. `DATGOLD-HUB/tests/live/skill-load-live.mjs` is a manual, paid check with a real model.
+- **Attachments up to what the providers accept:** 10 files, 3.75 MiB per picture, 12 MiB in all, text files up to 200,000 bytes; a larger file gets a notice that points to the project folder route; the page fits a picture that is too large. Pictures were dropped without a word from long conversations (the size estimate counted their base64 as text); they now count as a fixed number of tokens and, when some leave a request, the model and you are told how many.
+- **Models and providers:** a Kimi preset; deprecated models are hidden in the picker; the catalog snapshot is dated 2026-10-28; a weekly workflow proposes a refreshed snapshot as a draft pull request (once the repository lets Actions open pull requests); the default model of the Groq preset is `openai/gpt-oss-120b`.
+- **Smaller things:** "View evidence" on the banner of a failed turn works; the gold D mark in the top bar; the source folder is `DATGOLD-HUB` (an installation keeps `CHATMCP-HUB`).
+- **Downloads:** `ChatMCP-Browser-Companion.zip` is no longer published; `DatGoldSetup.exe` and `DatGold-Browser-Companion.zip` are. An app of 3.10.x or older links to the old name, which answers 404 until that copy is replaced by 3.11.0 or later.
+
+**Limitations:** the Update button has not been used on a real release before this one; the compaction was tested with a scripted model; with the Hub-accepts-checks switch on a check that passes proves little; the local `git_diff` tool leaves no receipt that the Hub accepts as a review, so a coding run still ends with "No independently recorded Git diff review"; the installer is not Authenticode-signed.
+
+## [3.11.0] — 2026-10-27 — The Update button, signed releases and a repair for an update that stopped halfway
 
 This is the first release with the Update button. It contains everything of 3.10.2 and what was merged after it.
 

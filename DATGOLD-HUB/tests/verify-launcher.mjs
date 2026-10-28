@@ -166,7 +166,7 @@ try {
     const legacy = http.createServer((request, response) => {
       requested.push(request.url);
       response.setHeader('Content-Type', 'application/json');
-      response.end(request.url === '/api/health' ? JSON.stringify({ app: 'chatmcp-local-hub', version: '3.11.0', uiBuild: '3.11.0-react-agent', initialized: true, backend: 'local' }) : JSON.stringify({ csrfToken: 'x'.repeat(64) }));
+      response.end(request.url === '/api/health' ? JSON.stringify({ app: 'chatmcp-local-hub', version: '3.11.1', uiBuild: '3.11.1-react-agent', initialized: true, backend: 'local' }) : JSON.stringify({ csrfToken: 'x'.repeat(64) }));
     });
     await new Promise((resolve) => legacy.listen(legacyPort, '127.0.0.1', resolve));
     servers.push(legacy);
