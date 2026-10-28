@@ -203,4 +203,32 @@ const runs = (workflow, events) => events.filter((event) => triggers(workflow, e
   ok(`${mutations.length} defects put into in-memory copies of the workflows (an old glob back, no branch filter, a pinned branch, a lost docs path, the old concurrency group, cancelled main runs, docs no longer ignored) are each detected`);
 }
 
+// ---------------------------------------------------------------------------------------------------------------- model-catalog.yml: a weekly job that may write a branch, and nothing more
+// It holds a token that can push and open a pull request, so it must never be started by what a pull request carries, and what it uses must be pinned. It rebuilds the snapshot of models.dev
+// that new installs start from; a person merges what it offers.
+{
+  const name = 'model-catalog.yml';
+  assert.ok(files.includes(name), `${name} exists`);
+  const text = source[name];
+  const workflow = workflows[name];
+  for (const event of [
+    { name: 'push', branch: 'main', files: ['DATGOLD-HUB/lib/model-catalog.data.json'] },
+    { name: 'push', branch: 'feat/x', files: ['DATGOLD-HUB/lib/model-catalog.data.json'] },
+    { name: 'pull_request', action: 'synchronize', base: 'main', head: 'feat/x', files: ['.github/workflows/model-catalog.yml'] },
+    { name: 'pull_request', action: 'opened', base: 'main', head: 'feat/x', files: [] },
+  ]) assert.equal(triggers(workflow, event), false, `${name} is not started by ${event.name}${event.action ? ` (${event.action})` : ''}`);
+  assert.equal(triggers(workflow, { name: 'workflow_dispatch' }), true, `${name} can be started by hand`);
+  assert.match(text, /^on:\n  schedule:\n    - cron: '\d+ \d+ \* \* \d'[^\n]*\n  workflow_dispatch:\n/m, `${name} runs once a week, on one day`);
+  assert.match(text, /^permissions:\n  contents: read\n/m, `${name} reads by default`);
+  const writes = [...text.matchAll(/^ {6}(contents|pull-requests|issues|actions|checks|packages|id-token|statuses): (read|write)$/gm)].map((match) => `${match[1]}: ${match[2]}`);
+  assert.deepEqual(writes, ['contents: write', 'pull-requests: write'], `${name}: the one job may write a branch and a pull request, nothing else`);
+  const uses = text.match(/^\s*- uses: \S+/gm) ?? [];
+  assert.ok(uses.length >= 2, `${name} uses actions`);
+  for (const use of uses) assert.match(use.trim(), /^- uses: actions\/[a-z-]+@[0-9a-f]{40}$/, `${name}: ${use.trim()} is an official action pinned to a commit`);
+  assert.match(text, /gh pr create --draft /, `${name} offers a draft`);
+  assert.doesNotMatch(text, /gh pr merge|--auto\b|--admin|enable-auto-merge|pull_request_target/, `${name} never merges, and never runs on a pull request's code`);
+  assert.match(text, /old\.sha256 !== now\.sha256/, `${name} compares the hash of the content: the date alone is not a change`);
+  ok(`${name}: schedule and hand only, one job that may write a branch and a draft pull request, official actions pinned to a commit, the hash of the content decides, no merge`);
+}
+
 console.log(`PASS: ${checks} CI trigger checks over ${files.length} workflows (modelled GitHub rules; GitHub itself confirms on the first pull requests)`);

@@ -33,7 +33,9 @@ const script = existsSync(scriptFile) ? await import(pathToFileURL(scriptFile).h
   const info = catalogInfo();
   assert.equal(snapshot.version, 2);
   assert.match(snapshot.generatedAt, /^\d{4}-\d{2}-\d{2}$/, 'the snapshot is dated');
-  assert.ok(info.models >= 9000, `at least 9,000 models: ${info.models}`);
+  // A tripwire for a snapshot that came out wrong, not a count of today's list: models.dev lists about 9,000 and the number moves both ways (9,056 on 2026-10-19, 8,936 on 2026-10-28),
+  // and the workflow that rebuilds the snapshot every week (.github/workflows/model-catalog.yml) must not fail on that.
+  assert.ok(info.models >= 8000, `at least 8,000 models: ${info.models}`);
   assert.ok(info.providers >= 200, `at least 200 providers: ${info.providers}`);
   for (const provider of ['anthropic', 'openai', 'google', 'openrouter', 'amazon-bedrock', 'azure', 'deepseek', 'groq', 'mistral', 'google-vertex-anthropic']) {
     assert.ok(Object.keys(snapshot.providers[provider] ?? {}).length >= 3, `${provider} is in the snapshot`);
