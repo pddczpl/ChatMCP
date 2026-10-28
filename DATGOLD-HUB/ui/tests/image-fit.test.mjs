@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitDimensions, fitImage, fittedName, limitLabel, STEPS, IMAGE_LIMIT_BYTES, FILE_LIMIT_BYTES } from '../src/lib/image-fit.ts';
+import { fitDimensions, fitImage, fittedName, limitLabel, STEPS, IMAGE_LIMIT_BYTES, FILE_LIMIT_BYTES, FILES_PER_MESSAGE, TOTAL_LIMIT_BYTES } from '../src/lib/image-fit.ts';
+import { ATTACHMENT_LIMITS, limitLabel as hubLimitLabel } from '../../lib/attachment-limits.mjs';
 
-// An image that is over the limit of the Hub (2 MB) used to be refused ("File image.png quá lớn") without saying what the limit was. A screenshot of a 4K or a scaled display is
+// An image that is over the limit of the Hub (it was 2 MB, it is 3.75 MB) used to be refused ("File image.png quá lớn") without saying what the limit was. A screenshot of a 4K or a scaled display is
 // often a few MB as a PNG, and the person only pasted it. It is made smaller instead, in steps from the least loss to the most, and refused only when no step fits.
 const MB = 1024 * 1024;
 const file = (name, type, size) => ({ name, type, size });
@@ -37,7 +38,14 @@ test('the steps go from the least loss to the most, and each one is smaller than
     assert.ok(now.side <= before.side && (now.type === 'image/jpeg'), `step ${i} is not larger than step ${i - 1}`);
     if (before.type === 'image/jpeg') assert.ok(now.quality <= before.quality, `the quality never goes back up (step ${i})`);
   }
-  assert.equal(IMAGE_LIMIT_BYTES, 2 * MB, 'the limit is the one the Hub enforces');
+});
+
+test('the page refuses by the numbers the Hub enforces (lib/attachment-limits.mjs), written once there', () => {
+  assert.equal(IMAGE_LIMIT_BYTES, ATTACHMENT_LIMITS.imageBytes, 'one picture');
+  assert.equal(FILE_LIMIT_BYTES, ATTACHMENT_LIMITS.textBytes, 'one text file');
+  assert.equal(FILES_PER_MESSAGE, ATTACHMENT_LIMITS.files, 'files in a message');
+  assert.equal(TOTAL_LIMIT_BYTES, ATTACHMENT_LIMITS.totalBytes, 'all the files of a message');
+  for (const bytes of [IMAGE_LIMIT_BYTES, FILE_LIMIT_BYTES, TOTAL_LIMIT_BYTES, 2 * MB, 999_999]) assert.equal(limitLabel(bytes), hubLimitLabel(bytes), `the same words for ${bytes} bytes`);
 });
 
 test('the first step that fits is the one used, and nothing after it is tried', async () => {
@@ -49,7 +57,7 @@ test('the first step that fits is the one used, and nothing after it is tried', 
 });
 
 test('when the PNG is still too large the next steps are tried in order until one fits', async () => {
-  const fake = tools({ width: 3000, height: 2000, png: 3, jpeg: 1.2 }); // PNG 8.4 MB; JPEG 0.9 at 2048: 3.0 MB; JPEG 0.8 at 1600: 1.5 MB
+  const fake = tools({ width: 3000, height: 2000, png: 3, jpeg: 1.8 }); // PNG 8.4 MB; JPEG 0.9 at 2048: 4.6 MB; JPEG 0.8 at 1600: 2.5 MB
   const fitted = await fitImage(file('image.png', 'image/png', 9 * MB), IMAGE_LIMIT_BYTES, fake);
   assert.equal(fitted.type, 'image/jpeg');
   assert.ok(fitted.blob.size <= IMAGE_LIMIT_BYTES);
@@ -58,7 +66,7 @@ test('when the PNG is still too large the next steps are tried in order until on
 });
 
 test('a picture that fits at no step is not returned, so that the person is told the limit', async () => {
-  const fake = tools({ width: 6000, height: 4000, png: 9, jpeg: 9 });
+  const fake = tools({ width: 6000, height: 4000, png: 9, jpeg: 12 }); // the last step, 1024 x 683, is still 5 MB at quality 0.6
   assert.equal(await fitImage(file('image.png', 'image/png', 30 * MB), IMAGE_LIMIT_BYTES, fake), null);
   assert.equal(fake.calls.filter((call) => call[0] === 'encode').length, STEPS.length, 'every step was tried');
 });
@@ -87,10 +95,12 @@ test('a picture that cannot be read at all says so (it is not "too large")', asy
   await assert.rejects(fitImage(file('image.png', 'image/png', 9 * MB), IMAGE_LIMIT_BYTES, tools({ failDecode: true })), /cannot decode/);
 });
 
-test('a limit is written the way a person reads it: 2 MB for a picture, 200 KB for a file (not 195,3 KB)', () => {
-  assert.equal(limitLabel(IMAGE_LIMIT_BYTES), '2 MB');
+test('a limit is written the way a person reads it: 3.75 MB for a picture, 12 MB in all, 200 KB for a file (not 195,3 KB)', () => {
+  assert.equal(limitLabel(IMAGE_LIMIT_BYTES), '3.75 MB');
+  assert.equal(limitLabel(TOTAL_LIMIT_BYTES), '12 MB');
   assert.equal(limitLabel(FILE_LIMIT_BYTES), '200 KB');
   assert.equal(limitLabel(5 * 1024 * 1024), '5 MB');
+  assert.equal(limitLabel(2 * 1024 * 1024), '2 MB');
 });
 
 test('a picture that became a JPEG is named like one, and any other name is kept', () => {

@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { AgentRunner, buildUserAttachmentParts } from '../lib/agent.mjs';
+import { AgentRunner, buildUserAttachmentParts, pictureNotice } from '../lib/agent.mjs';
+import { ATTACHMENT_LIMITS, ATTACHMENT_BODY_LIMIT, limitLabel as attachmentLimitLabel } from '../lib/attachment-limits.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { WorkspaceRegistry } from '../lib/workspace-registry.mjs';
 import { DualAgent } from '../lib/dual-agent.mjs';
@@ -549,6 +550,33 @@ try {
   assert.equal(buildUserAttachmentParts([{name:'hello.md',mimeType:'text/markdown',dataBase64:Buffer.from('A text file').toString('base64')}]).parts[0].type,'input_text');
   assert.equal(buildUserAttachmentParts([{name:'photo.png',mimeType:'image/png',dataBase64:'AA=='}]).parts[0].type,'input_image');
   assert.throws(()=>buildUserAttachmentParts([{name:'.env',mimeType:'text/plain',dataBase64:'AA=='}]),/môi trường|khóa/i);
+
+  // What one message may carry is written once (lib/attachment-limits.mjs): a picture up to what the strictest provider takes for one (Amazon Bedrock: 5 MB of base64, which is 3.75 MiB of
+  // picture), ten files, 12 MiB in all so that a request with the text and the turns before stays under the 20 MB that Gemini takes inline. A text file keeps 200,000 bytes: its limit is
+  // the context window, not the provider's request size. What is refused is answered with the way around it: the project folder, where the agent reads the file with its tools.
+  {
+    const MiB=1024*1024,advice=/thư mục dự án/;
+    const file=(bytes,name='p.png',mimeType='image/png')=>({name,mimeType,dataBase64:Buffer.alloc(bytes,1).toString('base64')});
+    assert.deepEqual({...ATTACHMENT_LIMITS},{files:10,imageBytes:3.75*MiB,textBytes:200000,totalBytes:12*MiB},'the limits, in one place');
+    assert.equal(ATTACHMENT_BODY_LIMIT>=Math.ceil(ATTACHMENT_LIMITS.totalBytes/3)*4+100000,true,'the body of the request holds the base64 of all the files and a prompt of 100,000 characters');
+    assert.deepEqual([3.75*MiB,12*MiB,200000].map(attachmentLimitLabel),['3.75 MB','12 MB','200 KB'],'a limit is written as a person reads it');
+    assert.equal(buildUserAttachmentParts([file(3.75*MiB)]).metadata[0].size,3.75*MiB,'a picture of 3.75 MiB is taken');
+    assert.throws(()=>buildUserAttachmentParts([file(3.75*MiB+1)]),(error)=>/3\.75 MB/.test(error.message)&&advice.test(error.message)&&error.statusCode===413&&error.code==='image_too_large','one byte more is not, and the message says the limit and the project folder');
+    assert.equal(buildUserAttachmentParts(Array.from({length:10},(_,i)=>file(1000,`p${i}.png`))).parts.length,10,'ten files are taken');
+    assert.throws(()=>buildUserAttachmentParts(Array.from({length:11},(_,i)=>file(10,`p${i}.png`))),(error)=>/10 tệp/.test(error.message)&&advice.test(error.message)&&error.statusCode===413,'the eleventh is not');
+    assert.equal(buildUserAttachmentParts([file(3.75*MiB,'a.png'),file(3.75*MiB,'b.png'),file(3.75*MiB,'c.png'),file(0.75*MiB,'d.png')]).metadata.length,4,'12 MiB in all are taken');
+    assert.throws(()=>buildUserAttachmentParts([file(3.75*MiB,'a.png'),file(3.75*MiB,'b.png'),file(3.75*MiB,'c.png'),file(0.75*MiB+1,'d.png')]),(error)=>/12 MB/.test(error.message)&&advice.test(error.message)&&error.code==='attachments_too_large','a byte more than 12 MiB in all is not');
+    assert.equal(buildUserAttachmentParts([file(200000,'a.md','text/markdown')]).parts[0].type,'input_text','a text file of 200,000 bytes is taken');
+    assert.throws(()=>buildUserAttachmentParts([file(200001,'a.md','text/markdown')]),(error)=>/200 KB/.test(error.message)&&advice.test(error.message)&&error.statusCode===415,'a text file of one byte more is not, and a text file is not given the room of a picture');
+    assert.throws(()=>buildUserAttachmentParts([file(13*MiB)]),(error)=>error.code==='attachments_too_large'&&/lớn hơn 12 MB/.test(error.message)&&advice.test(error.message),'a file longer than a whole message is refused before it is decoded, with the way around it');
+    // What the person is told when a checkpoint leaves pictures out of the request (the model is told in the checkpoint itself): the count, the cause and what to do; nothing when none was left out.
+    assert.match(pictureNotice(3),/3 ảnh đính kèm không còn trong yêu cầu gửi model.*Ngữ cảnh model/,'the notice names the count, and the setting that tells the Hub the real window');
+    assert.deepEqual([pictureNotice(0),pictureNotice(undefined),pictureNotice(null)],['','',''],'no picture left out: no notice');
+    // What is base64: whole groups of four, the alphabet, at most two = at the end. (The check that stood here before ran out of stack on a picture of about 4 MB.)
+    const named=(dataBase64)=>[{name:'x.png',mimeType:'image/png',dataBase64}];
+    for(const bad of ['AAA','A===','AA=A','@@@@','AAAAA','====','AA==AA=='])assert.throws(()=>buildUserAttachmentParts(named(bad)),(error)=>error.code==='invalid_attachment',`${bad} is not base64`);
+    for(const good of ['AAAA','AAA=','AA==','QUJD'])assert.equal(buildUserAttachmentParts(named(good)).parts.length,1,`${good} is`);
+  }
 
   const records=[{role:'user',content:[{type:'input_text',text:'Implement API'}]}];
   for(let i=0;i<15;i++){

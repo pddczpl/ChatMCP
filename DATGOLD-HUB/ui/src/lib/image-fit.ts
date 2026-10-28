@@ -1,9 +1,14 @@
 // A picture that is over the limit of the Hub is made smaller instead of refused. A screenshot of a 4K or a scaled display is often a few MB as a PNG, and the person only pasted it.
 // The steps go from the least loss to the most; a picture that fits at none of them is refused, and the message says what the limit is.
 
-/** What the Hub accepts for one picture (lib/agent.mjs, buildUserAttachmentParts: 2 MB) and for any other file (200,000 bytes). */
-export const IMAGE_LIMIT_BYTES = 2 * 1024 * 1024;
+/**
+ * What the Hub accepts in one message: the numbers of lib/attachment-limits.mjs, where the strictest provider each limit comes from is written down (a test holds the two to the same values).
+ * A picture over its limit is made smaller; anything else over it is refused, and the person is told to put the file in the project folder instead.
+ */
+export const IMAGE_LIMIT_BYTES = 3.75 * 1024 * 1024;
 export const FILE_LIMIT_BYTES = 200_000;
+export const FILES_PER_MESSAGE = 10;
+export const TOTAL_LIMIT_BYTES = 12 * 1024 * 1024;
 
 /** A GIF may be animated and a canvas keeps one frame of it, so only these are made smaller. */
 const SHRINKABLE = /^image\/(?:png|jpeg|webp)$/;
@@ -37,9 +42,9 @@ export function fitDimensions(width: number, height: number, side: number): { wi
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
-/** The limit as a person reads it: 2 MB, 200 KB. */
+/** The limit as a person reads it: 3.75 MB, 12 MB, 200 KB (the same words as the Hub's own messages). */
 export function limitLabel(bytes: number): string {
-  return bytes >= 1024 * 1024 ? `${Math.round(bytes / (1024 * 1024))} MB` : `${Math.round(bytes / 1000)} KB`;
+  return bytes >= 1024 * 1024 ? `${Number((bytes / (1024 * 1024)).toFixed(2))} MB` : `${Math.round(bytes / 1000)} KB`;
 }
 
 /** A picture that became a JPEG is named like one; any other name stays. */

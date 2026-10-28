@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manager.mjs';
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
+import { ATTACHMENT_BODY_LIMIT } from './lib/attachment-limits.mjs';
 import { publicPresets } from './lib/provider-presets.mjs';
 import { modelInfo, modelInfoQuery, modelsList, modelsQuery } from './lib/model-info.mjs';
 import { createCatalogStore } from './lib/model-catalog-store.mjs';
@@ -471,7 +472,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         const requestOk=origins.has(origin)&&req.headers['x-chatmcp-request']==='local-dashboard'
           &&equalToken(req.headers['x-chatmcp-csrf'],token);
         if(!requestOk)return json(403,{error:'Phiên trang localhost không hợp lệ. Tải lại trang.',code:'csrf'});
-        const payload = await bodyJson(req, ['/api/tasks/start','/api/tasks/continue'].includes(url.pathname) ? 8 * 1024 * 1024 : 65536);
+        const payload = await bodyJson(req, ['/api/tasks/start','/api/tasks/continue'].includes(url.pathname) ? ATTACHMENT_BODY_LIMIT : 65536);
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return json(400, { error: 'Nội dung yêu cầu phải là JSON object.' });
         const unknownAction = () => json(404, { error: `Không tìm thấy thao tác POST ${url.pathname} trên Hub ${VERSION}. Có thể dashboard và tiến trình Hub không cùng phiên bản; hãy STOP/START Hub và Ctrl+F5.`, code:'unknown_action', path:url.pathname, method:'POST', serverVersion:VERSION, uiBuild:UI_BUILD });
         const requireIdle = (message) => { if (taskEngine?.state()?.activeTaskId) throw Object.assign(new Error(message), { statusCode: 409 }); };
