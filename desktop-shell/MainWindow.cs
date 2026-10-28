@@ -86,7 +86,7 @@ namespace ChatMCP.Desktop
                 if (File.Exists(Path.Combine(_repoRoot, ".chatmcp-update-pending.json")))
                     throw new InvalidOperationException("An update of DatGold stopped halfway, so DatGold cannot start yet. Close this window and run DatGoldSetup.exe: it offers to repair the installation. (For a script: " + InstallerCommandLine.RecoverCommandText(_repoRoot) + ".) Do not delete the backup folder in the DatGold folder, the one whose name starts with .ChatMCP-update-.");
                 // Check the installed files, not the terminal's working directory.
-                using (var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(_repoRoot, "CHATMCP-HUB", "package.json"))))
+                using (var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(_repoRoot, HubLifecycle.HubFolder, "package.json"))))
                     if (manifest.RootElement.GetProperty("version").GetString() != HubLifecycle.Version)
                         throw new InvalidOperationException("The installed desktop and Hub files have different versions. Run the matching installer again; no Hub was started.");
                 _statusLabel.Text = "Connecting to DatGold Hub " + HubLifecycle.Version + "...";
@@ -277,7 +277,7 @@ namespace ChatMCP.Desktop
 
         private void StartHubProcess()
         {
-            var hubScript = Path.Combine(_repoRoot, "CHATMCP-HUB", "hub.mjs");
+            var hubScript = Path.Combine(_repoRoot, HubLifecycle.HubFolder, "hub.mjs");
             if (!File.Exists(hubScript))
             {
                 throw new FileNotFoundException($"Hub entrypoint not found: {hubScript}");
@@ -290,7 +290,7 @@ namespace ChatMCP.Desktop
             {
                 FileName = nodeExe,
                 Arguments = $"\"{hubScript}\" --port {HubPort} --no-open",
-                WorkingDirectory = Path.Combine(_repoRoot, "CHATMCP-HUB"),
+                WorkingDirectory = Path.Combine(_repoRoot, HubLifecycle.HubFolder),
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden

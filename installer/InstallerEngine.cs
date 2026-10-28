@@ -201,13 +201,13 @@ namespace ChatMCP.Installer
             }
             // A renamed setup is still the same version. Use metadata, not its
             // filename or Installed Apps' old hard-coded DisplayVersion.
-            using (var package = JsonDocument.Parse(File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/package.json"))))
+            using (var package = JsonDocument.Parse(File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/package.json"))))
                 if (package.RootElement.GetProperty("version").GetString() != AppVersion)
                     throw new IOException("Installer and embedded Hub package versions differ.").Tag("payload_invalid");
             var desktopVersion = FileVersionInfo.GetVersionInfo(transaction.StagedPath("ChatMCP.exe")).ProductVersion?.Split('+')[0];
             if (desktopVersion != AppVersion) throw new IOException("Embedded desktop version differs from the installer.").Tag("payload_invalid");
-            var manager = File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/lib/manager.mjs"));
-            var hub = File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/hub.mjs"));
+            var manager = File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/lib/manager.mjs"));
+            var hub = File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/hub.mjs"));
             if (!manager.Contains("export const VERSION = '" + AppVersion + "';") ||
                 !hub.Contains("export const UI_BUILD = '" + AppVersion + "-react-agent';"))
                 throw new IOException("Embedded Hub runtime version/build differs from the installer.").Tag("payload_invalid");
@@ -233,6 +233,22 @@ namespace ChatMCP.Installer
             if (HubLifecycle.ListenerPid() != null)
                 throw new IOException("A listener appeared during upgrade. No files were replaced.");
             transaction.Commit(reportProgress);
+            // An installation made up to 3.11.0 kept its Hub in CHATMCP-HUB. The commit removed the files that the manifest of that setup lists (not the ones somebody changed); the folders that held them go
+            // too. Best effort and folders only: a file that is still there keeps its folder, and a failure here leaves clutter, never a broken installation.
+            PruneEmptyFolders(SafePath(targetDir, HubLifecycle.LegacyHubFolder));
+        }
+
+        /// <summary>Removes the folders under <paramref name="directory"/> that hold nothing, and the folder itself when it ends up empty. Never removes a file, never enters a link, ignores what it cannot remove.</summary>
+        internal static void PruneEmptyFolders(string directory)
+        {
+            try
+            {
+                var folder = new DirectoryInfo(directory);
+                if (!folder.Exists || (folder.Attributes & FileAttributes.ReparsePoint) != 0) return;
+                foreach (var child in folder.EnumerateDirectories()) PruneEmptyFolders(child.FullName);
+                if (!folder.EnumerateFileSystemInfos().Any()) folder.Delete();
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* the folder stays; the installation is whole */ }
         }
 
         /// <summary>

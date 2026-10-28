@@ -57,7 +57,7 @@ namespace ChatMCP.Desktop
             var dir = new DirectoryInfo(startDir);
             while (dir != null)
             {
-                if (Directory.Exists(Path.Combine(dir.FullName, "CHATMCP-HUB"))) return dir.FullName;
+                if (Directory.Exists(Path.Combine(dir.FullName, HubLifecycle.HubFolder))) return dir.FullName;
                 dir = dir.Parent;
             }
             return startDir;

@@ -15,6 +15,13 @@ namespace ChatMCP.Native;
 internal static class HubLifecycle
 {
     internal const string Origin = "http://127.0.0.1:3007";
+    /// <summary>The folder of the Hub inside an installation, which is also its name in the repository.</summary>
+    internal const string HubFolder = "DATGOLD-HUB";
+    /// <summary>
+    /// What an installation made up to 3.11.0 called that folder. A newer setup only meets it in an installation it is about to replace, or whose Hub it must stop: the files it holds are removed by the
+    /// manifest the setup of that time wrote (a file that somebody changed stays), and a Hub started from it is still the Hub of that installation.
+    /// </summary>
+    internal const string LegacyHubFolder = "CHATMCP-HUB";
     internal static string Version => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
         ?? throw new InvalidOperationException("Missing native application version.");
     internal static string UserKey => WindowsIdentity.GetCurrent().User?.Value
@@ -122,6 +129,13 @@ internal static class HubLifecycle
     private static extern IntPtr CommandLineToArgvW(string command, out int count);
     [DllImport("kernel32.dll")]
     private static extern IntPtr LocalFree(IntPtr memory);
+    /// <summary>
+    /// Whether <paramref name="command"/> runs the hub.mjs of the installation at <paramref name="root"/>: under the name its folder has now, or under the name it had up to 3.11.0, so that a setup which
+    /// replaces such an installation still recognises (and may stop) the Hub that the old one started. A hub.mjs of another installation, or of another folder, is not it.
+    /// </summary>
+    internal static bool IsInstalledHubCommand(string command, string root) =>
+        IsHubCommand(command, Path.GetFullPath(Path.Combine(root, HubFolder, "hub.mjs")))
+        || IsHubCommand(command, Path.GetFullPath(Path.Combine(root, LegacyHubFolder, "hub.mjs")));
     internal static bool IsHubCommand(string command, string script)
     {
         if (string.IsNullOrWhiteSpace(command) || command.Length > 32768) return false;
@@ -218,8 +232,7 @@ internal static class HubLifecycle
             // Confirm the exact script as well as the bundled executable. WMI is
             // read-only; the only generated query argument is an integer PID.
             var command = CommandLineOf(pid.Value);
-            var script = Path.GetFullPath(Path.Combine(root, "CHATMCP-HUB", "hub.mjs"));
-            if (!IsHubCommand(command, script))
+            if (!IsInstalledHubCommand(command, root))
                 throw new InvalidOperationException("The listener is not the installed Hub script. It was not stopped.").Tag("foreign_listener");
             if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed during inspection; retry.").Tag("hub_stop_failed");
             return process;

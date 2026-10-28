@@ -138,7 +138,7 @@ Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadD
 Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir
 if ($ReleaseKeysFile -ne '') {
     # The Hub reads its keys from the installed files, the shell has them built in: both must trust the same list (this copy comes after the tracked files, which it replaces).
-    Copy-Item -LiteralPath $ReleaseKeysFile -Destination (Join-Path $payloadDir 'CHATMCP-HUB\lib\release-keys.json') -Force
+    Copy-Item -LiteralPath $ReleaseKeysFile -Destination (Join-Path $payloadDir 'DATGOLD-HUB\lib\release-keys.json') -Force
 }
 # and proved again after the last copy that could change it: the Hub of the payload reads the same list as the shell.
 Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile
@@ -159,7 +159,7 @@ if ($supervisorSize -le 0) { throw 'Published GuestSupervisor.exe is empty.' }
 # never starts a guest and does not attest Sandbox isolation.
 & $trustedSupervisor --blackbox-grader-self-test
 if ($LASTEXITCODE -ne 0) { throw "Published GuestSupervisor native grader self-test failed with exit code $LASTEXITCODE" }
-$trustedDestination = Join-Path $payloadDir 'CHATMCP-HUB\runtimes\windows-sandbox'
+$trustedDestination = Join-Path $payloadDir 'DATGOLD-HUB\runtimes\windows-sandbox'
 New-Item -ItemType Directory -Path $trustedDestination -Force | Out-Null
 Copy-Item -LiteralPath $trustedSupervisor -Destination (Join-Path $trustedDestination 'GuestSupervisor.exe') -Force
 $supervisorSha = (Get-FileHash -LiteralPath $trustedSupervisor -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -193,7 +193,7 @@ try {
     & $nodeCmd.Path (Join-Path $intelligenceScripts 'verify.mjs') $intelligenceStage
     if ($LASTEXITCODE -ne 0) { throw 'Offline intelligence staged manifest verification failed.' }
 } finally { Pop-Location }
-$hubPayload = Join-Path $payloadDir 'CHATMCP-HUB'
+$hubPayload = Join-Path $payloadDir 'DATGOLD-HUB'
 Copy-Item -LiteralPath (Join-Path $intelligenceStage 'grammars') -Destination (Join-Path $hubPayload 'grammars') -Recurse -ErrorAction Stop
 Copy-Item -Path (Join-Path $intelligenceStage 'runtimes\*') -Destination (Join-Path $hubPayload 'runtimes') -Recurse -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $intelligenceStage 'licenses') -Destination (Join-Path $hubPayload 'licenses') -Recurse -ErrorAction Stop

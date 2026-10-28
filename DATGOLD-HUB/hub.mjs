@@ -809,7 +809,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   });
   updates.onChecked(() => downloads.reconcile());
   // What the last update left (the installer's result file): read once the Hub holds the instance lock, below, and shown by the page until it is dismissed.
-  // The marker of an update that stopped halfway is in the folder of the installation, which is the parent of the folder this file is in (installer/HubLifecycle: <installation>\CHATMCP-HUB\hub.mjs): a Hub that
+  // The marker of an update that stopped halfway is in the folder of the installation, which is the parent of the folder this file is in (installer/HubLifecycle: <installation>\DATGOLD-HUB\hub.mjs): a Hub that
   // somebody starts by hand behind it leaves the result file alone.
   const applied = createAppliedNote({ directory: manager.hubDirectory, currentVersion: VERSION, installDirectory: path.dirname(BUNDLE_ROOT), log: (line) => manager.log(line) });
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');

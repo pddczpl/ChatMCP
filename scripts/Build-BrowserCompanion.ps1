@@ -145,7 +145,7 @@ try {
         }
         # Prove users installing the EXE get identical extension source, not an
         # older or unrelated copy bundled in the installer.
-        Assert-ZipParity -ZipPath $installerPayload -Prefix 'CHATMCP-HUB/extension/' -ExpectedHashes $srcHashes
+        Assert-ZipParity -ZipPath $installerPayload -Prefix 'DATGOLD-HUB/extension/' -ExpectedHashes $srcHashes
     }
     if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Force }
     Move-Item -LiteralPath $temp -Destination $output

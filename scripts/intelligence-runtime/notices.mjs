@@ -4,7 +4,7 @@
 // tree-sitter-typescript and tree-sitter-python projects, which are MIT-licensed and require their copyright and permission notice to
 // travel with the compiled artefacts. The tree-sitter-wasms package carries none of those texts (its only licence file is its own
 // Unlicense), so they are vendored in scripts/intelligence-runtime/licenses/ (see the README there) and stage.mjs copies them to
-// licenses/<upstream>/LICENSE in the staged runtime, which Build-Installer.ps1 ships as CHATMCP-HUB/licenses/.
+// licenses/<upstream>/LICENSE in the staged runtime, which Build-Installer.ps1 ships as DATGOLD-HUB/licenses/.
 //
 // rg.exe (ripgrep, staged from its official archive by stage-ripgrep.ps1) is linked with PCRE2, with Rust crates and with the Rust standard library. The archive carries the texts of
 // ripgrep itself only, so the texts of the rest are vendored in scripts/intelligence-runtime/licenses/ripgrep: MANIFEST.json is the inventory and

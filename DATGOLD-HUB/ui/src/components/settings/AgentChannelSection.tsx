@@ -146,7 +146,7 @@ export function AgentChannelSection() {
             target="_blank" rel="noopener noreferrer">{t('chan_install_guide')}</a>
         </div>
         <p className="text-[12px] leading-5 text-muted">
-          {t('chan_help_a')}<code>chrome://extensions</code>{t('chan_help_or')}<code>edge://extensions</code>{t('chan_help_b')}<strong>{t('chan_help_dir')}</strong>{t('chan_help_c')}<code>CHATMCP-HUB/extension</code>{t('chan_help_d')}<a className="text-primary underline"
+          {t('chan_help_a')}<code>chrome://extensions</code>{t('chan_help_or')}<code>edge://extensions</code>{t('chan_help_b')}<strong>{t('chan_help_dir')}</strong>{t('chan_help_c')}<code>DATGOLD-HUB/extension</code>{t('chan_help_d')}<a className="text-primary underline"
             href="https://chatgpt.com" target="_blank" rel="noreferrer">chatgpt.com</a>{t('chan_help_e')}
         </p>
         <div className="flex items-center gap-3">

@@ -160,7 +160,7 @@ function Assert-InstallerReleaseKeysBuiltIn {
 function Assert-InstallerReleaseKeysShipped {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$PayloadDirectory, [Parameter(Mandatory = $true)][string]$KeysFile)
-    $shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\lib\release-keys.json'
+    $shipped = Join-Path $PayloadDirectory 'DATGOLD-HUB\lib\release-keys.json'
     if (-not (Test-Path -LiteralPath $shipped -PathType Leaf)) { throw "The Hub of the payload has no key list, it is not a file: $shipped" }
     if (-not (Test-Path -LiteralPath $KeysFile -PathType Leaf)) { throw "The key list that was meant to be shipped is not a file: $KeysFile" }
     if ((Get-FileHash -LiteralPath $shipped -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $KeysFile -Algorithm SHA256).Hash) {
@@ -168,14 +168,8 @@ function Assert-InstallerReleaseKeysShipped {
     }
 }
 
-# The folder of the Hub is DATGOLD-HUB in the repository and stays CHATMCP-HUB in the installation: the shell, the installer, the updater and every installation that an earlier
-# version made look for the Hub there. So the payload keeps the name, and this is the one place that maps the one to the other.
-function ConvertTo-InstallerPayloadPath {
-    [CmdletBinding()]
-    param([Parameter(Mandatory = $true)][string]$RepositoryRelativePath)
-    if ($RepositoryRelativePath.StartsWith('DATGOLD-HUB/', [StringComparison]::Ordinal)) { return 'CHATMCP-HUB/' + $RepositoryRelativePath.Substring('DATGOLD-HUB/'.Length) }
-    return $RepositoryRelativePath
-}
+# The folder of the Hub is DATGOLD-HUB in the repository and in the installation (installations made up to 3.11.0 called it CHATMCP-HUB: the setup removes what it put there, see
+# InstallerEngine.PruneEmptyFolders and HubLifecycle.LegacyHubFolder). The payload has the names of the repository.
 
 function Get-InstallerPayloadFiles {
     [CmdletBinding()]
@@ -215,7 +209,7 @@ function Get-InstallerPayloadFiles {
         if (-not $source.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Source escaped checkout: $relative" }
         Assert-InstallerNoReparsePath -Path $source
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Tracked runtime file is missing: $relative" }
-        $files.Add([pscustomobject]@{ RelativePath = (ConvertTo-InstallerPayloadPath -RepositoryRelativePath $relative); Source = $source })
+        $files.Add([pscustomobject]@{ RelativePath = $relative; Source = $source })
     }
 
     # Vite empties this directory immediately before building. Its new hashed
@@ -234,12 +228,12 @@ function Get-InstallerPayloadFiles {
             if ($relativeUi -ne 'index.html' -and $relativeUi -notmatch '^assets/[^/]+\.(js|css|woff2?|ttf|otf|png|jpe?g|svg|gif|webp|ico)$') {
                 throw "Unexpected file in generated React output: $relativeUi"
             }
-            $files.Add([pscustomobject]@{ RelativePath = 'CHATMCP-HUB/web/dist/' + $relativeUi; Source = $item.FullName })
+            $files.Add([pscustomobject]@{ RelativePath = 'DATGOLD-HUB/web/dist/' + $relativeUi; Source = $item.FullName })
         }
     }
     # Apache-2.0 section 4(a): recipients of a redistributed copy must receive the license (and NOTICE). The third-party notices
     # travel with them: the components that ChatMCP redistributes are not covered by that license.
-    foreach ($required in @('CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'START-CHATMCP-DESKTOP.cmd', 'scripts/Start-DesktopApp.ps1', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) {
+    foreach ($required in @('DATGOLD-HUB/hub.mjs', 'DATGOLD-HUB/package.json','START-CHATMCP-DESKTOP.cmd', 'scripts/Start-DesktopApp.ps1', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) {
         if (-not ($files | Where-Object { $_.RelativePath -eq $required })) { throw "Required runtime source is not tracked: $required" }
     }
     return $files.ToArray()

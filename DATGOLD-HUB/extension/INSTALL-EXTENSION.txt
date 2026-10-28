@@ -13,8 +13,11 @@ HOW TO INSTALL OR RESTORE AFTER REMOVING IT
 3. Enable Developer mode.
 4. Click "Load unpacked" (Chrome) / "Load unpacked" (Edge).
 5. Select the EXTRACTED FOLDER containing manifest.json.
-   Choose CHATMCP-HUB\extension under your installed ChatMCP folder instead
-   if you already have the Windows installer version installed.
+   Choose DATGOLD-HUB\extension under your installed ChatMCP folder instead
+   if you already have the Windows installer version installed. (Up to 3.11.0 that
+   folder was called CHATMCP-HUB: an extension you loaded from there stops working
+   when the installation is updated, because the folder is gone. Load it again from
+   DATGOLD-HUB\extension, or from the extracted ZIP.)
    Do NOT select the repository-root manifest.json: that is an obsolete
    "ChatMCP Button Fix" helper, not DatGold Hub Companion.
 6. Pin "DatGold Hub Companion" if desired and refresh https://chatgpt.com.

@@ -4,7 +4,7 @@ Two groups: the notices of the bundled Tree-sitter grammars (the `*.LICENSE` fil
 
 ## Tree-sitter grammars
 
-`stage.mjs` copies the files below to `licenses/<project>/LICENSE` in the staged runtime, which `Build-Installer.ps1` ships as `CHATMCP-HUB/licenses/`. `notices.mjs` lists them (`GRAMMAR_NOTICES`).
+`stage.mjs` copies the files below to `licenses/<project>/LICENSE` in the staged runtime, which `Build-Installer.ps1` ships as `DATGOLD-HUB/licenses/`. `notices.mjs` lists them (`GRAMMAR_NOTICES`).
 
 | Vendored file | Upstream project | Compiled into |
 |---|---|---|
@@ -24,7 +24,7 @@ If one of them is missing or unusable:
 
 ## What is compiled into rg.exe (`ripgrep/`)
 
-`rg.exe` is staged from the official ripgrep archive by `stage-ripgrep.ps1`. The archive carries the texts of ripgrep itself (`LICENSE-MIT`, `UNLICENSE`, `COPYING`) and nothing else, but the binary is statically linked with PCRE2 (BSD-3-Clause, which asks for its notice in binary redistributions), with Rust crates and with the Rust standard library of the toolchain that built it. Their texts are vendored in `ripgrep/`, and `stage.mjs` copies them, with the inventory, to `licenses/ripgrep/` in the staged runtime, which `Build-Installer.ps1` ships as `CHATMCP-HUB/licenses/ripgrep/`.
+`rg.exe` is staged from the official ripgrep archive by `stage-ripgrep.ps1`. The archive carries the texts of ripgrep itself (`LICENSE-MIT`, `UNLICENSE`, `COPYING`) and nothing else, but the binary is statically linked with PCRE2 (BSD-3-Clause, which asks for its notice in binary redistributions), with Rust crates and with the Rust standard library of the toolchain that built it. Their texts are vendored in `ripgrep/`, and `stage.mjs` copies them, with the inventory, to `licenses/ripgrep/` in the staged runtime, which `Build-Installer.ps1` ships as `DATGOLD-HUB/licenses/ripgrep/`.
 
 - `ripgrep/MANIFEST.json` is the inventory. `subject` names the release and the SHA-256 of the archive it was derived for. `basis` says how it was derived. `workspaceCrates` are ripgrep's own crates, covered by the archive's texts. `notLinked` are the packages of ripgrep's `Cargo.lock` that are not part of `rg.exe`, each with the reason. `components` are PCRE2 and the crates that are, each with its license expression and its texts: path, kind, size, SHA-256 and where the text came from (repository, tag, commit, path and the git blob id, which anyone can compare with `github.com/<repository>/blob/<commit>/<path>`). `rustStd` is the Rust standard library: `toolchain` (the nightly of 2026-07-15, its `rustc` version string and the commit of rust-lang/rust, with how they were derived), `lockfile` (`library/Cargo.lock` of that commit), `linked` and `inTree` (what `std` links for this target), and `notLinked` (the other registry packages of that lock file, each with the reason). Its components have the type `rust-library` (the root texts of the commit), `rust-library-part` (a subtree of `library/` with notices of its own) or `crate` with `origin: "rust-std"` (a registry crate that `std` links; `cfg-if` is shared with ripgrep and has one entry).
 - `ripgrep/<component>/<file>` are the texts, copied unchanged from the upstream repository. `.gitattributes` marks the folder `-text`, so no checkout changes a byte (on a Windows runner `core.autocrlf` would break every hash).
