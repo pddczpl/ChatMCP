@@ -27,7 +27,7 @@ const HUB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const REPO_ROOT = path.resolve(HUB_ROOT, '..');
 const TOOLS = path.join(REPO_ROOT, 'scripts', 'tests', 'updater-e2e');
 if (!fs.existsSync(path.join(REPO_ROOT, 'scripts'))) {
-  console.log('CHATMCP_TEST_SKIP: scripts/ was not found next to CHATMCP-HUB (the tools of the end-to-end proof need the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: scripts/ was not found next to DATGOLD-HUB (the tools of the end-to-end proof need the whole repository)');
   process.exit(0);
 }
 const load = (name) => import(pathToFileURL(path.join(TOOLS, name)).href);
@@ -75,16 +75,16 @@ try {
     ok('a version is put into the places a build reads it from, and into nothing else (the bytes come back with the old version put back)');
 
     // the one-version rule of tests/verify-docs.mjs, on the tree that was written
-    const hub = JSON.parse(read(root, 'CHATMCP-HUB/package.json'));
+    const hub = JSON.parse(read(root, 'DATGOLD-HUB/package.json'));
     assert.equal(hub.version, '9.8.7');
-    assert.equal(read(root, 'CHATMCP-HUB/lib/manager.mjs').match(/export const VERSION = '([^']+)'/)?.[1], '9.8.7', 'lib/manager.mjs VERSION');
-    const uiBuild = read(root, 'CHATMCP-HUB/hub.mjs').match(/export const UI_BUILD = '([^']+)'/)?.[1];
+    assert.equal(read(root, 'DATGOLD-HUB/lib/manager.mjs').match(/export const VERSION = '([^']+)'/)?.[1], '9.8.7', 'lib/manager.mjs VERSION');
+    const uiBuild = read(root, 'DATGOLD-HUB/hub.mjs').match(/export const UI_BUILD = '([^']+)'/)?.[1];
     assert.equal(uiBuild, '9.8.7-react-agent', 'hub.mjs UI_BUILD');
-    assert.equal(read(root, 'CHATMCP-HUB/web/react-app.js').match(/const BUILD = '([^']+)'/)?.[1], uiBuild, 'web/react-app.js BUILD = hub.mjs UI_BUILD (the dashboard would refuse to talk to the Hub)');
-    assert.equal(read(root, 'CHATMCP-HUB/ui/src/lib/api.ts').match(/const UI_BUILD = '([^']+)';/)?.[1], uiBuild, 'ui/src/lib/api.ts UI_BUILD = hub.mjs UI_BUILD (the UI would be refused with 409)');
-    assert.equal(read(root, 'CHATMCP-HUB/web/react-app.js').match(/const uiVersion = '([^']+)'/)?.[1], '9.8.7', 'web/react-app.js uiVersion');
-    const ui = JSON.parse(read(root, 'CHATMCP-HUB/ui/package.json'));
-    const lock = JSON.parse(read(root, 'CHATMCP-HUB/ui/package-lock.json'));
+    assert.equal(read(root, 'DATGOLD-HUB/web/react-app.js').match(/const BUILD = '([^']+)'/)?.[1], uiBuild, 'web/react-app.js BUILD = hub.mjs UI_BUILD (the dashboard would refuse to talk to the Hub)');
+    assert.equal(read(root, 'DATGOLD-HUB/ui/src/lib/api.ts').match(/const UI_BUILD = '([^']+)';/)?.[1], uiBuild, 'ui/src/lib/api.ts UI_BUILD = hub.mjs UI_BUILD (the UI would be refused with 409)');
+    assert.equal(read(root, 'DATGOLD-HUB/web/react-app.js').match(/const uiVersion = '([^']+)'/)?.[1], '9.8.7', 'web/react-app.js uiVersion');
+    const ui = JSON.parse(read(root, 'DATGOLD-HUB/ui/package.json'));
+    const lock = JSON.parse(read(root, 'DATGOLD-HUB/ui/package-lock.json'));
     assert.deepEqual([ui.version, lock.version, lock.packages[''].version], ['9.8.7', '9.8.7', '9.8.7'], 'the UI package and its lock file');
     for (const project of ['desktop-shell/ChatMCP.csproj', 'installer/ChatMCP.Installer.csproj']) {
       assert.equal(read(root, project).match(/<Version>([^<]+)<\/Version>/)?.[1], '9.8.7', `${project} <Version> (the version of the program, and of the setup the shell compares with)`);
@@ -118,22 +118,22 @@ try {
     const untouched = (root, before) => assert.deepEqual(snapshot(root), before, 'a refusal wrote nothing, not even into the files that did fit');
 
     let root = copyVersionFiles(folder('missing-place'));
-    write(root, 'CHATMCP-HUB/lib/manager.mjs', read(root, 'CHATMCP-HUB/lib/manager.mjs').replace(/export const VERSION = '[^']+';/, '// the version moved elsewhere'));
+    write(root, 'DATGOLD-HUB/lib/manager.mjs', read(root, 'DATGOLD-HUB/lib/manager.mjs').replace(/export const VERSION = '[^']+';/, '// the version moved elsewhere'));
     let before = snapshot(root);
-    assert.throws(() => setBuildVersion(root, '9.8.7'), /CHATMCP-HUB\/lib\/manager\.mjs/, 'a place that is not there names its file');
+    assert.throws(() => setBuildVersion(root, '9.8.7'), /DATGOLD-HUB\/lib\/manager\.mjs/, 'a place that is not there names its file');
     untouched(root, before);
 
     root = copyVersionFiles(folder('disagree'));
-    write(root, 'CHATMCP-HUB/lib/manager.mjs', read(root, 'CHATMCP-HUB/lib/manager.mjs').replace(`'${repoVersion}'`, "'3.0.0'"));
+    write(root, 'DATGOLD-HUB/lib/manager.mjs', read(root, 'DATGOLD-HUB/lib/manager.mjs').replace(`'${repoVersion}'`, "'3.0.0'"));
     before = snapshot(root);
     assert.throws(() => setBuildVersion(root, '9.8.7'), /disagree/i, 'two places with two versions are not one tree');
     assert.throws(() => readBuildVersion(root), /disagree/i);
     untouched(root, before);
 
     root = copyVersionFiles(folder('twice-in-a-file'));
-    write(root, 'CHATMCP-HUB/hub.mjs', `${read(root, 'CHATMCP-HUB/hub.mjs')}\nexport const UI_BUILD = '${repoVersion}-react-agent';\n`);
+    write(root, 'DATGOLD-HUB/hub.mjs', `${read(root, 'DATGOLD-HUB/hub.mjs')}\nexport const UI_BUILD = '${repoVersion}-react-agent';\n`);
     before = snapshot(root);
-    assert.throws(() => setBuildVersion(root, '9.8.7'), /CHATMCP-HUB\/hub\.mjs/, 'a place that is there twice is not a place the tool knows');
+    assert.throws(() => setBuildVersion(root, '9.8.7'), /DATGOLD-HUB\/hub\.mjs/, 'a place that is there twice is not a place the tool knows');
     untouched(root, before);
 
     root = copyVersionFiles(folder('no-file'));
@@ -212,7 +212,7 @@ try {
     assert.equal(keyListText([{ kid: keys.run.kid, use: 'release', spki: JSON.parse(fs.readFileSync(keys.run.listFile, 'utf8')).keys[0].spki }]), fs.readFileSync(keys.run.listFile, 'utf8'));
     ok('two throwaway keys are made by scripts/new-release-key.mjs, each with a key list that the Hub, the shell and the build script accept, and no private key is in a list');
 
-    const sample = ['A P-256 release key was made.', '', 'key id (kid):  0123abcd', 'public key (base64 SPKI):', 'X'.repeat(124), '', 'Entry for CHATMCP-HUB/lib/release-keys.json (replace the placeholder with it, in a small pull request):',
+    const sample = ['A P-256 release key was made.', '', 'key id (kid):  0123abcd', 'public key (base64 SPKI):', 'X'.repeat(124), '', 'Entry for DATGOLD-HUB/lib/release-keys.json (replace the placeholder with it, in a small pull request):',
       JSON.stringify({ kid: '0123abcd', use: 'release', spki: 'X'.repeat(124) }, null, 2), '', 'The private key is in somewhere.'].join('\n');
     assert.deepEqual(entryFromToolOutput(sample), { kid: '0123abcd', use: 'release', spki: 'X'.repeat(124) });
     assert.throws(() => entryFromToolOutput('nothing useful here'), /entry/i);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Developer Certificate of Origin check, shared by .github/workflows/dco.yml and CHATMCP-HUB/tests/verify-dco-check.mjs.
+// Developer Certificate of Origin check, shared by .github/workflows/dco.yml and DATGOLD-HUB/tests/verify-dco-check.mjs.
 //
 // Every commit in <base>..<head> must carry a Signed-off-by trailer ("Name <email>", what `git commit -s` writes), except
 //   - merge commits (more than one parent), and

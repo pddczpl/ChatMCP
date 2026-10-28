@@ -195,7 +195,7 @@ export async function runRealGuestTests() {
   fs.writeFileSync(canaryPath, canarySecret, 'utf8');
 
   // Copy published self-contained GuestSupervisor.exe to input folder
-  const supervisorSource = path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/publish/win-x64/GuestSupervisor.exe');
+  const supervisorSource = path.resolve('DATGOLD-HUB/windows/sandbox/GuestSupervisor/publish/win-x64/GuestSupervisor.exe');
   assert.ok(fs.existsSync(supervisorSource), 'GuestSupervisor.exe must be published before real test');
   const supervisorDest = path.join(inputDir, 'GuestSupervisor.exe');
   fs.copyFileSync(supervisorSource, supervisorDest);
@@ -277,7 +277,7 @@ export async function runRealGuestTests() {
     //
     // To run from PowerShell:
     //   $env:CHATMCP_PROBE_FRAMED_EXITS='1'
-    //   node CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs
+    //   node DATGOLD-HUB/tests/windows-sandbox/real-guest.mjs
     //   Remove-Item Env:CHATMCP_PROBE_FRAMED_EXITS
     //
     // This NEVER clears G4, including when both high values round-trip.

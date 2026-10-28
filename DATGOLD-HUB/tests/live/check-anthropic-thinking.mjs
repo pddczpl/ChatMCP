@@ -1,7 +1,7 @@
 // check-anthropic-thinking.mjs - the "Anthropic check" of the DatGold roadmap, in one command. Run by the owner against the REAL Anthropic API (it needs a key
 // and spends a few cents), so CI never runs it against the real API; tests/verify-live-checks.mjs runs it in CI, offline and with no key, against a stand-in for the API, so that it cannot rot.
 //
-//   node CHATMCP-HUB/tests/live/check-anthropic-thinking.mjs [--model <id>] [--thinking default|adaptive] [--api-version <v>] [--base-url <url>] [--dry-run]
+//   node DATGOLD-HUB/tests/live/check-anthropic-thinking.mjs [--model <id>] [--thinking default|adaptive] [--api-version <v>] [--base-url <url>] [--dry-run]
 //
 // On record: 2026-10-25, claude-sonnet-5-5, the owner's account: step 3 = 200 (a tool_use turn needs no thinking block), step 4 = 400 "bound to a different conversation",
 // step 5 = 200 with thinking_dropped (docs/ARCHITECTURE.md, "Khối suy luận của Anthropic (prov-18)"). Run it again for another model, or when Anthropic changes its rules.
@@ -27,7 +27,7 @@ const TIMEOUT_MS = 120000;
 
 function printHelp() {
   console.log([
-    'Usage: node CHATMCP-HUB/tests/live/check-anthropic-thinking.mjs [options]',
+    'Usage: node DATGOLD-HUB/tests/live/check-anthropic-thinking.mjs [options]',
     '  --model <id>             model to test (default ' + DEFAULTS.model + '; others: claude-opus-5-5, claude-haiku-5-5, claude-fable-5-1)',
     '  --thinking default|adaptive  default sends no thinking field, as the Hub does; adaptive sends {"type":"adaptive"} (default: default;',
     '                           if the model does not think without it, adaptive is tried automatically)',
@@ -38,7 +38,7 @@ function printHelp() {
     '',
     'The key comes from ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN). In PowerShell, for this window only:',
     '  $env:ANTHROPIC_API_KEY = "<your key>"',
-    '  node CHATMCP-HUB/tests/live/check-anthropic-thinking.mjs',
+    '  node DATGOLD-HUB/tests/live/check-anthropic-thinking.mjs',
     '  Remove-Item Env:ANTHROPIC_API_KEY',
   ].join('\n'));
 }

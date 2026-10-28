@@ -1,7 +1,7 @@
 # Python packages for the FastAPI end-to-end suite (tests/verify-e2e-fastapi.mjs).
 # These are the versions the suite was verified with (Windows 11, Python 3.11.9). Install into a virtual environment:
 #   python -m venv deploy/.generated/venv-e2e
-#   deploy/.generated/venv-e2e/bin/pip install -r CHATMCP-HUB/tests/requirements-e2e.txt    (from the repository root; Windows: ...\Scripts\pip.exe)
+#   deploy/.generated/venv-e2e/bin/pip install -r DATGOLD-HUB/tests/requirements-e2e.txt    (from the repository root; Windows: ...\Scripts\pip.exe)
 # or point CHATMCP_E2E_PYTHON at any interpreter that has them. Without them the suite reports SKIP, never PASS.
 fastapi==0.115.0
 uvicorn==0.30.0

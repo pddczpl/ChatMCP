@@ -91,7 +91,7 @@ export async function powerShellStarters(files) {
   const guestCommands = ['smoke.mjs', 'real-guest.mjs'].map((name) => path.join(hubRoot, 'tests', 'windows-sandbox', name));
   const candidates = [];
   for (const root of [path.join(hubRoot, 'tests'), path.join(repoRoot, 'scripts')]) {
-    if (!await fs.stat(root).catch(() => null)) { console.log(`  --  ${path.relative(repoRoot, root)} was not found next to CHATMCP-HUB: not scanned`); continue; }
+    if (!await fs.stat(root).catch(() => null)) { console.log(`  --  ${path.relative(repoRoot, root)} was not found next to DATGOLD-HUB: not scanned`); continue; }
     for await (const file of walk(root)) if (!guestCommands.includes(file)) candidates.push(file);
   }
   const { named, missing } = await powerShellStarters(candidates);
@@ -172,7 +172,7 @@ export async function powerShellStarters(files) {
 // (the key tool tests for the header of an encrypted key with a regular expression written out in full) for a header, and PR #68 failed there after every suite here had passed.
 // The same pattern and the same exclusions run here, so that a local run finds it before a push does; a second check fails if ci.yml and this file drift apart.
 const HYGIENE_PATTERN = 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----';
-const HYGIENE_EXCLUDED = ['scripts/tests', 'CHATMCP-HUB/tests', 'docs', '.github'];
+const HYGIENE_EXCLUDED = ['scripts/tests', 'DATGOLD-HUB/tests', 'docs', '.github'];
 
 /** `path:line` of each tracked line under `cwd` that the hygiene pattern matches (git grep, as CI runs it; the text of the line is not kept: it may be a credential); null where git or a work tree is missing. */
 export function hygieneMatches(cwd) {
@@ -185,7 +185,7 @@ export function hygieneMatches(cwd) {
   const repoRoot = path.resolve(hubRoot, '..');
   const workflow = await fs.readFile(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8').catch(() => null);
   if (workflow === null) {
-    console.log('  --  .github/workflows/ci.yml was not found next to CHATMCP-HUB: the hygiene pattern was not compared with it');
+    console.log('  --  .github/workflows/ci.yml was not found next to DATGOLD-HUB: the hygiene pattern was not compared with it');
   } else {
     assert.ok(workflow.includes(`git grep -I -n -E '${HYGIENE_PATTERN}'`), 'the pattern of the "Repository hygiene" step in ci.yml is not the one tests/verify-source-lint.mjs runs: change both');
     for (const folder of HYGIENE_EXCLUDED) assert.ok(workflow.includes(`':(exclude)${folder}'`), `ci.yml no longer excludes ${folder} from the credential scan, or tests/verify-source-lint.mjs excludes one more than it: change both`);
@@ -211,7 +211,7 @@ export function hygieneMatches(cwd) {
       'lib/bearer.mjs': "const header = 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789';\n",
       'lib/described.mjs': 'const encrypted = /-{5}BEGIN ENCRYPTED PRIVATE KEY-{5}/;\n', // the repair: describes the header, is not one
       'lib/short-bearer.mjs': "const header = 'Authorization: Bearer short';\n",
-      'CHATMCP-HUB/tests/fixture.mjs': "const pem = '-----BEGIN PRIVATE KEY-----';\n",
+      'DATGOLD-HUB/tests/fixture.mjs': "const pem = '-----BEGIN PRIVATE KEY-----';\n",
       'scripts/tests/fixture.py': "pem = '-----BEGIN PRIVATE KEY-----'\n",
       'docs/example.md': '-----BEGIN PRIVATE KEY-----\n',
       '.github/workflows/example.yml': "run: echo '-----BEGIN PRIVATE KEY-----'\n",

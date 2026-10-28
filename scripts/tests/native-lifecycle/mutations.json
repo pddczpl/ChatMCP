@@ -1,5 +1,5 @@
 {
- "about": "Mutations of the native side of the in-app updater, run by run-mutations.mjs: one exact replacement at a time in a throw-away copy; the native tests (or, for run \"gate\", CHATMCP-HUB/tests/verify-update-apply.mjs) must notice each. See docs/DEVELOPMENT.md.",
+ "about": "Mutations of the native side of the in-app updater, run by run-mutations.mjs: one exact replacement at a time in a throw-away copy; the native tests (or, for run \"gate\", DATGOLD-HUB/tests/verify-update-apply.mjs) must notice each. See docs/DEVELOPMENT.md.",
  "mutations": [
   {
    "name": "link-no-length-limit",

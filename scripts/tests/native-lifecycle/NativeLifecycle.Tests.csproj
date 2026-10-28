@@ -21,14 +21,14 @@
     <Compile Include="../../../installer/UpdateWords.cs" Link="UpdateWords.cs" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The cases that the Hub's code and the shell's code must read the same way (CHATMCP-HUB/tests/verify-release-vectors.mjs runs the same file). -->
-    <None Include="../../../CHATMCP-HUB/tests/fixtures/release-verify-vectors.json" Link="release-verify-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The cases that the Hub's code and the shell's code must read the same way (DATGOLD-HUB/tests/verify-release-vectors.mjs runs the same file). -->
+    <None Include="../../../DATGOLD-HUB/tests/fixtures/release-verify-vectors.json" Link="release-verify-vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- The key file that ships, which the shell embeds: it must be one the shell can read whole. -->
-    <None Include="../../../CHATMCP-HUB/lib/release-keys.json" Link="release-keys.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- The result file the installer writes and the Hub reads, as literal text (CHATMCP-HUB/tests/verify-update-applied.mjs reads the same file). -->
-    <None Include="../../../CHATMCP-HUB/tests/fixtures/update-result-vectors.json" Link="update-result-vectors.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- Whether the Hub is doing work that an update would cut off: this rule, the installer's, and the page's port of it are held to one list of cases (CHATMCP-HUB/ui/tests/updates.test.mjs). -->
-    <None Include="../../../CHATMCP-HUB/tests/fixtures/active-work-cases.json" Link="active-work-cases.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../DATGOLD-HUB/lib/release-keys.json" Link="release-keys.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The result file the installer writes and the Hub reads, as literal text (DATGOLD-HUB/tests/verify-update-applied.mjs reads the same file). -->
+    <None Include="../../../DATGOLD-HUB/tests/fixtures/update-result-vectors.json" Link="update-result-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Whether the Hub is doing work that an update would cut off: this rule, the installer's, and the page's port of it are held to one list of cases (DATGOLD-HUB/ui/tests/updates.test.mjs). -->
+    <None Include="../../../DATGOLD-HUB/tests/fixtures/active-work-cases.json" Link="active-work-cases.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- The recovery that the setup guide describes for an installation that needs it is run for real by Program.cs, from the text of the guide. -->
     <None Include="../../../docs/WINDOWS-SETUP.md" Link="WINDOWS-SETUP.md" CopyToOutputDirectory="PreserveNewest" />
     <!-- The retained update that the lifecycle script makes on a hosted runner is made here too, by its own function, and repaired by the real repair (RecoverRefusalTests.cs). -->

@@ -93,7 +93,7 @@ export class BrowserTools {
   async #loadDriver() {
     if(this.driver)return this.driver;
     try{return requirePackaged('playwright');}
-    catch {try{return requireUi('playwright');}catch{throw failure('playwright_unavailable','Playwright JS runtime missing. The installer packages it and uses installed Edge on Windows; developers should npm ci in CHATMCP-HUB/ui and install Chromium.');}}
+    catch {try{return requireUi('playwright');}catch{throw failure('playwright_unavailable','Playwright JS runtime missing. The installer packages it and uses installed Edge on Windows; developers should npm ci in DATGOLD-HUB/ui and install Chromium.');}}
   }
   #get(taskId) {
     const record=this.sessions.get(taskId);

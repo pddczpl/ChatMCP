@@ -9,11 +9,11 @@ Docker/Render hosting, proxy cổng 3006 hoặc đăng nhập chủ sở hữu s
      so sánh SHA-256 với checksum được phát hành, cài và mở DatGold Studio.
    - Với mã nguồn: cài Git for Windows, Node.js 22.12+ và npm; mở PowerShell
      trong thư mục repository:
-       npm ci --prefix .\CHATMCP-HUB\ui
-       npm run build --prefix .\CHATMCP-HUB\ui
+       npm ci --prefix .\DATGOLD-HUB\ui
+       npm run build --prefix .\DATGOLD-HUB\ui
        .\START-CHATMCP-DESKTOP.cmd
    - Hoặc chạy web dashboard trên chính máy của bạn:
-       .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
+       .\DATGOLD-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
      Mặc định truy cập http://127.0.0.1:3007.
 
 2. CHỌN MODEL

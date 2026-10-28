@@ -5,7 +5,7 @@
 // package.json, the code, the UI bundle and the changelog, or when something a script depends on is broken (a non-ASCII byte in a
 // PowerShell file that Windows PowerShell 5.1 would read as ANSI, an unpinned CI action, an unpinned test requirement).
 //
-// Part 1 only needs the CHATMCP-HUB folder. Part 2 needs the repository root next to it (README.md, docs/, .github/); without it the
+// Part 1 only needs the DATGOLD-HUB folder. Part 2 needs the repository root next to it (README.md, docs/, .github/); without it the
 // suite reports SKIP with the part-1 result in the note, never PASS.
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -25,7 +25,7 @@ const REPO = path.resolve(HUB, '..');
 const TESTS = path.join(HUB, 'tests');
 
 // ================================================================================================================================
-// Part 1 - inside CHATMCP-HUB
+// Part 1 - inside DATGOLD-HUB
 // ================================================================================================================================
 const pkg = JSON.parse(read(path.join(HUB, 'package.json')));
 const version = pkg.version;
@@ -119,7 +119,7 @@ function walk(folder, { skip = new Set(['node_modules', '.git', 'test-results', 
 // Part 2 - the repository root
 // ================================================================================================================================
 if (!existsSync(path.join(REPO, 'docs', 'ARCHITECTURE.md')) || !existsSync(path.join(REPO, 'README.md'))) {
-  console.log(`CHATMCP_TEST_SKIP: README.md and docs/ were not found next to CHATMCP-HUB (the ${checks} in-folder checks passed; the document checks need the whole repository)`);
+  console.log(`CHATMCP_TEST_SKIP: README.md and docs/ were not found next to DATGOLD-HUB (the ${checks} in-folder checks passed; the document checks need the whole repository)`);
   process.exit(0);
 }
 

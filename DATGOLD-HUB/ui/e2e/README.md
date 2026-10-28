@@ -1,6 +1,6 @@
 # Current React desktop UI integration tests
 
-From `CHATMCP-HUB/ui`:
+From `DATGOLD-HUB/ui`:
 
 ```sh
 npm ci

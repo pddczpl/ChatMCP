@@ -19,7 +19,7 @@ Phase 3 nâng cấp hệ thống ChatMCP từ một coding agent đơn nhiệm t
 
 ### 2.1. Khóa đồng thời Workspace (`WorkspaceLock`)
 
-Nằm tại [`CHATMCP-HUB/lib/workspace-lock.mjs`](../CHATMCP-HUB/lib/workspace-lock.mjs).
+Nằm tại [`CHATMCP-HUB/lib/workspace-lock.mjs`](../DATGOLD-HUB/lib/workspace-lock.mjs).
 
 - **Cơ chế ghi nguyên tử:** Lưu file `.chatmcp-workspace.lock` tại thư mục gốc của workspace chứa:
   ```json
@@ -38,7 +38,7 @@ Nằm tại [`CHATMCP-HUB/lib/workspace-lock.mjs`](../CHATMCP-HUB/lib/workspace-
 
 ### 2.2. Trình quản lý Đa cấu hình AI (`AiProfiles`)
 
-Nằm tại [`CHATMCP-HUB/lib/ai-profiles.mjs`](../CHATMCP-HUB/lib/ai-profiles.mjs).
+Nằm tại [`CHATMCP-HUB/lib/ai-profiles.mjs`](../DATGOLD-HUB/lib/ai-profiles.mjs).
 
 - **Lưu trữ độc lập:** Quản lý danh sách trong file `ai-profiles.json` tại thư mục trạng thái (`stateDir`).
 - **An toàn khóa API (Credential Security):**
@@ -49,7 +49,7 @@ Nằm tại [`CHATMCP-HUB/lib/ai-profiles.mjs`](../CHATMCP-HUB/lib/ai-profiles.m
 
 ### 2.3. Động cơ Sandbox hợp nhất (`SandboxEngine`)
 
-Nằm tại [`CHATMCP-HUB/lib/sandbox-engine.mjs`](../CHATMCP-HUB/lib/sandbox-engine.mjs).
+Nằm tại [`CHATMCP-HUB/lib/sandbox-engine.mjs`](../DATGOLD-HUB/lib/sandbox-engine.mjs).
 
 - **Ba chế độ thực thi (`SANDBOX_MODES`):**
   - `'host'`: Chạy qua `ShellRunner` với phân tích cú pháp an toàn, kiểm tra whitelist, bảo vệ file hệ thống Windows.
@@ -89,6 +89,6 @@ Hub cung cấp các điểm cuối mới phục vụ Phase 3:
 ## 4. Kiểm chứng chất lượng
 
 Mọi thành phần trong Phase 3 đều được bảo vệ bằng kiểm thử tự động:
-- Bộ kiểm thử [`tests/verify-phase3-features.mjs`](../CHATMCP-HUB/tests/verify-phase3-features.mjs) xác minh 17 tiêu chí bao gồm khóa đồng thời, khôi phục khóa chết, quản lý hồ sơ AI và thực thi sandbox.
-- Bộ kiểm thử [`tests/verify-full-access.mjs`](../CHATMCP-HUB/tests/verify-full-access.mjs) xác minh 15 tiêu chí an toàn của chế độ Full Access.
-- Bộ kiểm thử [`tests/verify-public-http.mjs`](../SECURITY.md) (historical public-mode verification suite was removed) và [`tests/verify-permissions-modes.mjs`](../CHATMCP-HUB/tests/verify-permissions-modes.mjs) đảm bảo không có bất kỳ hồi quy nào.
+- Bộ kiểm thử [`tests/verify-phase3-features.mjs`](../DATGOLD-HUB/tests/verify-phase3-features.mjs) xác minh 17 tiêu chí bao gồm khóa đồng thời, khôi phục khóa chết, quản lý hồ sơ AI và thực thi sandbox.
+- Bộ kiểm thử [`tests/verify-full-access.mjs`](../DATGOLD-HUB/tests/verify-full-access.mjs) xác minh 15 tiêu chí an toàn của chế độ Full Access.
+- Bộ kiểm thử [`tests/verify-public-http.mjs`](../SECURITY.md) (historical public-mode verification suite was removed) và [`tests/verify-permissions-modes.mjs`](../DATGOLD-HUB/tests/verify-permissions-modes.mjs) đảm bảo không có bất kỳ hồi quy nào.
