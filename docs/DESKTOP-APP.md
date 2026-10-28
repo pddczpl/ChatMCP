@@ -7,7 +7,7 @@ Hướng dẫn phát hành DatGold Studio trên **Windows 10/11 x64** từ mã n
 - **Ứng dụng Windows:** WinForms + WebView2, xuất thành ChatMCP.exe từ desktop-shell/ChatMCP.csproj.
 - **Bộ cài:** DatGoldSetup.exe từ installer/ChatMCP.Installer.csproj (bản đến v3.10.2 tên là ChatMCPSetup.exe).
 - Hai dự án C# hiện nhắm **net10.0-windows**, build self-contained win-x64.
-- **Frontend React:** CHATMCP-HUB/ui -> CHATMCP-HUB/web/dist. Bắt buộc build lại UI nếu thêm tab/tính năng.
+- **Frontend React:** DATGOLD-HUB/ui -> DATGOLD-HUB/web/dist. Bắt buộc build lại UI nếu thêm tab/tính năng.
 - **Backend:** Node.js portable được đóng cùng installer; Git for Windows, WebView2 Runtime và nhà cung cấp AI/API key không đi kèm.
 - Coding workers chỉ cô lập Git worktree, **không cô lập tiến trình hệ điều hành**. Đừng sử dụng như sandbox cho người dùng không tin cậy.
 - CI xanh là điều kiện cần, **không phải bằng chứng đã test cài/gỡ trên máy Windows sạch**.
@@ -37,10 +37,10 @@ dotnet --version
 Trước khi build bản công khai, merge PR sau review/CI và **chọn số version chính thức**, v2.6.0 là phiên bản local-only tiếp theo sau v2.5.0; kiểm tra tag hiện có trước khi chọn phiên bản tiếp theo.
 
 Đồng bộ các vị trí sau khi tăng version:
-- CHATMCP-HUB/package.json và VERSION trong CHATMCP-HUB/lib/manager.mjs
+- DATGOLD-HUB/package.json và VERSION trong DATGOLD-HUB/lib/manager.mjs
 - desktop-shell/ChatMCP.csproj và installer/ChatMCP.Installer.csproj
-- CHATMCP-HUB/ui/package.json và package-lock.json nếu tăng version UI
-- UI_BUILD ở CHATMCP-HUB/hub.mjs cùng CHATMCP-HUB/ui/src/lib/api.ts khi thay build identity
+- DATGOLD-HUB/ui/package.json và package-lock.json nếu tăng version UI
+- UI_BUILD ở DATGOLD-HUB/hub.mjs cùng DATGOLD-HUB/ui/src/lib/api.ts khi thay build identity
 - README.md, CHANGELOG.md và các assertion phụ thuộc version
 
 ~~~powershell
@@ -55,9 +55,9 @@ Chỉ release khi trạng thái Git sạch và HEAD đúng commit đã review.
 ## 3. Kiểm thử và build installer
 
 ~~~powershell
-node .\CHATMCP-HUB\tests\run-all.mjs
-npm ci --prefix .\CHATMCP-HUB\ui
-npm run build --prefix .\CHATMCP-HUB\ui
+node .\DATGOLD-HUB\tests\run-all.mjs
+npm ci --prefix .\DATGOLD-HUB\ui
+npm run build --prefix .\DATGOLD-HUB\ui
 .\scripts\Build-Installer.ps1
 ~~~
 
@@ -119,15 +119,15 @@ cd ChatMCP
 # Test nhánh beta PR chưa merge:
 # git fetch origin
 # git switch feat/parallel-coding-agents-skills-registry-v2
-npm ci --prefix .\CHATMCP-HUB\ui
-npm run build --prefix .\CHATMCP-HUB\ui
+npm ci --prefix .\DATGOLD-HUB\ui
+npm run build --prefix .\DATGOLD-HUB\ui
 .\START-CHATMCP-DESKTOP.cmd
 ~~~
 
 Chỉ cần Hub qua browser:
 
 ~~~powershell
-.\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
+.\DATGOLD-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
 ~~~
 
 Sau khi cập nhật code, hãy dừng Hub cũ trước khi khởi động bản mới. Không tự tắt tiến trình không thuộc DatGold.

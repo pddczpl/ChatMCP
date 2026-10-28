@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Parser, Language } from 'web-tree-sitter';
-import { powerShellChildEnvironment } from '../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
+import { powerShellChildEnvironment } from '../../DATGOLD-HUB/tests/support/powershell-environment.mjs';
 import { PENDING_ALLOWED_ENV, PENDING_MARKER, assertRipgrepPin, noticeSource, noticeStaged, pendingNoticeText, readGrammarNotices, readRipgrepNotices } from './notices.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));

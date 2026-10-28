@@ -1,6 +1,6 @@
 # Claims map
 
-A claim in the documentation is only as good as the test behind it. In v3.9.0 several tests stayed green while the product was broken (installed skills never reached the model, language-server answers were discarded, an injected Tree-sitter adapter was dropped), each time because the test used a hand-written double of the object that held the defect. The claims map makes the binding between a claim and its test explicit, and `CHATMCP-HUB/tests/verify-claims-map.mjs` fails when the binding rots.
+A claim in the documentation is only as good as the test behind it. In v3.9.0 several tests stayed green while the product was broken (installed skills never reached the model, language-server answers were discarded, an injected Tree-sitter adapter was dropped), each time because the test used a hand-written double of the object that held the defect. The claims map makes the binding between a claim and its test explicit, and `DATGOLD-HUB/tests/verify-claims-map.mjs` fails when the binding rots.
 
 - `docs/CLAIMS.json` lists the headline claims of `README.md` and `RELEASE-NOTES-v3.9.0.md`, and a few from `SECURITY.md` and the user guide.
 - `docs/claims-ratchet.json` holds the number of **unmapped claims**. It may be lowered, never raised.
@@ -14,7 +14,7 @@ A claim in the documentation is only as good as the test behind it. In v3.9.0 se
 | `source` | `file`, `line` and a verbatim `quote` of at least 12 characters from that line |
 | `kind` | `claim`, or `disclaimer` for a statement that only denies something (its quote must contain "not", "no", "never", "without" ...); a disclaimer promises nothing, so it needs no test and is not part of the ratchet. A sentence that also affirms something ("X does Y, not Z") is a claim |
 | `seam` | `real`: a test exercises the claim on the production code path; `unmapped`: none does |
-| `test` | for `real`: `CHATMCP-HUB/tests/verify-<name>.mjs`; for `unmapped`: `null` |
+| `test` | for `real`: `DATGOLD-HUB/tests/verify-<name>.mjs`; for `unmapped`: `null` |
 | `seamNote` | for `real`: what is real and what is scripted in that test (the model, an HTTP transport, a child process ...) |
 | `forbiddenDoubles` | optional list of regular expressions that must not match the test's code, for example a workspace faked as `{ path: ... }` |
 | `reason`, `phase`, `candidateTest` | for `unmapped`: why, the roadmap phase that will close it (`P4`) or `null`, and the suite that comes closest |

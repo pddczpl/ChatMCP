@@ -23,7 +23,7 @@ const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(HUB, '..');
 const FOLDER = path.join(REPO, '.github', 'workflows');
 if (!existsSync(FOLDER)) {
-  console.log('CHATMCP_TEST_SKIP: .github/workflows was not found next to CHATMCP-HUB (the trigger check needs the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: .github/workflows was not found next to DATGOLD-HUB (the trigger check needs the whole repository)');
   process.exit(0);
 }
 
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
 `);
 
-const CODE = ['CHATMCP-HUB/lib/agent.mjs', 'CHATMCP-HUB/tests/verify-docs.mjs'];
+const CODE = ['DATGOLD-HUB/lib/agent.mjs', 'DATGOLD-HUB/tests/verify-docs.mjs'];
 const DOCS = ['README.md', 'docs/THREAT-MODEL.md', 'docs/CLAIMS.json'];
 const prEvents = (branch, files, number = 7) => [
   { name: 'push', branch, files },
@@ -121,7 +121,7 @@ const runs = (workflow, events) => events.filter((event) => triggers(workflow, e
   assert.deepEqual(both([{ name: 'push', branch: 'feat/no-pr-yet', files: CODE }]), [0, 0], 'a branch without a pull request is not built (workflow_dispatch below)');
   assert.deepEqual(both([{ name: 'workflow_dispatch' }]), [1, 1], 'a manual start runs both');
   assert.deepEqual(both([{ name: 'push', tag: 'v3.9.1', files: [] }]), [0, 0], 'a tag starts neither');
-  for (const file of ['CHATMCP-HUB/tests/requirements-e2e.txt', 'CHATMCP-HUB/README.md', 'scripts/InstallerPayload.ps1', '.github/workflows/ci.yml', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', 'CHATMCP-HUB/web/dist/index.html']) {
+  for (const file of ['DATGOLD-HUB/tests/requirements-e2e.txt', 'DATGOLD-HUB/README.md', 'scripts/InstallerPayload.ps1', '.github/workflows/ci.yml', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', 'DATGOLD-HUB/web/dist/index.html']) {
     assert.equal(runs(ci, prEvents('feat/x', [file])), 1, `${file} is not documentation: ci.yml runs`);
   }
   for (const file of ['README.md', 'SECURITY.md', 'THIRD-PARTY-NOTICES.md', 'RELEASE-NOTES-v3.9.0.md', 'docs/CLAIMS.json', 'docs/claims-ratchet.json', 'docs/agent-handoffs/x.md', 'LICENSE', 'NOTICE']) {
@@ -175,7 +175,7 @@ const runs = (workflow, events) => events.filter((event) => triggers(workflow, e
     ['push without a branch filter', 'ci.yml', (text) => text.replace('    branches: [main]\n    paths-ignore:', '    paths-ignore:'), (text) => duplicates('ci.yml', text)],
     ['a pinned feature branch in browser-companion-regression.yml', 'browser-companion-regression.yml', (text) => text.replace('branches: [main]', "branches: [main, 'fix/native-workspace-picker-chatgpt-web-mode']").replace(/(on:\n  push:\n    branches: \[[^\]]*\]\n)(    paths:)/, '$1$2'), (text) => {
       const workflow = parseWorkflow(text);
-      return runs(workflow, prEvents('fix/native-workspace-picker-chatgpt-web-mode', ['CHATMCP-HUB/lib/manager.mjs'])) > 1;
+      return runs(workflow, prEvents('fix/native-workspace-picker-chatgpt-web-mode', ['DATGOLD-HUB/lib/manager.mjs'])) > 1;
     }],
     ['docs-gates.yml loses a path', 'docs-gates.yml', (text) => text.replaceAll("      - 'docs/**'\n", ''), (text) => {
       const gates = parseWorkflow(text);

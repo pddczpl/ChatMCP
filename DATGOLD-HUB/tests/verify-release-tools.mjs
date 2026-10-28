@@ -368,7 +368,7 @@ try {
     assert.ok(body.every((line) => !(made.stdout + made.stderr).includes(line)), 'and no line of its body either');
     const spki = createPublicKey(createPrivateKey(privateText)).export({ type: 'spki', format: 'der' });
     assert.ok(made.stdout.includes(spki.toString('base64')) && made.stdout.includes(createHash('sha256').update(spki).digest('hex').slice(0, 8)), 'it shows the public key and its id');
-    assert.match(made.stdout, /"use": "release"/, 'and the entry for CHATMCP-HUB/lib/release-keys.json');
+    assert.match(made.stdout, /"use": "release"/, 'and the entry for DATGOLD-HUB/lib/release-keys.json');
     assert.match(made.stdout, /offline|backup|back up/i, 'and says to keep the file offline');
     assert.match(made.stdout, /next key/i, 'and says to keep a second key for the next one');
     const again = run(NEW_KEY, [target]);

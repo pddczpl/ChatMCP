@@ -18,10 +18,10 @@ import stat
 import subprocess
 import zipfile
 
-UI = 'CHATMCP-HUB/web/dist'
+UI = 'DATGOLD-HUB/web/dist'
 # The keys that sign RELEASE-MANIFEST.json (lib/release-signature.mjs). A release of the updater verifies the next release with the keys it ships, so a release whose key file still holds a
 # placeholder, or a test key, is an updater that can never update anything: this gate, which runs on the release commit, refuses it. The Hub's own suites accept the placeholder, so normal CI stays green.
-KEYS = 'CHATMCP-HUB/lib/release-keys.json'
+KEYS = 'DATGOLD-HUB/lib/release-keys.json'
 MAX_KEYS = 4
 # SEQUENCE { SEQUENCE { id-ecPublicKey, prime256v1 }, BIT STRING } up to the 0x00 of the BIT STRING; then 0x04 and the 64 bytes of an uncompressed point: 91 bytes in all.
 SPKI_HEADER = bytes.fromhex('3059301306072a8648ce3d020106082a8648ce3d030107034200')
@@ -59,7 +59,7 @@ def metadata_update(original: bytes, actual: bytes, checksum: str) -> bool:
 
 def verify_ui(root: Path) -> list[dict]:
     ui = root / UI
-    for parent in (root, root / 'CHATMCP-HUB', ui.parent, ui):
+    for parent in (root, root / 'DATGOLD-HUB', ui.parent, ui):
         no_link(parent)
     actual: dict[str, dict] = {}
     for folder, directories, files in os.walk(ui, followlinks=False):

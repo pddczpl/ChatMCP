@@ -17,7 +17,7 @@ What was wrong: `ci.yml` ran on `push` for `main` and for `dev/**`, `fix/**`, `f
 
 ### Why documentation-only changes skip `ci.yml` but not every check
 
-`ci.yml` ignores `*.md` (top level), `docs/**`, `LICENSE`, `NOTICE`, `HUONG-DAN.txt` and `VALIDATION.txt`. Five suites read exactly those files: `verify-docs`, `verify-trust-labels`, `verify-notices`, `verify-threat-model` and, from the claims work, `verify-claims-map`. A bare `paths-ignore` would have let a README, threat model or claims-map change merge without them. `docs-gates.yml` therefore starts under the opposite condition (its `paths` list **is** the `paths-ignore` list of `ci.yml`; `tests/verify-ci-triggers.mjs` fails when the two differ) and runs those suites in about a minute. A change that touches both documentation and code runs both workflows. Files outside the list, for example `CHATMCP-HUB/tests/requirements-e2e.txt`, `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt` or `CHATMCP-HUB/README.md`, still start `ci.yml`.
+`ci.yml` ignores `*.md` (top level), `docs/**`, `LICENSE`, `NOTICE`, `HUONG-DAN.txt` and `VALIDATION.txt`. Five suites read exactly those files: `verify-docs`, `verify-trust-labels`, `verify-notices`, `verify-threat-model` and, from the claims work, `verify-claims-map`. A bare `paths-ignore` would have let a README, threat model or claims-map change merge without them. `docs-gates.yml` therefore starts under the opposite condition (its `paths` list **is** the `paths-ignore` list of `ci.yml`; `tests/verify-ci-triggers.mjs` fails when the two differ) and runs those suites in about a minute. A change that touches both documentation and code runs both workflows. Files outside the list, for example `DATGOLD-HUB/tests/requirements-e2e.txt`, `DATGOLD-HUB/THIRD-PARTY-NOTICES.txt` or `DATGOLD-HUB/README.md`, still start `ci.yml`.
 
 If branch protection makes jobs of `ci.yml` **required** status checks, a documentation-only pull request leaves them "Pending" because the workflow never starts. In that case require the check `Documentation suites` for documentation changes through a ruleset that matches the same paths, or do not require path-dependent checks; no setting of the workflow files can fix this. Whether branch protection is configured is not visible from the repository.
 
@@ -38,7 +38,7 @@ The same replay on the v3.9.0 trigger block (embedded in the test) gives **two**
 ```bash
 node scripts/ci-health.mjs --repo pddczpl/ChatMCP --workflow CI
 node scripts/ci-health.mjs --repo pddczpl/ChatMCP --since 2026-11-01 --json
-node scripts/ci-health.mjs --fixture CHATMCP-HUB/tests/fixtures/ci-health/gh-output.json
+node scripts/ci-health.mjs --fixture DATGOLD-HUB/tests/fixtures/ci-health/gh-output.json
 ```
 
 It needs the GitHub CLI (`gh`, logged in) and only reads: the allow-list is `gh run list` and `gh pr list`, enforced before a process starts, and `tests/verify-ci-health.mjs` checks that no mutating verb can be built. `--fixture` replays a saved `{"runs": [...], "pulls": [...]}` file (the raw output of those two commands), which is how the arithmetic is tested offline.

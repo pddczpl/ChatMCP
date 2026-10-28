@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { powerShellChildEnvironment, windowsPowerShellPath } from '../../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
+import { powerShellChildEnvironment, windowsPowerShellPath } from '../../../../DATGOLD-HUB/tests/support/powershell-environment.mjs';
 
 const SYSTEM32 = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
 /** The full path of a program of Windows' own (cmd.exe, netstat.exe ...), so that nothing a PATH could put first is ever started. */

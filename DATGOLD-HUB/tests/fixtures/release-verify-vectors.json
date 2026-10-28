@@ -1,6 +1,6 @@
 {
  "version": 1,
- "about": "Cases that the Hub (CHATMCP-HUB/tests/verify-release-vectors.mjs) and the desktop shell (scripts/tests/native-lifecycle/ReleaseVectorTests.cs) must read the same way. Made by tests/support/make-release-vectors.mjs; every `expect` was written down when the case was made, not taken from the code. The keys were made for the run and no private key is kept.",
+ "about": "Cases that the Hub (DATGOLD-HUB/tests/verify-release-vectors.mjs) and the desktop shell (scripts/tests/native-lifecycle/ReleaseVectorTests.cs) must read the same way. Made by tests/support/make-release-vectors.mjs; every `expect` was written down when the case was made, not taken from the code. The keys were made for the run and no private key is kept.",
  "signatures": [
   {
    "name": "valid",

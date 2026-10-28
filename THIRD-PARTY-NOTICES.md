@@ -117,7 +117,7 @@ These are the gaps that remain after this change. None of them is hidden by the 
 ## UI libraries compiled into the dashboard
 
 <!-- BEGIN GENERATED: ui-production-packages (scripts/generate-licenses.mjs) -->
-167 packages of the production dependency closure of CHATMCP-HUB/ui/package-lock.json (MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the `license` field of the lockfile entry.
+167 packages of the production dependency closure of DATGOLD-HUB/ui/package-lock.json (MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the `license` field of the lockfile entry.
 
 | Package | Version | License |
 |---|---|---|

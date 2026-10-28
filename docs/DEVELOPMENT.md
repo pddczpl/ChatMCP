@@ -9,11 +9,11 @@
 | Git Bash | đi kèm Git for Windows | shell mặc định của agent trên Windows (không có thì dùng PowerShell) |
 | PowerShell | Windows PowerShell 5.1 (có sẵn trên Windows 11) | launcher, script, kiểm thử script |
 | Python 3.11+ | cần cho bộ E2E FastAPI bắt buộc trong CI; tùy chọn khi chạy Hub | (a) chỉ mục ký hiệu Python của Hub (`py -3.11` trên Windows); (b) bộ E2E FastAPI; (c) các bộ giao diện Python cũ |
-| Playwright Chromium | cài bằng `npx playwright install chromium` trong `CHATMCP-HUB/ui` | E2E React/Vite hiện tại, phiên bản Playwright ghim trong lockfile |
+| Playwright Chromium | cài bằng `npx playwright install chromium` trong `DATGOLD-HUB/ui` | E2E React/Vite hiện tại, phiên bản Playwright ghim trong lockfile |
 | .NET SDK 10 + Visual Studio C++ build tools + WebView2 Runtime | Windows installer và native smoke | biên dịch WinForms, Native AOT supervisor, kiểm tra React trong WebView2 thật |
 | Docker Desktop | tùy chọn | chỉ cho sandbox test cục bộ, không phải cloud hosting |
 
-Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
+Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `DATGOLD-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
 
 ## Dynamic task tool schemas
 
@@ -87,7 +87,7 @@ và chạy lệnh synthetic trực tiếp trên Windows host chỉ chứng minh 
 isolation, network denial, supervisor identity hay receipt authenticity.
 
 CI Windows installer phải build GuestSupervisor và chạy
-`CHATMCP_REQUIRE_HOST_SUPERVISOR=1 node CHATMCP-HUB/tests/windows-sandbox/smoke.mjs`.
+`CHATMCP_REQUIRE_HOST_SUPERVISOR=1 node DATGOLD-HUB/tests/windows-sandbox/smoke.mjs`.
 Trên Linux/Windows thiếu .NET, bộ source test nêu rõ **BLOCKED** đối với fixture chưa chạy;
 bộ kiểm thử guest thật do máy Windows hỗ trợ thực hiện tách khỏi CI thông thường. Backend sản phẩm và các mô-đun snapshot/check grants/retry/subagents đã có mã nhưng cố ý báo unavailable cho đến khi trusted publication được nghiệm thu.
 
@@ -103,7 +103,7 @@ Từ nhánh nâng cấp LocalTools, `directToolsFor` quảng bá tối đa **99 
 ## Chạy kiểm thử
 
 ```powershell
-cd CHATMCP-HUB
+cd DATGOLD-HUB
 npm test                                         # mọi bộ Node, mỗi bộ một tiến trình riêng
 node tests/run-all.mjs --list                    # liệt kê
 node tests/run-all.mjs --filter e2e --verbose    # lọc theo tên, in toàn bộ đầu ra
@@ -120,7 +120,7 @@ Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gia
 
 **Bộ chập chờn (`FLAKY`).** Với `--retry-failed-once`, bộ FAIL hoặc TIMEOUT được chạy lại đúng một lần. Qua ở lần hai thì nhãn là **`FLAKY` — không bao giờ là PASS**: được đếm riêng (`summary.flaky`), kèm cả hai lần chạy và đầu ra của lần hỏng trong JSON, một dòng `::warning` trên GitHub Actions. Hỏng cả hai lần vẫn là FAIL; bỏ qua (SKIP) ở lần hai cũng là FAIL. Một lần FLAKY không làm lượt chạy đỏ; `scripts/ci-flaky-gate.mjs` (job `flaky-gate` trên `main`) làm nó đỏ khi lần chạy này và hai lần chạy trước trên `main` đều có bộ FLAKY. Xem [CI-HEALTH.md](CI-HEALTH.md).
 
-**Máy chủ LSP thật trong CI.** `tests/verify-lsp-tier.mjs` luôn chạy với máy chủ LSP giả; `typescript-language-server` và `pyright` thật chỉ chạy khi tìm thấy (thư mục `node_modules` trong `CHATMCP_LSP_NODE_MODULES`, hoặc bản cài npm toàn cục) và nếu không thì chỉ in một dòng `skip`. Job Windows installer của CI dựng runtime đã khóa bằng `scripts/intelligence-runtime/stage.mjs` (đúng các tệp installer đóng gói) rồi chạy `CHATMCP_REQUIRE_REAL_LSP=1 CHATMCP_LSP_NODE_MODULES=<runtime>/runtimes/lsp/node_modules node CHATMCP-HUB/tests/verify-lsp-tier.mjs`: với biến này, thiếu một máy chủ thật là **lỗi** (và chỉ thư mục đó được tìm, bản cài toàn cục không thay thế được). Bộ `verify-lsp-real-gate` chạy chính tệp đó trong từng tình huống và đọc mã thoát. Bước CI này chưa từng chạy trên GitHub trong bản này; đã chạy cục bộ trên Windows 11 / Node 24 với typescript 5.9.3, typescript-language-server 4.3.4, pyright 1.1.407.
+**Máy chủ LSP thật trong CI.** `tests/verify-lsp-tier.mjs` luôn chạy với máy chủ LSP giả; `typescript-language-server` và `pyright` thật chỉ chạy khi tìm thấy (thư mục `node_modules` trong `CHATMCP_LSP_NODE_MODULES`, hoặc bản cài npm toàn cục) và nếu không thì chỉ in một dòng `skip`. Job Windows installer của CI dựng runtime đã khóa bằng `scripts/intelligence-runtime/stage.mjs` (đúng các tệp installer đóng gói) rồi chạy `CHATMCP_REQUIRE_REAL_LSP=1 CHATMCP_LSP_NODE_MODULES=<runtime>/runtimes/lsp/node_modules node DATGOLD-HUB/tests/verify-lsp-tier.mjs`: với biến này, thiếu một máy chủ thật là **lỗi** (và chỉ thư mục đó được tìm, bản cài toàn cục không thay thế được). Bộ `verify-lsp-real-gate` chạy chính tệp đó trong từng tình huống và đọc mã thoát. Bước CI này chưa từng chạy trên GitHub trong bản này; đã chạy cục bộ trên Windows 11 / Node 24 với typescript 5.9.3, typescript-language-server 4.3.4, pyright 1.1.407.
 
 Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đến 4 phút (Windows, 243 s đã đo); bộ lâu nhất là `verify-e2e-recovery` (~57 s, vì phải giết và khởi động lại Hub nhiều lần).
 
@@ -164,7 +164,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | | `verify-permissions-modes`, `verify-full-access` | `PermissionGate`: ba chế độ, đường dẫn bị chặn, `sandbox-only`, Full Access (kể cả hạ Full Access trong cùng yêu cầu đổi chế độ bằng `leaveFullAccess`), lịch sử phê duyệt |
 | | `verify-readonly-corpus`, `verify-full-access-always-ask`, `verify-spawn-limits`, `verify-batch-write` | chế độ Chỉ đọc chống lách lệnh (kho `tests/fixtures/readonly-bypass-corpus.json`), Full Access vẫn hỏi thao tác không hoàn tác, giới hạn độ sâu/số agent con, `files_write_batch` giữ mã hóa và chống ghi đè |
 | | `verify-project-instructions`, `verify-project-instructions-setting`, `verify-skill-on-demand` | công tắc của chủ máy cho `AGENTS.md`/`CLAUDE.md` là một cài đặt được lưu (biến môi trường > cài đặt đã lưu > mặc định bật; runner có sẵn, chat trong worktree riêng và worker lập trình đều theo từ lượt chạy kế tiếp); `AGENTS.md`/`CLAUDE.md` nạp vào chỉ dẫn với giới hạn cứng 8.192 byte, hạ theo phần lịch sử mà cửa sổ model để lại (tối đa 10%; bảng neo tính tay, thuộc tính trên mọi mức lịch sử, runner thật với dự án bận rộn: giới hạn của mỗi cửa sổ = `promptAllowance` của chính lượt chạy đó khi tắt hướng dẫn) (đọc có giới hạn, không đọc ngoài workspace, cắt đúng ranh giới UTF-8, che khóa, xóa ký tự ẩn; đúng một lần mỗi yêu cầu có kiểm tra đột biến; tính vào ngân sách ngữ cảnh; tiền tố ổn định; `AGENTS.md` thù địch đi qua manager + gate thật ở ba chế độ) và chỉ mục kỹ năng ≤ 4.096 byte (tối đa 5% lịch sử cùng định nghĩa `skill_load`; bậc thang chỉ mục → chỉ tên → không có) + `skill_load` (văn bản đến đúng một lần mỗi lần nạp, ≤ 16 KiB, worker, kỹ năng thù địch qua gate thật, đo lường mô hình không gọi công cụ) |
-| | `verify-skill-delivery`, `verify-source-lint`, `verify-lsp-tier`, `verify-lsp-real-gate`, `verify-trust-labels` | kỹ năng cài đặt thật sự tới mô hình, mã không còn dòng bị nuốt vào chú thích; không tệp nào được Git theo dõi (ngoài `scripts/tests`, `CHATMCP-HUB/tests`, `docs`, `.github`) có dòng mà bước `Repository hygiene` của CI coi là header khoá riêng hay bearer token (cùng mẫu và cùng thư mục loại trừ với `ci.yml`, được so với `ci.yml`, kèm đối chứng âm trong một kho Git tạm; một biểu thức chính quy chỉ mô tả header, như `-{5}BEGIN ...`, thì không bị coi là header); mọi test và script khởi chạy `powershell.exe` từ node đều dùng `tests/support/powershell-environment.mjs` (tiến trình con không thừa hưởng `PSModulePath` của PowerShell 7 từ các bước `pwsh` của workflow phát hành, nên không mất `Get-FileHash`; có kiểm chứng trên Windows PowerShell thật; cùng quy tắc cho mã của Hub: mọi tệp trong `lib/` và `hub.mjs` nhắc `powershell.exe` đều dùng `lib/powershell-environment.mjs`, và `verify-shell-runner` (kể cả `powershell.exe` do bash khởi động), `verify-phase0-regressions` (terminal), `verify-native-picker-bridge` và `verify-model-adapters` (DPAPI) dựng một thư mục module PowerShell 7 giả đứng đầu `PSModulePath` rồi kiểm tra tiến trình con vẫn thấy `Get-FileHash`), tầng LSP trên workspace thật (máy chủ giả luôn chạy, máy chủ thật khi tìm thấy; kết quả đầu tiên của máy chủ nguội là liên kết import thì xếp sau khai báo), cổng `CHATMCP_REQUIRE_REAL_LSP`, cổng chặn nhãn tin cậy sai |
+| | `verify-skill-delivery`, `verify-source-lint`, `verify-lsp-tier`, `verify-lsp-real-gate`, `verify-trust-labels` | kỹ năng cài đặt thật sự tới mô hình, mã không còn dòng bị nuốt vào chú thích; không tệp nào được Git theo dõi (ngoài `scripts/tests`, `DATGOLD-HUB/tests`, `docs`, `.github`) có dòng mà bước `Repository hygiene` của CI coi là header khoá riêng hay bearer token (cùng mẫu và cùng thư mục loại trừ với `ci.yml`, được so với `ci.yml`, kèm đối chứng âm trong một kho Git tạm; một biểu thức chính quy chỉ mô tả header, như `-{5}BEGIN ...`, thì không bị coi là header); mọi test và script khởi chạy `powershell.exe` từ node đều dùng `tests/support/powershell-environment.mjs` (tiến trình con không thừa hưởng `PSModulePath` của PowerShell 7 từ các bước `pwsh` của workflow phát hành, nên không mất `Get-FileHash`; có kiểm chứng trên Windows PowerShell thật; cùng quy tắc cho mã của Hub: mọi tệp trong `lib/` và `hub.mjs` nhắc `powershell.exe` đều dùng `lib/powershell-environment.mjs`, và `verify-shell-runner` (kể cả `powershell.exe` do bash khởi động), `verify-phase0-regressions` (terminal), `verify-native-picker-bridge` và `verify-model-adapters` (DPAPI) dựng một thư mục module PowerShell 7 giả đứng đầu `PSModulePath` rồi kiểm tra tiến trình con vẫn thấy `Get-FileHash`), tầng LSP trên workspace thật (máy chủ giả luôn chạy, máy chủ thật khi tìm thấy; kết quả đầu tiên của máy chủ nguội là liên kết import thì xếp sau khai báo), cổng `CHATMCP_REQUIRE_REAL_LSP`, cổng chặn nhãn tin cậy sai |
 | **Tích hợp** | `verify-local-backend` | `HubManager` (backend `local`) + gate + công cụ + `AgentRunner` với mô hình giả; không cần Docker, mạng hay khóa |
 | | `verify-task-state` | máy trạng thái nhiệm vụ: luật thuần, cách `AgentRunner` áp dụng, kết luận về nhiệm vụ tìm thấy sau khi Hub chết |
 | | `verify-launcher` | launcher nền (`lib/launch.mjs`, và `Start/Stop-ChatMcpHub.ps1` trên Windows) |
@@ -207,7 +207,7 @@ Bộ giao diện Python cũ (tùy chọn, cần Python + Playwright; xem bên d�
 Chạy từ thư mục gốc của repository:
 
 ```powershell
-cd CHATMCP-HUB/ui
+cd DATGOLD-HUB/ui
 npm ci --no-audit --no-fund
 npx playwright install chromium
 npm run test:unit
@@ -226,21 +226,21 @@ Console errors, runtime exceptions, HTTP lỗi và API error envelopes làm E2E 
 
 CI chạy React unit + Chromium E2E trên Windows và Linux. Job Windows installer chạy smoke WinForms/WebView2 sau build và thất bại nếu thiếu prerequisite; tham số `--allow-unavailable` chỉ dành cho khảo sát local và không dùng trong CI. Native smoke này kiểm tra tải/điều hướng, không thay thế toàn bộ luồng agent của Chromium. Restart React kiểm tra phiên đã dừng; crash giữa thao tác và chống phát lại mutation thuộc các regression Hub như `verify-e2e-recovery`.
 
-Mô hình ở các ca này là máy chủ **theo kịch bản**, không phải model thật. Kết quả không xác nhận chất lượng model trả phí, OS isolation, hay fresh install/upgrade/uninstall trên Windows sạch. Xem thêm [hướng dẫn E2E React](../CHATMCP-HUB/ui/e2e/README.md).
+Mô hình ở các ca này là máy chủ **theo kịch bản**, không phải model thật. Kết quả không xác nhận chất lượng model trả phí, OS isolation, hay fresh install/upgrade/uninstall trên Windows sạch. Xem thêm [hướng dẫn E2E React](../DATGOLD-HUB/ui/e2e/README.md).
 
 ### Bộ cần Python
 
 ```powershell
-# E2E FastAPI: cần một Python có các gói ghim trong CHATMCP-HUB\tests\requirements-e2e.txt (fastapi, uvicorn, httpx, pytest)
+# E2E FastAPI: cần một Python có các gói ghim trong DATGOLD-HUB\tests\requirements-e2e.txt (fastapi, uvicorn, httpx, pytest)
 py -3.11 -m venv deploy\.generated\venv-e2e
-deploy\.generated\venv-e2e\Scripts\pip install -r CHATMCP-HUB\tests\requirements-e2e.txt
+deploy\.generated\venv-e2e\Scripts\pip install -r DATGOLD-HUB\tests\requirements-e2e.txt
 # hoặc trỏ tới interpreter có sẵn các gói đó:
 $env:CHATMCP_E2E_PYTHON = 'C:\...\python.exe'
 
 # Giao diện: Playwright + Chromium/Edge/Chrome
-deploy\.generated\venv-e2e\Scripts\pip install -r CHATMCP-HUB\tests\requirements-ui.txt   # playwright (ghim)
+deploy\.generated\venv-e2e\Scripts\pip install -r DATGOLD-HUB\tests\requirements-ui.txt   # playwright (ghim)
 $env:PATH = "$PWD\deploy\.generated\venv-e2e\Scripts;$env:PATH"   # để runner thấy `python` có Playwright
-cd CHATMCP-HUB; npm run test:ui
+cd DATGOLD-HUB; npm run test:ui
 ```
 
 Thiếu gói hoặc trình duyệt → bộ **SKIP** (có lý do), không giả vờ PASS. Trình duyệt được tìm theo thứ tự: `$CHATMCP_CHROMIUM`, các đường dẫn Linux quen thuộc, Chromium của Playwright, Edge hoặc Chrome đã cài. `CHATMCP_E2E_SHOTS=<thư mục>` bật lưu ảnh chụp màn hình.
@@ -248,7 +248,7 @@ Thiếu gói hoặc trình duyệt → bộ **SKIP** (có lý do), không giả 
 Script ở thư mục gốc có kiểm thử riêng, chạy bằng dữ liệu giả trong thư mục tạm:
 
 ~~~powershell
-node CHATMCP-HUB/tests/run-all.mjs
+node DATGOLD-HUB/tests/run-all.mjs
 # Windows PowerShell 5.1: payload phải loại state/dev dependencies và dọn đúng thư mục staging.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-InstallerPayload.ps1
 # CI yêu cầu regression này trước khi build installer; không có nhánh skip.
@@ -295,7 +295,7 @@ await runScenario({ name: 'mine', summary: 'what it proves', budgetMs: 120_000 }
 `tests/mutation/run-mutations.mjs` trả lời câu hỏi "bộ test này có **thật sự fail được** không?". Nó sao chép Hub vào thư mục tạm, hỏng mã **một chỗ nhỏ mỗi lần** (thay đúng một đoạn văn bản bằng đoạn khác: đổi điều kiện, xóa một lời gọi, tắt một lớp bảo vệ), chạy bộ test trên bản đã hỏng và báo bộ test có nhận ra không.
 
 ```powershell
-cd CHATMCP-HUB
+cd DATGOLD-HUB
 node tests/mutation/run-mutations.mjs tests/mutation/isolation.json
 node tests/mutation/run-mutations.mjs tests/mutation/task-state.json --only M3,M4 --json out.json
 node tests/mutation/run-mutations.mjs tests/mutation/fastapi.json     # cần Python như bộ FastAPI
@@ -355,7 +355,7 @@ Giới hạn trung thực: đây là một tập đột biến **nhỏ, viết t
 ## Cấu trúc thư mục
 
 ```
-CHATMCP-HUB/       Hub (hub.mjs, lib/, web/, extension/, tests/, windows/, workers/)
+DATGOLD-HUB/       Hub (hub.mjs, lib/, web/, extension/, tests/, windows/, workers/)
   lib/             mã máy chủ (xem ARCHITECTURE.md); *.mjs, không cần build
   ui/              React/TypeScript/Vite: src/, tests/ (regression), e2e/ (Playwright và native smoke)
   web/dist/        build React được Local Hub và desktop phục vụ
@@ -370,7 +370,7 @@ CHATMCP-LOCAL-SETUP/, START-*.{cmd,ps1}, install.sh, manifest.json, bridge.js �
 ## Giới hạn đã biết của quy trình
 
 - Workflow CI (`.github/workflows/ci.yml`) gồm `hub-tests` (Linux + Windows × Node 22 + 24, pinned Python E2E dependencies, `--no-skip all --retry-failed-once`), `frontend-build`, `react-e2e` (Linux + Windows), `windows-installer` (kèm kiểm thử đơn vị native `NativeLifecycle.Tests`, native WebView2 smoke và kiểm tra SHA-256), `windows-upgrade-from-secretless-hub` (nâng cấp thật từ bản v3.9.0 đã phát hành, Hub chưa có secret), `windows-updater-e2e` (bộ cập nhật trong ứng dụng từ đầu đến cuối trên máy chạy CI dùng một lần: dựng từ chính commit này hai bộ cài cùng tin một khóa tạo cho lần chạy, một bản cũ và một bản mới hơn — phiên bản đặt lúc dựng bằng `scripts/tests/updater-e2e/set-build-version.mjs`, không commit bản tăng phiên bản nào, `Build-Installer.ps1 -ReleaseKeysFile`, hai bản dựng chạy cùng lúc trong hai cây làm việc Git; cài bản cũ thật, mở vỏ và Hub thật, rồi điều khiển trang trong WebView2 của ứng dụng đã cài bằng những cú bấm chuột mà trình duyệt coi là của người dùng (sự kiện chuột TIN CẬY do giao thức DevTools chèn vào qua cổng gỡ lỗi, không phải `click()` của script nhưng cũng KHÔNG phải chuột của hệ điều hành) qua cổng gỡ lỗi mà một chính sách WebView2 của máy dùng một lần mở cho `ChatMCP.exe` — chỉ chính sách mở cổng, ứng dụng đã cài được chạy không có biến môi trường mà WebView2 cũng đọc (cùng cách `scripts/tests/windows-installer/guest-lifecycle.ps1` làm trong sandbox): trả lời Không, Kiểm tra ngay, Tải về, Cài đặt và khởi động lại; vỏ cũ tự đóng (mã thoát 0, chưa đầy một giây sau cú bấm) và bộ cài được chạy với đúng các đối số của hợp đồng, so từng từ một, trong đó `--wait-pid` là mã của vỏ cũ (việc bộ cài có giữ lại cho đến khi vỏ đóng hay không không được job này nhìn thấy: các kiểm thử native giữ điều đó, `UpdateRunTests.cs`); rồi chờ ứng dụng quay lại ở bản mới và kiểm tra phiên bản chạy, dải "Đã cập nhật lên…" chỉ hiện một lần rồi bị tiêu thụ, lối tắt, thư mục dữ liệu của người dùng, tệp kết quả, không còn dấu hiệu hay bản sao lưu; và bốn từ chối xảy ra với bản cũ, sau mỗi lần bản cũ vẫn được cài và chạy: bộ cài bị lật một byte (`bad_installer`), chữ ký của khóa khác (`bad_signature`), việc đang chạy (trang khóa nút; tin nhắn gửi bằng script bị vỏ từ chối với `tasks_running`) và hai yêu cầu cùng lúc (`busy`). GitHub được thay bằng một máy chủ loopback (`CHATMCP_UPDATE_FEED_URL`, chỉ nhận địa chỉ loopback). Không chứng minh: bản phát hành ký bằng khóa thật, GitHub thật, SmartScreen hay Smart App Control với bộ cài chưa ký, lần tải 230 MB qua internet, tài khoản không có quyền cao, mất điện giữa chừng, job object; `scripts/tests/updater-e2e/rehearse-page.mjs` là buổi diễn tập phần điều khiển trang trên máy bất kỳ, không cần cài gì, với vỏ giả: Hub của cây này trên cổng trống, một máy chủ loopback giả GitHub, khóa tạo cho lần chạy, rồi cùng bộ điều khiển trang bấm bằng sự kiện chuột tin cậy qua Edge không đầu hoặc, với `--webview2`, qua một cửa sổ WebView2 THẬT của một máy chủ giả nhỏ `WebView2Host` (không dùng mã của vỏ) — `--policy` mở cổng gỡ lỗi bằng chính sách WebView2 như job làm cho vỏ đã cài, và chỉ chạy trên máy Windows chạy CI do GitHub cung cấp (ở nơi khác nó từ chối với mã 2, vì nó ghi một chính sách của cả máy); job chạy cả hai lần diễn tập này đầu tiên, vài chục giây, để một trang mà bộ điều khiển không đọc được nữa hay một chính sách bị bỏ qua với tài khoản có quyền cao làm job đỏ trước khi tốn 10 phút dựng bộ cài), `flaky-gate` (chỉ trên `main`) và `hygiene`. Mọi action được ghim theo SHA commit; `verify-docs` kiểm tra điều đó. `docs/ci-proposal.yml` là đề xuất lịch sử, không phải cấu hình CI đang chạy. Chỉ báo CI xanh khi đã đọc kết quả GitHub Actions trên đúng commit; kết quả local không thay thế trạng thái CI hoặc kiểm thử cài đặt trên máy Windows sạch.
-- `CHATMCP-HUB/SHA256SUMS.txt` là của bản phát hành cũ, đã lỗi thời; không dùng để xác minh bản này.
+- `DATGOLD-HUB/SHA256SUMS.txt` là của bản phát hành cũ, đã lỗi thời; không dùng để xác minh bản này.
 - Các script `windows/Run-StudioSmoke.ps1`, `windows/Test-Gateway-ViaHub.ps1`, `windows/Watch-StudioHub.ps1`, `windows/Run-StudioSoak.ps1`, `windows/Test-Gateway-Live.ps1` là công cụ thủ công, không nằm trong `npm test`. `Run-StudioSmoke`, `Watch-StudioHub` và `Run-StudioSoak` so phiên bản của Hub đang chạy (lấy từ `/api/health`) với `version` trong `package.json` cạnh chúng (tham số `-ExpectedVersion` để ghi đè); `Test-Gateway-ViaHub` dùng đúng bản dựng giao diện mà Hub báo. Không script nào ghi cứng số phiên bản, nên không phải sửa mỗi lần phát hành. Mã thoát phản ánh kết quả thật: `Run-StudioSmoke` thoát 1 nếu có kiểm tra fail (kể cả sai phiên bản hay không có Hub), `Run-StudioSoak` thoát 1 nếu có mẫu nào xấu (kể cả khi Hub không trả lời mẫu nào), `Test-Gateway-ViaHub` thoát 1 nếu kết nối thử lỗi, `Watch-StudioHub` thoát 2 khi cổng đang bị một dịch vụ hay phiên bản khác chiếm (và không khởi động lại gì). Cả bốn đã được chạy thật dưới Windows PowerShell 5.1 với một Hub tạm và mô hình giả (xem báo cáo Phase 1). `Test-Gateway-Live.ps1` chỉ nói chuyện với một gateway Cloud Run có tên máy chủ ghi cứng trong script và không dùng cho việc khác — xem mục quyết định của chủ sở hữu trong báo cáo.
 
 
@@ -380,7 +380,7 @@ Các mô-đun `execution-snapshots.mjs`, `windows-sandbox-backend.mjs`, `worker-
 
 Windows Sandbox CLI driver `lib/windows-sandbox-driver.mjs` hoạt động qua run-owned disposable guest staging và synthetic CLI tests; dữ liệu receipt trả về vẫn UNTRUSTED, không có production publisher đã chứng nhận. Bộ suite `verify-windows-driver.mjs` chỉ kiểm tra giao thức và vòng đời với CLI mô phỏng, KHÔNG chứng minh cách ly Windows thật.
 
-Offline benchmark manifest `CHATMCP-HUB/tests/benchmarks/manifest.json` and runner `run-offline.mjs` cover scripted fixable failure, unchanged failure, zero-exit/no assertions, blocked isolated backend, cancellation, escalation and token budget. Output is JSON evidence for logic tests ONLY, not the dedicated Windows Sandbox hardware gate.
+Offline benchmark manifest `DATGOLD-HUB/tests/benchmarks/manifest.json` and runner `run-offline.mjs` cover scripted fixable failure, unchanged failure, zero-exit/no assertions, blocked isolated backend, cancellation, escalation and token budget. Output is JSON evidence for logic tests ONLY, not the dedicated Windows Sandbox hardware gate.
 
 The HMAC-backed reader in `lib/windows-sandbox-publisher.mjs` validates a per-run signed receipt, but production publisher availability remains false without independent Windows token/key non-disclosure and owned-instance evidence. Portable `verify-sandbox-publisher.mjs` runs synthetic fixtures and must not be counted as an OS security test.
 
@@ -410,7 +410,7 @@ conversation UI disclose this telemetry without imposing quotas.
 ## Reproducible parity metrics (grades are user-provided)
 
 Run `node tests/benchmarks/summarize-parity.mjs results.json` from
-`CHATMCP-HUB`. The input must be a JSON object:
+`DATGOLD-HUB`. The input must be a JSON object:
 ```json
 {
   "schema": 1,

@@ -1,6 +1,6 @@
 // Read-only review harness: executes real Companion code in a mocked VM.
 // No browser, network, model request, repository write, or credential access.
-// Usage: node review-companion-edgecases.mjs <CHATMCP-HUB/extension>
+// Usage: node review-companion-edgecases.mjs <DATGOLD-HUB/extension>
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const dir = fileURLToPath(new URL('../extension/', import.meta.url));
-if (!dir) throw new Error('Pass the canonical CHATMCP-HUB/extension directory.');
+if (!dir) throw new Error('Pass the canonical DATGOLD-HUB/extension directory.');
 const read = name => fs.readFileSync(path.join(dir, name), 'utf8').replace(/\r\n/g, '\n');
 const original = read('browser-background.js');
 const route = read('chat-route.js');

@@ -1,5 +1,5 @@
-// CHATMCP-HUB/tests/code-intelligence.test.mjs
-// Automated test suite for CHATMCP-HUB/lib/code-intelligence.mjs
+// DATGOLD-HUB/tests/code-intelligence.test.mjs
+// Automated test suite for DATGOLD-HUB/lib/code-intelligence.mjs
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { exactPagerank } from './support/pagerank-reference.mjs';
 
-// Support running both inside CHATMCP-HUB/tests/ (../lib/code-intelligence.mjs)
+// Support running both inside DATGOLD-HUB/tests/ (../lib/code-intelligence.mjs)
 // and in the same directory (./code-intelligence.mjs)
 const mod = await import('../lib/code-intelligence.mjs').catch(() => import('./code-intelligence.mjs'));
 const {

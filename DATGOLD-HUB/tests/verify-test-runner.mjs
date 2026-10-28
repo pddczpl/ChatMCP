@@ -352,7 +352,7 @@ try {
     assert.ok(asked[0].includes('--event') && asked[0].includes('push') && asked[0].includes('--branch') && asked[0].includes('main'), 'only push runs of main');
     assert.ok(gate.GH_ALLOWED.every(([a, b]) => a === 'run' && ['list', 'download'].includes(b)), 'the only gh commands are run list and run download');
     ok('gate: the history is the previous completed push runs of main (not the current run, not cancelled ones), read with run list only');
-  } else console.log('  skip - scripts/ci-flaky-gate.mjs was not found next to CHATMCP-HUB (the gate checks need the whole repository)');
+  } else console.log('  skip - scripts/ci-flaky-gate.mjs was not found next to DATGOLD-HUB (the gate checks need the whole repository)');
 
   // ---- usage errors ----------------------------------------------------------------------------------------------------------
   {

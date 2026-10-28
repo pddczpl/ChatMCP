@@ -1,7 +1,7 @@
 name: DCO
 
 # Every non-merge commit of a pull request needs a "Signed-off-by: Name <email>" trailer (git commit -s).
-# The check is scripts/check-dco.mjs (no third-party action); CHATMCP-HUB/tests/verify-dco-check.mjs runs the same script against
+# The check is scripts/check-dco.mjs (no third-party action); DATGOLD-HUB/tests/verify-dco-check.mjs runs the same script against
 # temporary repositories. Merge commits and commits authored by github-actions[bot], dependabot[bot] and semantic-release-bot are exempt.
 
 on:
