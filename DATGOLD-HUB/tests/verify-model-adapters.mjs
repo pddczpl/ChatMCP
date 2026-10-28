@@ -270,12 +270,13 @@ try {
     ['glm', 'openai-chat', 'https://api.z.ai/api/paas/v4', 'glm-5.3', ['ZAI_API_KEY']],
     ['qwen', 'openai-chat', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'qwen3.7-plus', ['DASHSCOPE_API_KEY']],
     ['minimax', 'anthropic', 'https://api.minimax.io/anthropic', 'MiniMax-M3', ['MINIMAX_API_KEY']],
+    ['kimi', 'openai-chat', 'https://api.moonshot.ai/v1', 'kimi-k3', ['MOONSHOT_API_KEY']],
   ]) {
     const entry = presetById(id);
     same([entry?.protocol, entry?.apiBaseUrl, entry?.defaultModel, entry?.keyEnv, entry?.promptCaching, entry?.contextWindowTokens], [protocol, base, model, env, false, null], `${id}: the preset`);
     same(presetForBaseUrl(base, protocol)?.id, id, `${id}: a connection aimed at its endpoint is that provider`);
   }
-  same(PRESETS.length, 18, 'the 14 that were there and the four popular providers');
+  same(PRESETS.length, 19, 'the 14 that were there, the four popular providers and Kimi');
   same([presetById('openai').defaultModel, presetById('openai-responses').defaultModel], ['gpt-5.6-terra', 'gpt-5.6-terra'], 'gpt-5-mini is deprecated on OpenAI\'s own page, which names GPT-5.6 Terra as its successor');
   same([presetById('deepseek').defaultModel, presetById('deepseek').contextWindowTokens], ['deepseek-flash', null], 'deepseek-chat was retired on 2026-07-24; the catalog knows the current model and its 1M window, so none is written here');
   same(presetForBaseUrl('https://api.anthropic.com/v1/messages')?.id, 'anthropic');
@@ -395,9 +396,9 @@ try {
 
   // the popular providers: a key in the environment is theirs alone
   {
-    const env = { XAI_API_KEY: 'xai-env-0123456789', ZAI_API_KEY: 'zai-env-0123456789', DASHSCOPE_API_KEY: 'ds-env-0123456789', MINIMAX_API_KEY: 'mm-env-0123456789' };
+    const env = { XAI_API_KEY: 'xai-env-0123456789', ZAI_API_KEY: 'zai-env-0123456789', DASHSCOPE_API_KEY: 'ds-env-0123456789', MINIMAX_API_KEY: 'mm-env-0123456789', MOONSHOT_API_KEY: 'ms-env-0123456789' };
     const { provider } = await makeProvider('env-popular', { env });
-    same(provider.envKeys().map((entry) => entry.preset), ['xai', 'glm', 'qwen', 'minimax'], 'each variable is offered for its own provider');
+    same(provider.envKeys().map((entry) => entry.preset), ['xai', 'glm', 'qwen', 'minimax', 'kimi'], 'each variable is offered for its own provider');
     await provider.configure({ preset: 'glm', useEnvKey: true });
     same([provider.state().keySource, provider.state().apiBaseUrl, provider.state().protocol, provider.state().model, provider.ready()], ['environment', 'https://api.z.ai/api/paas/v4', 'openai-chat', 'glm-5.3', true]);
     await provider.configure({ preset: 'minimax', useEnvKey: true });

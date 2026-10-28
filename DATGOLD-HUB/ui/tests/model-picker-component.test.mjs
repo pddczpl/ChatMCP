@@ -49,7 +49,7 @@ const info = (extra = {}) => ({
   catalog: { generatedAt: '2026-10-19', ageDays: 5 }, ...extra,
 });
 const model = (id, extra = {}) => ({ id, contextWindow: 1000000, maxInput: null, maxOutput: 128000, rates: { input: 3, output: 15 }, tiered: false, reasoning: true, toolCall: true, vision: true, status: null, ...extra });
-const LIST = { provider: 'anthropic', source: SOURCE, local: false, total: 3, truncated: false, models: [model('claude-haiku-3', { status: 'deprecated', contextWindow: 200000, rates: { input: 0.25, output: 1.25 }, reasoning: false, vision: false }), model('claude-opus-5-5', { rates: { input: 5, output: 25 } }), model('claude-sonnet-5-5', { rates: { input: 2, output: 10 } })] };
+const LIST = { provider: 'anthropic', source: SOURCE, local: false, total: 3, truncated: false, models: [model('claude-tiny-3', { contextWindow: 200000, rates: { input: 0.25, output: 1.25 }, reasoning: false, vision: false }), model('claude-opus-5-5', { rates: { input: 5, output: 25 } }), model('claude-sonnet-5-5', { rates: { input: 2, output: 10 } })] };
 /** What a connection is to the picker: the preset, the address and how many times the form was saved (a new key makes the same address another account). What the account's models were asked for belongs to it. */
 const CONNECTION = 'anthropic|https://api.anthropic.com|0';
 const props = (extra = {}) => ({ id: 'm', ariaLabel: 'Model', value: 'claude-sonnet-5-5', onChange() {}, placeholder: 'model id', inputClassName: 'w-full', preset: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', ...extra });
@@ -89,7 +89,7 @@ test('the line under the field: an input limit and tiers are said; an alias is s
   }
 });
 
-test('open, the list is the Hub\'s list of the provider: deprecated last, each model with its badges, the current one selected, the source named', async () => {
+test('open, the list is the Hub\'s list of the provider: by id, each model with its badges, the current one selected, the source named', async () => {
   const p = props();
   const root = parseHtml(await picker(opened, p, [infoEntry(p, info()), listEntry(p, LIST)]));
   const [input] = byTag(root, 'input');
@@ -101,15 +101,33 @@ test('open, the list is the Hub\'s list of the provider: deprecated last, each m
   assert.equal(accessibleName(root, listbox), translations.vi.ai_model_list_label);
   const options = byRole(root, 'option');
   assert.deepEqual(options.map((node) => node.attrs.id.split('-').pop()), ['0', '1', '2']);
-  assert.deepEqual(options.map((node) => textOf(node).split(' ')[0]), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-3'], 'by id, with the deprecated model after the others');
+  assert.deepEqual(options.map((node) => textOf(node).split(' ')[0]), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-tiny-3'], 'by id');
   assert.deepEqual(options.map((node) => node.attrs['aria-selected']), ['false', 'true', 'false'], 'the model in the field is the selected one');
   assert.equal(textOf(options[0]), 'claude-opus-5-5 1M ngữ cảnh $5 / $25 mỗi 1M token suy luận công cụ đọc ảnh');
-  assert.equal(textOf(options[2]), 'claude-haiku-3 200K ngữ cảnh $0.25 / $1.25 mỗi 1M token công cụ ngừng hỗ trợ', 'no thinking, no images: no badge');
+  assert.equal(textOf(options[2]), 'claude-tiny-3 200K ngữ cảnh $0.25 / $1.25 mỗi 1M token công cụ', 'no thinking, no images: no badge');
   assert.equal(input.attrs['aria-activedescendant'], options[0].attrs.id, 'the first one is the active one');
   assert.deepEqual(options.map((node) => /bg-hover/.test(node.attrs.class)), [true, false, false], 'and it is marked');
   assert.deepEqual(options.map((node) => /text-primary/.test(node.attrs.class)), [false, true, false], 'as is the one that is chosen');
   assert.ok(textOf(root.descendants().find((node) => node.attrs['data-testid'] === 'model-list-note')).includes(`Danh sách: ${SOURCE}`));
   assert.deepEqual([duplicateIds(root), brokenReferences(root), unnamedControls(root)], [[], [], []]);
+});
+
+// A model the catalog marks deprecated (the provider has stopped serving it, or is about to) is not offered, unless it is the one in the field.
+const OLD = model('claude-haiku-3', { status: 'deprecated', contextWindow: 200000, rates: { input: 0.25, output: 1.25 }, reasoning: false, vision: false });
+const LIST_WITH_OLD = { ...LIST, total: 4, models: [...LIST.models, OLD] };
+test('open: a deprecated model is not in the list of another model\'s field', async () => {
+  const p = props();
+  const root = parseHtml(await picker(opened, p, [infoEntry(p, info()), listEntry(p, LIST_WITH_OLD)]));
+  assert.deepEqual(byRole(root, 'option').map((node) => textOf(node).split(' ')[0]), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-tiny-3'], 'the three that are served; the deprecated one is not offered');
+});
+
+test('open: the deprecated model that is in the field stays in the list, last, with its badge', async () => {
+  const p = props({ value: 'claude-haiku-3' });
+  const root = parseHtml(await picker(opened, p, [infoEntry(p, info({ model: 'claude-haiku-3', status: 'deprecated' })), listEntry(p, LIST_WITH_OLD)]));
+  const options = byRole(root, 'option');
+  assert.deepEqual(options.map((node) => textOf(node).split(' ')[0]), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-tiny-3', 'claude-haiku-3'], 'a connection that uses it still sees it, after the others');
+  assert.equal(textOf(options[3]), 'claude-haiku-3 200K ngữ cảnh $0.25 / $1.25 mỗi 1M token công cụ ngừng hỗ trợ');
+  assert.deepEqual(options.map((node) => node.attrs['aria-selected']), ['false', 'false', 'false', 'true'], 'and it is the selected one');
 });
 
 test('open: loading, a provider the Hub has no list for, a filter that matches nothing, a list too long to show whole', async () => {
@@ -452,7 +470,7 @@ test('what is done to the field changes what it shows: typing opens the list and
   assert.deepEqual(key(shrunk, 'ArrowUp'), expected(['active', 1]), 'the arrow up moves from it');
   taken.length = 0;
   key(shrunk, 'Enter');
-  assert.deepEqual(taken, ['claude-haiku-3'], 'and Enter takes it');
+  assert.deepEqual(taken, ['claude-tiny-3'], 'and Enter takes it');
   // a press on the browse button does not take the focus (see below), so the button gives it to the field: the arrows, Enter and Escape then act on the list it opened
   const focused = [];
   inputOf(closed).props.ref.current = { focus: () => focused.push('focus') };
@@ -527,7 +545,7 @@ test('the account\'s own models: what each answer of the Hub leaves in the field
   // warning or the request that is still out for the other one
   const OTHER = 'openai|https://api.openai.com/v1|0';
   const elsewhere = await shown({ account: { for: OTHER, models: [{ id: 'brand-new-model', name: 'brand-new-model' }], message: 'MESSAGE', busy: true } });
-  assert.deepEqual(byRole(elsewhere, 'option').map(textOf).map((text) => text.split(' ')[0]), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-3'], 'the catalog\'s list of this provider, not the account of the other one');
+  assert.deepEqual(byRole(elsewhere, 'option').map(textOf).map((text) => text.split(' ')[0]), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-tiny-3'], 'the catalog\'s list of this provider, not the account of the other one');
   assert.ok(!elsewhere.text.includes(t.ai_model_badge_account), 'nothing is said to be in the account');
   assert.equal(textOf(findTestId(elsewhere, 'model-list-note')), `Danh sách: ${SOURCE}`, 'and the note is the list\'s');
   assert.equal(accountButton(elsewhere).attrs.disabled, undefined, 'a request that is out for the other connection does not keep this one waiting');

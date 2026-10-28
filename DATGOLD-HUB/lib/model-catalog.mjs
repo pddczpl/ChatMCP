@@ -23,7 +23,7 @@ const isObject = (value) => !!value && typeof value === 'object' && !Array.isArr
 /** Preset id -> provider id in the catalog. Local runtimes and the "custom" presets have none: the endpoint decides. */
 export const CATALOG_PROVIDER_OF_PRESET = Object.freeze({
   anthropic: 'anthropic', openai: 'openai', 'openai-responses': 'openai', gemini: 'google', openrouter: 'openrouter', deepseek: 'deepseek', xai: 'xai', glm: 'zai', qwen: 'alibaba',
-  minimax: 'minimax', groq: 'groq', mistral: 'mistral',
+  minimax: 'minimax', groq: 'groq', mistral: 'mistral', kimi: 'moonshotai',
 });
 /** Hosts of the first-party providers, which the catalog does not list (it lists the endpoints of the others). */
 const FIRST_PARTY_HOSTS = Object.freeze({
