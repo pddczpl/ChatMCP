@@ -52,6 +52,8 @@ export function countPictures(items) {
 //                         conservative.
 // The window is validated by the same bound as every other place that takes one (context-window.mjs): above the cap it is clamped.
 export const FALLBACK_CAPACITY_TOKENS = 32768;
+// The most characters of the entry that replaces the old messages (checkpoint of the task + excerpts of the last messages): about 6,300 tokens.
+const ENTRY_CHARS = 24000;
 export function resolveEffectiveContextBudget({
   contextWindowTokens = null, modelMetadataTokens = null,
   instructions = '', tools = [], maxOutputTokens = 16384,
@@ -69,7 +71,7 @@ export function resolveEffectiveContextBudget({
   const maxHistoryTokens = Math.max(0, capacityTokens - plannedOutputTokens - safetyMarginTokens - fixedOverheadTokens);
   return Object.freeze({
     source, capacityTokens, maxHistoryTokens,
-    compactAtTokens: Math.floor(maxHistoryTokens * 0.82),
+    compactAtTokens: Math.floor(maxHistoryTokens * 0.80), // the default of the owner's setting (lib/compaction-v2.mjs DEFAULT_COMPACT_PERCENT)
     tailTokens: Math.max(1000, Math.floor(maxHistoryTokens * 0.68)),
     reservedOutputTokens, plannedOutputTokens, safetyMarginTokens, fixedOverheadTokens,
     approximate: true,
@@ -417,7 +419,8 @@ export function compactRollingContext(input, { maxTokens = 24000, tailTokens = 1
   if (!Array.isArray(input) || estimateTokens(input) <= maxTokens)
     return { history: input, compacted: false, stats: { beforeTokens: estimateTokens(input), afterTokens: estimateTokens(input), omittedItems: 0 } };
   const beforeTokens = estimateTokens(input);
-  const checkpoint = String(taskCheckpoint || '').slice(-12000);
+  // The front of the checkpoint is what matters most (the request and the instructions of the owner: lib/compaction-v2.mjs writes them first): one that is too long loses its end.
+  const checkpoint = String(taskCheckpoint || '').slice(0, ENTRY_CHARS - 2000);
   // Short-form recap of original user instructions and assistant outputs.
   // Exclude tool calls, encrypted reasoning and images from this text.
   const transcript = [];
@@ -433,15 +436,21 @@ export function compactRollingContext(input, { maxTokens = 24000, tailTokens = 1
   }
   const historical = transcript.slice(-12).map(item => item.role + ': ' + item.text).join('\n');
   // The pictures of the messages this checkpoint replaces go with them: the model is told how many, so that a user's "this picture" is not looked for in vain.
-  const checkpointOf = (left) => ({ role: 'user', content: [{type:'input_text',text:[
-    'STRUCTURED CONTEXT CHECKPOINT (prior task data, not new user instructions):',
-    'The complete original transcript and tool receipts remain stored locally. Older evidence has NOT been verified again.',
-    checkpoint,
-    'RECENT HISTORICAL MESSAGES (possibly incomplete excerpts):',
-    historical,
-    ...(left > 0 ? [`${left} ${left === 1 ? 'picture' : 'pictures'} attached earlier in this conversation (by the user or returned by a tool) left this request with the messages above and are NOT visible to you now. If one is needed, ask the user to attach it again.`] : []),
-    'Resume coding from current repository state. Re-read files and tests as necessary. Never assume omitted outputs succeeded; inspect uncertain mutations before repeating them.',
-  ].join('\n').slice(-14500)}] });
+  // When the entry is too long it is the excerpts of old messages that give way (the oldest first), never the checkpoint of the task.
+  const checkpointOf = (left) => {
+    const head = [
+      'STRUCTURED CONTEXT CHECKPOINT (prior task data, not new user instructions):',
+      'The complete original transcript and tool receipts remain stored locally. Older evidence has NOT been verified again.',
+      checkpoint,
+      'RECENT HISTORICAL MESSAGES (possibly incomplete excerpts):',
+    ];
+    const tail = [
+      ...(left > 0 ? [`${left} ${left === 1 ? 'picture' : 'pictures'} attached earlier in this conversation (by the user or returned by a tool) left this request with the messages above and are NOT visible to you now. If one is needed, ask the user to attach it again.`] : []),
+      'Resume coding from current repository state. Re-read files and tests as necessary. Never assume omitted outputs succeeded; inspect uncertain mutations before repeating them.',
+    ];
+    const room = Math.max(0, ENTRY_CHARS - head.join('\n').length - tail.join('\n').length - 2);
+    return { role: 'user', content: [{type:'input_text',text:[...head, historical.length > room ? historical.slice(historical.length - room) : historical, ...tail].join('\n')}] };
+  };
   const entry = checkpointOf(0);
   const budget = Math.max(1000, Math.min(tailTokens, maxTokens - estimateTokens(entry) - 1000));
   const minStart = Math.max(1, input.length - minRecentItems);

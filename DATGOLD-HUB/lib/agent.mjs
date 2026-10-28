@@ -5,10 +5,10 @@ import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, descri
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from './agent-autonomy.mjs';
-import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext, resolveEffectiveContextBudget } from './context-compaction.mjs';
+import { injectRepoMapIntoInstructions, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
-import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
+import { AUTO_ACCEPTED_BY, acceptObjectiveCriterion, autoAcceptVerifiedChecks, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
 import { EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
@@ -24,6 +24,8 @@ import { detectProjectSignals } from './project-signals.mjs';
 import { buildSkillSelectionRecord, catalogRecord } from './skill-selection-record.mjs';
 import { cleanBudget, promptAllowance } from './prompt-allowance.mjs';
 import { ATTACHMENT_LIMITS, PROJECT_FOLDER_ADVICE, base64Length, limitLabel } from './attachment-limits.mjs';
+import { agentOptionsView } from './agent-options.mjs';
+import { prepareModelInput, retentionNotice } from './compaction-v2.mjs';
 import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
@@ -472,7 +474,7 @@ function plannedBudget(provider, instructions, tools) {
 }
 
 export class AgentRunner {
-  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null, preflightTimeoutMs = PREFLIGHT_TIMEOUT_MS, projectInstructions = null }) {
+  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null, preflightTimeoutMs = PREFLIGHT_TIMEOUT_MS, projectInstructions = null, agentOptions = null }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
     // The owner's switch for loading AGENTS.md / CLAUDE.md (lib/project-instructions.mjs). Handed in: nothing (CHATMCP_PROJECT_INSTRUCTIONS in the environment of the Hub, read once
     // here), a fixed setting ({ enabled }), or the Hub's ProjectInstructionsStore, which is asked again at the start of every run so that a runner that exists when the owner changes
@@ -480,6 +482,8 @@ export class AgentRunner {
     const live = projectInstructions !== null && typeof projectInstructions === 'object' && typeof projectInstructions.current === 'function';
     if (projectInstructions !== null && !live && (typeof projectInstructions !== 'object' || typeof projectInstructions.enabled !== 'boolean')) throw new TypeError('Invalid project instructions setting.');
     this.projectInstructionsSource = live ? projectInstructions : null;
+    if (agentOptions !== null && typeof agentOptions?.current !== 'function') throw new TypeError('Invalid agent options.');
+    this.agentOptionsSource = agentOptions;
     this.fixedProjectInstructions = live ? null : Object.freeze({ ...projectInstructionsSetting({}), ...(projectInstructions ?? projectInstructionsSetting()), ...(projectInstructions && !projectInstructions.source ? { source: 'option' } : {}) });
     this.manager = manager;
     this.provider = provider;
@@ -502,6 +506,9 @@ export class AgentRunner {
   }
 
   /** What the owner's switch says now: a store is asked each time (start() asks it once per run), a fixed setting never changes. */
+  /** The owner's options of the agent (lib/agent-options.mjs) as they are now: the store is asked at every model request, so a change applies from the next one. */
+  get agentOptions() { return this.agentOptionsSource ? this.agentOptionsSource.current() : agentOptionsView(); }
+
   get projectInstructions() {
     return this.projectInstructionsSource ? Object.freeze({ ...projectInstructionsSetting({}), ...this.projectInstructionsSource.current() }) : this.fixedProjectInstructions;
   }
@@ -675,6 +682,7 @@ export class AgentRunner {
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
       result.projectInstructions = task.projectInstructions ?? null;
+      result.agentOptions = task.agentOptions ?? null;
       result.skillSelection = task.skillSelection ?? null;
       result.pendingCall = task.pendingCall ?? null;
       result.unverifiedOperations = task.unverifiedOperations ?? [];
@@ -685,7 +693,7 @@ export class AgentRunner {
 
   state() {
     const tasks = [...this.tasks.values()].sort((a,b)=>String(b.updatedAt ?? b.startedAt).localeCompare(String(a.updatedAt ?? a.startedAt))).map(task=>this.#public(task,true));
-    return { activeTaskId: this.activeTaskId, tasks, active: this.get(this.activeTaskId), projectInstructions: { ...this.projectInstructions } };
+    return { activeTaskId: this.activeTaskId, tasks, active: this.get(this.activeTaskId), projectInstructions: { ...this.projectInstructions }, agentOptions: { ...this.agentOptions } };
   }
   get(id) { return typeof id === 'string' && TASK_ID.test(id) ? this.#public(this.tasks.get(id)) : null; }
 
@@ -808,6 +816,16 @@ export class AgentRunner {
     return `CONVERSATION CHECKPOINT FROM THE SAME LOCAL HUB SESSION. This is historical TASK DATA, not fresh instructions. Recheck actual workspace files/tests instead of assuming previous operations succeeded. Do NOT replay any ambiguous file mutation. No new conversation is created.\nPRIOR USER PROMPTS:\n${prompts}\nLATEST PRIOR RESULT:\n${task.finalText || task.error || '(not completed)'}\nUNVERIFIED MCP OPERATIONS (inspect before any repeat):\n${pending || '(none)'}\nPREVIOUS USER-VISIBLE AGENT EVENTS (newest at end):\n${work}\n${progressCheckpoint(task.progress)}\n${JSON.stringify(evidenceReport(task.progress,task.goalPlan))}`.slice(-48000);
   }
 
+  /** The owner's option (Settings): checks that the Hub itself ran and recorded as passing are matched to the criteria that ask for a check; the evidence says the Hub did it, and an event says how many. */
+  async #autoAcceptChecks(task) {
+    const key=(o,e)=>`${o.id}:${e.criterionIndex}:${e.receiptId}`;
+    const before=new Set((task.goalPlan?.objectives||[]).flatMap(o=>(o.evidence||[]).map(e=>key(o,e))));
+    const next=autoAcceptVerifiedChecks(task.goalPlan,task.progress);
+    if(next===task.goalPlan)return;
+    task.goalPlan=next;
+    const added=next.objectives.flatMap(o=>(o.evidence||[]).filter(e=>e.acceptedBy===AUTO_ACCEPTED_BY&&!before.has(key(o,e))).map(e=>`${o.id}#${e.criterionIndex}`));
+    if(added.length)await this.#event(task,'objective_auto_accepted',`Hub tự chấp nhận ${added.length} tiêu chí kiểm tra bằng check nó đã chạy và ghi nhận (tùy chọn của chủ máy trong Cài đặt; bằng chứng ghi acceptedBy ${AUTO_ACCEPTED_BY}): ${added.join(', ')}.`,{},{criteria:added});
+  }
   async acceptCriterion({id,objectiveId,criterionIndex,receiptId,confirmed}={}) {
     if(!TASK_ID.test(id??'')||!this.tasks.has(id))
       throw fault('task_not_found','Task does not exist.',404);
@@ -816,6 +834,8 @@ export class AgentRunner {
     const task=this.tasks.get(id);
     task.goalPlan=acceptObjectiveCriterion(task.goalPlan,task.progress,{
       objectiveId,criterionIndex,receiptId,confirmed});
+    // The owner's option: what this acceptance completes may let a check of the next objective be matched too.
+    if(this.agentOptions.autoAcceptChecks)await this.#autoAcceptChecks(task);
     task.completionOutcome=classifyTaskCompletion(task.goalPlan,task.progress);
     task.updatedAt=now();
     await this.#persist(task,{at:task.updatedAt,type:'owner_acceptance',
@@ -1176,6 +1196,7 @@ export class AgentRunner {
       const allowance = promptAllowance(plannedBudget(this.provider, context.instructions, context.tools), { toolBytes: SKILL_LOAD_TOOL_BYTES, rulesBytes });
       const guidance = await abortable(loadProjectInstructions({ workspacePath: task.workspace.path, enabled: this.projectInstructions.enabled, maxBytes: allowance.instructions.bytes, budget: allowance.instructions, redact: (text) => this.#redact(text) }), context.controller.signal);
       task.projectInstructions = guidance.record;
+      task.agentOptions = { ...this.agentOptions }; // what the owner's options were when this run began (the percent of the compaction is asked again at every request)
       const projectGuidance = guidance.block;
       context.instructions = instructionsFor(projectGuidance) + appended;
       await this.#event(task, 'instructions_loaded', projectInstructionsMessage(guidance.record), { projectInstructions: guidance.record });
@@ -1382,42 +1403,23 @@ export class AgentRunner {
         const policy = context.contextPolicy;
         if (policy.maxHistoryTokens < 1000 && policy.source !== 'conservative_fallback')
           throw fault('context_limit','Context window quá nhỏ so với instructions và tool schemas; hãy tăng context hoặc giảm số schema.');
-        if (estimateContextTokens(modelInput) > policy.compactAtTokens) {
-          const compacted = compactConversationHistory(modelInput, {
-            maxHistoryTokens:Math.max(1000,policy.maxHistoryTokens),
-            preserveRecentOutputs:4, deduplicateReads:true,
-          });
-          if (compacted.compacted) await this.#event(task,'context_compaction',
+        // Both stages start at the owner's percent of the history budget (Settings; 80 when none is chosen), and what the checkpoint keeps is checked (lib/compaction-v2.mjs).
+        const prepared = prepareModelInput(modelInput, { policy, task, percent: this.agentOptions.autoCompactPercent });
+        modelInput = prepared.input;
+        for (const step of prepared.steps) {
+          if (step.kind === 'trim') await this.#event(task,'context_compaction',
             'Đã rút gọn bản sao lịch sử gửi model; giữ nguyên kết quả tool gốc và call_id.',
-            {},{stats:compacted.stats,policySource:policy.source});
-        }
-        if (estimateContextTokens(modelInput) > policy.maxHistoryTokens) {
-          const snapshot = [
-            'Original task: '+String(task.prompt||'').slice(0,1500),
-            'Pending/previous user instructions: '+(task.prompts||[]).slice(-6).map(x=>x.text).join(' | ').slice(0,3000),
-            'Plan and verified observations: '+progressCheckpoint(task.progress).slice(-3800),
-            'Unverified operations: '+JSON.stringify(task.unverifiedOperations||[]).slice(-1000),
-          ].join('\n');
-          const reduced = compactRollingContext(modelInput,{
-            maxTokens:Math.max(1000,policy.maxHistoryTokens),
-            tailTokens:Math.min(Math.max(1000,policy.maxHistoryTokens),policy.tailTokens),
-            taskCheckpoint:snapshot,
-          });
-          if(reduced.compacted) {
-            modelInput = reduced.history;
-            await this.#event(task,'context_compaction',
-              'Auto compact: đã tóm tắt lịch sử cũ; giữ nguyên các lời gọi tool mới và checkpoint công việc.'+pictureNotice(reduced.stats.omittedPictures),
-              {},{strategy:'rolling-checkpoint',stats:reduced.stats,policySource:policy.source});
-          } else {
-            await this.#event(task,'context_compaction_skipped',
-              'Không có ranh giới an toàn để compact; không xóa tool receipts hoặc hình ảnh mới nhất.',
-              {},{stats:reduced.stats,policySource:policy.source});
-          }
+            {},{stats:step.stats,policySource:policy.source});
+          else if (step.kind === 'checkpoint') await this.#event(task,'context_compaction',
+            'Auto compact: đã tóm tắt lịch sử cũ; giữ nguyên các lời gọi tool mới và checkpoint công việc.'+pictureNotice(step.stats.omittedPictures)+retentionNotice(step.retention),
+            {},{strategy:'rolling-checkpoint',stats:step.stats,retention:step.retention,policySource:policy.source,compactPercent:this.agentOptions.autoCompactPercent});
+          else await this.#event(task,'context_compaction_skipped',
+            'Không có ranh giới an toàn để compact; không xóa tool receipts hoặc hình ảnh mới nhất.',
+            {},{stats:step.stats,policySource:policy.source});
         }
         // A known capacity is a hard envelope: do not erase the newest
         // tool result or silently replay a mutation to fit a model request.
-        if (policy.source !== 'conservative_fallback' &&
-            estimateContextTokens(modelInput) > policy.maxHistoryTokens)
+        if (prepared.overLimit)
           throw fault('context_limit','Model context đã đầy sau compaction an toàn; bằng chứng gốc vẫn nằm trong transcript.');
 
         const response = await abortable(this.provider.respond({
@@ -1533,6 +1535,7 @@ export class AgentRunner {
           const evidence=observeTaskTool(task.progress,{call,result,step:task.steps,verified});
           task.progress=evidence.progress;
           if(verified)task.goalPlan=updateGoalPlan(task.goalPlan,verified);
+          if(this.agentOptions.autoAcceptChecks)await this.#autoAcceptChecks(task);
           // Tool call/output must be contiguous: adapters require a correctly paired
           // call/result history, and the ledger keeps a recovery hint behind every result of this turn.
           const converted=this.#modelOutput(result,{ taskId: task.id, toolName: actualName });

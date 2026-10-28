@@ -257,6 +257,8 @@ export const api = {
   setAgentMode: (mode: 'api'|'chatgpt-web') => request<any>('/api/agent/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
   // The owner's switch for the project's AGENTS.md / CLAUDE.md. Applies from the next run; the Hub refuses (409) while CHATMCP_PROJECT_INSTRUCTIONS decides.
   setProjectInstructions: (enabled: boolean) => request<HubState>('/api/agent/project-instructions', { method: 'POST', body: JSON.stringify({ enabled }) }),
+  // The owner's agent options: `autoCompactPercent` (a whole number from 50 to 95, or null for the default 80) and/or `autoAcceptChecks` (true or false). Applies from the next model request.
+  setAgentOptions: (patch: { autoCompactPercent?: number | null; autoAcceptChecks?: boolean }) => request<HubState>('/api/agent/options', { method: 'POST', body: JSON.stringify(patch) }),
   // The update notice (lib/update-check.mjs). getUpdateStatus reads what the Hub knows and never asks GitHub; checkForUpdates is the owner's "Check now" (one request at most a minute: a second
   // press comes back with throttled: true and no request); the answer of each is the state under `update`.
   getUpdateStatus: () => request<{ update: UpdateInfo }>('/api/update/status'),

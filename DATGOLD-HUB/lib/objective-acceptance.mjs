@@ -44,6 +44,39 @@ export function acceptedObjectiveIds(plan,progress){
       hasFreshCriterionEvidence(criterion,i,o.evidence,all)))
     .map(o=>o.id);
 }
+/** What the evidence says when the HUB matched a check to its criterion, because the owner turned the option on (lib/agent-options.mjs); the owner's own acceptance says "local_owner". */
+export const AUTO_ACCEPTED_BY='auto_hub_check';
+/**
+ * The owner's option: a criterion that asks for a check ("Run required supported checks...") is matched, by the Hub itself, to the latest passing check that the Hub ran and recorded (the same
+ * first-party receipts the owner chooses from), without a click. It RELAXES the rule that only the owner accepts, and only for checks: the criteria that ask to have observed or edited stay the
+ * owner's. Everything else of the owner's acceptance holds: a fresh receipt of the right kind, a predecessor objective accepted first (the plan is walked in order, so a check can complete an
+ * objective that the next one waits for), a criterion already matched to a current receipt is left as it is, and the evidence is marked so that nobody reads it as the owner's.
+ * Returns the same plan object when nothing changed.
+ */
+export function autoAcceptVerifiedChecks(plan,progress,{at=new Date().toISOString()}={}){
+  if(!Array.isArray(plan?.objectives))return plan;
+  const all=availableObjectiveReceipts(progress);
+  const latest=all.filter(r=>r.kind==='verify').reduce((best,r)=>!best||r.step>=best.step?r:best,null);
+  if(!latest)return plan;
+  const accepted=new Set(acceptedObjectiveIds(plan,progress));
+  let copy=null;
+  for(let o=0;o<plan.objectives.length;o++){
+    const objective=(copy??plan).objectives[o];
+    if(!Array.isArray(objective.acceptanceCriteria)||!objective.acceptanceCriteria.length)continue;
+    if((objective.dependsOn||[]).some(id=>!accepted.has(id)))continue;
+    for(let i=0;i<objective.acceptanceCriteria.length;i++){
+      if(acceptanceKind(objective.acceptanceCriteria[i])!=='verify')continue;
+      if(hasFreshCriterionEvidence(objective.acceptanceCriteria[i],i,(copy??plan).objectives[o].evidence,all))continue;
+      copy??=structuredClone(plan);
+      const target=copy.objectives[o];
+      target.evidence=(target.evidence||[]).filter(x=>x.criterionIndex!==i);
+      target.evidence.push({criterionIndex:i,receiptId:latest.receiptId,acceptedAt:at,acceptedBy:AUTO_ACCEPTED_BY});
+      target.status=target.acceptanceCriteria.every((s,k)=>hasFreshCriterionEvidence(s,k,target.evidence,all))?'verified':'has_evidence';
+    }
+    if(((copy??plan).objectives[o]).status==='verified')accepted.add(objective.id);
+  }
+  return copy??plan;
+}
 export function acceptObjectiveCriterion(plan,progress,{objectiveId,criterionIndex,receiptId,confirmed}={}){
   if(confirmed!==true)throw err('owner_confirmation_required','Owner confirmation is required.');
   if(!Array.isArray(plan?.objectives))throw err('acceptance_not_applicable','This task has no acceptance plan.');
