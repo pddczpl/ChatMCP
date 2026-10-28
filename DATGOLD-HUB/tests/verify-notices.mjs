@@ -7,7 +7,7 @@
 //   1. README "License" section: the Apache-2.0 statement with links to LICENSE, NOTICE, CONTRIBUTING.md and THIRD-PARTY-NOTICES.md,
 //      and no trace of the old "no adopted license" wording. LICENSE and NOTICE are the Apache text and notice.
 //   2. Inventory: every redistributed component (read from the two lockfiles, stage-python.ps1, the csproj and the staging code) has an
-//      entry with its version, license id and the place of its license text in THIRD-PARTY-NOTICES.md AND CHATMCP-HUB/THIRD-PARTY-NOTICES.txt.
+//      entry with its version, license id and the place of its license text in THIRD-PARTY-NOTICES.md AND DATGOLD-HUB/THIRD-PARTY-NOTICES.txt.
 //   3. The generated list of UI production packages in THIRD-PARTY-NOTICES.md equals the lockfile (scripts/generate-licenses.mjs --check).
 //   4. Staging code: stage-python.ps1 asserts LICENSE.txt, stage.mjs stages the grammar notices, verify.mjs requires them, Build-Installer.ps1
 //      copies Node's LICENSE (its behaviour is tested in scripts/tests/Test-InstallerPayload.ps1), the payload ships THIRD-PARTY-NOTICES.md,
@@ -48,7 +48,7 @@ const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(HUB, '..');
 
 if (!existsSync(path.join(REPO, 'README.md')) || !existsSync(path.join(REPO, 'scripts', 'intelligence-runtime', 'notices.mjs'))) {
-  console.log('CHATMCP_TEST_SKIP: README.md and scripts/ were not found next to CHATMCP-HUB (the notice checks need the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: README.md and scripts/ were not found next to DATGOLD-HUB (the notice checks need the whole repository)');
   process.exit(0);
 }
 
@@ -86,7 +86,7 @@ function requiredEntries(repo) {
     const name = key.slice('node_modules/'.length);
     entries.push({ label: `${name} ${entry.version}`, name: word(name), needles: [entry.version, entry.license], span: 2 });
   }
-  const ui = JSON.parse(read(repo, 'CHATMCP-HUB', 'ui', 'package-lock.json'));
+  const ui = JSON.parse(read(repo, 'DATGOLD-HUB', 'ui', 'package-lock.json'));
   for (const name of ['playwright', 'playwright-core']) {
     const entry = ui.packages[`node_modules/${name}`];
     entries.push({ label: `${name} ${entry.version}`, name: word(name), needles: [entry.version, entry.license], span: 2 });
@@ -118,7 +118,7 @@ function requiredEntries(repo) {
 
 /**
  * A grammar notice whose upstream text is in the repository is shipped, not pending. Returns the places that still say otherwise: the row of
- * THIRD-PARTY-NOTICES.md, the item of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt, the lists of pending notices of both, the scan, the CI-health
+ * THIRD-PARTY-NOTICES.md, the item of DATGOLD-HUB/THIRD-PARTY-NOTICES.txt, the lists of pending notices of both, the scan, the CI-health
  * document and the README of the vendored texts. `settingPending` are the workflows that set the variable which lets a build go without the texts.
  */
 function grammarNoticeWording(repo, markdown, text, settingPending) {
@@ -137,14 +137,14 @@ function grammarNoticeWording(repo, markdown, text, settingPending) {
   let end = named + 1;
   while (end < lines.length && lines[end].trim() !== '' && !/^\s*\d+\. /.test(lines[end])) end += 1;
   const item = named < 0 ? NaN : Number(lines[start].match(/^\s*(\d+)\. /)?.[1]);
-  if (!Number.isNaN(item) && /pending/i.test(lines.slice(start, end).join('\n'))) fail(`item ${item} (the Tree-sitter grammars) of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still says pending: their texts are in the repository`);
+  if (!Number.isNaN(item) && /pending/i.test(lines.slice(start, end).join('\n'))) fail(`item ${item} (the Tree-sitter grammars) of DATGOLD-HUB/THIRD-PARTY-NOTICES.txt still says pending: their texts are in the repository`);
   const pendingMarkdown = markdown.match(/^## Pending notices\s*\n([\s\S]*?)(?=^## )/m)?.[1] ?? '';
   const pendingText = text.match(/^PENDING NOTICES\s*\n([\s\S]*?)(?=^NOT REDISTRIBUTED)/m)?.[1] ?? '';
   if (/tree-?sitter/i.test(pendingMarkdown)) fail('THIRD-PARTY-NOTICES.md still lists the Tree-sitter grammar notices among the pending notices: their texts are in the repository');
-  if (/tree-?sitter/i.test(pendingText)) fail('CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still lists the Tree-sitter grammar notices among the pending notices: their texts are in the repository');
+  if (/tree-?sitter/i.test(pendingText)) fail('DATGOLD-HUB/THIRD-PARTY-NOTICES.txt still lists the Tree-sitter grammar notices among the pending notices: their texts are in the repository');
   // "Items 3, 9, 11, 12, 13 and 15 above." names the items by number
   const listed = [...pendingText.replace(/\s+/g, ' ').matchAll(/\bitems? (\d+(?:(?:, | and |, and )\d+)*) above\b/gi)].flatMap((match) => match[1].match(/\d+/g).map(Number));
-  if (!Number.isNaN(item) && listed.includes(item)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still lists item ${item} (the Tree-sitter grammars) among the pending notices`);
+  if (!Number.isNaN(item) && listed.includes(item)) fail(`DATGOLD-HUB/THIRD-PARTY-NOTICES.txt still lists item ${item} (the Tree-sitter grammars) among the pending notices`);
 
   const licenseScan = read(repo, 'docs', 'LICENSE-SCAN.md');
   const ciHealth = read(repo, 'docs', 'CI-HEALTH.md');
@@ -156,7 +156,7 @@ function grammarNoticeWording(repo, markdown, text, settingPending) {
   const asked = GRAMMAR_NOTICES.map((entry) => path.basename(noticeSource(entry))).filter((file) => followUp.includes(file));
   if (asked.length > 0) fail(`docs/LICENSE-SCAN.md still recommends adding ${asked.join(', ')}, which ${asked.length === 1 ? 'is' : 'are'} in the repository`);
   if (settingPending.length === 0) {
-    for (const [label, document] of [['THIRD-PARTY-NOTICES.md', markdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', text], ['docs/LICENSE-SCAN.md', licenseScan], ['docs/CI-HEALTH.md', ciHealth]]) {
+    for (const [label, document] of [['THIRD-PARTY-NOTICES.md', markdown], ['DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', text], ['docs/LICENSE-SCAN.md', licenseScan], ['docs/CI-HEALTH.md', ciHealth]]) {
       if (document.includes(`${PENDING_ALLOWED_ENV}=1`)) fail(`${label} shows ${PENDING_ALLOWED_ENV}=1 as something that is set, but no workflow sets it`);
     }
     if (/\(CI does\)/.test(vendoredReadme)) fail(`scripts/intelligence-runtime/licenses/README.md still says that CI sets ${PENDING_ALLOWED_ENV}; no workflow does`);
@@ -195,23 +195,23 @@ export async function checkNotices(repo) {
 
   // 2. inventory in both notice files ------------------------------------------------------------------------------------------------
   const markdown = read(repo, 'THIRD-PARTY-NOTICES.md');
-  const text = read(repo, 'CHATMCP-HUB', 'THIRD-PARTY-NOTICES.txt');
+  const text = read(repo, 'DATGOLD-HUB', 'THIRD-PARTY-NOTICES.txt');
   if (/has not yet adopted a top-level/i.test(markdown)) fail('THIRD-PARTY-NOTICES.md still says that no top-level license exists');
-  if (/ARCHIVED|NOT CURRENT/.test(text.split('\n').slice(0, 3).join('\n'))) fail('CHATMCP-HUB/THIRD-PARTY-NOTICES.txt is still the archived 1.x text');
-  if (!/Permission is hereby granted, free of charge/.test(text)) fail('CHATMCP-HUB/THIRD-PARTY-NOTICES.txt lost the MIT permission text of the React 16 files it ships');
+  if (/ARCHIVED|NOT CURRENT/.test(text.split('\n').slice(0, 3).join('\n'))) fail('DATGOLD-HUB/THIRD-PARTY-NOTICES.txt is still the archived 1.x text');
+  if (!/Permission is hereby granted, free of charge/.test(text)) fail('DATGOLD-HUB/THIRD-PARTY-NOTICES.txt lost the MIT permission text of the React 16 files it ships');
   if (existsSync(path.join(repo, 'THIRD_PARTY_NOTICES.md'))) fail('THIRD_PARTY_NOTICES.md is back: there is one canonical THIRD-PARTY-NOTICES.md (the list of UI packages is generated into it)');
   for (const entry of requiredEntries(repo)) {
     if (!entryHas(markdown, entry.name, entry.needles, entry.span)) fail(`THIRD-PARTY-NOTICES.md has no entry for ${entry.label} (needs ${entry.needles.map(String).join(', ')})`);
     if (entry.label === 'UI libraries' || entry.label.endsWith('license location')) continue;
     if (!entryHas(text, entry.name, entry.needles.filter((needle) => !(needle instanceof RegExp && needle.source === 'MIT')), entry.span + 1)) {
-      fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt has no entry for ${entry.label}`);
+      fail(`DATGOLD-HUB/THIRD-PARTY-NOTICES.txt has no entry for ${entry.label}`);
     }
   }
 
   // 3. generated list equals the lockfile ----------------------------------------------------------------------------------------------
   try {
-    const { current, expected } = await expectedDocument({ notices: path.join(repo, 'THIRD-PARTY-NOTICES.md'), lockfile: path.join(repo, 'CHATMCP-HUB', 'ui', 'package-lock.json') });
-    if (current !== expected) fail('the generated list of UI packages in THIRD-PARTY-NOTICES.md differs from CHATMCP-HUB/ui/package-lock.json (run: node scripts/generate-licenses.mjs)');
+    const { current, expected } = await expectedDocument({ notices: path.join(repo, 'THIRD-PARTY-NOTICES.md'), lockfile: path.join(repo, 'DATGOLD-HUB', 'ui', 'package-lock.json') });
+    if (current !== expected) fail('the generated list of UI packages in THIRD-PARTY-NOTICES.md differs from DATGOLD-HUB/ui/package-lock.json (run: node scripts/generate-licenses.mjs)');
   } catch (error) {
     fail(`the generated list of UI packages cannot be checked: ${error.message}`);
   }
@@ -268,21 +268,21 @@ export async function checkNotices(repo) {
     for (const component of ripgrep.manifest.components) {
       const label = component.type === 'crate' ? `\`${component.name}\`` : component.name;
       if (!markdown.includes(`| ${label} | ${component.version} | ${component.license} |`)) fail(`THIRD-PARTY-NOTICES.md has no row for ${component.name} ${component.version} (${component.license}) among the components compiled into rg.exe`);
-      if (!text.includes(`${component.name} ${component.version} - ${component.license}`)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt has no line for ${component.name} ${component.version} (${component.license}) among the components compiled into rg.exe`);
+      if (!text.includes(`${component.name} ${component.version} - ${component.license}`)) fail(`DATGOLD-HUB/THIRD-PARTY-NOTICES.txt has no line for ${component.name} ${component.version} (${component.license}) among the components compiled into rg.exe`);
     }
     // both PCRE2 numbers are in the prose: the compiled one (the notice is for it) and the one rg prints (stale)
     const pcre2 = ripgrep.manifest.components.find((component) => component.name === 'PCRE2');
     if (pcre2 && (!markdown.includes(pcre2.compiledVersionString) || !markdown.includes(`PCRE2 ${pcre2.rgReports}`))) fail(`THIRD-PARTY-NOTICES.md does not state both PCRE2 numbers: the version string compiled into rg.exe ("${pcre2.compiledVersionString}", which the notice is for) and the one rg --pcre2-version prints ("PCRE2 ${pcre2.rgReports}")`);
-    if (pcre2 && !text.includes(pcre2.compiledVersionString)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt does not state the version string compiled into rg.exe ("${pcre2.compiledVersionString}")`);
+    if (pcre2 && !text.includes(pcre2.compiledVersionString)) fail(`DATGOLD-HUB/THIRD-PARTY-NOTICES.txt does not state the version string compiled into rg.exe ("${pcre2.compiledVersionString}")`);
     // the counts the prose gives are the inventory's: the crates of ripgrep's Cargo.lock, and the packages of the Rust library lock file that the standard library does not link
     const crates = ripgrep.manifest.components.filter((component) => component.type === 'crate' && component.origin !== 'rust-std').length;
     const rust = ripgrep.manifest.rustStd;
     const rustNotLinked = rust?.notLinked?.length ?? 0;
     if (!markdown.includes(`${crates} Rust crates`) || !markdown.includes(`${ripgrep.manifest.notLinked.length} packages of the lock file that are not linked`)) fail(`THIRD-PARTY-NOTICES.md does not state the counts of the inventory (${crates} Rust crates, ${ripgrep.manifest.notLinked.length} packages of the lock file that are not linked)`);
     if (!markdown.includes(`${rustNotLinked} packages of the Rust library lock file that are not linked`)) fail(`THIRD-PARTY-NOTICES.md does not state how many packages of the Rust library lock file the standard library does not link (${rustNotLinked})`);
-    if (!text.includes(`${crates} Rust crates`)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt does not state the count of the inventory (${crates} Rust crates)`);
+    if (!text.includes(`${crates} Rust crates`)) fail(`DATGOLD-HUB/THIRD-PARTY-NOTICES.txt does not state the count of the inventory (${crates} Rust crates)`);
     // the toolchain that built rg.exe, and the check that ties the notice to the binary
-    for (const [label, document] of [['THIRD-PARTY-NOTICES.md', markdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', text]]) {
+    for (const [label, document] of [['THIRD-PARTY-NOTICES.md', markdown], ['DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', text]]) {
       if (!rust) { fail(`the inventory has no rustStd record, so ${label} cannot be checked against the toolchain`); break; }
       if (!document.includes(rust.toolchain.rustc)) fail(`${label} does not name the Rust toolchain that built rg.exe ("${rust.toolchain.rustc}")`);
       if (!document.includes('/rustc/')) fail(`${label} does not say that the installer build looks for the /rustc/<commit> source paths of the toolchain in rg.exe`);
@@ -291,24 +291,24 @@ export async function checkNotices(repo) {
   }
   const ripgrepRow = markdown.split('\n').find((line) => /^\| ripgrep \(/.test(line)) ?? '';
   if (/pending/i.test(ripgrepRow)) fail('the ripgrep row of THIRD-PARTY-NOTICES.md still says Pending');
-  if (!ripgrepRow.includes('licenses/ripgrep/')) fail('the ripgrep row of THIRD-PARTY-NOTICES.md does not say that the texts of PCRE2 and of the crates are in CHATMCP-HUB/licenses/ripgrep/');
+  if (!ripgrepRow.includes('licenses/ripgrep/')) fail('the ripgrep row of THIRD-PARTY-NOTICES.md does not say that the texts of PCRE2 and of the crates are in DATGOLD-HUB/licenses/ripgrep/');
   const pendingMarkdown = markdown.match(/^## Pending notices\s*\n([\s\S]*?)(?=^## )/m)?.[1] ?? '';
   const pendingText = text.match(/^PENDING NOTICES\s*\n([\s\S]*?)(?=^NOT REDISTRIBUTED)/m)?.[1] ?? '';
-  for (const [label, pendingList] of [['THIRD-PARTY-NOTICES.md', pendingMarkdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', pendingText]]) {
+  for (const [label, pendingList] of [['THIRD-PARTY-NOTICES.md', pendingMarkdown], ['DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', pendingText]]) {
     const flat = pendingList.replace(/\s+/g, ' ');
     if (/Rust standard library/.test(flat)) fail(`${label} still lists the Rust standard library inside rg.exe among the pending notices: its texts are vendored in licenses/ripgrep`);
     if (/static[^.]*C runtime|C runtime[^.]*static/i.test(flat)) fail(`${label} still lists the static Microsoft C runtime of rg.exe among the pending notices: its terms are summarised in the section "Microsoft C/C++ runtime components"`);
     if (/Visual C\+\+ runtime/i.test(flat)) fail(`${label} still lists the Microsoft Visual C++ runtime among the pending notices: its terms are summarised in the section "Microsoft C/C++ runtime components"`);
   }
-  if (/\bItems? 3\b/.test(pendingText.replace(/\s+/g, ' '))) fail('CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still lists item 3 (the Microsoft Visual C++ runtime) among the pending notices');
+  if (/\bItems? 3\b/.test(pendingText.replace(/\s+/g, ' '))) fail('DATGOLD-HUB/THIRD-PARTY-NOTICES.txt still lists item 3 (the Microsoft Visual C++ runtime) among the pending notices');
   // The Microsoft runtime components (the static C runtime inside rg.exe, the runtime DLLs inside the CPython archive): decided on 2026-10-25 to name them and summarise the terms
   // that Microsoft publishes, without reproducing any Microsoft text. The sections must carry the facts that make the summary honest.
   const microsoftRow = markdown.split('\n').find((line) => /^\| Microsoft Visual C\+\+ runtime/.test(line)) ?? '';
   if (/pending/i.test(microsoftRow)) fail('the Microsoft Visual C++ runtime row of THIRD-PARTY-NOTICES.md still says Pending');
   if (!microsoftRow.includes('Microsoft C/C++ runtime components')) fail('the Microsoft Visual C++ runtime row of THIRD-PARTY-NOTICES.md does not point to the section "Microsoft C/C++ runtime components"');
   const microsoftItem = text.match(/^ ?\d+\. Microsoft Visual C\+\+ runtime[\s\S]*?(?=^ ?\d+\. )/m)?.[0] ?? '';
-  if (/pending/i.test(microsoftItem)) fail('the Microsoft Visual C++ runtime item of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still says pending');
-  if (!microsoftItem.includes('Microsoft C/C++ runtime components')) fail('the Microsoft Visual C++ runtime item of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt does not point to the section "Microsoft C/C++ runtime components"');
+  if (/pending/i.test(microsoftItem)) fail('the Microsoft Visual C++ runtime item of DATGOLD-HUB/THIRD-PARTY-NOTICES.txt still says pending');
+  if (!microsoftItem.includes('Microsoft C/C++ runtime components')) fail('the Microsoft Visual C++ runtime item of DATGOLD-HUB/THIRD-PARTY-NOTICES.txt does not point to the section "Microsoft C/C++ runtime components"');
   const microsoftMarkdown = markdown.match(/^## Microsoft C\/C\+\+ runtime components\s*\n([\s\S]*?)(?=^## )/m)?.[1] ?? '';
   const microsoftText = text.match(/^MICROSOFT C\/C\+\+ RUNTIME COMPONENTS\s*\n([\s\S]*?)(?=^PENDING NOTICES)/m)?.[1] ?? '';
   const microsoftFacts = [
@@ -316,7 +316,7 @@ export async function checkNotices(repo) {
     [/Static LIB files/, 'the "Static LIB files" section of the Windows SDK REDIST list'], [/end users/i, 'the condition about terms for end users'], [/indemnif/i, 'the indemnity condition'],
     [/not legal advice/i, 'that this is not legal advice'], [/2026-10-25/, 'the date on which the terms were read'],
   ];
-  for (const [label, section] of [['THIRD-PARTY-NOTICES.md', microsoftMarkdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', microsoftText]]) {
+  for (const [label, section] of [['THIRD-PARTY-NOTICES.md', microsoftMarkdown], ['DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', microsoftText]]) {
     if (!section) { fail(`${label} has no section "Microsoft C/C++ runtime components"`); continue; }
     for (const [pattern, what] of microsoftFacts) if (!pattern.test(section)) fail(`${label}: the section on the Microsoft C/C++ runtime components does not mention ${what}`);
   }
@@ -356,7 +356,7 @@ export async function checkNotices(repo) {
 const real = await checkNotices(REPO);
 assert.equal(real.problems.length, 0, `notice problems:\n  - ${real.problems.join('\n  - ')}`);
 ok('README License section, LICENSE and NOTICE state Apache-2.0 and link the notices; no trace of the "no license" wording');
-ok('every redistributed component has an entry with version, license id and license-text location in THIRD-PARTY-NOTICES.md and CHATMCP-HUB/THIRD-PARTY-NOTICES.txt');
+ok('every redistributed component has an entry with version, license id and license-text location in THIRD-PARTY-NOTICES.md and DATGOLD-HUB/THIRD-PARTY-NOTICES.txt');
 ok('the UI package list in THIRD-PARTY-NOTICES.md equals the production closure of the UI lockfile; there is a single canonical notices file');
 ok('the Tree-sitter grammar texts are vendored, so they are shipped and not pending: no row, item or list of pending notices in the two notice files, and no sentence of the scan, of the CI-health document or of the README of the vendored texts, says otherwise');
 ok('stage-python.ps1, stage.mjs, verify.mjs, Build-Installer.ps1 and the payload script copy or assert the license files; no release workflow may build without them');
@@ -724,7 +724,7 @@ try {
   // ---- 6. negative controls: defects in a temporary copy of the files ---------------------------------------------------------------
   const copyRoot = path.join(scratch, 'repo');
   const copy = (relative) => { mkdirSync(path.dirname(path.join(copyRoot, relative)), { recursive: true }); cpSync(path.join(REPO, relative), path.join(copyRoot, relative), { recursive: true }); };
-  for (const relative of [...Object.values(SHIPPING_FILES), 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', 'CHATMCP-HUB/ui/package-lock.json', 'desktop-shell/ChatMCP.csproj',
+  for (const relative of [...Object.values(SHIPPING_FILES), 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', 'DATGOLD-HUB/ui/package-lock.json', 'desktop-shell/ChatMCP.csproj',
     'scripts/Build-Installer.ps1', 'scripts/InstallerPayload.ps1', 'scripts/intelligence-runtime/package-lock.json', 'scripts/intelligence-runtime/stage.mjs',
     'scripts/intelligence-runtime/verify.mjs', 'scripts/intelligence-runtime/notices.mjs', 'scripts/intelligence-runtime/stage-python.ps1', 'scripts/intelligence-runtime/stage-ripgrep.ps1',
     'scripts/intelligence-runtime/test-runtime.mjs', 'scripts/intelligence-runtime/licenses/ripgrep', 'scripts/intelligence-runtime/licenses/README.md', 'docs/LICENSE-SCAN.md', 'scripts/tests/windows-installer/guest-lifecycle.ps1', '.gitattributes', '.github/workflows']) copy(relative);
@@ -745,14 +745,14 @@ try {
   const dropLines = (pattern) => (source) => source.split('\n').filter((line) => !pattern.test(line)).join('\n');
   const mutations = [
     ['the Node.js entry deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| Node\.js \(/), /no entry for Node\.js/],
-    ['the CPython entry deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^ 2\. CPython embeddable[\s\S]*?(?=^ 3\.)/m, ''), /CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt has no entry for CPython/],
-    ['the Tree-sitter python grammar removed from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('tree-sitter-python', 'tree-sitter-removed'), /tree-sitter-python grammar notice/],
+    ['the CPython entry deleted from the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^ 2\. CPython embeddable[\s\S]*?(?=^ 3\.)/m, ''), /DATGOLD-HUB\/THIRD-PARTY-NOTICES\.txt has no entry for CPython/],
+    ['the Tree-sitter python grammar removed from the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('tree-sitter-python', 'tree-sitter-removed'), /tree-sitter-python grammar notice/],
     // a grammar notice whose text is vendored is shipped, not pending (grammarNoticeWording): one defect for each place that could say otherwise
     ...GRAMMAR_NOTICES.map((entry) => [`the ${entry.id} row says Pending again`, 'THIRD-PARTY-NOTICES.md', (source) => source.replace(new RegExp('^(\\| Tree-sitter grammar `' + entry.id + '`[^\\n]*) \\|$', 'm'), '$1 Pending |'), new RegExp(`${entry.id} row of THIRD-PARTY-NOTICES\\.md still says Pending`)]),
-    ['the Tree-sitter item of the plain-text notice says pending again', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( +tree-sitter-python \([^\n]*\n)/m, '$1    Status: pending.\n'), /item \d+ \(the Tree-sitter grammars\) of CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt still says pending/],
+    ['the Tree-sitter item of the plain-text notice says pending again', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( +tree-sitter-python \([^\n]*\n)/m, '$1    Status: pending.\n'), /item \d+ \(the Tree-sitter grammars\) of DATGOLD-HUB\/THIRD-PARTY-NOTICES\.txt still says pending/],
     ['the Tree-sitter notices back among the pending notices of THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Pending notices\s*\n/m, (heading) => `${heading}\n0. **Tree-sitter grammar notices** are pending.\n`), /THIRD-PARTY-NOTICES\.md still lists the Tree-sitter grammar notices among the pending notices/],
-    ['the Tree-sitter notices back among the pending notices of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - The Tree-sitter grammar notices are pending.\n`), /THIRD-PARTY-NOTICES\.txt still lists the Tree-sitter grammar notices among the pending notices/],
-    ['the number of the Tree-sitter item back in the "Items ... above" list of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - Item ${source.match(/^ ?(\d+)\. Tree-sitter grammars/m)[1]} above.\n`), /still lists item \d+ \(the Tree-sitter grammars\) among the pending notices/],
+    ['the Tree-sitter notices back among the pending notices of the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - The Tree-sitter grammar notices are pending.\n`), /THIRD-PARTY-NOTICES\.txt still lists the Tree-sitter grammar notices among the pending notices/],
+    ['the number of the Tree-sitter item back in the "Items ... above" list of the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - Item ${source.match(/^ ?(\d+)\. Tree-sitter grammars/m)[1]} above.\n`), /still lists item \d+ \(the Tree-sitter grammars\) among the pending notices/],
     ['finding 5 of the scan says the grammar texts are not in the repository again', 'docs/LICENSE-SCAN.md', (source) => source.replace(/(^## Status of the findings after the notice work\s[\s\S]*?^\| 5 \|[^\n]*?) \|$/m, '$1 The three upstream MIT texts are not in the repository. |'), /state of finding 5 still says/],
     ['the scan recommends adding a grammar text again', 'docs/LICENSE-SCAN.md', (source) => source.replace(/^## Recommended follow-up\s*\n/m, (heading) => `${heading}\n1. Add \`${path.basename(noticeSource(GRAMMAR_NOTICES[0]))}\` to the folder of the vendored texts.\n`), /still recommends adding tree-sitter-javascript\.LICENSE/],
     ['the CI-health document says that the installer jobs set the pending variable again', 'docs/CI-HEALTH.md', (source) => `${source.trimEnd()}\n- The installer jobs of \`ci.yml\` set \`${PENDING_ALLOWED_ENV}=1\` while the grammar licenses are missing.\n`, /docs\/CI-HEALTH\.md shows CHATMCP_ALLOW_PENDING_NOTICES=1/],
@@ -763,7 +763,7 @@ try {
     ['LICENSE.txt dropped from the CPython staging assertion', 'scripts/intelligence-runtime/stage-python.ps1', (source) => source.replace(",'LICENSE.txt')", ')'), /does not require LICENSE\.txt/],
     ['the PSF text check dropped from the CPython staging', 'scripts/intelligence-runtime/stage-python.ps1', (source) => source.replace('PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2', 'x'), /PSF license text/],
     ['the ripgrep entry deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| ripgrep \(/), /THIRD-PARTY-NOTICES\.md has no entry for ripgrep/],
-    ['the ripgrep entry deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^17\. ripgrep[\s\S]*?(?=^PENDING NOTICES)/m, ''), /CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt has no entry for ripgrep/],
+    ['the ripgrep entry deleted from the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^17\. ripgrep[\s\S]*?(?=^PENDING NOTICES)/m, ''), /DATGOLD-HUB\/THIRD-PARTY-NOTICES\.txt has no entry for ripgrep/],
     ['UNLICENSE dropped from the ripgrep staging assertion', 'scripts/intelligence-runtime/stage-ripgrep.ps1', (source) => source.replace("@('rg.exe', 'LICENSE-MIT', 'UNLICENSE')", "@('rg.exe', 'LICENSE-MIT')"), /does not require both LICENSE-MIT and UNLICENSE/],
     ['the ripgrep license text checks dropped from the staging', 'scripts/intelligence-runtime/stage-ripgrep.ps1', (source) => source.replace('free and unencumbered software released into the public domain', 'x'), /MIT and Unlicense texts/],
     ['stage.mjs no longer asserts the ripgrep license texts', 'scripts/intelligence-runtime/stage.mjs', (source) => source.replace("['rg.exe', 'LICENSE-MIT', 'UNLICENSE']", "['rg.exe']"), /staged ripgrep carries rg\.exe and both/],
@@ -774,34 +774,34 @@ try {
     ['the payload no longer requires THIRD-PARTY-NOTICES.md', 'scripts/InstallerPayload.ps1', (source) => source.replace(", 'THIRD-PARTY-NOTICES.md')) {", ')) {'), /does not require LICENSE, NOTICE and THIRD-PARTY-NOTICES\.md/],
     ['one UI package dropped from the generated list', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| `zustand` \|/), /generated list of UI packages/],
     ['a release workflow builds with pending notices allowed', '.github/workflows/publish-v3.9.0.yml', (source) => source.replace(/^jobs:/m, `env:\n  ${PENDING_ALLOWED_ENV}: '1'\njobs:`), /only ci\.yml may build/],
-    ['the archived 1.x text back', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => `ARCHIVED 1.x/2.x INTEGRATION NOTES - NOT CURRENT\n${source}`, /archived 1\.x text/],
+    ['the archived 1.x text back', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => `ARCHIVED 1.x/2.x INTEGRATION NOTES - NOT CURRENT\n${source}`, /archived 1\.x text/],
     // ripgrep: PCRE2 and the Rust crates compiled into rg.exe
     ['a vendored ripgrep text is changed', `scripts/intelligence-runtime/licenses/ripgrep/${vendored.files.find((file) => file.kind === 'pcre2').path}`, (source) => `${source}\nAn extra line.\n`, /SHA-256 differs/],
     ['PCRE2 is no longer in the ripgrep inventory', 'scripts/intelligence-runtime/licenses/ripgrep/MANIFEST.json', (source) => source.replace('"name": "PCRE2"', '"name": "PCRE3"'), /no PCRE2/],
     ['the PCRE2 row deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| PCRE2 \|/), /THIRD-PARTY-NOTICES\.md has no row for PCRE2/],
     ['the zmij row deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| `zmij` \|/), /THIRD-PARTY-NOTICES\.md has no row for zmij/],
-    ['the zmij line deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', dropLines(/\bzmij 1\.0\.23 - /), /THIRD-PARTY-NOTICES\.txt has no line for zmij/],
+    ['the zmij line deleted from the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', dropLines(/\bzmij 1\.0\.23 - /), /THIRD-PARTY-NOTICES\.txt has no line for zmij/],
     ['the ripgrep row says Pending again', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^(\| ripgrep \([^\n]*) \|$/m, '$1 Pending |'), /ripgrep row of THIRD-PARTY-NOTICES\.md still says Pending/],
     ['the Rust standard library back among the pending notices', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Pending notices\s*\n/m, (heading) => `${heading}\n0. **The Rust standard library inside rg.exe** is pending.\n`), /still lists the Rust standard library/],
-    ['the static C runtime back among the pending notices of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - The static Microsoft C runtime of rg.exe is pending.\n`), /still lists the static Microsoft C runtime/],
+    ['the static C runtime back among the pending notices of the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - The static Microsoft C runtime of rg.exe is pending.\n`), /still lists the static Microsoft C runtime/],
     ['the Visual C++ runtime back among the pending notices of THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Pending notices\s*\n/m, (heading) => `${heading}\n0. **Microsoft Visual C++ runtime terms** are pending.\n`), /still lists the Microsoft Visual C\+\+ runtime/],
     ['the Visual C++ runtime row says Pending again', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^(\| Microsoft Visual C\+\+ runtime[^\n]*) \|$/m, '$1 Pending |'), /Visual C\+\+ runtime row of THIRD-PARTY-NOTICES\.md still says Pending/],
     ['the Visual C++ runtime row no longer points to the section', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^\| Microsoft Visual C\+\+ runtime[^\n]*$/m, (row) => row.replaceAll('Microsoft C/C++ runtime components', 'elsewhere')), /row of THIRD-PARTY-NOTICES\.md does not point to the section/],
-    ['item 3 of the plain-text notice says pending again', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( ?\d+\. Microsoft Visual C\+\+ runtime[^\n]*)$/m, '$1 Status: pending.'), /item of CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt still says pending/],
-    ['item 3 is back in the pending list of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( - Items )(\d)/m, (_match, head, rest) => `${head}3, ${rest}`), /still lists item 3/],
+    ['item 3 of the plain-text notice says pending again', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( ?\d+\. Microsoft Visual C\+\+ runtime[^\n]*)$/m, '$1 Status: pending.'), /item of DATGOLD-HUB\/THIRD-PARTY-NOTICES\.txt still says pending/],
+    ['item 3 is back in the pending list of the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( - Items )(\d)/m, (_match, head, rest) => `${head}3, ${rest}`), /still lists item 3/],
     ['the Microsoft section deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Microsoft C\/C\+\+ runtime components\s*\n[\s\S]*?(?=^## )/m, ''), /THIRD-PARTY-NOTICES\.md has no section "Microsoft C\/C\+\+ runtime components"/],
-    ['the Microsoft section deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^MICROSOFT C\/C\+\+ RUNTIME COMPONENTS\s*\n[\s\S]*?(?=^PENDING NOTICES)/m, ''), /THIRD-PARTY-NOTICES\.txt has no section "Microsoft C\/C\+\+ runtime components"/],
+    ['the Microsoft section deleted from the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^MICROSOFT C\/C\+\+ RUNTIME COMPONENTS\s*\n[\s\S]*?(?=^PENDING NOTICES)/m, ''), /THIRD-PARTY-NOTICES\.txt has no section "Microsoft C\/C\+\+ runtime components"/],
     ['the static libraries of the Windows SDK no longer named in the Microsoft section', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('Static LIB files', 'static libraries'), /"Static LIB files" section/],
-    ['the condition about end users no longer in the Microsoft section', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('end users', 'people'), /condition about terms for end users/],
+    ['the condition about end users no longer in the Microsoft section', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('end users', 'people'), /condition about terms for end users/],
     ['the indemnity condition no longer in the Microsoft section', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('indemnif', 'compensat'), /indemnity condition/],
     ['the statement that the Microsoft text is not reproduced removed', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('not reproduced', 'omitted'), /does not say that the text of the Microsoft terms is not reproduced/],
-    ['the date on which the Microsoft terms were read removed', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('2026-10-25', '2026-10-26'), /the date on which the terms were read/],
+    ['the date on which the Microsoft terms were read removed', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('2026-10-25', '2026-10-26'), /the date on which the terms were read/],
     ['a link to the Microsoft terms removed', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('learn.microsoft.com/en-us/legal/windows-sdk/redist', 'example.invalid/redist'), /does not link learn\.microsoft\.com\/en-us\/legal\/windows-sdk\/redist/],
     ['the Rust toolchain no longer named in THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.rustc, 'x'), /THIRD-PARTY-NOTICES\.md does not name the Rust toolchain/],
-    ['the Rust toolchain no longer named in the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.rustc, 'x'), /THIRD-PARTY-NOTICES\.txt does not name the Rust toolchain/],
+    ['the Rust toolchain no longer named in the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.rustc, 'x'), /THIRD-PARTY-NOTICES\.txt does not name the Rust toolchain/],
     ['the commit of the Rust toolchain no longer named in THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.commit, '0'.repeat(40)), /does not name the commit of the Rust toolchain/],
     ['the Rust standard library row deleted', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| Rust standard library \|/), /no row for Rust standard library/],
-    ['the Rust standard library line deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', dropLines(new RegExp(escape(`Rust standard library ${vendored.manifest.rustStd.toolchain.rustc} - `))), /no line for Rust standard library/],
+    ['the Rust standard library line deleted from the plain-text notice', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', dropLines(new RegExp(escape(`Rust standard library ${vendored.manifest.rustStd.toolchain.rustc} - `))), /no line for Rust standard library/],
     ['the hashbrown row deleted', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| `hashbrown` \|/), /no row for hashbrown/],
     ['the compiler_builtins row deleted', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| Rust compiler_builtins and libm \|/), /no row for Rust compiler_builtins and libm/],
     ['the count of packages that the standard library does not link is wrong', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/\d+ packages of the Rust library lock file that are not linked/g, '1 packages of the Rust library lock file that are not linked'), /how many packages of the Rust library lock file/],

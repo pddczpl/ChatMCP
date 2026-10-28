@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: '22'
       - name: Documents, trust labels, notices, threat model and claims map
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
         run: |
           set -euo pipefail
           for suite in docs trust-labels notices threat-model claims-map; do
@@ -53,7 +53,7 @@ jobs:
           done
       - name: Claims map against the base branch (the unmapped count may not grow)
         if: github.event_name == 'pull_request'
-        working-directory: CHATMCP-HUB
+        working-directory: DATGOLD-HUB
         env:
           BASE_REF: ${{ github.base_ref }}
         run: node tests/verify-claims-map.mjs --base "origin/$BASE_REF"

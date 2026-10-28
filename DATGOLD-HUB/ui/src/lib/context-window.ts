@@ -1,4 +1,4 @@
-// The settings forms' copy of CHATMCP-HUB/lib/context-window.mjs. ui/tests/model-profile-form.test.mjs compares the two, so a change
+// The settings forms' copy of DATGOLD-HUB/lib/context-window.mjs. ui/tests/model-profile-form.test.mjs compares the two, so a change
 // on one side that is not made on the other fails a test. The Hub validates again: this only saves a round trip and names the fix.
 //
 // Below the minimum the agent cannot hold its own tool schemas, so the value is refused with the range. Above the maximum it is

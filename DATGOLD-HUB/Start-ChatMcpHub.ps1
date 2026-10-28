@@ -58,7 +58,7 @@ try {
     }
     $hubPath = Join-Path $PSScriptRoot 'lib\launch.mjs'
     if (-not (Test-Path -LiteralPath $hubPath -PathType Leaf)) {
-        throw 'lib\launch.mjs is missing. Extract the entire CHATMCP-HUB folder first.'
+        throw 'lib\launch.mjs is missing. Extract the entire Hub folder first.'
     }
     if ($Port -eq 3006) {
         throw 'Port 3006 is reserved for compatibility. Choose another -Port.'

@@ -4,7 +4,7 @@ param([string]$Destination = '')
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-# ripgrep for the search_files and find_files tools (CHATMCP-HUB/lib/ripgrep.mjs looks for CHATMCP-HUB/runtimes/ripgrep/rg.exe).
+# ripgrep for the search_files and find_files tools (DATGOLD-HUB/lib/ripgrep.mjs looks for DATGOLD-HUB/runtimes/ripgrep/rg.exe).
 # Pinned to the official release of https://github.com/BurntSushi/ripgrep; the SHA-256 is the digest GitHub states for the asset
 # ripgrep-15.2.0-x86_64-pc-windows-msvc.zip (1,789,611 bytes), checked against the file that is downloaded or supplied.
 $source = 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip'

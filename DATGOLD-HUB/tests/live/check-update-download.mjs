@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Reads the REAL release feed once, up to and including the SIGNATURE of the newest release, with the Hub's own code, and says what a click on Download would do. For the owner, by hand:
 //
-//     node CHATMCP-HUB/tests/live/check-update-download.mjs [--expect valid|missing|invalid]
+//     node DATGOLD-HUB/tests/live/check-update-download.mjs [--expect valid|missing|invalid]
 //
 // It asks GitHub for two files: the manifest of the newest release (as tests/live/check-update-feed.mjs does) and the signature of that release, at the address the Hub builds from the version the
 // manifest names. CI never runs it. It NEVER asks for the installer: it prints the address a click would use and what the manifest promises (name, size, SHA-256) and stops there. A real download

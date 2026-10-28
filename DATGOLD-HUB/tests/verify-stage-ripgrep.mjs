@@ -25,7 +25,7 @@ let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 
 if (!await fs.stat(scriptPath).catch(() => null)) {
-  console.log('CHATMCP_TEST_SKIP: scripts/intelligence-runtime/stage-ripgrep.ps1 was not found next to CHATMCP-HUB (the staging checks need the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: scripts/intelligence-runtime/stage-ripgrep.ps1 was not found next to DATGOLD-HUB (the staging checks need the whole repository)');
   process.exit(0);
 }
 const script = (await fs.readFile(scriptPath, 'utf8')).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');

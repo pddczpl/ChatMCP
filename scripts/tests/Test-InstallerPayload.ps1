@@ -44,7 +44,7 @@ try {
     Assert-Payload ($builder.Contains('Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir')) 'real builder uses the tested source copy helper'
     Assert-Payload ($builder.Contains('Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadDir')) 'real builder requires the tested native payload check'
     Assert-Payload ($builder.Contains('$supervisorProject = Join-Path $repoRoot') -and $builder.Contains('GuestSupervisor.exe.sha256')) 'trusted guest helper built and hashed explicitly, never from tracked C# sources'
-    $assembler = [IO.File]::ReadAllText((Join-Path $scriptDir '..\..\CHATMCP-HUB\lib\assemble.mjs'))
+    $assembler = [IO.File]::ReadAllText((Join-Path $scriptDir '..\..\DATGOLD-HUB\lib\assemble.mjs'))
     Assert-Payload ($builder.Contains('$stagingNode = Join-Path $payloadDir ''runtimes\node''') -and
         $assembler.Contains("nodeToolchainDirectory:path.resolve(bundleRoot,'..','runtimes','node')")) 'pinned Node runtime path matches installed payload layout'
     Assert-Payload ($builder.Contains('$shellDist = Join-Path $stagingDir ''desktop-publish''') -and $builder.Contains('$installerPublish = Join-Path $stagingDir ''installer-publish''')) 'each native publish uses private fresh output'
@@ -99,22 +99,24 @@ try {
     New-Item -ItemType Directory -Path $fixture -Force | Out-Null
     Invoke-FixtureGit @('init', '-q')
     Write-Fixture '.gitignore' "installed-plugins.json`nsecrets.json`ntest-results/`nnode_modules/`n"
-    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'CHATMCP-HUB/lib/agent.mjs', 'CHATMCP-HUB/lib/space name.mjs', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'CHATMCP-HUB/tests/private-fixture.json', 'CHATMCP-HUB/ui/src/App.tsx', 'CHATMCP-HUB/web/dist/index.html', 'CHATMCP-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) { Write-Fixture $file }
-    $unicodeSource = 'CHATMCP-HUB/lib/caf' + [char]0x00e9 + '.mjs'
+    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'DATGOLD-HUB/hub.mjs', 'DATGOLD-HUB/package.json', 'DATGOLD-HUB/lib/agent.mjs', 'DATGOLD-HUB/lib/space name.mjs', 'DATGOLD-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'DATGOLD-HUB/tests/private-fixture.json', 'DATGOLD-HUB/ui/src/App.tsx', 'DATGOLD-HUB/web/dist/index.html', 'DATGOLD-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) { Write-Fixture $file }
+    $unicodeSource = 'DATGOLD-HUB/lib/caf' + [char]0x00e9 + '.mjs'
+    $unicodePayload = 'CHATMCP-HUB/lib/caf' + [char]0x00e9 + '.mjs'
     Write-Fixture $unicodeSource
     Invoke-FixtureGit @('add', '--all')
     # Personal state and downloaded third-party material are never tracked.
-    foreach ($file in @('CHATMCP-HUB/installed-plugins.json', 'CHATMCP-HUB/secrets.json', 'CHATMCP-HUB/test-results/private-log.json', 'CHATMCP-HUB/node_modules/dev-package/index.js', 'CHATMCP-HUB/skills/downloaded/SKILL.md', 'scripts/local-personal.ps1', 'assets/private.png')) { Write-Fixture $file 'PRIVATE-STATE-MUST-NOT-SHIP' }
-    Write-Fixture 'CHATMCP-HUB/lib/agent.mjs' 'current modified runtime'
+    foreach ($file in @('DATGOLD-HUB/installed-plugins.json', 'DATGOLD-HUB/secrets.json', 'DATGOLD-HUB/test-results/private-log.json', 'DATGOLD-HUB/node_modules/dev-package/index.js', 'DATGOLD-HUB/skills/downloaded/SKILL.md', 'scripts/local-personal.ps1', 'assets/private.png')) { Write-Fixture $file 'PRIVATE-STATE-MUST-NOT-SHIP' }
+    Write-Fixture 'DATGOLD-HUB/lib/agent.mjs' 'current modified runtime'
     # Model Vite emptyOutDir + its freshly emitted untracked content.
-    Remove-Item -LiteralPath (Join-Path $fixture 'CHATMCP-HUB/web/dist/assets/old-hash.js')
-    Write-Fixture 'CHATMCP-HUB/web/dist/index.html' '<script src="./assets/new-hash.js"></script>'
-    Write-Fixture 'CHATMCP-HUB/web/dist/assets/new-hash.js' 'fresh UI'
+    Remove-Item -LiteralPath (Join-Path $fixture 'DATGOLD-HUB/web/dist/assets/old-hash.js')
+    Write-Fixture 'DATGOLD-HUB/web/dist/index.html' '<script src="./assets/new-hash.js"></script>'
+    Write-Fixture 'DATGOLD-HUB/web/dist/assets/new-hash.js' 'fresh UI'
     Copy-InstallerSourcePayload -RepositoryRoot $fixture -Destination $destination
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB/hub.mjs')) 'tracked Hub entry ships'
+    Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB'))) 'the payload keeps the name of the installed Hub folder and never takes the name of the repository folder'
     Assert-Payload ([IO.File]::ReadAllText((Join-Path $destination 'CHATMCP-HUB/lib/agent.mjs')) -eq 'current modified runtime') 'current working tree content ships for tracked runtime files'
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB/lib/space name.mjs')) 'tracked paths containing spaces survive enumeration'
-    Assert-Payload (Test-Path -LiteralPath (Join-Path $destination $unicodeSource)) 'tracked Unicode paths survive Git output decoding'
+    Assert-Payload (Test-Path -LiteralPath (Join-Path $destination $unicodePayload)) 'tracked Unicode paths survive Git output decoding'
     Assert-Payload ((Test-Path -LiteralPath (Join-Path $destination 'LICENSE')) -and (Test-Path -LiteralPath (Join-Path $destination 'NOTICE'))) 'Apache-2.0 LICENSE and NOTICE ship at the payload root'
     Invoke-FixtureGit @('rm', '--cached', '-q', 'LICENSE')
     Assert-Rejected { Get-InstallerPayloadFiles -RepositoryRoot $fixture } 'not tracked: LICENSE' 'a payload without the license text fails closed'
@@ -128,16 +130,16 @@ try {
     foreach ($excluded in @('CHATMCP-HUB/installed-plugins.json', 'CHATMCP-HUB/secrets.json', 'CHATMCP-HUB/test-results', 'CHATMCP-HUB/node_modules', 'CHATMCP-HUB/skills', 'CHATMCP-HUB/tests', 'CHATMCP-HUB/ui', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor', 'scripts/tests', 'scripts/Build-Installer.ps1', 'scripts/local-personal.ps1', 'assets/private.png')) {
         Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination $excluded))) "excluded from payload: $excluded"
     }
-    Assert-Payload ([IO.File]::ReadAllText((Join-Path $fixture 'CHATMCP-HUB/installed-plugins.json')) -eq 'PRIVATE-STATE-MUST-NOT-SHIP') 'user state remains untouched'
-    Invoke-FixtureGit @('add', '-f', 'CHATMCP-HUB/installed-plugins.json')
+    Assert-Payload ([IO.File]::ReadAllText((Join-Path $fixture 'DATGOLD-HUB/installed-plugins.json')) -eq 'PRIVATE-STATE-MUST-NOT-SHIP') 'user state remains untouched'
+    Invoke-FixtureGit @('add', '-f', 'DATGOLD-HUB/installed-plugins.json')
     $selected = @(Get-InstallerPayloadFiles -RepositoryRoot $fixture)
     Assert-Payload (-not ($selected | Where-Object { $_.RelativePath -eq 'CHATMCP-HUB/installed-plugins.json' })) 'runtime allowlist excludes accidentally tracked user state too'
-    Write-Fixture 'CHATMCP-HUB/web/dist/secrets.json' 'PRIVATE-STATE-MUST-NOT-SHIP'
+    Write-Fixture 'DATGOLD-HUB/web/dist/secrets.json' 'PRIVATE-STATE-MUST-NOT-SHIP'
     Assert-Rejected { Get-InstallerPayloadFiles -RepositoryRoot $fixture } 'Unexpected file' 'unexpected generated output fails closed'
-    Remove-Item -LiteralPath (Join-Path $fixture 'CHATMCP-HUB/web/dist/secrets.json')
+    Remove-Item -LiteralPath (Join-Path $fixture 'DATGOLD-HUB/web/dist/secrets.json')
     $outside = Join-Path $scratch 'outside'
     New-Item -ItemType Directory -Path $outside | Out-Null
-    $junction = Join-Path $fixture 'CHATMCP-HUB/web/dist/assets/escape'
+    $junction = Join-Path $fixture 'DATGOLD-HUB/web/dist/assets/escape'
     New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
     Assert-Rejected { Get-InstallerPayloadFiles -RepositoryRoot $fixture } 'junction' 'generated output junction is rejected before traversal'
     # Remove only the junction itself, never its target.
@@ -372,7 +374,7 @@ try {
     Assert-Payload ((ConvertTo-InstallerMsbuildValue -Value "C:\a (x86) `$b @c 'd' *e ?f\k.json") -ceq 'C:\a %28x86%29 %24b %40c %27d%27 %2Ae %3Ff\k.json') 'and the other characters of the syntax of MSBuild: parentheses, $, @, quotes, wildcards'
     Assert-Payload ((ConvertTo-InstallerMsbuildValue -Value '') -ceq '') 'an empty value stays empty'
     Assert-Payload ($builder.Contains('$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value $shellKeysFile') -and $builder.Contains('"-p:ReleaseKeysFile=$shellKeysArgument"') -and -not $builder.Contains('"-p:ReleaseKeysFile=$shellKeysFile"') -and $builder.IndexOf('$shellKeysFile = if') -lt $builder.IndexOf('$shellKeysArgument =') -and $builder.IndexOf('$shellKeysArgument =') -lt $builder.IndexOf('publish $shellCsproj')) 'the desktop shell is built with a key list that is ALWAYS named on the command line (embedded in the program), written so that MSBuild reads the path back as it is'
-    Assert-Payload ($builder.Contains('$shellKeysFile = if ($ReleaseKeysFile -ne '''') { $ReleaseKeysFile } else { Join-Path $repoRoot ''CHATMCP-HUB\lib\release-keys.json'' }')) 'the one it names is the committed CHATMCP-HUB\lib\release-keys.json unless a test build gives another (MSBuild reads environment variables as properties: left to the default of the project, a variable called ReleaseKeysFile in the environment of a release build would be the list the program trusts)'
+    Assert-Payload ($builder.Contains('$shellKeysFile = if ($ReleaseKeysFile -ne '''') { $ReleaseKeysFile } else { Join-Path $repoRoot ''DATGOLD-HUB\lib\release-keys.json'' }')) 'the one it names is the committed DATGOLD-HUB\lib\release-keys.json unless a test build gives another (MSBuild reads environment variables as properties: left to the default of the project, a variable called ReleaseKeysFile in the environment of a release build would be the list the program trusts)'
     Assert-Payload ($builder.Contains('-not (Test-Path -LiteralPath $shellKeysFile -PathType Leaf)')) 'and the build stops, before it compiles anything, when that file is not there'
     Assert-Payload ($builder.IndexOf('$shellKeysFile = if') -lt $builder.IndexOf('publish $shellCsproj')) 'the key list is chosen before the shell is published'
     Assert-Payload (-not $builder.Contains('@shellKeys')) 'and nothing leaves it out (an empty list of extra arguments, as before, is gone)'

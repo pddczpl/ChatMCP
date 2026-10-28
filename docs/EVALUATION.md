@@ -7,9 +7,9 @@ The deterministic evaluation runner invokes actual repository test processes via
 From the repository root:
 
 ```powershell
-node CHATMCP-HUB/tests/evaluate.mjs --list
-node CHATMCP-HUB/tests/evaluate.mjs --case targeted-bugfix --output CHATMCP-HUB/test-results/evaluation-report.json
-npm run eval:deterministic --prefix CHATMCP-HUB
+node DATGOLD-HUB/tests/evaluate.mjs --list
+node DATGOLD-HUB/tests/evaluate.mjs --case targeted-bugfix --output DATGOLD-HUB/test-results/evaluation-report.json
+npm run eval:deterministic --prefix DATGOLD-HUB
 ```
 
 Running `--all` executes ten cases sequentially: repository exploration, targeted bug fixes, multi-file implementation, refactoring, repair-loop contract, long context, interruption recovery, Git worktree dependencies, browser regressions, and provider usage. Each case is graded by a separate Node subprocess and the actual suite's assertions and exit status. Skipped or missing receipts never count as passed.

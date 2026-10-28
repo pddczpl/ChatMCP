@@ -5,7 +5,7 @@
 // The workflow file is checked for the properties the script cannot enforce itself: a full-history checkout, SHA-pinned actions,
 // least privilege, and the two revisions passed through env rather than interpolated into the shell.
 //
-// Needs the repository root next to CHATMCP-HUB (scripts/, .github/); without it the suite reports SKIP, never PASS.
+// Needs the repository root next to DATGOLD-HUB (scripts/, .github/); without it the suite reports SKIP, never PASS.
 // CLAIM: dco-signoff
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -20,7 +20,7 @@ const SCRIPT = path.join(REPO, 'scripts', 'check-dco.mjs');
 const WORKFLOW = path.join(REPO, '.github', 'workflows', 'dco.yml');
 
 if (!existsSync(SCRIPT) || !existsSync(WORKFLOW)) {
-  console.log('CHATMCP_TEST_SKIP: scripts/check-dco.mjs and .github/workflows/dco.yml were not found next to CHATMCP-HUB (the DCO check needs the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: scripts/check-dco.mjs and .github/workflows/dco.yml were not found next to DATGOLD-HUB (the DCO check needs the whole repository)');
   process.exit(0);
 }
 

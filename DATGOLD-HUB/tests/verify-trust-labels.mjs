@@ -88,7 +88,7 @@ const HISTORICAL_DOC = /^(?:PHASE|UPGRADE|WINDOWS-SANDBOX-REAL|PHASE\d)/i;
 /** @returns {Promise<{where: string, rule: string, text: string, why: string}[]>} */
 export async function scanTree(repo) {
   const found = [];
-  const hub = path.join(repo, 'CHATMCP-HUB');
+  const hub = path.join(repo, 'DATGOLD-HUB');
   const rel = (file) => path.relative(repo, file).replaceAll('\\', '/');
   const skipDirectories = (full, entry) => entry.isDirectory() && ['node_modules', 'dist', '.git', 'agent-handoffs', 'evidence', 'runtimes'].includes(entry.name);
 
@@ -116,7 +116,7 @@ export async function scanTree(repo) {
   for (const name of ['plugins.mjs', 'skill-registry.mjs']) {
     let text;
     try { text = await fs.readFile(path.join(hub, 'lib', name), 'utf8'); } catch { continue; }
-    if (VERIFIED_TRUE.test(text)) found.push({ where: `CHATMCP-HUB/lib/${name}`, rule: 'verified-flag', text: 'verified: true', why: 'a source list may not carry a verified flag' });
+    if (VERIFIED_TRUE.test(text)) found.push({ where: `DATGOLD-HUB/lib/${name}`, rule: 'verified-flag', text: 'verified: true', why: 'a source list may not carry a verified flag' });
   }
   return found;
 }
@@ -193,8 +193,8 @@ const hasLicense = licenseFiles.length > 0;
   const write = async (name, content) => { await fs.mkdir(path.dirname(path.join(temp, name)), { recursive: true }); await fs.writeFile(path.join(temp, name), content); };
   try {
     const clean = {
-      'CHATMCP-HUB/lib/ok.mjs': "// Runs in Windows Sandbox or in Docker. The receipt is tamper-evident, not tamper-proof.\nexport const text = 'Results are not certified by anyone; sed --sandbox refuses the e command.';\n",
-      'CHATMCP-HUB/ui/src/ok.tsx': "export const A = () => <p>Isolated checks run in Windows Sandbox.</p>;\nexport const iframe = <iframe sandbox=\"allow-scripts\" />;\n",
+      'DATGOLD-HUB/lib/ok.mjs': "// Runs in Windows Sandbox or in Docker. The receipt is tamper-evident, not tamper-proof.\nexport const text = 'Results are not certified by anyone; sed --sandbox refuses the e command.';\n",
+      'DATGOLD-HUB/ui/src/ok.tsx': "export const A = () => <p>Isolated checks run in Windows Sandbox.</p>;\nexport const iframe = <iframe sandbox=\"allow-scripts\" />;\n",
       'docs/ok.md': 'Worktrees are not sandboxes. The installer is not certified. A skill is untrusted text.\n',
       'SECURITY.md': 'Nothing here is notarized or guaranteed.\n'.replace('notarized or guaranteed', 'guaranteed'),
     };
@@ -202,14 +202,14 @@ const hasLicense = licenseFiles.length > 0;
     assert.deepEqual(await scanTree(temp), [], 'the clean tree (including negated sentences and allowed sandbox contexts) must pass');
 
     const seeded = [
-      ['CHATMCP-HUB/lib/bad1.mjs', "export const a = 'A tamper-proof audit trail';\n", 'tamper-proof'],
-      ['CHATMCP-HUB/lib/bad2.mjs', "// This build is certified for production use.\nexport const b = 1;\n", 'certified'],
-      ['CHATMCP-HUB/lib/bad3.mjs', "export const c = 'Receipts are notarized by the Hub';\n", 'notary'],
-      ['CHATMCP-HUB/lib/bad4.mjs', "export const d = 'Runs every check in a secure sandbox';\n", 'sandbox'],
-      ['CHATMCP-HUB/lib/bad5.mjs', "export const d = 'Generates a PageRank-style map';\n", 'pagerank'],
-      ['CHATMCP-HUB/lib/plugins.mjs', "export const SOURCES = [{ id: 'x', verified: true }];\n", 'verified-flag'],
-      ['CHATMCP-HUB/ui/src/bad.tsx', "export const A = () => <p>Certified sandbox execution</p>;\n", 'certified'],
-      ['CHATMCP-HUB/ui/src/label.ts', "export const t = { cat_mcp: 'MCP Servers' };\n", 'mcp-servers-label'],
+      ['DATGOLD-HUB/lib/bad1.mjs', "export const a = 'A tamper-proof audit trail';\n", 'tamper-proof'],
+      ['DATGOLD-HUB/lib/bad2.mjs', "// This build is certified for production use.\nexport const b = 1;\n", 'certified'],
+      ['DATGOLD-HUB/lib/bad3.mjs', "export const c = 'Receipts are notarized by the Hub';\n", 'notary'],
+      ['DATGOLD-HUB/lib/bad4.mjs', "export const d = 'Runs every check in a secure sandbox';\n", 'sandbox'],
+      ['DATGOLD-HUB/lib/bad5.mjs', "export const d = 'Generates a PageRank-style map';\n", 'pagerank'],
+      ['DATGOLD-HUB/lib/plugins.mjs', "export const SOURCES = [{ id: 'x', verified: true }];\n", 'verified-flag'],
+      ['DATGOLD-HUB/ui/src/bad.tsx', "export const A = () => <p>Certified sandbox execution</p>;\n", 'certified'],
+      ['DATGOLD-HUB/ui/src/label.ts', "export const t = { cat_mcp: 'MCP Servers' };\n", 'mcp-servers-label'],
       ['docs/bad.md', 'Every result is tamper-proof and notarized.\n', 'tamper-proof'],
     ];
     for (const [name, content, rule] of seeded) {

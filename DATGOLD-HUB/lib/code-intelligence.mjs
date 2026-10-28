@@ -1,4 +1,4 @@
-// CHATMCP-HUB/lib/code-intelligence.mjs
+// DATGOLD-HUB/lib/code-intelligence.mjs
 // Multi-Tier Code Intelligence Engine for ChatMCP Studio Local:
 // Tier 1: LSP (Language Server Protocol via JSON-RPC stdio) for semantic cross-file resolution
 // Tier 2: Tree-sitter (web-tree-sitter WASM) & Python Native AST worker for exact syntax trees

@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using ChatMCP.Native;
 
-// The cases that the Hub's code (CHATMCP-HUB/tests/verify-release-vectors.mjs) and the shell's code must read the same way: CHATMCP-HUB/tests/fixtures/release-verify-vectors.json, whose
+// The cases that the Hub's code (DATGOLD-HUB/tests/verify-release-vectors.mjs) and the shell's code must read the same way: DATGOLD-HUB/tests/fixtures/release-verify-vectors.json, whose
 // `expect` of each case was written down when the case was made, not taken from either implementation. A release is checked by the Hub when it arrives and again by the shell before it runs
 // the installer, so a manifest, a signature or a key list that one takes and the other refuses is a defect. This is the shell's half.
 internal static class ReleaseVectorTests
@@ -17,7 +17,7 @@ internal static class ReleaseVectorTests
 
         // the key file that ships is one the shell reads whole, as the Hub does: every entry is a release key or a placeholder, none is set aside
         var shipped = ReleaseKeys.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "release-keys.json")));
-        kit.Check(shipped.Ignored.Count == 0 && shipped.Keys.Count + shipped.Placeholders >= 1, "the key file that ships (CHATMCP-HUB/lib/release-keys.json) is well formed for the shell too: " + shipped.Keys.Count + " release key(s), " + shipped.Placeholders + " placeholder(s), none set aside");
+        kit.Check(shipped.Ignored.Count == 0 && shipped.Keys.Count + shipped.Placeholders >= 1, "the key file that ships (DATGOLD-HUB/lib/release-keys.json) is well formed for the shell too: " + shipped.Keys.Count + " release key(s), " + shipped.Placeholders + " placeholder(s), none set aside");
 
         // ---- signatures: the key list as the shell reads it, then the check over the exact bytes
         var valid = 0; var refused = 0;

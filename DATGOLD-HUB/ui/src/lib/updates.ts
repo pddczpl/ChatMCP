@@ -228,7 +228,7 @@ function hasWork(value: unknown): boolean {
 
 /**
  * Whether the Hub is doing work that an update would cut off, from the state the page has (GET /api/state): the rule of HubLifecycle.WorkInState in native-shared/HubLifecycle.cs, which the installer
- * applies before it stops the Hub and the shell applies before it exits, held to the same list of cases (CHATMCP-HUB/tests/fixtures/active-work-cases.json). A state that is not an object, or has no
+ * applies before it stops the Hub and the shell applies before it exits, held to the same list of cases (DATGOLD-HUB/tests/fixtures/active-work-cases.json). A state that is not an object, or has no
  * `agent`, or whose `agent` is not an object, is not an idle Hub (the page has not got it yet, or it is not a Hub): fail closed. The coding answer is not part of the state: the shell asks for it too.
  */
 export function hasActiveWork(state: unknown): boolean {

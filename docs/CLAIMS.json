@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Claims map (docs/CLAIMS.json). Each entry binds a claim made in the documents to the test that exercises it on the production code path, or says that none does. Validated by CHATMCP-HUB/tests/verify-claims-map.mjs; see docs/CLAIMS.md.",
+  "about": "Claims map (docs/CLAIMS.json). Each entry binds a claim made in the documents to the test that exercises it on the production code path, or says that none does. Validated by DATGOLD-HUB/tests/verify-claims-map.mjs; see docs/CLAIMS.md.",
   "scannedDocuments": [
     "README.md",
     "RELEASE-NOTES-v3.9.0.md"
@@ -16,7 +16,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-skill-delivery.mjs",
+      "test": "DATGOLD-HUB/tests/verify-skill-delivery.mjs",
       "seamNote": "Real AgentRunner, real PluginManager and real GitHub registry install path; only the model (a capturing provider) and the GitHub HTTP transport are scripted. A small skill reaches the model whole in the index of the conversation; a bigger one is a line in the index and its text arrives once after the model calls skill_load. Run again against a copy of lib/ with the v3.9.0 defect put back, which must fail.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Plugin)",
@@ -33,7 +33,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-project-instructions.mjs",
+      "test": "DATGOLD-HUB/tests/verify-project-instructions.mjs",
       "seamNote": "The loader runs on real files in temporary workspaces (links, junctions, a 2 GiB file, binary files). The block is delivered through the real AgentRunner (only the model and a minimal tool session are scripted) with a mutation check, and a hostile AGENTS.md is run through the real HubManager, PermissionGate and LocalTools in Review, Read Only and Autonomous; verify-e2e-prompt-budgets does it again through a real Hub process.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Gate|Permission)",
@@ -51,7 +51,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-project-instructions.mjs",
+      "test": "DATGOLD-HUB/tests/verify-project-instructions.mjs",
       "seamNote": "The allowance is checked by hand and over every history from 0 to 60,000 tokens; then the real AgentRunner runs a busy project (spawn tools, check suggestions, a plan) on windows of 11,000 to 200,000 tokens and an unknown one, only the model and a minimal tool session scripted: the cap of every window is the allowance of the policy the SAME run has with the guidance switched off, the history budget never goes under the floor, and the text of the run with the guidance is the text without it plus the block and one sentence of the rules. verify-skill-on-demand does it again with 130 KB of project files, four skills and the real PluginManager, recomputing the budget from what the provider received, and verify-e2e-prompt-budgets through a real Hub process at 16,384 tokens.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Budget|Allowance)",
@@ -68,7 +68,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-project-instructions-switch.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-project-instructions-switch.mjs",
       "seamNote": "A real Hub process (real routes with the bearer, CSRF and Origin layers, the saved store, the real runner and permission gate) and a scripted model server: what the model server is sent after the choice changes, a change while an approval is pending, a restart, the environment variable on and off, a damaged file. verify-project-instructions-setting runs the real AgentRunner, a pooled chat in its own worktree and a coding worker whose runners exist before the choice changes, and ui/e2e/project-instructions.spec.mjs flips it from the real page.",
       "forbiddenDoubles": [
         "createHubServer\\(",
@@ -86,7 +86,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-skill-on-demand.mjs",
+      "test": "DATGOLD-HUB/tests/verify-skill-on-demand.mjs",
       "seamNote": "The index and the loader on their own, then the real AgentRunner and the real PluginManager (only the model is scripted): the text arrives once per load, a pooled worker is offered the tool, and a hostile skill is run through the real HubManager, PermissionGate and LocalTools in three modes.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Gate|Permission|Plugin)",
@@ -104,7 +104,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-lsp-tier.mjs",
+      "test": "DATGOLD-HUB/tests/verify-lsp-tier.mjs",
       "seamNote": "Real StudioWorkspace -> LocalTools -> CodeIntelligenceEngine -> CodeIntelligence -> LspProcess; only the language-server child process differs (a protocol-faithful stub always, the real servers when installed).",
       "forbiddenDoubles": [
         "\\bworkspace\\s*[:=]\\s*\\{\\s*(?:path|root)\\b"
@@ -120,7 +120,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-tree-sitter-wiring.mjs",
+      "test": "DATGOLD-HUB/tests/verify-tree-sitter-wiring.mjs",
       "seamNote": "Real StudioWorkspace and real LocalTools driven through the registered tools; the parser is a recording stand-in, and the recording is what proves the injected adapter was reached.",
       "forbiddenDoubles": [
         "\\bworkspace\\s*[:=]\\s*\\{\\s*(?:path|root)\\b"
@@ -136,7 +136,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-readonly-corpus.mjs",
+      "test": "DATGOLD-HUB/tests/verify-readonly-corpus.mjs",
       "seamNote": "Bypass corpus through the real classifier, real LocalTools and real PermissionGate on real files; a positive control shows the same commands DO write when approved in Review.",
       "forbiddenDoubles": [
         "\\bworkspace\\s*[:=]\\s*\\{\\s*(?:path|root)\\b",
@@ -153,7 +153,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-recovery.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-recovery.mjs",
       "seamNote": "A real Hub process killed with SIGKILL / TerminateProcess, restarted on the same state folder; the number of lines a script appended to a file says how many times it ran.",
       "forbiddenDoubles": [
         "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
@@ -169,7 +169,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-bugfix.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-bugfix.mjs",
       "seamNote": "A real Hub process over HTTP: edit approved in Review, checkpoint listed, diff reviewed, a stale restore refused with 409, the restore applied when the file is as reviewed.",
       "forbiddenDoubles": [
         "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
@@ -185,7 +185,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-hub-auth.mjs",
+      "test": "DATGOLD-HUB/tests/verify-hub-auth.mjs",
       "seamNote": "A real Hub process: every route found in hub.mjs is requested without the secret; tested routes must equal declared routes. The exceptions are pinned (see docs/THREAT-MODEL.md, RR-2 and RR-3).",
       "forbiddenDoubles": [
         "createHubServer\\("
@@ -201,7 +201,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-hub-auth.mjs",
+      "test": "DATGOLD-HUB/tests/verify-hub-auth.mjs",
       "seamNote": "Real Hub: session file ACL (SDDL has only the owner), Host/Origin/CSRF layers refuse web pages, the secret is not inherited by child processes. Not tested: a second Windows account, a restricted-token process. The two forged-Origin read routes are an open exception (docs/THREAT-MODEL.md RR-2; verify-threat-model.mjs observes it).",
       "forbiddenDoubles": [
         "createHubServer\\("
@@ -217,7 +217,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-outbound-runner.mjs",
+      "test": "DATGOLD-HUB/tests/verify-outbound-runner.mjs",
       "seamNote": "The real BrowserRunner runs start -> poll -> claim -> sent -> reply as the extension drives it; the assertions read the text poll() and claim() return. Only the tool server is a stand-in. Pattern-based: secrets without a recognisable shape are not caught.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Runner",
@@ -234,7 +234,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-outbound-runner.mjs",
+      "test": "DATGOLD-HUB/tests/verify-outbound-runner.mjs",
       "seamNote": "Same real BrowserRunner flow, including a protected file read through a non-local tool.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Runner",
@@ -251,7 +251,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-outbound-hub.mjs",
+      "test": "DATGOLD-HUB/tests/verify-outbound-hub.mjs",
       "seamNote": "A real Hub process over HTTP with the Companion played through its own routes and the person through the dashboard routes (with the Hub secret); the tool that runs is the real local.read_file.",
       "forbiddenDoubles": [
         "createHubServer\\("
@@ -267,7 +267,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-notices.mjs",
+      "test": "DATGOLD-HUB/tests/verify-notices.mjs",
       "seamNote": "Reads the real README, LICENSE and NOTICE; the installer payload requirement is checked in the script and in scripts/tests/Test-InstallerPayload.ps1 (a CI step). The seeded defects (deliberate breaks put into a temporary copy of the repository) are each reported by the check that owns them; the suite prints how many."
     },
     {
@@ -280,7 +280,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-dco-check.mjs",
+      "test": "DATGOLD-HUB/tests/verify-dco-check.mjs",
       "seamNote": "The real scripts/check-dco.mjs against real temporary Git repositories, plus the properties of .github/workflows/dco.yml. Not run: the workflow on GitHub."
     },
     {
@@ -293,7 +293,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-openai-responses.mjs",
+      "test": "DATGOLD-HUB/tests/verify-openai-responses.mjs",
       "seamNote": "The real adapter module and the real GatewayProvider; only fetch is scripted. The separate function-probe path of the same sentence is not exercised here."
     },
     {
@@ -306,7 +306,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-model-cost.mjs",
+      "test": "DATGOLD-HUB/tests/verify-model-cost.mjs",
       "seamNote": "Pure functions of lib/model-cost.mjs with no collaborators, the catalog estimates included. That a run prices its responses with the catalog's rates, frozen when it starts, is held by verify-catalog-budget.mjs through the real runner and provider; the label the page puts on an estimate is held by ui/tests/state-banner-ribbon.test.mjs, which this claim's test does not run."
     },
     {
@@ -319,7 +319,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-project-check-discovery.mjs",
+      "test": "DATGOLD-HUB/tests/verify-project-check-discovery.mjs",
       "seamNote": "The real discoverProjectChecks on real temporary projects. Covers Node, TypeScript, Python, Rust and browser checks and that nothing runs; there is no Go case."
     },
     {
@@ -332,7 +332,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-evaluation-harness.mjs",
+      "test": "DATGOLD-HUB/tests/verify-evaluation-harness.mjs",
       "seamNote": "Spawns the real tests/evaluate.mjs process and reads the report it wrote."
     },
     {
@@ -346,7 +346,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "CHATMCP-HUB/tests/verify-objective-acceptance.mjs",
+      "candidateTest": "DATGOLD-HUB/tests/verify-objective-acceptance.mjs",
       "reason": "No test drives the real agent loop through an edit and then looks at the receipts: tests build the receipt objects by hand.",
       "phase": "P4"
     },
@@ -361,7 +361,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "CHATMCP-HUB/tests/verify-objective-acceptance.mjs",
+      "candidateTest": "DATGOLD-HUB/tests/verify-objective-acceptance.mjs",
       "reason": "verify-objective-acceptance.mjs calls the real acceptObjectiveCriterion with hand-written receipts (progress objects), not receipts produced by the agent.",
       "phase": null
     },
@@ -376,7 +376,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "CHATMCP-HUB/tests/verify-profile-routing.mjs",
+      "candidateTest": "DATGOLD-HUB/tests/verify-profile-routing.mjs",
       "reason": "Not audited for the production seam: verify-profile-routing.mjs uses a fake primary runner; encryption at rest and the revision check on resume are not shown on a production path.",
       "phase": null
     },
@@ -391,7 +391,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "CHATMCP-HUB/tests/verify-smart-context-compaction.mjs",
+      "candidateTest": "DATGOLD-HUB/tests/verify-smart-context-compaction.mjs",
       "reason": "Not audited: the candidate suite has not been checked for doubles.",
       "phase": null
     },
@@ -434,7 +434,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "CHATMCP-HUB/tests/verify-phase3-worktrees.mjs",
+      "candidateTest": "DATGOLD-HUB/tests/verify-phase3-worktrees.mjs",
       "reason": "Descriptive, not a single testable property; the worktree half is exercised by verify-phase3-worktrees.mjs (scripted workers), the research half has no test that states its guarantee.",
       "phase": null
     },
@@ -463,7 +463,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "CHATMCP-HUB/tests/verify-full-access.mjs",
+      "candidateTest": "DATGOLD-HUB/tests/verify-full-access.mjs",
       "reason": "Mixed sentence: it denies OS isolation but also says commands run with the owner's account privileges. verify-full-access.mjs checks the gate decision only (no approval, no workspace path check) with a hand-written workspace; no test runs a command in Full Access and shows whose privileges it has.",
       "phase": null
     },
@@ -478,7 +478,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "CHATMCP-HUB/tests/verify-windows-sandbox-config.mjs",
+      "candidateTest": "DATGOLD-HUB/tests/verify-windows-sandbox-config.mjs",
       "reason": "Mixed sentence: it denies OS isolation for worktrees but also says supported Windows Sandbox verification gives a different assurance level. The Windows Sandbox suites (verify-windows-sandbox-config.mjs, verify-sandbox-publisher.mjs) were not audited for the production seam.",
       "phase": null
     },
@@ -520,7 +520,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-subagent-results.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-subagent-results.mjs",
       "seamNote": "A real Hub process over HTTP with real Git worktrees for the agents; only the model server is scripted (strict Chat Completions). The parent's answer is built from what the tool returned; a SIGKILL and restarts happen between the endings and the next run.",
       "forbiddenDoubles": [
         "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
@@ -536,7 +536,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-update-check.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-update-check.mjs",
       "seamNote": "A real Hub process over HTTP, started with the one test hook that points it at a loopback server standing in for GitHub (the real feed is read by hand once, not in CI). Two seconds with the owner not asked and after a no: no request; a Hub with the setting on and an old attempt, the same timing: exactly one. The module is also run against real servers in verify-update-check.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Checker|Feed)",
@@ -553,7 +553,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-update-download.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-update-download.mjs",
       "seamNote": "A real Hub process over HTTP, started with the test hook that points it at a loopback server standing in for GitHub and the one that gives it the owner's test key (the real feed is read by hand, not in CI). An automatic check finds a signed release (the positive control) and the stand-in then records no request for the installer for two seconds; only the POST of a click starts one. That the Hub installs or runs nothing is shown by what the download module imports and does (no child process, the installer is never opened), not by watching the operating system.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Download|Feed)",
@@ -570,7 +570,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-update-download.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-update-download.mjs",
       "seamNote": "A real Hub process over HTTP and a loopback stand-in for GitHub that signs with a key made for the run: a release with no signature file, and one signed with a key the Hub was not given, each get a refusal (409) while the stand-in records no request for the installer and nothing is written; a Hub that no longer trusts the key that signed a kept download does not call it ready. The cryptography itself (every changed byte, a BOM, a re-serialized manifest, wrong and unknown keys) is exercised in verify-release-signature and verify-update-check against real keys made for the run. The production key does not exist yet: the key file ships with a placeholder, which trusts nothing.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Download|Feed)",
@@ -587,7 +587,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-update-download.mjs",
+      "test": "DATGOLD-HUB/tests/verify-update-download.mjs",
       "seamNote": "The real download code over real sockets to loopback servers that imitate GitHub, writing real files in a temporary folder: other bytes of the same size, one flipped bit, a short body and a long one, with and without a declared length, each end as a failure with a code of its own and leave no file. A real download of the 230 MB installer from GitHub was not run by a test.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Download|Feed)",
@@ -604,7 +604,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-update-check.mjs",
+      "test": "DATGOLD-HUB/tests/verify-update-check.mjs",
       "seamNote": "The real fetch code over real sockets to loopback servers that imitate GitHub (three hops, a signed address at the end, and the signature at the address of the tag); the headers are read from what the server received. The policy for the real hosts is checked as a pure function on 27 addresses; what GitHub answers today was read by hand (2026-10-26), not by a test: the manifest, and a 404 for the signature of v3.10.2, which has none (tests/live/check-update-download.mjs).",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Checker|Feed|Manifest)",
@@ -621,7 +621,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-e2e-update-applied.mjs",
+      "test": "DATGOLD-HUB/tests/verify-e2e-update-applied.mjs",
       "seamNote": "A real Hub process over HTTP and a result file in its data folder written the way the installer writes it (the literal texts of tests/fixtures/update-result-vectors.json, which the native tests hold the installer to): the Hub finds it at start, shows it in /api/state, keeps it out of a second Hub's hands and removes it (the Hub is run from the repository, whose own folder never holds the marker of an update that stopped halfway, so the note is read here as before). The installer that writes the file runs in the native test project (UpdateRunTests.cs: no file while a program listens on the port, one when none does) and, on a disposable machine, in the lifecycle script (no file beside another program on port 3007); this test does not run it.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Applied",
@@ -638,7 +638,7 @@
       },
       "kind": "claim",
       "seam": "real",
-      "test": "CHATMCP-HUB/tests/verify-update-applied.mjs",
+      "test": "DATGOLD-HUB/tests/verify-update-applied.mjs",
       "seamNote": "The real module over a real folder: a marker file, a folder with its name, a disk that answers with each error code. Nothing is read, removed or written while the marker is there, and the next load, after the repair, reads and removes the file. How the Hub finds the installation folder (the parent of the folder hub.mjs is in) is held by verify-e2e-update-applied.mjs, which reads the source of the Hub; a Hub that someone started by hand behind a real marker was not run.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Applied",

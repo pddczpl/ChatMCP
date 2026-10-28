@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { LspProcess } from '../../CHATMCP-HUB/lib/studio-intelligence.mjs';
+import { LspProcess } from '../../DATGOLD-HUB/lib/studio-intelligence.mjs';
 import { checkCompiledPcre2, checkCompiledRust, checkReportedPcre2, checkStaticCrt } from './notices.mjs';
 import { verifyRuntime } from './verify.mjs';
 
@@ -84,7 +84,7 @@ try {
     'Embedded CPython must run real AST worker and return qualified method');
   console.log('PASS bundled embedded CPython AST worker');
   // ripgrep: the Hub's own class finds the bundled binary in the installed layout, it is the release the staging script pins, and it searches
-  const { Ripgrep } = await import('../../CHATMCP-HUB/lib/ripgrep.mjs');
+  const { Ripgrep } = await import('../../DATGOLD-HUB/lib/ripgrep.mjs');
   const here = path.dirname(fileURLToPath(import.meta.url));
   const pinned = (await fs.readFile(path.join(here, 'stage-ripgrep.ps1'), 'utf8')).match(/\$expectedVersion = '(\d+\.\d+\.\d+)'/)?.[1];
   assert(pinned, 'stage-ripgrep.ps1 must pin a version.');

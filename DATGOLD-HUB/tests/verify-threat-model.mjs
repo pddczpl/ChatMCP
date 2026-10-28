@@ -19,7 +19,7 @@
 //      not exist, a missing file, a wrong ticket lifetime, a route missing from SECURITY.md, the same-user sentence removed, a
 //      dangling reference ...); each must be reported.
 //
-// Needs the repository root next to CHATMCP-HUB; without it the suite reports SKIP, never PASS.
+// Needs the repository root next to DATGOLD-HUB; without it the suite reports SKIP, never PASS.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -31,7 +31,7 @@ const REPO = path.resolve(HUB, '..');
 const DOCUMENTS = ['docs/THREAT-MODEL.md', 'SECURITY.md', 'README.md', 'docs/HUB-AUTH.md', 'docs/INDEX.md'];
 
 if (DOCUMENTS.some((name) => !existsSync(path.join(REPO, name)))) {
-  console.log('CHATMCP_TEST_SKIP: the repository documents were not found next to CHATMCP-HUB (the threat model check needs the whole repository)');
+  console.log('CHATMCP_TEST_SKIP: the repository documents were not found next to DATGOLD-HUB (the threat model check needs the whole repository)');
   process.exit(0);
 }
 
@@ -80,10 +80,10 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
   for (const id of ids) if (!used.has(id)) fail(`${id} is in the code reference table but no text cites it`);
 
   // 2. tests ---------------------------------------------------------------------------------------------------------------------------
-  const named = new Set([...model.matchAll(/`((?:CHATMCP-HUB\/tests\/|tests\/)?verify-[\w-]+\.mjs|ui\/e2e\/[\w.-]+\.(?:mjs|spec\.mjs)|scripts\/tests\/[\w/.-]+\.mjs|CHATMCP-HUB\/tests\/[\w/.-]+\.mjs)`/g)].map((match) => match[1]));
+  const named = new Set([...model.matchAll(/`((?:DATGOLD-HUB\/tests\/|tests\/)?verify-[\w-]+\.mjs|ui\/e2e\/[\w.-]+\.(?:mjs|spec\.mjs)|scripts\/tests\/[\w/.-]+\.mjs|DATGOLD-HUB\/tests\/[\w/.-]+\.mjs)`/g)].map((match) => match[1]));
   if (named.size < 10) fail(`only ${named.size} tests are named; the document should point at the evidence`);
   for (const name of named) {
-    const candidates = [name, `CHATMCP-HUB/tests/${name}`, `CHATMCP-HUB/${name}`].map((candidate) => path.join(codeRoot, candidate));
+    const candidates = [name, `DATGOLD-HUB/tests/${name}`, `DATGOLD-HUB/${name}`].map((candidate) => path.join(codeRoot, candidate));
     if (!candidates.some((candidate) => existsSync(candidate))) fail(`the test ${name} does not exist`);
   }
   for (const match of model.matchAll(/^\| ((?:H|O|R|K|S|P|M|U)\d+) \|(.*)\|$/gm)) {
@@ -95,7 +95,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
   }
 
   // 3. numbers and routes equal the code -------------------------------------------------------------------------------------------------
-  const runner = readFileSync(path.join(codeRoot, 'CHATMCP-HUB/lib/browser-runner.mjs'), 'utf8');
+  const runner = readFileSync(path.join(codeRoot, 'DATGOLD-HUB/lib/browser-runner.mjs'), 'utf8');
   const pairingMinutes = Number(runner.match(/expires: this\.now\(\) \+ (\d+)/)?.[1]) / 60_000;
   const pairingAttempts = Number(runner.match(/\+\+pending\.attempts > (\d+)/)?.[1]);
   const reviewMinutes = Number(runner.match(/reviewTimeoutMs = ([\d_]+)/)?.[1].replaceAll('_', '')) / 60_000;
@@ -132,7 +132,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
     const messageKiB = constantOf('native-shared/PageMessage.cs', /MaxBytes = (\d+) \* 1024;/, 'the size limit of a message of the page (MaxBytes)');
     const waitSeconds = constantOf('installer/UpdateRun.cs', /ShellExitLimit = TimeSpan\.FromSeconds\((\d+)\)/, 'the wait for the app to close (ShellExitLimit)');
     const releaseFolders = constantOf('native-shared/UpdateStaging.cs', /MaxCandidates = (\d+);/, 'the number of release folders that are looked at (MaxCandidates)');
-    const resultBytes = constantOf('CHATMCP-HUB/lib/update-applied.mjs', /MAX_BYTES = (\d+);/, 'the size limit of the result file (MAX_BYTES)');
+    const resultBytes = constantOf('DATGOLD-HUB/lib/update-applied.mjs', /MAX_BYTES = (\d+);/, 'the size limit of the result file (MAX_BYTES)');
     // The repair of an update that stopped halfway (installer/InstallRecovery.cs, UpdateRun.cs): what it reads is bounded, and it waits before its first attempt.
     const repairSeconds = constantOf('installer/UpdateRun.cs', /RepairPause = TimeSpan\.FromSeconds\((\d+)\)/, 'the pause before the setup repairs by itself (RepairPause)');
     const markerBytes = constantOf('installer/InstallRecovery.cs', /MarkerLimit = (\d+);/, 'the size limit of the marker the repair reads (MarkerLimit)');
@@ -162,7 +162,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       [`at most ${SIGNATURE_LIMITS.maxBytes / 1024} KiB`, 'the size limit of the signature file (SIGNATURE_LIMITS.maxBytes)'],
       [`at most ${MAX_KEYS};`, 'the number of keys the key file may hold (MAX_KEYS)'],
       [SIGNATURE_ASSET, 'the name of the signature file (SIGNATURE_ASSET)'],
-      ['CHATMCP-HUB/lib/release-keys.json', 'the key file'],
+      ['DATGOLD-HUB/lib/release-keys.json', 'the key file'],
       ['ECDSA over P-256 with SHA-256', 'the algorithm of the signature'],
       [`at most ${DOWNLOAD.maxBytes / 1024 ** 3} GiB`, 'the size limit of the installer (DOWNLOAD.maxBytes)'],
       [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download (DOWNLOAD.idleTimeoutMs)'],
@@ -185,7 +185,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       ['**A download starts only from your click on Download**', 'that a download starts only from the owner\'s click'], ['**Nothing is installed or run unless you click Install and restart**', 'that nothing is installed or run unless the owner clicks Install and restart'],
       ['**Installing starts only from your click on Install and restart**', 'that an installation starts only from the owner\'s click on Install and restart'], ...installNumbers,
       ['**Only a release whose manifest has a valid signature is offered for download.**', 'that Download needs a valid signature'], ['ECDSA over P-256 with SHA-256', 'the algorithm of the signature'],
-      [`at most ${SIGNATURE_LIMITS.maxBytes / 1024} KiB`, 'the size limit of the signature file'], [SIGNATURE_ASSET, 'the name of the signature file'], ['CHATMCP-HUB/lib/release-keys.json', 'the key file'],
+      [`at most ${SIGNATURE_LIMITS.maxBytes / 1024} KiB`, 'the size limit of the signature file'], [SIGNATURE_ASSET, 'the name of the signature file'], ['DATGOLD-HUB/lib/release-keys.json', 'the key file'],
       [`takes at most ${DOWNLOAD.maxBytes / 1024 ** 3} GiB`, 'the size limit of the installer'], [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download'],
       [DOWNLOAD.freeSpaceFactor === 2 ? 'twice the installer\'s size free' : '', 'the room needed on the disk'],
     ]) if (needle && !security8.includes(needle)) fail(`SECURITY.md (Update notice) does not state ${what}: ${needle}`);
@@ -339,13 +339,13 @@ try {
   const model = 'docs/THREAT-MODEL.md';
   const mutations = [
     ['a symbol that does not exist', model, (text) => text.replace('| `createHubServer` |', '| `createHubServerOld` |'), /no symbol createHubServerOld/],
-    ['a file that does not exist', model, (text) => text.replace('`CHATMCP-HUB/lib/sed-script.mjs`', '`CHATMCP-HUB/lib/sed-grammar.mjs`'), /sed-grammar\.mjs does not exist/],
+    ['a file that does not exist', model, (text) => text.replace('`DATGOLD-HUB/lib/sed-script.mjs`', '`DATGOLD-HUB/lib/sed-grammar.mjs`'), /sed-grammar\.mjs does not exist/],
     ['an identifier of the role column that does not exist', model, (text) => text.replace('`decideOutbound`', '`decideOutboundNow`'), /decideOutboundNow/],
     ['a wrong ticket lifetime', model, (text) => text.replace('60 second', '30 second'), /ticket lives 60 seconds/],
     ['a wrong pairing limit', model, (text) => text.replace('10 attempts', '3 attempts'), /allows 10 attempts/],
     ['a reference that is not in the table', model, (text) => text.replace('single-use ticket in a URL fragment [C9]', 'single-use ticket in a URL fragment [C99] [C9]'), /\[C99\]/],
     ['a table row nobody cites', model, (text) => text.replace(/\[C18\]/g, ''), /C18 is in the code reference table but no text cites it/],
-    ['a test that does not exist', model, (text) => text.replace('`CHATMCP-HUB/tests/verify-readonly-corpus.mjs`', '`CHATMCP-HUB/tests/verify-readonly-nothing.mjs`'), /verify-readonly-nothing\.mjs does not exist/],
+    ['a test that does not exist', model, (text) => text.replace('`DATGOLD-HUB/tests/verify-readonly-corpus.mjs`', '`DATGOLD-HUB/tests/verify-readonly-nothing.mjs`'), /verify-readonly-nothing\.mjs does not exist/],
     ['a route missing from SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('`/api/extension-state`', 'the extension state route'), /SECURITY\.md does not name \/api\/extension-state/],
     ['the same-user sentence removed from SECURITY.md', 'SECURITY.md', (text) => text.replace(/\*\*The secret protects against[\s\S]*?either\.\*\*/, ''), /SECURITY\.md does not state that the secret does not protect/],
     ['SECURITY.md back to Host, Origin and CSRF only', 'SECURITY.md', (text) => text.replace('Every `/api/*` and `/auth/*` request', 'The local HTTP interface validates Host and Origin and applies CSRF protection to mutations. Browser Companion pairing; every `/api/*` and `/auth/*` request'), /still describes only Host, Origin and CSRF|per-launch bearer/],
@@ -360,7 +360,7 @@ try {
     ['a U row without a test', model, (text) => text.replace('`verify-update-check.mjs` (a hostile file, eight kinds of damaged file, a clock two days ahead, seven hours ahead and put back, a Hub that was updated since the file was written)', 'nothing'), /U4: the Test column/],
     ['a U row with an empty limit', model, (text) => text.replace('a program that can write the file can write anything in it (RR-1): the worst it can make the page show is a notice for a version at the project\'s GitHub |', ' |'), /U4: the Limit column is empty/],
     ['a code reference of the update notice to a symbol that does not exist', model, (text) => text.replace('| `fetchManifest` |', '| `fetchManifestOld` |'), /no symbol fetchManifestOld/],
-    ['a code reference to a file that does not exist', model, (text) => text.replace('`CHATMCP-HUB/ui/src/lib/updates.ts`', '`CHATMCP-HUB/ui/src/lib/update-notice.ts`'), /update-notice\.ts does not exist/],
+    ['a code reference to a file that does not exist', model, (text) => text.replace('`DATGOLD-HUB/ui/src/lib/updates.ts`', '`DATGOLD-HUB/ui/src/lib/update-notice.ts`'), /update-notice\.ts does not exist/],
     ['a code reference of the update notice that no text cites', model, (text) => text.replaceAll('[C66]', ''), /C66 is in the code reference table but no text cites it/],
     ['Surface 8 removed', model, (text) => text.replace('## Surface 8: the notice that a newer release exists', '## Something else'), /has no Surface 8/],
     ['M1 back to "or any host"', model, (text) => text.replace('| M1 | The Hub contacts models.dev without the owner asking |', '| M1 | The Hub contacts models.dev, or any host, without the owner asking |'), /M1 still says "or any host"/],
@@ -372,14 +372,14 @@ try {
     ['SECURITY.md no longer saying that Download needs a valid signature', 'SECURITY.md', (text) => text.replace('**Only a release whose manifest has a valid signature is offered for download.**', 'A release is offered for download.'), /does not state that Download needs a valid signature/],
     ['SECURITY.md with another installer limit', 'SECURITY.md', (text) => text.replace('takes at most 2 GiB', 'takes at most 4 GiB'), /SECURITY\.md \(Update notice\) does not state the size limit of the installer/],
     ['SECURITY.md with another idle limit', 'SECURITY.md', (text) => text.replace('60 seconds without a byte', '90 seconds without a byte'), /SECURITY\.md \(Update notice\) does not state the idle limit of the download/],
-    ['SECURITY.md without the key file', 'SECURITY.md', (text) => text.replaceAll('CHATMCP-HUB/lib/release-keys.json', 'the key file'), /SECURITY\.md \(Update notice\) does not state the key file/],
+    ['SECURITY.md without the key file', 'SECURITY.md', (text) => text.replaceAll('DATGOLD-HUB/lib/release-keys.json', 'the key file'), /SECURITY\.md \(Update notice\) does not state the key file/],
     ['SECURITY.md with another size for the signature file', 'SECURITY.md', (text) => text.replace('at most 4 KiB', 'at most 8 KiB'), /SECURITY\.md \(Update notice\) does not state the size limit of the signature file/],
     ['a wrong installer size limit in Surface 8', model, (text) => text.replaceAll('at most 2 GiB', 'at most 4 GiB'), /Surface 8 does not state the size limit of the installer/],
     ['a wrong idle limit in Surface 8', model, (text) => text.replaceAll('60 seconds without a byte', '120 seconds without a byte'), /Surface 8 does not state the idle limit of the download/],
     ['a wrong room on the disk in Surface 8', model, (text) => text.replaceAll('twice the installer\'s size free', 'the installer\'s size free'), /Surface 8 does not state the room needed on the disk/],
     ['a wrong size for the signature file in Surface 8', model, (text) => text.replaceAll('at most 4 KiB', 'at most 8 KiB'), /Surface 8 does not state the size limit of the signature file/],
     ['a wrong number of keys in Surface 8', model, (text) => text.replaceAll('at most 4;', 'at most 9;'), /Surface 8 does not state the number of keys/],
-    ['the key file no longer named in Surface 8', model, (text) => text.replaceAll('CHATMCP-HUB/lib/release-keys.json', 'the key file'), /Surface 8 does not state the key file/],
+    ['the key file no longer named in Surface 8', model, (text) => text.replaceAll('DATGOLD-HUB/lib/release-keys.json', 'the key file'), /Surface 8 does not state the key file/],
     ['the algorithm no longer named in Surface 8', model, (text) => text.replaceAll('ECDSA over P-256 with SHA-256', 'a signature'), /Surface 8 does not state the algorithm of the signature/],
     ['the click no longer named in Surface 8', model, (text) => text.replaceAll('only from the owner\'s click on Download', 'on its own'), /Surface 8 does not state that a download starts only from the owner's click/],
     ['Surface 8 no longer saying that nothing is run', model, (text) => text.replaceAll('Nothing is installed or run', 'Something is installed'), /Surface 8 does not state that nothing is installed or run/],
@@ -389,7 +389,7 @@ try {
     ['a gate code reference to a symbol that does not exist', model, (text) => text.replace('| `verify_release_keys` |', '| `verify_release_keys_old` |'), /no symbol verify_release_keys_old/],
     ['a code reference of the download that no text cites', model, (text) => text.replaceAll('[C72]', ''), /C72 is in the code reference table but no text cites it/],
     ['a code reference of the signature that no text cites', model, (text) => text.replaceAll('[C68]', ''), /C68 is in the code reference table but no text cites it/],
-    ['a download test that does not exist', model, (text) => text.replace('`CHATMCP-HUB/tests/verify-e2e-update-download.mjs`', '`CHATMCP-HUB/tests/verify-e2e-update-nothing.mjs`'), /verify-e2e-update-nothing\.mjs does not exist/],
+    ['a download test that does not exist', model, (text) => text.replace('`DATGOLD-HUB/tests/verify-e2e-update-download.mjs`', '`DATGOLD-HUB/tests/verify-e2e-update-nothing.mjs`'), /verify-e2e-update-nothing\.mjs does not exist/],
     ['SECURITY.md with another deadline', 'SECURITY.md', (text) => text.replace('in 10 seconds', 'in 60 seconds'), /SECURITY\.md \(Update notice\) does not state the deadline/],
     ['SECURITY.md not pointing at Surface 8', 'SECURITY.md', (text) => text.replace('(Surface 8)', '(a section)'), /does not point at Surface 8/],
     ['the README no longer saying nothing is asked before an answer', 'README.md', (text) => text.replace('until you answer, the app makes no request of its own', 'the app asks'), /README\.md does not state that nothing is asked before the owner answers/],
@@ -418,7 +418,7 @@ try {
     ['a threat row without a test', model, (text) => text.replace('comparison is exercised by `verify-hub-auth.mjs`; no timing measurement', 'nothing'), /H3: the Test column/],
     ['a hooks threat row without a test', model, (text) => text.replace('`verify-hooks-core.mjs` (inert until approved, a one-byte edit, a restart, the same bytes in another folder), `verify-hooks-guard.mjs` (the route on a real Hub, behind the bearer)', 'nothing'), /K1: the Test column/],
     ['a hooks symbol that does not exist', model, (text) => text.replace('| `HookRunner` |', '| `HookRunnerOld` |'), /no symbol HookRunnerOld/],
-    ['a hooks test that does not exist', model, (text) => text.replace('`CHATMCP-HUB/tests/verify-hooks-guard.mjs`', '`CHATMCP-HUB/tests/verify-hooks-nothing.mjs`'), /verify-hooks-nothing\.mjs does not exist/],
+    ['a hooks test that does not exist', model, (text) => text.replace('`DATGOLD-HUB/tests/verify-hooks-guard.mjs`', '`DATGOLD-HUB/tests/verify-hooks-nothing.mjs`'), /verify-hooks-nothing\.mjs does not exist/],
     ['the best-effort statement removed from SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('best effort', 'complete'), /best effort/],
     ['the Node launcher exception back in SECURITY.md', 'SECURITY.md', (text) => text.replace('Browser Companion pairing grants', 'The Node launcher does not check which process listens on the port. Browser Companion pairing grants'), /SECURITY\.md still says that the Node launcher does not check/],
     ['the PowerShell helper scripts no longer named in SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('Stop-ChatMcpHub.ps1', 'the stop script'), /SECURITY\.md does not name Stop-ChatMcpHub\.ps1/],

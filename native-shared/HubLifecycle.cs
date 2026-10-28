@@ -229,7 +229,7 @@ internal static class HubLifecycle
     /// <summary>
     /// The words that say why the Hub's state (GET /api/state) holds work that an update would cut off, or null when it holds none: an agent that is not idle, or terminals and workers that run. A state with no
     /// `agent`, or one that is not an object (null, a string, a list), is work too (the Hub has not loaded its agent, or is not a Hub: fail closed). The rule the installer applies before it stops the Hub and
-    /// the shell applies before it exits, held to one list of cases with the page's port of it (CHATMCP-HUB/tests/fixtures/active-work-cases.json).
+    /// the shell applies before it exits, held to one list of cases with the page's port of it (DATGOLD-HUB/tests/fixtures/active-work-cases.json).
     /// </summary>
     internal static string? WorkInState(JsonElement data)
     {
