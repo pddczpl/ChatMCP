@@ -22,6 +22,19 @@ const count = (value, fallback) => (Number.isInteger(value) && value >= 0 ? valu
 const list = (value) => (Array.isArray(value) ? value : []);
 const plain = (value) => (value !== null && typeof value === 'object' ? value : {});
 
+const MAX_CATALOG = 40;
+
+/**
+ * The skills the skill index told the model about besides the selected ones (lib/skill-index.mjs: `catalog`), as a record keeps them: the ids that were named (`listed`) and the
+ * ids that were turned on and are not named (`omitted`), at most 40 of each, and the form the index took: 'lines' (id, name and what it is for) or 'names' (the ids alone, for a run
+ * whose room is small); null when there is no catalog.
+ */
+export function catalogRecord(catalog) {
+  const ids = (value) => list(value).filter((id) => typeof id === 'string').slice(0, MAX_CATALOG).map((id) => text(id, ID));
+  const listed = ids(plain(catalog).listed);
+  return { listed, omitted: ids(plain(catalog).omitted), form: listed.length && (plain(catalog).form === 'lines' || plain(catalog).form === 'names') ? plain(catalog).form : null };
+}
+
 function reasonOf(item) {
   const entry = plain(item);
   if (!KINDS.has(entry.kind)) return null;
@@ -63,6 +76,8 @@ export function buildSkillSelectionRecord(trace = {}, { project = [] } = {}) {
     nearest: typeof near.id === 'string' ? { id: text(near.id, ID), name: text(near.name ?? near.id, NAME), score: count(near.score, 0) } : null,
     project: list(project).filter((signal) => typeof plain(signal).id === 'string' && typeof signal.label === 'string').slice(0, MAX_PROJECT)
       .map((signal) => ({ id: text(signal.id, 32), label: text(signal.label, LABEL) })),
+    // (Filled in by the runner once the skill index is built: the selection itself does not know what the index had room for.)
+    catalog: { listed: [], omitted: [], form: null },
     concepts: list(first.concepts).slice(0, MAX_CONCEPTS).map((entry) => ({ phrase: text(plain(entry).phrase, WORD), words: list(plain(entry).words).slice(0, 6).map((word) => text(word, WORD)) })),
   };
 }

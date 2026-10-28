@@ -5,6 +5,7 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { bundleTsx, ui } from './support/bundle.mjs';
 
+
 // The line under a finished turn that says which skills the Hub took for it and on what grounds, or why it took none. The real component and the real wording,
 // rendered for each state. What is pinned here is what a person reads, that it is a record of what the Hub did and not a verdict (never drawn in the colours of the
 // evidence strip), and that the strings of the record, which come from skills and project files, are text and never markup.
@@ -26,7 +27,8 @@ try {
     nearest: null, project: [], concepts: [{ phrase: 'nhánh', words: ['branch'] }], ...overrides,
   });
   const none = (overrides = {}) => record({ reason: 'no_match', selected: [], concepts: [], ...overrides });
-  const plain = (html) => html.replace(/&#x27;/g, "'");
+  const none_ = none;
+  const plain = (html) => html.replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
   // Everything that would make this line look like the evidence strip, or like a verdict.
   const PROOF_LOOK = /text-success|border-success|bg-success|text-danger|border-danger|bg-danger|text-warning|border-warning|bg-warning|ShieldCheck|CircleCheck|lucide-shield|lucide-circle-check|lucide-check|data-testid="proof-strip"/;
 
@@ -34,7 +36,7 @@ try {
     const html = note({ skillSelection: record() }, 'vi');
     assert.match(html, /data-testid="skill-selection-note"/);
     assert.match(html, /data-kind="selected"/);
-    assert.match(html, /Kỹ năng đã chọn cho lượt này: 1/);
+    assert.match(html, /Kỹ năng Hub nạp sẵn cho lượt này: 1/);
     assert.match(html, />Git Workflow Pro</);
     assert.equal((html.match(/data-testid="skill-selection-skill"/g) ?? []).length, 1, 'one line per skill');
     assert.match(html, /nhắc tới “commit”/, 'a word of the request');
@@ -45,7 +47,7 @@ try {
     assert.match(html, /border-line/, 'it is drawn with the neutral tokens');
     assert.doesNotMatch(html, /data-testid="skill-selection-nearest"/, 'nothing is missing, so no nearest miss');
     const en = plain(note({ skillSelection: record() }, 'en'));
-    assert.match(en, /Skills chosen for this turn: 1/);
+    assert.match(en, /Skills the Hub preloaded for this turn: 1/);
     assert.match(en, /mentions “commit”/);
     assert.match(en, /“nhánh” → branch/);
     assert.match(en, /words in its description: commit, branch/);
@@ -76,7 +78,7 @@ try {
     const task = { skillSelection: none({ nearest: { id: 'docker-devops', name: 'Docker DevOps Engine', score: 2 }, project: [{ id: 'docker', label: 'Dockerfile' }, { id: 'react', label: 'package.json: react' }] }) };
     const html = note(task, 'vi');
     assert.match(html, /data-kind="none"/);
-    assert.match(html, /Không chọn kỹ năng nào cho lượt này/);
+    assert.match(html, /Hub không nạp sẵn kỹ năng nào cho lượt này/);
     assert.match(html, /Yêu cầu không nhắc tới việc nào của 9 kỹ năng đang bật \(cần đạt 3 điểm khớp\)/);
     assert.match(html, /chỉ hiểu một số cụm tiếng Việt thường gặp, nên có thể bỏ sót/, 'and the limit of the Hub is in the visible text');
     assert.match(html, /data-testid="skill-selection-nearest"[^>]*>Gần nhất: Docker DevOps Engine \(2\/3 điểm\)/);
@@ -84,7 +86,7 @@ try {
     assert.doesNotMatch(html, /data-testid="skill-selection-skills"/, 'no list of skills');
     assert.doesNotMatch(html, PROOF_LOOK);
     const en = plain(note(task, 'en'));
-    assert.match(en, /No skill chosen for this turn/);
+    assert.match(en, /The Hub preloaded no skill for this turn/);
     assert.match(en, /does not mention anything that the 9 skills turned on are about \(a match needs 3 points\)/);
     assert.match(en, /understands only some common Vietnamese phrases, so it can miss/);
     assert.match(en, /Closest: Docker DevOps Engine \(2\/3 points\)/);
@@ -150,8 +152,42 @@ try {
     }
   });
 
+  await test('the model chooses too: the line says what the model itself is told, and where to see what it read', () => {
+    const named = { listed: ['docker-devops', 'sqlite-explorer', 'web-researcher'], omitted: [] };
+    const html = note({ skillSelection: record({ catalog: named }) }, 'vi');
+    assert.match(html, /data-testid="skill-selection-catalog"[^>]*>Model còn thấy tên và mô tả của 3 kỹ năng khác đang bật và tự đọc khi cần bằng skill_load; kỹ năng nó đã đọc hiện ở dòng “Kỹ năng đã đọc theo yêu cầu”\./);
+    assert.doesNotMatch(html, /không đủ chỗ để nêu tên/, 'nothing is said about skills that were not left out');
+    assert.match(note({ skillSelection: record({ catalog: { listed: ['a'], omitted: ['b', 'c'] } }) }, 'vi'), /1 kỹ năng khác đang bật \(còn 2 kỹ năng nữa không đủ chỗ để nêu tên\)/, 'and what did not fit is said');
+    const en = plain(note({ skillSelection: record({ catalog: named }) }, 'en'));
+    assert.match(en, /The model also sees the name and description of 3 other skills that are turned on and reads one with skill_load when it needs it; the skills it read are on the line "Skills read on demand"\./);
+    assert.match(plain(note({ skillSelection: record({ catalog: { listed: ['a'], omitted: ['b'] } }) }, 'en')), /\(1 more did not fit, so they are not named\)/);
+    // Nothing selected by a keyword: the note says the model still sees the skills, and does not tell the person to name a tool.
+    const none = note({ skillSelection: none_({ catalog: named }) }, 'vi');
+    assert.match(none, /Từ khóa trong yêu cầu không khớp kỹ năng nào trong 9 kỹ năng đang bật \(cần đạt 3 điểm khớp\)\. Model vẫn thấy tên và mô tả của 3 kỹ năng và tự đọc cái cần bằng skill_load, dựa trên cuộc trò chuyện và các tệp nó đã xem/);
+    assert.doesNotMatch(none, /nên có thể bỏ sót|hãy nhắc tên công cụ/, 'the limit of the keywords is not the end of the story any more');
+    assert.doesNotMatch(none, /data-testid="skill-selection-catalog"/, 'the sentence is the note itself');
+    assert.match(plain(note({ skillSelection: none_({ catalog: { listed: ['a', 'b'], omitted: ['c'] } }) }, 'en')), /No keyword of the request matched any of the 9 skills turned on \(a match needs 3 points\)\. The model still sees the name and description of 2 skills \(1 more did not fit, so they are not named\) and reads what it needs with skill_load/);
+    // A small room names the ids alone: the page says "name", not "name and description".
+    const ids = { listed: ['a', 'b', 'c'], omitted: [], form: 'names' };
+    assert.match(note({ skillSelection: record({ catalog: ids }) }, 'vi'), /Model còn thấy tên của 3 kỹ năng khác đang bật/);
+    assert.doesNotMatch(note({ skillSelection: record({ catalog: ids }) }, 'vi'), /tên và mô tả/);
+    assert.match(note({ skillSelection: none_({ catalog: ids }) }, 'vi'), /Model vẫn thấy tên của 3 kỹ năng và tự đọc cái cần bằng skill_load/);
+    assert.match(plain(note({ skillSelection: record({ catalog: ids }) }, 'en')), /The model also sees the name of 3 other skills/);
+    assert.match(plain(note({ skillSelection: none_({ catalog: ids }) }, 'en')), /The model still sees the name of 3 skills and reads what it needs with skill_load/);
+    assert.match(note({ skillSelection: record({ catalog: { ...ids, form: 'lines' } }) }, 'vi'), /tên và mô tả của 3 kỹ năng/, 'and the long form says both');
+    // No room to name them (or an older record that has no catalog): the old note, with the limit of the keywords.
+    for (const catalog of [undefined, null, 'all', { listed: [], omitted: ['a'] }, { listed: 'a' }, { listed: [1, null] }]) {
+      const old = note({ skillSelection: none_({ catalog }) }, 'vi');
+      assert.match(old, /nên có thể bỏ sót/, JSON.stringify(catalog));
+      assert.doesNotMatch(old, /Model vẫn thấy tên/, JSON.stringify(catalog));
+      assert.doesNotMatch(note({ skillSelection: record({ catalog }) }, 'vi'), /data-testid="skill-selection-catalog"/, JSON.stringify(catalog));
+    }
+    // No skill turned on, no request: nothing about a catalog.
+    for (const reason of ['no_skills', 'no_prompt']) assert.doesNotMatch(note({ skillSelection: none_({ reason, catalog: named }) }, 'vi'), /Model (còn|vẫn) thấy/, reason);
+  });
+
   await test('the record the Hub builds is the record this page reads: the same fields, from the real builder to the markup', async () => {
-    const { buildSkillSelectionRecord } = await import(pathToFileURL(path.join(ui, '..', 'lib', 'skill-selection-record.mjs')).href);
+    const { buildSkillSelectionRecord, catalogRecord } = await import(pathToFileURL(path.join(ui, '..', 'lib', 'skill-selection-record.mjs')).href);
     const scored = (id, name, score, passed, why) => ({ id, name, score, passed, why });
     const made = buildSkillSelectionRecord({
       calls: [
@@ -162,8 +198,9 @@ try {
       ],
       picks: [{ id: 'git-workflow-pro', call: 0 }, { id: 'docker-devops', call: 1 }],
     }, { project: [{ id: 'docker', label: 'Dockerfile' }] });
-    const html = note({ skillSelection: made }, 'vi');
-    assert.match(html, /Kỹ năng đã chọn cho lượt này: 2/);
+    const html = note({ skillSelection: { ...made, catalog: catalogRecord({ listed: ['web-researcher', 'sqlite-explorer'], omitted: [] }) } }, 'vi');
+    assert.match(html, /Kỹ năng Hub nạp sẵn cho lượt này: 2/);
+    assert.match(html, /Model còn thấy tên và mô tả của 2 kỹ năng khác đang bật/, 'the record the Hub builds, with its catalog, is read by the page');
     assert.match(html, />Git Workflow Pro</);
     assert.match(html, />Docker DevOps Engine</);
     assert.match(html, /“nhánh” → branch/);

@@ -33,6 +33,7 @@ export function SkillSelectionNote({ task, lang: pinned }: { task: Pick<Task, 's
       )}
       {view.nearest && <p className="mt-1" data-testid="skill-selection-nearest">{view.nearest}</p>}
       {view.project && <p className="mt-1" data-testid="skill-selection-project">{view.project}</p>}
+      {view.catalog && <p className="mt-1" data-testid="skill-selection-catalog">{view.catalog}</p>}
       <p className="mt-1">{view.note}</p>
     </section>
   );

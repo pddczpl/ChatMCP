@@ -197,6 +197,8 @@ export interface SkillSelectionRecord {
   nearest: { id: string; name: string; score: number } | null;
   /** The kinds of project the workspace was found to be. */
   project: { id: string; label: string }[];
+  /** The other skills that are turned on, as the skill index told the model about them (it reads one with skill_load): the ids it named and the ids that did not fit. Absent from records made before the catalog. */
+  catalog?: { listed: string[]; omitted: string[]; form?: 'lines' | 'names' | null };
   /** The Vietnamese phrases of this run's own request that were read, and the words they counted as. */
   concepts: { phrase: string; words: string[] }[];
 }

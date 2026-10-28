@@ -213,8 +213,10 @@ try {
 
     const first = model.seen[0];
     for (const name of ['read_file', 'edit_file', 'write_file', 'run_command', 'git_status', 'update_plan', 'mcp_call', 'mcp_catalog']) check(first.tools.includes(name), `the model is offered ${name}`);
-    check(first.tools.length === manager.catalog.counts.local + 4 && first.tools.length <= 128,
-      `all ${manager.catalog.counts.local} local tools + four internal routers are advertised directly (${first.tools.length}); cap is configurable`);
+    // (skill_load is the host's own function, offered last whenever a skill is turned on because the index names the skills the model can read: it is not one of the local tools.)
+    const advertised = first.tools.filter((name) => name !== 'skill_load');
+    check(advertised.length === manager.catalog.counts.local + 4 && first.tools.length <= 128,
+      `all ${manager.catalog.counts.local} local tools + four internal routers are advertised directly (${advertised.length}); cap is configurable`);
     const edit = first.toolDefinitions.find((entry) => entry.name === 'edit_file');
     // edit_file takes old_string + new_string or edits (several edits of one file): only the path is required by the schema, the call is checked when it is made
     check(edit.parameters.required.includes('path') && edit.parameters.properties.path.type === 'string' && edit.parameters.properties.old_string.type === 'string'

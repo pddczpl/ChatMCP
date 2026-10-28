@@ -60,6 +60,9 @@ async function scenario(libDirectory, { onDemand = false } = {}) {
     await registry.refresh({ sourceId: 'anthropic' });
     const imported = await registry.install({ key: registry.list()[0].key });
     await plugins.toggle(imported.id, true);
+    // The skills a fresh state provisions are turned off: every skill that is turned on and not selected is named to the model (the catalog), and this scenario is about
+    // what happens to the one skill that is delivered (a small one is carried whole and there is nothing to read, a bigger one is read with skill_load).
+    for (const installed of plugins.installed()) if (installed.id !== imported.id) await plugins.toggle(installed.id, false);
 
     let locked = false;
     const manager = {
@@ -767,7 +770,7 @@ try {
         selectConversationSkills(shipped, run, earlier, { project, trace });
         return buildSkillSelectionRecord(trace, { project });
       };
-      assert.deepEqual(record('Dự án đã biết chọn skill phù hợp dự án chưa'), { reason: 'no_match', considered: 9, threshold: 3, selected: [], nearest: null, project: [], concepts: [] }, 'the owner\'s question: no skill, and the record says why');
+      assert.deepEqual(record('Dự án đã biết chọn skill phù hợp dự án chưa'), { reason: 'no_match', considered: 9, threshold: 3, selected: [], nearest: null, project: [], catalog: { listed: [], omitted: [], form: null }, concepts: [] }, 'the owner\'s question: no skill, and the record says why');
       const branch = record('Tạo nhánh mới');
       assert.deepEqual([branch.reason, branch.selected.map((item) => [item.id, item.source])], ['selected', [['git-workflow-pro', 'run'], ['github-actions-ci-cd', 'run']]]);
       assert.deepEqual(branch.concepts, [{ phrase: 'nhánh', words: ['branch'] }]);
@@ -787,10 +790,10 @@ try {
       for (const installed of disabled.installed()) await disabled.toggle(installed.id, false);
       const off = {};
       selectConversationSkills(disabled, 'git commit', [], { trace: off });
-      assert.deepEqual(buildSkillSelectionRecord(off), { reason: 'no_skills', considered: 0, threshold: 3, selected: [], nearest: null, project: [], concepts: [] });
+      assert.deepEqual(buildSkillSelectionRecord(off), { reason: 'no_skills', considered: 0, threshold: 3, selected: [], nearest: null, project: [], catalog: { listed: [], omitted: [], form: null }, concepts: [] });
       // a manager that does not explain itself (a stub) still gives a record that is true
-      assert.deepEqual(buildSkillSelectionRecord({ calls: [{}], picks: [] }), { reason: 'no_match', considered: 0, threshold: 3, selected: [], nearest: null, project: [], concepts: [] });
-      assert.deepEqual(buildSkillSelectionRecord(), { reason: 'no_match', considered: 0, threshold: 3, selected: [], nearest: null, project: [], concepts: [] });
+      assert.deepEqual(buildSkillSelectionRecord({ calls: [{}], picks: [] }), { reason: 'no_match', considered: 0, threshold: 3, selected: [], nearest: null, project: [], catalog: { listed: [], omitted: [], form: null }, concepts: [] });
+      assert.deepEqual(buildSkillSelectionRecord(), { reason: 'no_match', considered: 0, threshold: 3, selected: [], nearest: null, project: [], catalog: { listed: [], omitted: [], form: null }, concepts: [] });
       // a hand-made trace: control characters are dropped, the lists are cut, and a ground of a kind the page does not know is not kept
       const crowded = buildSkillSelectionRecord({
         calls: [{
@@ -819,6 +822,31 @@ try {
       assert.ok(bounded.project.every((signal) => signal.label.length <= 64), 'each label at most 64 characters');
     }
     ok('the record of a run: the owner\'s question gives "no_match" and the nearest skill, a skill of an earlier message says so, no skills / no prompt / a stub are true, and it holds no text of the prompt');
+
+    // The skills that are turned on and were not selected, as the catalog gets them: the ones the keywords scored for first (best first), then the rest in the order they were
+    // installed; never a selected skill; what is not a skill is left out; and a manager that cannot say what is turned on has none.
+    {
+      const { otherEnabledSkills } = await import('../lib/agent.mjs');
+      const { catalogRecord } = await import('../lib/skill-selection-record.mjs');
+      const active = ['alpha', 'beta', 'gamma', 'delta'].map((id) => ({ id, name: id }));
+      const manager = { activeSkills: () => [...active, null, 'x'] };
+      const idsOfOthers = (selected, trace) => otherEnabledSkills(manager, selected, trace).map((skill) => skill.id);
+      assert.deepEqual(idsOfOthers([]), ['alpha', 'beta', 'gamma', 'delta'], 'in the order they were installed');
+      assert.deepEqual(idsOfOthers([active[1]]), ['alpha', 'gamma', 'delta'], 'a selected skill is not one of the others');
+      const trace = { calls: [{ candidates: [{ id: 'delta', score: 2 }, { id: 'gamma', score: 1 }, { id: 'beta', score: 2 }] }] };
+      assert.deepEqual(idsOfOthers([], trace), ['beta', 'delta', 'gamma', 'alpha'], 'the ones that scored come first, best first (a tie keeps the order of installation)');
+      assert.deepEqual(idsOfOthers([active[0]], { calls: [] }), ['beta', 'gamma', 'delta'], 'a trace with nothing in it changes nothing');
+      assert.deepEqual(idsOfOthers([], { calls: [{ candidates: 'x' }] }), ['alpha', 'beta', 'gamma', 'delta'], 'and neither does one that is not a trace');
+      assert.deepEqual([otherEnabledSkills({}, []), otherEnabledSkills(null, []), otherEnabledSkills({ activeSkills: () => 'x' }, [])], [[], [], []]);
+      // What a record keeps of the catalog.
+      assert.deepEqual(catalogRecord({ listed: ['a', 'b'], omitted: ['c'], form: 'names' }), { listed: ['a', 'b'], omitted: ['c'], form: 'names' });
+      assert.deepEqual(catalogRecord({ listed: ['a'], omitted: [], form: 'lines' }).form, 'lines');
+      assert.deepEqual([catalogRecord({ listed: ['a'], form: 'weird' }).form, catalogRecord({ listed: [], omitted: ['c'], form: 'lines' }).form], [null, null], 'a form that is not one, and a form with nothing named, are no form');
+      assert.deepEqual(catalogRecord(null), { listed: [], omitted: [], form: null });
+      assert.deepEqual(catalogRecord({ listed: 'a', omitted: [1, null, 'ok'] }), { listed: [], omitted: ['ok'], form: null }, 'only ids that are text');
+      const many = Array.from({ length: 60 }, (_, n) => `skill-${n}`);
+      assert.deepEqual([catalogRecord({ listed: many, omitted: many }).listed.length, catalogRecord({ listed: many, omitted: many }).omitted.length], [40, 40], 'at most 40 of each');
+    }
 
     // A run keeps the record in its task: served with the task, kept in the task file, not in the list of tasks.
     {
@@ -891,7 +919,9 @@ try {
       try {
         const [one] = await c.say(withHandoff(GOAL), { selectionPrompt: GOAL });
         assert.deepEqual(skillsIn(one), [], 'a worker whose goal names no skill is given none, though its handoff says "workflow" and "branch="');
-        assert.ok(!JSON.stringify(one.input).includes(HEADER), 'not even the header of a skill context');
+        // The nine skills that are turned on are named to the model (the catalog) whatever the prompt says, and the handoff changes nothing about which: none is carried.
+        assert.ok(JSON.stringify(one.input).includes(HEADER), 'the model is told which skills are turned on');
+        assert.ok(!JSON.stringify(one.input).includes('### Skill:'), 'but none is carried: no header of a skill and no text of one');
         const text = JSON.stringify(one.input);
         for (const part of [GOAL, 'WORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):', 'branch=chatmcp/chat/0b1c2d3e-4f50', 'The review found nothing to change.', 'Inspect source, diffs and run actual checks']) {
           assert.ok(text.includes(part), `the model still reads the whole prompt: "${part}"`);

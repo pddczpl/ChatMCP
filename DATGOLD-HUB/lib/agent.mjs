@@ -21,7 +21,7 @@ import { SUBAGENT_NOTICE_LIMITS, normalizeSubagentNotices, publicSubagentNotices
 import { composeFinalText, verificationWarning } from './final-text.mjs';
 import { loadProjectInstructions, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
 import { detectProjectSignals } from './project-signals.mjs';
-import { buildSkillSelectionRecord } from './skill-selection-record.mjs';
+import { buildSkillSelectionRecord, catalogRecord } from './skill-selection-record.mjs';
 import { cleanBudget, promptAllowance } from './prompt-allowance.mjs';
 import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
 
@@ -265,6 +265,15 @@ export function selectConversationSkills(pluginManager, runPrompt, earlierPrompt
   }
   if (trace) Object.assign(trace, { calls, picks });
   return skills;
+}
+// The skills that are turned on and were not selected, for the catalog of the skill index: the ones the keywords scored for first (best first: the model is told of those
+// when there is room for a few), then the rest in the order they were installed. `trace` is what selectConversationSkills filled.
+export function otherEnabledSkills(pluginManager, selected, trace = null) {
+  const active = typeof pluginManager?.activeSkills === 'function' ? pluginManager.activeSkills() : [];
+  const taken = new Set((Array.isArray(selected) ? selected : []).map((skill) => skill?.id));
+  const scored = new Map((Array.isArray(trace?.calls?.[0]?.candidates) ? trace.calls[0].candidates : []).map((candidate) => [candidate?.id, Number(candidate?.score) || 0]));
+  return (Array.isArray(active) ? active : []).map((skill, order) => ({ skill, order })).filter(({ skill }) => skill && typeof skill === 'object' && !taken.has(skill.id))
+    .sort((a, b) => (scored.get(b.skill.id) ?? 0) - (scored.get(a.skill.id) ?? 0) || a.order - b.order).map(({ skill }) => skill);
 }
 // The earlier prompts of a conversation as both selectors read them, oldest first: the user's requests that its task carries from before it began (start()'s
 // carriedPrompts, made in another transport; the model read them in the task's first prompt), then the prompts of the task except the run's own, each as selectionTextOf
@@ -1160,19 +1169,24 @@ export class AgentRunner {
       const projectGuidance = guidance.block;
       context.instructions = instructionsFor(projectGuidance) + appended;
       await this.#event(task, 'instructions_loaded', projectInstructionsMessage(guidance.record), { projectInstructions: guidance.record });
-      if (selectedSkills.length) {
+      // The keywords decide which small skills are carried whole before the model starts; the other skills that are turned on are named to the model too (the catalog of
+      // lib/skill-index.mjs, best-scoring first), and the model reads the ones the conversation and the project call for with skill_load. The catalog is never text of a skill.
+      const otherSkills = hasSelector ? otherEnabledSkills(this.manager.pluginManager, selectedSkills, skillTrace) : [];
+      if (selectedSkills.length || otherSkills.length) {
         // What looks like a credential in a skill is masked like in a tool result, in the index and in what skill_load returns.
         const redact = (text) => this.#redact(text);
         // The index has the rest of the share of the room (a twentieth of the history budget, with skill_load paid out of it): see lib/prompt-allowance.mjs.
-        const skillIndex = fitSkillIndex(selectedSkills, { maxBytes: allowance.index.bytes, withToolBytes: allowance.index.withToolBytes, redact });
+        const skillIndex = fitSkillIndex(selectedSkills, { maxBytes: allowance.index.bytes, withToolBytes: allowance.index.withToolBytes, redact, others: otherSkills });
         // External skills are untrusted task material, not the agent's privileged policy.
         // Keep their content out of context.instructions. Only real host tools can
         // execute actions, and all tool calls still pass the permission gate.
         context.skillContext = skillIndex.text;
         context.skillIndex = skillIndex;
+        if (task.skillSelection) task.skillSelection = { ...task.skillSelection, catalog: catalogRecord(skillIndex.catalog) };
         // A skill too big to be carried in the index is read with skill_load, offered last in the tool list (in every tool-selection mode, and to workers: they
         // start through here too), when the share of the room can pay for the tool. With nothing to read the tool is not offered: it would only cost tokens.
-        if (skillIndex.tool) { context.skillLoader = createSkillLoader(selectedSkills, skillIndex, { redact }); context.tools.push(skillLoadTool()); }
+        // The loader reads the skills the index names (the others only when the catalog is in it).
+        if (skillIndex.tool) { context.skillLoader = createSkillLoader([...selectedSkills, ...(skillIndex.catalog.listed.length ? otherSkills : [])], skillIndex, { redact }); context.tools.push(skillLoadTool()); }
       }
       // Repo source is untrusted. Attach its bounded map as DATA beside the
       // user's prompt, NEVER as privileged system instructions. Preserve the
