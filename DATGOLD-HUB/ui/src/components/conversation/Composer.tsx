@@ -3,6 +3,8 @@ import { ArrowUp, Bot, Check, ChevronDown, Eye, Paperclip, ShieldAlert, ShieldCh
 import type { ChatAttachment } from '@/types';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
+import { FILE_LIMIT_BYTES, IMAGE_LIMIT_BYTES, fitImage, fittedName, limitLabel } from '@/lib/image-fit';
+import { formatBytes } from '@/lib/project-instructions';
 import { cn } from '@/lib/utils';
 
 interface ComposerProps {
@@ -35,7 +37,7 @@ export function Composer({
   onDependsOnChange,
   extraTools,
 }: ComposerProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [text, setText] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [dependencyMenuOpen, setDependencyMenuOpen] = useState(false);
@@ -82,15 +84,29 @@ export function Composer({
       const collected: ChatAttachment[] = [];
       for (const file of files) {
         const isImage = /^image\/(?:png|jpeg|webp|gif)$/.test(file.type);
-        if (file.size > (isImage ? 2*1024*1024 : 200000)) throw new Error(t('agents_cmp_too_large', { name: file.name }));
+        const limit = isImage ? IMAGE_LIMIT_BYTES : FILE_LIMIT_BYTES;
         if (/^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i.test(file.name)) throw new Error(t('agents_cmp_private_key'));
+        let blob: Blob = file;
+        let name = file.name;
+        let mimeType = file.type;
+        if (file.size > limit) {
+          // A picture over the limit is made smaller, in steps, instead of refused (a pasted screenshot is called image.png and is often a few MB). A file that is not a picture, a GIF,
+          // or a picture that fits at no step is refused, and the message says what the limit is.
+          let fitted = null;
+          try { fitted = await fitImage(file, limit); } catch { throw new Error(t('agents_cmp_cannot_read', { name: file.name })); }
+          if (!fitted) throw new Error(t('agents_cmp_too_large', { name: file.name, limit: limitLabel(limit) }));
+          blob = fitted.blob;
+          mimeType = fitted.type;
+          name = fittedName(file.name, fitted.type);
+          showToast(t('agents_cmp_image_fitted', { name, from: formatBytes(file.size, lang), to: formatBytes(fitted.blob.size, lang) }), 'info');
+        }
         const data = await new Promise<string>((resolve,reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result || ''));
           reader.onerror = () => reject(new Error(t('agents_cmp_cannot_read', { name: file.name })));
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(blob);
         });
-        collected.push({name:file.name,mimeType:file.type,dataBase64:data.split(',')[1]||'',size:file.size});
+        collected.push({name,mimeType,dataBase64:data.split(',')[1]||'',size:blob.size});
       }
       setAttachments(current => [...current,...collected].slice(0,5));
     } catch (error) {
