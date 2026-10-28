@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { SettingsCard } from './SettingsCard';
 import { ProjectInstructionsCard } from './ProjectInstructionsCard';
+import { AgentOptionsCard } from './AgentOptionsCard';
 
 /** The folder the agent works in. */
 export function WorkspaceSection() {
@@ -90,6 +91,8 @@ export function WorkspaceSection() {
       </SettingsCard>
 
       <ProjectInstructionsCard />
+
+      <AgentOptionsCard />
 
       <SettingsCard icon={Sparkles} title={t('ws_onboarding_title')} description={t('ws_onboarding_desc')}>
         <Button variant="secondary" onClick={() => { closeSettings(); setOnboardingOpen(true); }} title={t('workspace_reopen_onboarding')}>

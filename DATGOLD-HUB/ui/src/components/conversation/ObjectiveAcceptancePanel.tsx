@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {acceptedByHub} from '@/lib/agent-options';
 import {agentErrorText} from '@/lib/agent-errors';
 import {api} from '@/lib/api';
 import {useTranslation} from '@/lib/i18n';
@@ -43,6 +44,7 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
       {t('agents_obj_summary',{done:completed.size,total:objectives.length})}
     </summary>
     <p className="mt-2 text-muted">{t('agents_obj_intro')}</p>
+    {objectives.some(o=>o.evidence?.some(e=>acceptedByHub(e)&&receipts.some(r=>r.receiptId===e.receiptId)))&&<p data-testid="objective-auto-note" className="mt-2 text-muted">{t('agents_obj_auto_note')}</p>}
     <div className="mt-2 flex items-center gap-2">
       <button type="button" data-testid="objective-accept-all" disabled={saving!==null||suggested.length===0}
         onClick={()=>void approveSuggested()}
@@ -57,15 +59,17 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
           <p className="font-medium text-fg">{objective.id}: {objective.text}</p>
           <p className="text-faint">{t('agents_obj_status',{status:objective.status})}{blocked?t('agents_obj_waiting'):''}</p>
           {objective.acceptanceCriteria.map((criterion,index)=>{
-            const matched=objective.evidence?.some(e=>e.criterionIndex===index&&
-              receipts.some(r=>r.receiptId===e.receiptId));
+            // The evidence a criterion is matched by (a receipt that is still current), and whether the Hub made that match itself because the owner turned the option on.
+            const evidenceOf=objective.evidence?.find(e=>e.criterionIndex===index&&receipts.some(r=>r.receiptId===e.receiptId));
+            const matched=Boolean(evidenceOf);
+            const byHub=acceptedByHub(evidenceOf);
             const key=objective.id+':'+index;
             const options=receipts.filter(r=>r.kind===kindFor(criterion));
             // A criterion that is matched shows the receipt it is matched to; one that is not shows what the owner chose, or else the suggestion.
-            const accepted=objective.evidence?.find(e=>e.criterionIndex===index&&receipts.some(r=>r.receiptId===e.receiptId))?.receiptId;
+            const accepted=evidenceOf?.receiptId;
             const receiptId=accepted??selection[key]??suggestReceipt(criterion,receipts)?.receiptId??'';
             return <div key={key} className="mt-1.5 space-y-1">
-              <p>{criterion} {matched?'✓':''}</p>
+              <p>{criterion} {matched?'✓':''}{byHub&&<span data-testid="objective-by-hub" className="ml-2 rounded-md border border-line px-1.5 py-0.5 text-[11px] font-medium text-muted">{t('agents_obj_by_hub')}</span>}</p>
               <div className="flex items-center gap-2">
                 <select value={receiptId} onChange={e=>setSelection(prev=>({...prev,[key]:e.target.value}))}
                   aria-label={t('agents_obj_aria',{key})}
@@ -75,7 +79,7 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
                     {r.kind} · {t('agents_obj_step')} {r.step}{r.path?' · '+r.path:''}
                   </option>)}
                 </select>
-                <button type="button" disabled={blocked||!receiptId||saving!==null||matched}
+                <button type="button" disabled={blocked||!receiptId||saving!==null||(matched&&!byHub)}
                   onClick={()=>void approve(objective.id,index,receiptId)}
                   className="rounded-lg border border-line bg-surface px-3 py-1.5 font-medium transition-colors hover:bg-hover disabled:opacity-40">
                   {t('agents_obj_confirm')}

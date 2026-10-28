@@ -66,6 +66,20 @@ export interface ProjectInstructionsSetting {
   files: string[];
 }
 
+/**
+ * The owner's two agent options, as /api/state serves them under `agentOptions` (lib/agent-options.mjs): from which percent of its budget the history is compacted
+ * (`autoCompactPercent` is the one in use, `autoCompactSaved` the one the owner chose, null when none), and whether the Hub itself matches the checks it ran
+ * (`autoAcceptChecks`, off unless the owner turns it on).
+ */
+export interface AgentOptions {
+  autoCompactPercent: number;
+  autoCompactSaved: number | null;
+  autoAcceptChecks: boolean;
+  defaultCompactPercent: number;
+  minCompactPercent: number;
+  maxCompactPercent: number;
+}
+
 /** Why the last check for a newer release did not work (lib/update-check.mjs). `code` is what the page translates; `message` is the Hub's diagnostic and is not shown as it is. */
 export interface UpdateFailure {
   code: string;
@@ -511,7 +525,8 @@ export interface Task {
   reasoningEffort?: string | null;
   goalPlan?: {objectives:Array<{
     id:string;text:string;status:string;dependsOn?:string[];acceptanceCriteria:string[];
-    evidence?:Array<{criterionIndex:number;receiptId:string;acceptedAt:string}>;
+    /** `acceptedBy`: "local_owner" for the owner's click, "auto_hub_check" when the Hub matched a check it ran because the owner turned that option on. */
+    evidence?:Array<{criterionIndex:number;receiptId:string;acceptedAt:string;acceptedBy?:string}>;
   }>};
   objectiveReceipts?: Array<{receiptId:string;kind:'inspect'|'edit'|'verify'|'review';step:number;path?:string}>;
   prompt?: string;
@@ -652,6 +667,8 @@ export interface HubState {
   };
   /** The owner's switch for AGENTS.md / CLAUDE.md (Settings → Dự án). */
   projectInstructions?: ProjectInstructionsSetting;
+  /** The owner's agent options: the percent from which the history is compacted, and whether the Hub accepts the checks it ran (Settings → Dự án). */
+  agentOptions?: AgentOptions;
   /** The update notice (Settings → Cập nhật and the strip under the header); null when the Hub has none. */
   update?: UpdateInfo | null;
   publicMode?: {
