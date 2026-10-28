@@ -306,7 +306,11 @@ try {
     Assert-Native ((Quiet-Install) -eq 0) 'real candidate installer upgrades with independent old Hub running'
     Assert-Native ($oldHub.HasExited) 'upgrade confirms exact old Hub exited'
     Assert-Native ((Get-Content (Join-Path $root 'DATGOLD-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) "installed Hub package is $ExpectedCandidateVersion"
-    Assert-Native (-not (Test-Path -LiteralPath (Join-Path $root 'CHATMCP-HUB'))) 'the Hub folder of the old installation (CHATMCP-HUB) is gone: the manifest of the setup that made it removed its files, and the folders left empty went with them'
+    Assert-Native (-not (Test-Path -LiteralPath (Join-Path $root 'CHATMCP-HUB'))) 'the Hub folder of the old installation (CHATMCP-HUB) is gone: the setup renamed it to DATGOLD-HUB'
+    # The folder holds thousands of files (the runtimes). Written again under the new name and taken away from the old one, they did not fit in the four minutes that the installer is given here: the setup renames the folder once. If Windows ever refuses
+    # the rename, the update still goes file by file, and this says so instead of a timeout that says nothing.
+    $upgradeLog = Get-ChildItem -LiteralPath (Join-Path $data 'logs') -Filter 'install-*.log' | Sort-Object LastWriteTimeUtc | Select-Object -Last 1
+    Assert-Native (($null -ne $upgradeLog) -and ((Get-Content -LiteralPath $upgradeLog.FullName -Raw) -match 'Renamed the Hub folder CHATMCP-HUB to DATGOLD-HUB')) ('the upgrade renamed the Hub folder in one step (the installer log, ' + $(if ($upgradeLog) { $upgradeLog.Name } else { 'none' }) + ', says so)')
     Assert-Native ((Get-Item (Join-Path $root 'ChatMCP.exe')).VersionInfo.ProductVersion -like "$ExpectedCandidateVersion*") "installed launcher EXE is $ExpectedCandidateVersion"
     Assert-Native ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion) 'Windows Installed Apps reports the assembly version'
     Assert-Native ((Get-ItemProperty $registry).DisplayName -eq 'DatGold Studio') 'Windows Installed Apps lists the product as DatGold Studio'

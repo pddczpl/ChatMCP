@@ -179,6 +179,8 @@ namespace ChatMCP.Installer
             bool legacyUpgrade, Action<int, string> reportProgress)
         {
             using var transaction = new InstallTransaction(targetDir);
+            // An earlier try of the rename below stopped after the folder had been renamed: the receipt still names CHATMCP-HUB/..., the files are in DATGOLD-HUB. The receipt follows the folder.
+            previousFiles = ReceiptForFolders(targetDir, previousFiles, legacyUpgrade);
             reportProgress(5, "Validating and staging the complete installer...");
             using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ChatMCP.Installer.payload.zip")
                 ?? throw new InvalidOperationException("The standalone installer payload is missing. No files were replaced.").Tag("payload_invalid");
@@ -216,26 +218,106 @@ namespace ChatMCP.Installer
                 throw new InvalidOperationException("Installation would overwrite an unrelated Uninstall.exe.");
             using (var self = File.OpenRead(Environment.ProcessPath ?? throw new IOException("Setup executable path is unavailable.")))
                 transaction.Add("Uninstall.exe", self);
-            var installedFiles = transaction.Files.ToDictionary(x => x.Key, x => x.Value, StringComparer.OrdinalIgnoreCase);
-            if (previousFiles != null)
-                foreach (var previous in previousFiles)
-                {
-                    if (installedFiles.ContainsKey(previous.Key)) continue;
-                    var obsolete = SafePath(targetDir, previous.Key);
-                    if (File.Exists(obsolete) && string.Equals(FileDigest(obsolete), previous.Value, StringComparison.OrdinalIgnoreCase))
-                        transaction.RemoveObsolete(previous.Key);
-                }
-            using (var manifest = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(installedFiles)))
-                transaction.Add(ManifestName, manifest); // Ownership receipt is committed LAST.
             reportProgress(35, "Checking running tasks and stopping the installed Hub...");
             HubLifecycle.StopInstalledHub(targetDir).GetAwaiter().GetResult();
             CloseRunningProcesses(targetDir);
             if (HubLifecycle.ListenerPid() != null)
                 throw new IOException("A listener appeared during upgrade. No files were replaced.");
-            transaction.Commit(reportProgress);
-            // An installation made up to 3.11.0 kept its Hub in CHATMCP-HUB. The commit removed the files that the manifest of that setup lists (not the ones somebody changed); the folders that held them go
-            // too. Best effort and folders only: a file that is still there keeps its folder, and a failure here leaves clutter, never a broken installation.
-            PruneEmptyFolders(SafePath(targetDir, HubLifecycle.LegacyHubFolder));
+            // The Hub is stopped, so its folder can be renamed (see RenameLegacyHubFolder); the receipt of the setup that made it is read under the new name from here on.
+            var renamed = RenameHubFolderForUpdate(targetDir, ref previousFiles, legacyUpgrade, reportProgress);
+            UndoRenameUnlessRetained(targetDir, renamed, () =>
+            {
+                var installedFiles = transaction.Files.ToDictionary(x => x.Key, x => x.Value, StringComparer.OrdinalIgnoreCase);
+                if (previousFiles != null)
+                    foreach (var previous in previousFiles)
+                    {
+                        if (installedFiles.ContainsKey(previous.Key)) continue;
+                        var obsolete = SafePath(targetDir, previous.Key);
+                        if (File.Exists(obsolete) && string.Equals(FileDigest(obsolete), previous.Value, StringComparison.OrdinalIgnoreCase))
+                            transaction.RemoveObsolete(previous.Key);
+                    }
+                using (var manifest = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(installedFiles)))
+                    transaction.Add(ManifestName, manifest); // Ownership receipt is committed LAST.
+                transaction.Commit(reportProgress);
+            });
+            // When the folder could not be renamed, the commit removed the files that the receipt of the setup that made CHATMCP-HUB lists (not the ones somebody changed); the folders that held them go too.
+            // Best effort and folders only: a file that is still there keeps its folder, and a failure here leaves clutter, never a broken installation.
+            PruneEmptyFolders(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder));
+        }
+
+        /// <summary>The receipt as the folders are now: when the folder of the old name is gone and the one of the new name is there (the rename was done by an earlier try of this update that did not finish), the receipt names its files under the new name.</summary>
+        internal static Dictionary<string, string>? ReceiptForFolders(string targetDir, Dictionary<string, string>? receipt, bool legacyUpgrade) =>
+            receipt != null && !legacyUpgrade && !Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder)) && Directory.Exists(Path.Combine(targetDir, HubLifecycle.HubFolder))
+                ? RenameHubKeys(receipt)
+                : receipt;
+
+        /// <summary>Renames the folder of the old name (see <see cref="RenameLegacyHubFolder"/>) of an installation that has a receipt, and when it did, makes <paramref name="receipt"/> name its files under the new name.</summary>
+        internal static bool RenameHubFolderForUpdate(string targetDir, ref Dictionary<string, string>? receipt, bool legacyUpgrade, Action<int, string> reportProgress, int attempts = 20, int delayMilliseconds = 500)
+        {
+            if (receipt == null || legacyUpgrade || !RenameLegacyHubFolder(targetDir, reportProgress, attempts, delayMilliseconds)) return false;
+            receipt = RenameHubKeys(receipt);
+            return true;
+        }
+
+        /// <summary>
+        /// The receipt of an installation made up to 3.11.0 names the files of its Hub under CHATMCP-HUB/. Once the folder is called DATGOLD-HUB, the same files are named under DATGOLD-HUB/ (a name that only
+        /// begins like the folder is not the folder).
+        /// </summary>
+        internal static Dictionary<string, string> RenameHubKeys(Dictionary<string, string> files)
+        {
+            var legacy = HubLifecycle.LegacyHubFolder + "/";
+            var renamed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in files)
+                renamed[item.Key.StartsWith(legacy, StringComparison.OrdinalIgnoreCase) ? HubLifecycle.HubFolder + "/" + item.Key.Substring(legacy.Length) : item.Key] = item.Value;
+            return renamed;
+        }
+
+        /// <summary>
+        /// An installation made up to 3.11.0 keeps its Hub in CHATMCP-HUB, thousands of files with the runtimes. Writing all of them again under DATGOLD-HUB, and taking the old ones away, costs several times what any
+        /// other update costs (on a hosted runner it did not finish in four minutes), so the folder is RENAMED, after the Hub has been stopped, and the update then replaces in it what changed, like any other. Returns
+        /// false, and changes nothing, when there is no such folder, when the new name is taken, when the folder is a link, or when Windows refuses the rename (a program that has a file in it open, tried again for a few
+        /// seconds): the update then goes file by file, as it would without this.
+        /// </summary>
+        internal static bool RenameLegacyHubFolder(string targetDir, Action<int, string> reportProgress, int attempts = 20, int delayMilliseconds = 500)
+        {
+            var legacy = Path.Combine(targetDir, HubLifecycle.LegacyHubFolder);
+            var current = Path.Combine(targetDir, HubLifecycle.HubFolder);
+            var folder = new DirectoryInfo(legacy);
+            if (!folder.Exists || (folder.Attributes & FileAttributes.ReparsePoint) != 0 || Directory.Exists(current) || File.Exists(current)) return false;
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    Directory.Move(legacy, current);
+                    reportProgress(36, "Renamed the Hub folder " + HubLifecycle.LegacyHubFolder + " to " + HubLifecycle.HubFolder + "; only the files that changed are replaced.");
+                    return true;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    if (attempt >= attempts)
+                    {
+                        reportProgress(36, "The Hub folder could not be renamed (" + error.GetType().Name + "); updating file by file, which takes longer.");
+                        return false;
+                    }
+                    System.Threading.Thread.Sleep(delayMilliseconds);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Runs <paramref name="work"/> (the commit of the update). When it fails after the folder was renamed, and the files are as they were (it throws anything but the AggregateException of a rollback that was not
+        /// whole), the folder gets its old name back: the version in place looks for its Hub there. A rollback that was not whole keeps its backup, which names DATGOLD-HUB: recovery and the next try work on that name.
+        /// </summary>
+        internal static void UndoRenameUnlessRetained(string targetDir, bool renamed, Action work)
+        {
+            try { work(); }
+            catch (Exception error) when (renamed && error is not AggregateException)
+            {
+                // A move never merges folders and never replaces one: if the old name is taken again, or the folder cannot be moved, it throws, and the folder keeps the new name.
+                try { Directory.Move(Path.Combine(targetDir, HubLifecycle.HubFolder), Path.Combine(targetDir, HubLifecycle.LegacyHubFolder)); }
+                catch (Exception moveError) when (moveError is IOException or UnauthorizedAccessException) { /* the next try of the update follows the receipt to the new name (see ReceiptForFolders) */ }
+                throw;
+            }
         }
 
         /// <summary>Removes the folders under <paramref name="directory"/> that hold nothing, and the folder itself when it ends up empty. Never removes a file, never enters a link, ignores what it cannot remove.</summary>

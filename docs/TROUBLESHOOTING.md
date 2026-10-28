@@ -2,7 +2,7 @@
 
 Tìm triệu chứng của bạn trong mục lục, làm theo cột "Cách xử lý". Với lỗi khi gọi model, Hub hiện thông báo tiếng Việt kèm mã (ví dụ `gateway_auth`) và, nếu sửa được ở cấu hình, một nút **Sửa cấu hình AI**.
 
-Đường dẫn trong tài liệu này viết theo mã nguồn (thư mục `DATGOLD-HUB`). Bản đã cài cũng dùng tên đó, trong thư mục cài đặt (thường là `%LOCALAPPDATA%\Programs\ChatMCP`). Các bản cài đến 3.11.0 gọi thư mục này là `CHATMCP-HUB`; trình cài đặt của bản mới nhận ra Hub do bản cũ khởi động, xóa các file nó đã đặt ở đó (file bạn tự sửa thì giữ lại) và dọn các thư mục rỗng còn lại. Trình duyệt đã nạp Companion trực tiếp từ `CHATMCP-HUB\extension` sẽ mất tiện ích sau khi cập nhật: nạp lại từ `DATGOLD-HUB\extension` hoặc từ thư mục đã giải nén `DatGold-Browser-Companion.zip`.
+Đường dẫn trong tài liệu này viết theo mã nguồn (thư mục `DATGOLD-HUB`). Bản đã cài cũng dùng tên đó, trong thư mục cài đặt (thường là `%LOCALAPPDATA%\Programs\ChatMCP`). Các bản cài đến 3.11.0 gọi thư mục này là `CHATMCP-HUB`; trình cài đặt của bản mới nhận ra Hub do bản cũ khởi động, đổi tên thư mục đó thành `DATGOLD-HUB` trong một bước (sau khi đã dừng Hub) rồi chỉ thay các file đã đổi. Nếu Windows từ chối đổi tên (một chương trình đang mở file trong thư mục), bản cập nhật chạy từng file như trước: xóa các file mà bản cũ đã đặt ở đó (file bạn tự sửa thì giữ lại) và dọn các thư mục rỗng còn lại. Trình duyệt đã nạp Companion trực tiếp từ `CHATMCP-HUB\extension` sẽ mất tiện ích sau khi cập nhật: nạp lại từ `DATGOLD-HUB\extension` hoặc từ thư mục đã giải nén `DatGold-Browser-Companion.zip`.
 
 - [Khởi động Hub](#khởi-động-hub)
   - [Node.js không tìm thấy hoặc quá cũ](#nodejs-không-tìm-thấy-hoặc-quá-cũ)

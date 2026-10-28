@@ -133,6 +133,7 @@ try
     OwnerQueryTests.Run(kit);
     CloseTests.Run(kit);
     PruneTests.Run(kit);
+    HubFolderRenameTests.Run(kit);
 
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);
     File.WriteAllText(Path.Combine(root, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(root, "b.txt"), "old-b");

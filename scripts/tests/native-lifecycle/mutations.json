@@ -6744,6 +6744,237 @@
      "new": ""
     }
    ]
+  },
+  {
+   "name": "rename-keys-exact-case-only",
+   "what": "the receipt of the old setup is read under the new name only for the exact spelling of the old folder",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "item.Key.StartsWith(legacy, StringComparison.OrdinalIgnoreCase)",
+     "new": "item.Key.StartsWith(legacy, StringComparison.Ordinal)"
+    }
+   ]
+  },
+  {
+   "name": "rename-keys-any-name-that-begins-alike",
+   "what": "a file whose name only begins like the old folder (CHATMCP-HUBBY/) is taken for a file of the Hub",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "var legacy = HubLifecycle.LegacyHubFolder + \"/\";",
+     "new": "var legacy = HubLifecycle.LegacyHubFolder;"
+    }
+   ]
+  },
+  {
+   "name": "rename-into-a-taken-name",
+   "what": "the setup tries to rename the old folder onto a folder that already has the new name",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "|| Directory.Exists(current) || File.Exists(current)) return false;",
+     "new": ") return false;"
+    }
+   ]
+  },
+  {
+   "name": "rename-over-a-file",
+   "what": "the setup tries to rename the old folder onto a file that has the new name",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "|| File.Exists(current)) return false;",
+     "new": ") return false;"
+    }
+   ]
+  },
+  {
+   "name": "rename-follows-a-link",
+   "what": "the setup renames a link that has the old name",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "(folder.Attributes & FileAttributes.ReparsePoint) != 0 || Directory.Exists(current)",
+     "new": "Directory.Exists(current)"
+    }
+   ]
+  },
+  {
+   "name": "rename-asks-the-missing-folder",
+   "what": "the setup asks the attributes of an old folder that is not there",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!folder.Exists || (folder.Attributes & FileAttributes.ReparsePoint) != 0 || Directory.Exists(current)",
+     "new": "if ((folder.Attributes & FileAttributes.ReparsePoint) != 0 || Directory.Exists(current)"
+    }
+   ]
+  },
+  {
+   "name": "rename-gives-up-at-the-first-refusal",
+   "what": "the rename is not tried again when a program lets go of the folder a moment later",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (attempt >= attempts)",
+     "new": "if (attempt >= 1)"
+    }
+   ]
+  },
+  {
+   "name": "rename-says-nothing",
+   "what": "the progress window and the log do not say that the folder was renamed",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "reportProgress(36, \"Renamed the Hub folder \" + HubLifecycle.LegacyHubFolder + \" to \" + HubLifecycle.HubFolder + \"; only the files that changed are replaced.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "rename-refusal-says-nothing",
+   "what": "the progress window and the log do not say that the update goes file by file because the rename was refused",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "reportProgress(36, \"The Hub folder could not be renamed (\" + error.GetType().Name + \"); updating file by file, which takes longer.\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "undo-after-a-rollback-that-was-not-whole",
+   "what": "the folder is renamed back although the backup that stays names the new folder",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "when (renamed && error is not AggregateException)",
+     "new": "when (renamed)"
+    }
+   ]
+  },
+  {
+   "name": "undo-of-a-folder-the-setup-did-not-rename",
+   "what": "a folder that the setup did not rename (an installation of 3.11.1) is renamed to the old name when an update fails",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "when (renamed && error is not AggregateException)",
+     "new": "when (error is not AggregateException)"
+    }
+   ]
+  },
+  {
+   "name": "undo-never-moves-back",
+   "what": "after an update that failed with every file as it was, the folder keeps the new name and the version in place does not find its Hub",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "try { Directory.Move(Path.Combine(targetDir, HubLifecycle.HubFolder), Path.Combine(targetDir, HubLifecycle.LegacyHubFolder)); }",
+     "new": "try { }"
+    }
+   ]
+  },
+  {
+   "name": "undo-hides-the-update-error",
+   "what": "a folder that cannot be renamed back replaces the error of the update with its own",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "catch (Exception moveError) when (moveError is IOException or UnauthorizedAccessException)",
+     "new": "catch (Exception moveError) when (false)"
+    }
+   ]
+  },
+  {
+   "name": "receipt-follows-the-folder-while-the-old-one-is-there",
+   "what": "the receipt is read under the new name although the old folder is still there",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "!Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder)) && Directory.Exists(Path.Combine(targetDir, HubLifecycle.HubFolder))",
+     "new": "Directory.Exists(Path.Combine(targetDir, HubLifecycle.HubFolder))"
+    }
+   ]
+  },
+  {
+   "name": "receipt-follows-the-folder-when-none-is-there",
+   "what": "the receipt is read under the new name although there is no folder of the new name",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "!Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder)) && Directory.Exists(Path.Combine(targetDir, HubLifecycle.HubFolder))",
+     "new": "!Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder))"
+    }
+   ]
+  },
+  {
+   "name": "receipt-follows-the-folder-before-receipts",
+   "what": "an upgrade from before there were receipts reads what it was given under the new name",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "receipt != null && !legacyUpgrade && !Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder))",
+     "new": "receipt != null && !Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder))"
+    }
+   ]
+  },
+  {
+   "name": "receipt-follows-the-folder-without-a-receipt",
+   "what": "an installation without a receipt is given one that names the new folder",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "receipt != null && !legacyUpgrade && !Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder))",
+     "new": "!legacyUpgrade && !Directory.Exists(Path.Combine(targetDir, HubLifecycle.LegacyHubFolder))"
+    }
+   ]
+  },
+  {
+   "name": "update-renames-without-a-receipt",
+   "what": "the setup renames the Hub folder of an installation that has no receipt of its own",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (receipt == null || legacyUpgrade || !RenameLegacyHubFolder(targetDir, reportProgress, attempts, delayMilliseconds)) return false;",
+     "new": "if (legacyUpgrade || !RenameLegacyHubFolder(targetDir, reportProgress, attempts, delayMilliseconds)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "update-renames-before-receipts",
+   "what": "the setup renames the Hub folder in an upgrade from before there were receipts",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (receipt == null || legacyUpgrade || !RenameLegacyHubFolder(targetDir, reportProgress, attempts, delayMilliseconds)) return false;",
+     "new": "if (receipt == null || !RenameLegacyHubFolder(targetDir, reportProgress, attempts, delayMilliseconds)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "update-never-renames",
+   "what": "the setup does not rename the Hub folder of an installation made up to 3.11.0",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (receipt == null || legacyUpgrade || !RenameLegacyHubFolder(targetDir, reportProgress, attempts, delayMilliseconds)) return false;",
+     "new": "if (receipt == null || legacyUpgrade || false) return false;"
+    }
+   ]
+  },
+  {
+   "name": "update-reads-the-receipt-under-the-old-name",
+   "what": "after the folder was renamed, the receipt of the old setup is still read under the old name",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "receipt = RenameHubKeys(receipt);",
+     "new": ""
+    }
+   ]
   }
  ]
 }
