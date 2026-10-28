@@ -77,7 +77,7 @@ export const PRESETS = Object.freeze([
     notes: 'Chat Completions của Moonshot AI (Kimi), khu vực quốc tế. Khu vực Trung Quốc có địa chỉ riêng (https://api.moonshot.cn/v1): chọn "Khác: tương thích OpenAI" rồi nhập địa chỉ đó. Tài liệu: https://platform.moonshot.ai/docs/api/chat.',
   }),
   preset({
-    id: 'groq', label: 'Groq', protocol: 'openai-chat', apiBaseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile',
+    id: 'groq', label: 'Groq', protocol: 'openai-chat', apiBaseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'openai/gpt-oss-120b',
     keyEnv: ['GROQ_API_KEY'], keyUrl: 'https://console.groq.com/keys',
   }),
   preset({

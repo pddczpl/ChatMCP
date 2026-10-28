@@ -60,6 +60,9 @@ function parseBlock(lines, start, indent) {
     const list = [];
     while (index < lines.length && lines[index].indent === indent && (lines[index].text.startsWith('- ') || lines[index].text === '-')) {
       const rest = lines[index].text.slice(1).trim();
+      // `- cron: '23 5 * * 1'` (schedule): an item that is one key and one scalar is a one-key mapping. A longer mapping inside a list is still not read.
+      const single = rest.match(/^('[^']*'|"[^"]*"|[A-Za-z_][\w-]*)\s*:\s+(\S.*)$/);
+      if (single && !(index + 1 < lines.length && lines[index + 1].indent > indent)) { list.push({ [parseScalar(single[1])]: parseValue(single[2]) }); index += 1; continue; }
       if (rest.includes(': ') || rest.endsWith(':')) throw new Error(`unsupported workflow header syntax (a mapping inside a list): ${lines[index].text}`);
       list.push(parseValue(rest));
       index += 1;

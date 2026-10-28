@@ -325,7 +325,7 @@ const storeFor = (options = {}) => {
 
     let answer = await get('/api/ai/catalog');
     assert.deepEqual([answer.status, answer.value.source, answer.value.label, answer.value.url, answer.value.lastRefresh], [200, 'bundled', `catalog@${bundled.generatedAt}`, SOURCE_URL, null]);
-    assert.ok(Number.isInteger(answer.value.ageDays) && answer.value.models > 9000 && answer.value.providers > 200, 'age, models and providers of the list in use');
+    assert.ok(Number.isInteger(answer.value.ageDays) && answer.value.models > 8000 && answer.value.providers > 200, 'age, models and providers of the list in use');
     assert.equal(JSON.stringify(answer.value).includes(temp), false, 'the status names no folder of this machine');
     // reading the Hub never downloads anything: not the state, the status, the list of a provider's models, nor what is known of a model; and a press the layers refused did not either
     for (const route of ['/api/state', '/api/ai/catalog', '/api/ai/catalog/models?preset=anthropic', '/api/ai/model-info?preset=anthropic&model=claude-sonnet-5-5', '/api/ai/presets']) await get(route);

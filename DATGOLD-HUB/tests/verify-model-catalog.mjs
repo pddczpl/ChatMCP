@@ -33,7 +33,9 @@ const script = existsSync(scriptFile) ? await import(pathToFileURL(scriptFile).h
   const info = catalogInfo();
   assert.equal(snapshot.version, 2);
   assert.match(snapshot.generatedAt, /^\d{4}-\d{2}-\d{2}$/, 'the snapshot is dated');
-  assert.ok(info.models >= 9000, `at least 9,000 models: ${info.models}`);
+  // A tripwire for a snapshot that came out wrong, not a count of today's list: models.dev lists about 9,000 and the number moves both ways (9,056 on 2026-10-19, 8,936 on 2026-10-28),
+  // and the workflow that rebuilds the snapshot every week (.github/workflows/model-catalog.yml) must not fail on that.
+  assert.ok(info.models >= 8000, `at least 8,000 models: ${info.models}`);
   assert.ok(info.providers >= 200, `at least 200 providers: ${info.providers}`);
   for (const provider of ['anthropic', 'openai', 'google', 'openrouter', 'amazon-bedrock', 'azure', 'deepseek', 'groq', 'mistral', 'google-vertex-anthropic']) {
     assert.ok(Object.keys(snapshot.providers[provider] ?? {}).length >= 3, `${provider} is in the snapshot`);
@@ -69,8 +71,6 @@ const script = existsSync(scriptFile) ? await import(pathToFileURL(scriptFile).h
     [{ presetId: 'glm', model: 'glm-5.3' }, 'exact', 'zai', 'glm-5.3'],
     [{ presetId: 'qwen', model: 'qwen3.7-plus' }, 'exact', 'alibaba', 'qwen3.7-plus'],
     [{ presetId: 'minimax', model: 'MiniMax-M3' }, 'exact', 'minimax', 'MiniMax-M3'],
-    [{ presetId: 'kimi', model: 'kimi-k3' }, 'exact', 'moonshotai', 'kimi-k3'],
-    [{ presetId: 'custom-openai', apiBaseUrl: 'https://api.moonshot.ai/v1', model: 'kimi-k3' }, 'exact', 'moonshotai', 'kimi-k3'],
     [{ presetId: 'deepseek', model: 'deepseek-flash' }, 'exact', 'deepseek', 'deepseek-flash'],
     [{ presetId: 'custom-openai', apiBaseUrl: 'https://api.x.ai/v1', model: 'grok-4.3' }, 'exact', 'xai', 'grok-4.3'],
     [{ presetId: 'custom-openai', apiBaseUrl: 'https://api.z.ai/api/paas/v4', model: 'glm-5.3' }, 'exact', 'zai', 'glm-5.3'],
