@@ -12,7 +12,7 @@
 
 .PARAMETER ReleaseKeysFile
   TEST BUILDS ONLY. The full path of a key list that the desktop shell is built with and that the Hub it installs reads, instead of the committed
-  CHATMCP-HUB\lib\release-keys.json (the end-to-end test of the updater builds two versions that trust a key made for the run). A release is built without it
+  DATGOLD-HUB\lib\release-keys.json (the end-to-end test of the updater builds two versions that trust a key made for the run). A release is built without it
   and a publish workflow refuses it.
 #>
 [CmdletBinding()]
@@ -39,7 +39,7 @@ Assert-InstallerNoReparsePath -Path $temporaryRoot
 Assert-InstallerNoAmbientReleaseKeysFile
 if ($ReleaseKeysFile -ne '') {
     $ReleaseKeysFile = Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile
-    Write-Host "  [TEST BUILD] The release keys of this build are the ones in $ReleaseKeysFile, not the committed CHATMCP-HUB\lib\release-keys.json. Never publish what this builds." -ForegroundColor Yellow
+    Write-Host "  [TEST BUILD] The release keys of this build are the ones in $ReleaseKeysFile, not the committed DATGOLD-HUB\lib\release-keys.json. Never publish what this builds." -ForegroundColor Yellow
 }
 $stagingDir = Join-Path $temporaryRoot ('ChatMCP-Staging-' + [guid]::NewGuid().ToString('N'))
 
@@ -65,7 +65,7 @@ $nodeVersion = (& $nodeCmd.Path --version).Trim()
 if ([version]($nodeVersion.TrimStart('v').Split('-')[0]) -lt [version]'22.0') {
     throw "Node.js 22+ is required; found $nodeVersion."
 }
-$hubManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json
+$hubManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'DATGOLD-HUB\package.json') -Raw | ConvertFrom-Json
 [xml]$shellManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'desktop-shell\ChatMCP.csproj') -Raw
 [xml]$installerManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\ChatMCP.Installer.csproj') -Raw
 if ($hubManifest.version -ne [string]$shellManifest.Project.PropertyGroup.Version -or
@@ -77,7 +77,7 @@ Write-Host "  [OK] Node $nodeVersion and release version $($hubManifest.version)
 # Build the frontend from source. Packaging stale web/dist would make new
 # React features invisible even when the backend and installer are updated.
 Write-Host "  Building the latest offline React/TypeScript UI..." -ForegroundColor Cyan
-Push-Location (Join-Path $repoRoot 'CHATMCP-HUB\ui')
+Push-Location (Join-Path $repoRoot 'DATGOLD-HUB\ui')
 try {
     & $npmCmd.Path ci --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
@@ -86,8 +86,8 @@ try {
 } finally {
     Pop-Location
 }
-if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'CHATMCP-HUB\web\dist\index.html') -PathType Leaf)) {
-    throw "Built React UI not found at CHATMCP-HUB\web\dist\index.html."
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'DATGOLD-HUB\web\dist\index.html') -PathType Leaf)) {
+    throw "Built React UI not found at DATGOLD-HUB\web\dist\index.html."
 }
 Write-Host "  [OK] Fresh UI compiled and ready for packaging." -ForegroundColor Green
 
@@ -113,7 +113,7 @@ $shellDist = Join-Path $stagingDir 'desktop-publish'
 $payloadDir = Join-Path $stagingDir 'payload'
 # The key list is built into the program (desktop-shell/ShellKeys.cs): the one that is committed, unless this is a test build that names another. It is ALWAYS named on the command line and never
 # left to the default of the project: MSBuild reads environment variables as properties, so a variable called ReleaseKeysFile in the environment of a release build would otherwise be the list the program trusts.
-$shellKeysFile = if ($ReleaseKeysFile -ne '') { $ReleaseKeysFile } else { Join-Path $repoRoot 'CHATMCP-HUB\lib\release-keys.json' }
+$shellKeysFile = if ($ReleaseKeysFile -ne '') { $ReleaseKeysFile } else { Join-Path $repoRoot 'DATGOLD-HUB\lib\release-keys.json' }
 if (-not (Test-Path -LiteralPath $shellKeysFile -PathType Leaf)) { throw "The release key list is not a file: $shellKeysFile" }
 # (written so that MSBuild reads the path back as it is: a repository in C:\My Repos, Inc\ or C:\a;b\ must build as well)
 $shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value $shellKeysFile
@@ -148,7 +148,7 @@ Write-Host "  [OK] The Hub in the payload reads the same key list." -ForegroundC
 # staging directory. Never recursively package GuestSupervisor bin/obj/source.
 # This binary does not make OS isolation available until the production
 # broker authenticates published guest results and the dedicated gate passes.
-$supervisorProject = Join-Path $repoRoot 'CHATMCP-HUB\windows\sandbox\GuestSupervisor\GuestSupervisor.csproj'
+$supervisorProject = Join-Path $repoRoot 'DATGOLD-HUB\windows\sandbox\GuestSupervisor\GuestSupervisor.csproj'
 $supervisorPublish = Join-Path $stagingDir 'supervisor-publish'
 Invoke-InstallerBuildStep -Description 'GuestSupervisor publish' -Command { & $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish }
 $trustedSupervisor = Join-Path $supervisorPublish 'GuestSupervisor.exe'
@@ -214,7 +214,7 @@ Write-Host '  [OK] Bundled LSP and CPython worker integration tests passed.' -Fo
 $browserStage = Join-Path $hubPayload 'runtimes\browser'
 $browserModules = Join-Path $browserStage 'node_modules'
 New-Item -ItemType Directory -Path $browserModules -Force | Out-Null
-$uiNodeModules = Join-Path $repoRoot 'CHATMCP-HUB\ui\node_modules'
+$uiNodeModules = Join-Path $repoRoot 'DATGOLD-HUB\ui\node_modules'
 foreach ($packageName in @('playwright', 'playwright-core')) {
     $packageSource = Join-Path $uiNodeModules $packageName
     $manifestSource = Join-Path $packageSource 'package.json'

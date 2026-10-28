@@ -142,7 +142,7 @@ internal static class ContractTests
         foreach (var (name, outcome, text) in cases) kit.Check(UpdateResultFile.Serialize(outcome) == text, "the result file, " + name + ", is exactly: " + text);
         kit.Check(cases[2].Outcome.RolledBack && !cases[1].Outcome.RolledBack && !cases[3].Outcome.RolledBack && !cases[0].Outcome.RolledBack, "rolledBack is true only where files were replaced and then put back (not when nothing was touched, not when the rollback was incomplete)");
 
-        // the same literal texts are what the Hub is held to (CHATMCP-HUB/tests/verify-update-applied.mjs reads this file)
+        // the same literal texts are what the Hub is held to (DATGOLD-HUB/tests/verify-update-applied.mjs reads this file)
         var path = Path.Combine(AppContext.BaseDirectory, "update-result-vectors.json");
         using var document = JsonDocument.Parse(File.ReadAllBytes(path));
         var written = document.RootElement.GetProperty("written").EnumerateArray().ToDictionary(item => item.GetProperty("name").GetString()!, item => item.GetProperty("text").GetString()!);
