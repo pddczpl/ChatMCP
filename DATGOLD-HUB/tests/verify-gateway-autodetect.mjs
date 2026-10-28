@@ -140,6 +140,7 @@ try{
     ['glm','https://api.z.ai/api/paas/v4/chat/completions'],
     ['qwen','https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions'],
     ['minimax','https://api.minimax.io/anthropic/v1/messages'],
+    ['kimi','https://api.moonshot.ai/v1/chat/completions'],
   ]);
   for (const [id, expected] of routes) {
     const preset=PRESETS.find(p=>p.id===id);

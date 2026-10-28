@@ -4,7 +4,7 @@ import { bundleTsx, renderPrelude } from './support/bundle.mjs';
 
 // The model picker as data (src/lib/model-picker.ts): which models the list shows, in which order, filtered how, with which badges. Kept out of the component so that the rules are testable
 // without a browser: the account's own list wins over the catalog's when the Hub could ask the provider; a model is found by typing any part of its id; the badges say only what the catalog says
-// (a number that is not there is not shown as zero), and a model the catalog marks deprecated comes after the ones that are not.
+// (a number that is not there is not shown as zero), and a model the catalog marks deprecated is not offered (unless it is the one that is configured).
 const { loaded, dispose } = await bundleTsx(`
   ${renderPrelude}
   import { badgesOf, factsOf, filterChoices, formatPrice, formatTokens, keyAction, mergeChoices } from './src/lib/model-picker';
@@ -31,12 +31,26 @@ test('a price is USD per million tokens, without the zeros that mean nothing', (
   assert.equal(formatPrice({ input: Number.NaN, output: 1 }), null);
 });
 
+test('a model the catalog marks deprecated is not offered, from the account\'s list or the catalog\'s, unless it is the configured one; beta and alpha stay', () => {
+  const catalog = [entry('fresh'), entry('gone', { status: 'deprecated' }), entry('beta-one', { status: 'beta' }), entry('alpha-one', { status: 'alpha' })];
+  const account = ['fresh', 'gone', 'beta-one', 'alpha-one', 'mine'].map((id) => ({ id, name: id }));
+  for (const [label, choices] of [['the catalog', mergeChoices(catalog, undefined)], ['the account', mergeChoices(catalog, account)]]) {
+    assert.ok(!choices.some((choice) => choice.id === 'gone'), `${label}: the deprecated model is not offered`);
+    assert.ok(['fresh', 'beta-one', 'alpha-one'].every((id) => choices.some((choice) => choice.id === id)), `${label}: models that are still served stay, beta and alpha too`);
+  }
+  assert.ok(mergeChoices(catalog, account).some((choice) => choice.id === 'mine'), 'a model the catalog does not know is offered when the account lists it');
+  assert.equal(mergeChoices(catalog, account, { keep: ['gone'] }).at(-1).id, 'gone', 'the configured one stays, after the others');
+  assert.ok(!mergeChoices(catalog, account, { keep: ['fresh'] }).some((choice) => choice.id === 'gone'), 'keeping another model does not bring it back');
+});
+
 test('the list is the account\'s when the Hub could ask the provider, else the catalog\'s; each model carries the facts the catalog has', () => {
   const catalog = [entry('claude-opus-5-5', { contextWindow: 1000000 }), entry('claude-sonnet-5-5', { contextWindow: 1000000, reasoning: true }), entry('claude-old', { status: 'deprecated' })];
   const fromCatalog = mergeChoices(catalog, undefined);
-  assert.deepEqual(fromCatalog.map((choice) => choice.id), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-old'], 'sorted by id with the deprecated after the others');
-  assert.deepEqual(fromCatalog.map((choice) => [choice.inCatalog, choice.listed]), [[true, false], [true, false], [true, false]]);
-  assert.equal(fromCatalog[2].status, 'deprecated');
+  assert.deepEqual(fromCatalog.map((choice) => choice.id), ['claude-opus-5-5', 'claude-sonnet-5-5'], 'sorted by id; the deprecated one is not offered');
+  assert.deepEqual(fromCatalog.map((choice) => [choice.inCatalog, choice.listed]), [[true, false], [true, false]]);
+  const configured = mergeChoices(catalog, undefined, { keep: ['claude-old'] });
+  assert.deepEqual(configured.map((choice) => choice.id), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-old'], 'unless it is the one that is configured: then it is there, after the others');
+  assert.equal(configured[2].status, 'deprecated');
 
   const account = [{ id: 'claude-sonnet-5-5', name: 'claude-sonnet-5-5' }, { id: 'my-finetune', name: 'my-finetune' }, { id: 'claude-opus-5-5', name: 'claude-opus-5-5' }];
   const mixed = mergeChoices(catalog, account);
@@ -45,7 +59,7 @@ test('the list is the account\'s when the Hub could ask the provider, else the c
   const mine = mixed[2];
   assert.deepEqual([mine.contextWindow, mine.rates, mine.reasoning, mine.toolCall, mine.status], [null, null, false, null, null], 'a model the catalog does not know has no facts, not zeros');
   assert.equal(mixed[1].contextWindow, 1000000);
-  assert.deepEqual(mergeChoices(catalog, []).map((choice) => choice.listed), [false, false, false], 'an empty account list is no list');
+  assert.deepEqual(mergeChoices(catalog, []).map((choice) => choice.listed), [false, false], 'an empty account list is no list (the deprecated model of the catalog is not offered)');
   assert.deepEqual(mergeChoices(undefined, undefined), []);
   assert.deepEqual(mergeChoices(undefined, account).map((choice) => choice.id), ['claude-opus-5-5', 'claude-sonnet-5-5', 'my-finetune'], 'the account\'s list alone, without the catalog');
   assert.deepEqual(mergeChoices([entry('b'), entry('a'), entry('b')], undefined).map((choice) => choice.id), ['a', 'b'], 'an id appears once');
@@ -90,7 +104,7 @@ test('the badges say what the catalog says and nothing else', () => {
   assert.equal(kinds(mergeChoices([entry('plain', { reasoning: false, toolCall: false, vision: false })], undefined)[0]).some((kind) => ['think', 'tools', 'vision'].includes(kind)), false, 'a capability the model lacks is not a badge');
   const unknown = mergeChoices(undefined, [{ id: 'mine', name: 'mine' }])[0];
   assert.deepEqual(badgesOf(unknown), [{ kind: 'account' }], 'a model only the account lists has only that');
-  const withStatus = (status) => badgesOf(mergeChoices([entry('s', { status })], undefined)[0]).find((badge) => badge.kind === 'status');
+  const withStatus = (status) => badgesOf(mergeChoices([entry('s', { status })], undefined, { keep: ['s'] })[0]).find((badge) => badge.kind === 'status');
   assert.deepEqual([withStatus('beta'), withStatus('alpha'), withStatus('deprecated'), withStatus('not_stable'), withStatus(null)],
     [{ kind: 'status', params: { status: 'beta' } }, { kind: 'status', params: { status: 'alpha' } }, { kind: 'status', params: { status: 'deprecated' } }, { kind: 'status', params: { status: 'not_stable' } }, undefined]);
   const both = mergeChoices([entry('x')], [{ id: 'x', name: 'x' }])[0];
