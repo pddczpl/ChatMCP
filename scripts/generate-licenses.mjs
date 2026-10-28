@@ -3,7 +3,7 @@
 //   node scripts/generate-licenses.mjs           rewrite the generated section of THIRD-PARTY-NOTICES.md
 //   node scripts/generate-licenses.mjs --check   exit 1 when the section differs from what the lockfile says
 //
-// The source is CHATMCP-HUB/ui/package-lock.json, not node_modules: every entry that is not "dev": true is part of the production closure
+// The source is DATGOLD-HUB/ui/package-lock.json, not node_modules: every entry that is not "dev": true is part of the production closure
 // that the Vite build can compile into web/dist (docs/LICENSE-SCAN.md uses the same definition). It is an upper bound, because tree
 // shaking drops what is not imported. The old version of this script read only the direct dependencies of ui/package.json out of
 // node_modules and listed the development tools as if they were bundled.
@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const NOTICES_FILE = path.join(ROOT, 'THIRD-PARTY-NOTICES.md');
-export const LOCKFILE = path.join(ROOT, 'CHATMCP-HUB', 'ui', 'package-lock.json');
+export const LOCKFILE = path.join(ROOT, 'DATGOLD-HUB', 'ui', 'package-lock.json');
 export const BEGIN = '<!-- BEGIN GENERATED: ui-production-packages (scripts/generate-licenses.mjs) -->';
 export const END = '<!-- END GENERATED: ui-production-packages -->';
 
@@ -34,7 +34,7 @@ export function renderSection(packages) {
   const summary = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([license, count]) => `${license} ${count}`).join(', ');
   return [
     BEGIN,
-    `${packages.length} packages of the production dependency closure of CHATMCP-HUB/ui/package-lock.json (${summary}). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the \`license\` field of the lockfile entry.`,
+    `${packages.length} packages of the production dependency closure of DATGOLD-HUB/ui/package-lock.json (${summary}). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the \`license\` field of the lockfile entry.`,
     '',
     '| Package | Version | License |',
     '|---|---|---|',
@@ -61,7 +61,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const { current, expected } = await expectedDocument();
   if (process.argv.includes('--check')) {
     if (current !== expected) {
-      console.error('THIRD-PARTY-NOTICES.md is out of date with CHATMCP-HUB/ui/package-lock.json; run: node scripts/generate-licenses.mjs');
+      console.error('THIRD-PARTY-NOTICES.md is out of date with DATGOLD-HUB/ui/package-lock.json; run: node scripts/generate-licenses.mjs');
       process.exit(1);
     }
     console.log('THIRD-PARTY-NOTICES.md lists the production packages of the lockfile.');

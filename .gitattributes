@@ -19,7 +19,7 @@ scripts/intelligence-runtime/licenses/*.LICENSE eol=lf
 scripts/intelligence-runtime/licenses/ripgrep/** -text
 
 # The recorded-shape model streams are compared byte for byte by the tests: no line-end conversion.
-CHATMCP-HUB/tests/fixtures/streams/** -text
+DATGOLD-HUB/tests/fixtures/streams/** -text
 
 # Binary files
 *.png   binary
@@ -38,4 +38,4 @@ docs/agent-handoffs/evidence/** -text whitespace=blank-at-eol,blank-at-eof,space
 *.min.js -diff linguist-vendored
 
 # Generated data: the models.dev snapshot that scripts/update-model-catalog.mjs rebuilds (one line, hash-checked).
-CHATMCP-HUB/lib/model-catalog.data.json -diff linguist-generated
+DATGOLD-HUB/lib/model-catalog.data.json -diff linguist-generated

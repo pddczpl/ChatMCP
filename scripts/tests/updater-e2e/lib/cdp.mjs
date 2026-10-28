@@ -1,6 +1,6 @@
 // A small client of the Chrome DevTools Protocol, for the page of an application that was started with a remote debugging port: the installed desktop shell (WebView2) on the hosted runner, or a
 // Chromium in the rehearsal. It is the same technique as scripts/tests/windows-installer/desktop-probe.mjs (the global WebSocket of Node, the list of targets at /json/list) and as the real mouse press of
-// CHATMCP-HUB/ui/e2e/windows-webview2/Program.cs (Input.dispatchMouseEvent: a trusted event of the browser, not a click that a script makes).
+// DATGOLD-HUB/ui/e2e/windows-webview2/Program.cs (Input.dispatchMouseEvent: a trusted event of the browser, not a click that a script makes).
 //
 // It talks to 127.0.0.1 only, and never reads or sends anything that is not a command and its answer.
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

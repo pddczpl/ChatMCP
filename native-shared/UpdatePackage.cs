@@ -12,7 +12,7 @@ namespace ChatMCP.Native;
 // asks, for itself, whether the owner's key signed the manifest, whether the manifest is the release it should be, and whether the file is the installer the manifest names.
 //
 // The rules are the Hub's (lib/release-signature.mjs, lib/update-check.mjs, lib/update-download.mjs) written a second time in this language, and the tests hold the two to ONE list of cases
-// (CHATMCP-HUB/tests/fixtures/release-verify-vectors.json): what the Hub takes the shell takes, and the other way round. Where .NET reads something more loosely than JavaScript does, the rule is
+// (DATGOLD-HUB/tests/fixtures/release-verify-vectors.json): what the Hub takes the shell takes, and the other way round. Where .NET reads something more loosely than JavaScript does, the rule is
 // written out here and not left to the library: base64 must be canonical (Convert.FromBase64String skips white space and ignores spare bits), a byte order mark is stripped by hand (the byte
 // overloads of JsonDocument refuse it), a regular expression ends with \z (a $ also matches before a final line break), a digit is 0 to 9 (\d is any Unicode digit). Pure BCL: no package.
 
@@ -44,7 +44,7 @@ internal sealed record ReleaseKey(string Kid, byte[] Spki);
 internal sealed record IgnoredKey(int Index, string? Kid, string Reason);
 
 /// <summary>
-/// The release key list (CHATMCP-HUB/lib/release-keys.json) as the shell reads it: only an entry that says use "release" is a key, and only when it is an EC P-256 key in its canonical SPKI form
+/// The release key list (DATGOLD-HUB/lib/release-keys.json) as the shell reads it: only an entry that says use "release" is a key, and only when it is an EC P-256 key in its canonical SPKI form
 /// (91 bytes, an uncompressed point that is on the curve) whose `kid` is the first 8 hex characters of the SHA-256 of those bytes; at most four, each once, in the order of the file. A
 /// placeholder (what the file ships with until the owner has made a key) and a test key trust nothing.
 /// </summary>
