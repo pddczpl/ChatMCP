@@ -20,6 +20,7 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
   { id: 'glm', name: 'Z.ai (GLM)', defaultModel: 'glm-5.3', defaultUrl: 'https://api.z.ai/api/paas/v4' },
   { id: 'qwen', name: 'Alibaba (Qwen)', defaultModel: 'qwen3.7-plus', defaultUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1' },
   { id: 'minimax', name: 'MiniMax', defaultModel: 'MiniMax-M3', defaultUrl: 'https://api.minimax.io/anthropic' },
+  { id: 'kimi', name: 'Moonshot (Kimi)', defaultModel: 'kimi-k3', defaultUrl: 'https://api.moonshot.ai/v1' },
   { id: 'groq', name: 'Groq', defaultModel: 'llama-3.3-70b-versatile', defaultUrl: 'https://api.groq.com/openai/v1' },
   { id: 'mistral', name: 'Mistral', defaultModel: 'mistral-large-latest', defaultUrl: 'https://api.mistral.ai/v1' },
   { id: 'ollama', name: 'Ollama (Local)', defaultModel: 'qwen2.5-coder:7b', defaultUrl: 'http://localhost:11434/v1' },

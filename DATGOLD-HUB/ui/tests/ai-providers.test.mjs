@@ -32,6 +32,7 @@ test('the protocol the form sends is the protocol of the preset', () => {
 test('the four providers of the popular set carry the names people know them by', () => {
   const nameOf = (id) => AI_PROVIDERS.find((entry) => entry.id === id)?.name;
   assert.deepEqual(['xai', 'glm', 'qwen', 'minimax'].map(nameOf), ['xAI (Grok)', 'Z.ai (GLM)', 'Alibaba (Qwen)', 'MiniMax']);
+  assert.equal(nameOf('kimi'), 'Moonshot (Kimi)', 'and so does Kimi');
 });
 
 test('choosing one fills the address and the model, and never carries the key typed for another provider', () => {
@@ -41,6 +42,7 @@ test('choosing one fills the address and the model, and never carries the key ty
     ['glm', 'https://api.z.ai/api/paas/v4', 'glm-5.3'],
     ['qwen', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'qwen3.7-plus'],
     ['minimax', 'https://api.minimax.io/anthropic', 'MiniMax-M3'],
+    ['kimi', 'https://api.moonshot.ai/v1', 'kimi-k3'],
   ]) {
     assert.deepEqual(selectAiProviderDraft(current, AI_PROVIDERS.find((entry) => entry.id === id)), { provider: id, apiBaseUrl: url, model, apiKey: '' }, id);
   }

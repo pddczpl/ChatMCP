@@ -20,6 +20,8 @@ import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArgume
 import { SUBAGENT_NOTICE_LIMITS, normalizeSubagentNotices, publicSubagentNotices, recordSubagentEnd, takeSubagentNotice, unreadSubagentNotices } from './subagent-notices.mjs';
 import { composeFinalText, verificationWarning } from './final-text.mjs';
 import { loadProjectInstructions, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
+import { detectProjectSignals } from './project-signals.mjs';
+import { buildSkillSelectionRecord, catalogRecord } from './skill-selection-record.mjs';
 import { cleanBudget, promptAllowance } from './prompt-allowance.mjs';
 import { ATTACHMENT_LIMITS, PROJECT_FOLDER_ADVICE, base64Length, limitLabel } from './attachment-limits.mjs';
 import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
@@ -248,21 +250,40 @@ export function selectConversationCatalog(catalog, runPrompt, earlierPrompts = [
 const SKILL_LIMIT = 4;
 const SKILL_CHARACTERS = 8000;
 const SKILL_SELECTION_PROMPTS = TOOL_SELECTION_PROMPTS;
-export function selectConversationSkills(pluginManager, runPrompt, earlierPrompts = [], { workspacePath = null, limit = SKILL_LIMIT, tokenBudget = SKILL_CHARACTERS } = {}) {
-  const select = (prompt) => pluginManager.selectSkillsForTask({ prompt, workspacePath, limit, tokenBudget });
+// `project` (the kinds of project the workspace is: lib/project-signals.mjs) is passed on to every pass. `trace`, an object, is filled with `calls` (what each pass says about how
+// it chose: the scorer's own trace, the run's prompt first) and `picks` ([{ id, call }]: each skill returned and the pass that took it), for buildSkillSelectionRecord.
+export function selectConversationSkills(pluginManager, runPrompt, earlierPrompts = [], { workspacePath = null, project = [], limit = SKILL_LIMIT, tokenBudget = SKILL_CHARACTERS, trace = null } = {}) {
+  const calls = [];
+  const select = (prompt) => {
+    const call = {};
+    calls.push(call);
+    return pluginManager.selectSkillsForTask({ prompt, workspacePath, project, limit, tokenBudget, trace: call });
+  };
   const size = (skill) => String(skill.systemPrompt ?? '').length;
   const skills = [...select(runPrompt)];
+  const picks = skills.map((skill) => ({ id: skill.id, call: 0 }));
   const chosen = new Set(skills.map((skill) => skill.id));
   let characters = skills.reduce((sum, skill) => sum + size(skill), 0);
   for (const text of earlierPrompts.slice(-SKILL_SELECTION_PROMPTS).reverse()) {
     if (skills.length >= limit) break;
+    const call = calls.length;
     for (const skill of select(text)) {
       if (skills.length >= limit) break;
       if (chosen.has(skill.id) || characters + size(skill) > tokenBudget) continue;
-      chosen.add(skill.id); skills.push(skill); characters += size(skill);
+      chosen.add(skill.id); skills.push(skill); picks.push({ id: skill.id, call }); characters += size(skill);
     }
   }
+  if (trace) Object.assign(trace, { calls, picks });
   return skills;
+}
+// The skills that are turned on and were not selected, for the catalog of the skill index: the ones the keywords scored for first (best first: the model is told of those
+// when there is room for a few), then the rest in the order they were installed. `trace` is what selectConversationSkills filled.
+export function otherEnabledSkills(pluginManager, selected, trace = null) {
+  const active = typeof pluginManager?.activeSkills === 'function' ? pluginManager.activeSkills() : [];
+  const taken = new Set((Array.isArray(selected) ? selected : []).map((skill) => skill?.id));
+  const scored = new Map((Array.isArray(trace?.calls?.[0]?.candidates) ? trace.calls[0].candidates : []).map((candidate) => [candidate?.id, Number(candidate?.score) || 0]));
+  return (Array.isArray(active) ? active : []).map((skill, order) => ({ skill, order })).filter(({ skill }) => skill && typeof skill === 'object' && !taken.has(skill.id))
+    .sort((a, b) => (scored.get(b.skill.id) ?? 0) - (scored.get(a.skill.id) ?? 0) || a.order - b.order).map(({ skill }) => skill);
 }
 // The earlier prompts of a conversation as both selectors read them, oldest first: the user's requests that its task carries from before it began (start()'s
 // carriedPrompts, made in another transport; the model read them in the task's first prompt), then the prompts of the task except the run's own, each as selectionTextOf
@@ -654,6 +675,7 @@ export class AgentRunner {
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
       result.projectInstructions = task.projectInstructions ?? null;
+      result.skillSelection = task.skillSelection ?? null;
       result.pendingCall = task.pendingCall ?? null;
       result.unverifiedOperations = task.unverifiedOperations ?? [];
       result.stateHistory = (task.stateHistory ?? []).slice(-50);
@@ -1102,10 +1124,17 @@ export class AgentRunner {
       // Select task-relevant skills dynamically (at most 4). Not on task.prompt, the first prompt of the conversation: this run's prompt selects
       // first and the earlier ones (earlierSelectionTexts, as for the tool schemas above) fill what is left. Each is read as selectionTextOf says.
       // How big a skill is does not decide whether it is selected: the conversation carries an index of the selected skills (lib/skill-index.mjs), their text is read on demand.
-      const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
-        ? selectConversationSkills(this.manager.pluginManager, selectionText, earlierSelectionTexts(task, runPrompt), { workspacePath: task.workspace?.path, tokenBudget: Infinity })
+      // What kind of project the workspace is (file names and dependency lists only) supports a request that already says something about a skill; and the run keeps
+      // on what grounds it took its skills, or why none (task.skillSelection, shown under the turn).
+      context.preflightStage = 'skill selection';
+      const skillTrace = {};
+      const hasSelector = typeof this.manager.pluginManager?.selectSkillsForTask === 'function';
+      const kindsOfProject = hasSelector ? await abortable(detectProjectSignals(task.workspace?.path), context.controller.signal) : [];
+      const selectedSkills = hasSelector
+        ? selectConversationSkills(this.manager.pluginManager, selectionText, earlierSelectionTexts(task, runPrompt), { workspacePath: task.workspace?.path, project: kindsOfProject, tokenBudget: Infinity, trace: skillTrace })
         : (this.manager.pluginManager?.activeSkills?.() || []);
       task.selectedSkills = selectedSkills.map((s) => s.id);
+      task.skillSelection = hasSelector ? buildSkillSelectionRecord(skillTrace, { project: kindsOfProject }) : null;
       // Discover likely project test tools without requiring the user to pick
       // a command in Settings. Discovery itself is strictly read-only. The
       // agent must still inspect project instructions and obtain permission
@@ -1150,19 +1179,24 @@ export class AgentRunner {
       const projectGuidance = guidance.block;
       context.instructions = instructionsFor(projectGuidance) + appended;
       await this.#event(task, 'instructions_loaded', projectInstructionsMessage(guidance.record), { projectInstructions: guidance.record });
-      if (selectedSkills.length) {
+      // The keywords decide which small skills are carried whole before the model starts; the other skills that are turned on are named to the model too (the catalog of
+      // lib/skill-index.mjs, best-scoring first), and the model reads the ones the conversation and the project call for with skill_load. The catalog is never text of a skill.
+      const otherSkills = hasSelector ? otherEnabledSkills(this.manager.pluginManager, selectedSkills, skillTrace) : [];
+      if (selectedSkills.length || otherSkills.length) {
         // What looks like a credential in a skill is masked like in a tool result, in the index and in what skill_load returns.
         const redact = (text) => this.#redact(text);
         // The index has the rest of the share of the room (a twentieth of the history budget, with skill_load paid out of it): see lib/prompt-allowance.mjs.
-        const skillIndex = fitSkillIndex(selectedSkills, { maxBytes: allowance.index.bytes, withToolBytes: allowance.index.withToolBytes, redact });
+        const skillIndex = fitSkillIndex(selectedSkills, { maxBytes: allowance.index.bytes, withToolBytes: allowance.index.withToolBytes, redact, others: otherSkills });
         // External skills are untrusted task material, not the agent's privileged policy.
         // Keep their content out of context.instructions. Only real host tools can
         // execute actions, and all tool calls still pass the permission gate.
         context.skillContext = skillIndex.text;
         context.skillIndex = skillIndex;
+        if (task.skillSelection) task.skillSelection = { ...task.skillSelection, catalog: catalogRecord(skillIndex.catalog) };
         // A skill too big to be carried in the index is read with skill_load, offered last in the tool list (in every tool-selection mode, and to workers: they
         // start through here too), when the share of the room can pay for the tool. With nothing to read the tool is not offered: it would only cost tokens.
-        if (skillIndex.tool) { context.skillLoader = createSkillLoader(selectedSkills, skillIndex, { redact }); context.tools.push(skillLoadTool()); }
+        // The loader reads the skills the index names (the others only when the catalog is in it).
+        if (skillIndex.tool) { context.skillLoader = createSkillLoader([...selectedSkills, ...(skillIndex.catalog.listed.length ? otherSkills : [])], skillIndex, { redact }); context.tools.push(skillLoadTool()); }
       }
       // Repo source is untrusted. Attach its bounded map as DATA beside the
       // user's prompt, NEVER as privileged system instructions. Preserve the

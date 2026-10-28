@@ -165,7 +165,8 @@ try {
   const onlyWhatItAsks=(call,label,prompt,earlier=[])=>{
     assert.deepEqual(call.skills,ids(selectConversationSkills(plugins,prompt,earlier)),label+': is given the skills its own words select');
     const asked=new Set([prompt,...earlier].flatMap(text=>selectTaskToolNames(text)));
-    for(const name of call.tools)assert.ok(ROUTERS.includes(name)||asked.has(name),label+': is offered '+name+', which none of its own words select');
+    // (skill_load is a host function and no tool schema of the task: it is offered whenever a skill is turned on, because the index names the skills the model can read.)
+    for(const name of call.tools)assert.ok(ROUTERS.includes(name)||name==='skill_load'||asked.has(name),label+': is offered '+name+', which none of its own words select');
   };
 
   // The worker of the verified loop: its first run (two model calls), then the repair run the orchestrator continues it with (two more).

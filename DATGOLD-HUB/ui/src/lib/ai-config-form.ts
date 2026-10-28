@@ -50,7 +50,7 @@ export function aiProtocolForPreset(preset: string): 'gemini' | 'openai-chat' | 
   if (preset === 'gemini' || preset === 'custom-gemini') return 'gemini';
   if (preset === 'anthropic' || preset === 'custom-anthropic' || preset === 'minimax') return 'anthropic';
   if (preset === 'openai-responses' || preset === 'custom-responses') return 'openai-responses';
-  if (['openai','openrouter','deepseek','xai','glm','qwen','groq','ollama','lmstudio','custom-openai','mistral'].includes(preset)) return 'openai-chat';
+  if (['openai','openrouter','deepseek','xai','glm','qwen','groq','ollama','lmstudio','custom-openai','mistral','kimi'].includes(preset)) return 'openai-chat';
   return null;
 }
 

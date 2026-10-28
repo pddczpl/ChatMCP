@@ -1,6 +1,7 @@
 // The model picker as data: which models the list shows, in which order, filtered how, with which badges. Kept out of the component so that the rules are testable without a browser.
 //   * The list is the account's own (what the provider says this key can use) when the Hub could ask for it, each model with the facts the catalog has; else the catalog's list for the provider.
-//   * A model the catalog marks deprecated comes after the ones that are not; the rest is by id.
+//   * A model the catalog marks deprecated is not offered (the provider has stopped serving it, or is about to; models.dev marks about one in ten so), unless it is the one that is configured: a
+//     connection that uses it must still see it. The rest is by id.
 //   * The badges say only what the catalog says: a number that is not there is not written as zero, a capability the model lacks is not a badge.
 import type { AccountModel, CatalogModel, ModelInfo } from '../types/index.ts';
 import type { Translate } from './i18n.ts';
@@ -32,8 +33,9 @@ const unknownModel = (id: string, listed: boolean): PickerChoice => ({
 });
 const order = (a: PickerChoice, b: PickerChoice) => Number(a.status === 'deprecated') - Number(b.status === 'deprecated') || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** The models to choose from. An empty account list is no list. */
-export function mergeChoices(catalog: CatalogModel[] | undefined, account: AccountModel[] | undefined): PickerChoice[] {
+/** The models to choose from. An empty account list is no list. `keep`: ids that stay in the list even when deprecated (the model that is configured). */
+export function mergeChoices(catalog: CatalogModel[] | undefined, account: AccountModel[] | undefined, { keep = [] }: { keep?: string[] } = {}): PickerChoice[] {
+  const offered = (choice: PickerChoice) => choice.status !== 'deprecated' || keep.includes(choice.id);
   const known = new Map<string, CatalogModel>();
   for (const model of catalog ?? []) if (model?.id && !known.has(model.id)) known.set(model.id, model);
   if (account && account.length > 0) {
@@ -47,9 +49,9 @@ export function mergeChoices(catalog: CatalogModel[] | undefined, account: Accou
       const listed = item.listed !== false;
       choices.push(model ? fromCatalog(model, listed) : unknownModel(item.id, listed));
     }
-    return choices.sort(order);
+    return choices.filter(offered).sort(order);
   }
-  return [...known.values()].map((model) => fromCatalog(model, false)).sort(order);
+  return [...known.values()].map((model) => fromCatalog(model, false)).filter(offered).sort(order);
 }
 
 export type KeyAction = { type: 'none' } | { type: 'open' } | { type: 'close' } | { type: 'move'; active: number } | { type: 'pick'; index: number };
