@@ -541,8 +541,9 @@ export class StudioWorkspace {
       return {ok:true,path:item.path,sha256:item.currentSha,undoId,undoBackup:backup};
     }catch(error){
       // Back where it was, unless a file has appeared there meanwhile (then the moved one stays beside it under its new name, and the message says so).
-      const free=await fs.lstat(target.absolute).then(()=>false,()=>true);
-      if(free)await fs.rename(aside,target.absolute).catch(()=>{});
+      let stays=true;
+      if(await fs.lstat(target.absolute).then(()=>false,()=>true)){try{await fs.rename(aside,target.absolute);stays=false;}catch{ /* it stays where it is */ }}
+      if(stays)error.message=`${error.message} (File đã chuyển còn nằm cạnh vị trí cũ với tên ${path.basename(aside)}.)`;
       throw error;
     }
   }
