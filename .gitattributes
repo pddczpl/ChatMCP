@@ -21,6 +21,9 @@ scripts/intelligence-runtime/licenses/ripgrep/** -text
 # The recorded-shape model streams are compared byte for byte by the tests: no line-end conversion.
 DATGOLD-HUB/tests/fixtures/streams/** -text
 
+# Verbatim excerpts of third-party SKILL.md files (the real front matter of claude-api): the same bytes on every platform.
+DATGOLD-HUB/tests/fixtures/skills/** -text
+
 # Binary files
 *.png   binary
 *.jpg   binary

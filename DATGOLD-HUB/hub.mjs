@@ -10,6 +10,7 @@ import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manag
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
 import { ATTACHMENT_BODY_LIMIT } from './lib/attachment-limits.mjs';
+import { EDITABLE_FILE_BYTES, EDITOR_BODY_LIMIT } from './lib/studio-workspace.mjs';
 import { publicPresets } from './lib/provider-presets.mjs';
 import { modelInfo, modelInfoQuery, modelsList, modelsQuery } from './lib/model-info.mjs';
 import { createCatalogStore } from './lib/model-catalog-store.mjs';
@@ -47,9 +48,9 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/review/reject-created','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
-export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/auth/chatgpt/callback']);
+export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/task-review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
 export const SESSION_ROUTES = Object.freeze(['/api/session/ticket','/api/session/redeem']);
 // Everything under /api/ and /auth/ needs `Authorization: Bearer <per-launch secret>` except these named exceptions:
@@ -100,6 +101,10 @@ function equalToken(a, b) {
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 }
+
+// The body a POST may carry where 64 KB is not enough. A save carries the whole text of the file (up to EDITABLE_FILE_BYTES); the answer to one that is too big is save()'s own,
+// which says what the limit is. (A Map, not a comparison: tests/verify-hub-auth.mjs finds the routes of the Hub by reading its source for comparisons and cases.)
+const BODY_LIMIT_OF = new Map([['/api/studio/file/save', EDITOR_BODY_LIMIT]]);
 
 async function bodyJson(req, limit = 65536) {
   if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) {
@@ -304,7 +309,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/sandbox': value=await terminal?.sandbox?.status()??{ready:false};break;
           case '/api/studio/preview': value=await preview?.({port:pick('port'),pathname:pick('pathname')||'/'})??{ready:false};break;
           case '/api/studio/tree': value=await studio.tree({directory:pick('directory'),limit:Number(pick('limit'))||250});break;
-          case '/api/studio/file': value=await studio.read({file:pick('file'),maxBytes:Math.min(250000,Number(pick('maxBytes'))||120000)});break;
+          case '/api/studio/file': value=await studio.read({file:pick('file'),maxBytes:Math.min(EDITABLE_FILE_BYTES,Number(pick('maxBytes'))||120000)});break;
           case '/api/studio/search': value=await studio.search({query:pick('query'),mode:pick('mode')||'text',limit:Number(pick('limit'))||60});break;
           case '/api/studio/git/status': value=await studio.gitStatus();break;
           case '/api/studio/git/refs': {
@@ -344,6 +349,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/git/check': value=await studio.gitDiffCheck();break;
           case '/api/studio/checkpoints': value=await studio.checkpoints();break;
           case '/api/studio/review': value=await studio.review({checkpointId:pick('checkpointId'),file:pick('file')});break;
+          case '/api/studio/task-review': {
+            // A task that has stopped says when: what Git finds after that is not the task's.
+            const task=taskEngine?.get?.(pick('taskId'));
+            value=await studio.taskReview({taskId:pick('taskId'),until:task&&task.status!=='running'?task.finishedAt:null});
+            break;
+          }
           case '/api/studio/preview-checkpoint': value=await studio.previewCheckpoint({checkpointId:pick('checkpointId')});break;
           case '/api/studio/checks': value=await studio.checks();break;
           case '/api/studio/verifications': value=await verification?.list({taskId:pick('taskId')}) ?? {runs:[],total:0};break;
@@ -473,7 +484,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         const requestOk=origins.has(origin)&&req.headers['x-chatmcp-request']==='local-dashboard'
           &&equalToken(req.headers['x-chatmcp-csrf'],token);
         if(!requestOk)return json(403,{error:'Phiên trang localhost không hợp lệ. Tải lại trang.',code:'csrf'});
-        const payload = await bodyJson(req, ['/api/tasks/start','/api/tasks/continue'].includes(url.pathname) ? ATTACHMENT_BODY_LIMIT : 65536);
+        const payload = await bodyJson(req, ['/api/tasks/start','/api/tasks/continue'].includes(url.pathname) ? ATTACHMENT_BODY_LIMIT : (BODY_LIMIT_OF.get(url.pathname) ?? 65536));
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return json(400, { error: 'Nội dung yêu cầu phải là JSON object.' });
         const unknownAction = () => json(404, { error: `Không tìm thấy thao tác POST ${url.pathname} trên Hub ${VERSION}. Có thể dashboard và tiến trình Hub không cùng phiên bản; hãy STOP/START Hub và Ctrl+F5.`, code:'unknown_action', path:url.pathname, method:'POST', serverVersion:VERSION, uiBuild:UI_BUILD });
         const requireIdle = (message) => { if (taskEngine?.state()?.activeTaskId) throw Object.assign(new Error(message), { statusCode: 409 }); };
@@ -496,10 +507,13 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
                 || browser?.decidePermission?.(payload.id,payload.approved);
               if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
               break;
-          case '/api/studio/checkpoint': result=await studio.checkpoint(payload);break;
+          // Only the label of a checkpoint is the page's to give. Which task a checkpoint belongs to, and which files it covers, are the Hub's own record of what a tool call did (a review
+          // is made from them), so a request cannot name them.
+          case '/api/studio/checkpoint': result=await studio.checkpoint({label:payload.label});break;
           case '/api/studio/file/save': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không ghi file trên Windows host. Đổi sang host-review để lưu bản chỉnh sửa sau khi review.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent dừng trước khi lưu file từ editor.'),{statusCode:409});result=await studio.save(payload);break;
           case '/api/studio/restore': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restore(payload);break;
           case '/api/studio/restore-checkpoint': if(taskEngine?.state()?.activeTaskId || agent?.state()?.activeTaskId || manager?.taskEngine?.state()?.activeTaskId || manager?.agent?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi khôi phục checkpoint.'),{code:'task_in_progress',statusCode:409});if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục checkpoint trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restoreCheckpoint(payload);break;
+          case '/api/studio/review/reject-created': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent dừng trước khi từ chối file nó đã tạo.'),{code:'task_in_progress',statusCode:409});if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không chuyển file khỏi workspace trên Windows host.'),{statusCode:403});result=await studio.rejectCreated(payload);break;
           case '/api/studio/accept': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không thay đổi file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.accept(payload);break;
           case '/api/studio/coding/plan': result=payload.modelAssist===true?await coding.planWithModel(payload):coding.plan(payload);break;
           case '/api/studio/coding/run': if(manager.taskId||delegates?.running)throw Object.assign(new Error('Wait for active agent/research tasks.'),{statusCode:409});result=await coding.run(payload);break;

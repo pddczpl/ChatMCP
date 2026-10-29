@@ -1,0 +1,93 @@
+{
+  "suite": "verify-e2e-review.mjs",
+  "mutations": [
+    {
+      "name": "start-without-call-id",
+      "what": "tool_start does not say which call it is, so two calls to one tool in a turn cannot be paired",
+      "patches": [{ "file": "lib/agent.mjs", "old": "{ toolName, status: 'running', ...identity }", "new": "{ toolName, status: 'running', ...toolEventInput(args) }" }]
+    },
+    {
+      "name": "result-without-call-id",
+      "what": "tool_result / tool_error do not say which call they answer",
+      "patches": [{ "file": "lib/agent.mjs", "old": "status: isError ? 'error' : 'completed', ...identity,", "new": "status: isError ? 'error' : 'completed', ...toolEventInput(args)," }]
+    },
+    {
+      "name": "result-without-input",
+      "what": "tool_result carries its callId but not the path or command, so it cannot be read without its start",
+      "patches": [{ "file": "lib/agent.mjs", "old": "status: isError ? 'error' : 'completed', ...identity,", "new": "status: isError ? 'error' : 'completed', callId: call.call_id," }]
+    },
+    {
+      "name": "recoverable-error-without-call-id",
+      "what": "the tool_error of a call the Hub refused to dispatch (unknown function) does not say which call it was",
+      "patches": [{ "file": "lib/agent.mjs", "old": "{ toolName: call.name, status: 'error', callId: call.call_id }", "new": "{ toolName: call.name, status: 'error' }" }]
+    },
+    {
+      "name": "checkpoint-is-never-noted",
+      "what": "the checkpoint the guard made for a call is not put on the record of the call",
+      "patches": [{ "file": "lib/agent.mjs", "old": "call.checkpointId = info.id;", "new": "void info;" }]
+    },
+    {
+      "name": "checkpoint-id-is-sticky",
+      "what": "a call that made no checkpoint (a read) inherits the id of the previous call's",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "call.checkpointId = info.id;", "new": "call.checkpointId = info.id; context.lastCheckpoint = info.id;" },
+        { "file": "lib/agent.mjs", "old": "const checkpointId = task.pendingCall?.checkpointId;", "new": "const checkpointId = task.pendingCall?.checkpointId ?? context.lastCheckpoint;" }
+      ]
+    },
+    {
+      "name": "guard-does-not-tell-the-agent",
+      "what": "the guard makes the checkpoint and never says which call it belongs to",
+      "patches": [{ "file": "lib/manager.mjs", "old": "await onCheckpoint?.({ id: snap.id, partial: snap.partial === true || (snap.skipped?.length ?? 0) > 0, reused: snap.reused === true, targeted: snap.targeted === true });", "new": "" }]
+    },
+    {
+      "name": "input-carries-the-text-of-the-file",
+      "what": "the input of a write contains the content it writes",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "if (path !== null) input.path = clip(path, PATH_CHARS);", "new": "if (path !== null) input.path = clip(path, PATH_CHARS);\n  if (typeof args.content === 'string') input.content = args.content;" }]
+    },
+    {
+      "name": "input-does-not-know-file",
+      "what": "the tools that name their file `file` are not announced by path",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "const path = text(args.path) ?? text(args.file);", "new": "const path = text(args.path);" }]
+    },
+    {
+      "name": "command-is-not-cut",
+      "what": "a command of any length is copied into the event",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "const COMMAND_CHARS = 500;", "new": "const COMMAND_CHARS = 500000;" }]
+    },
+    {
+      "name": "path-is-not-cut",
+      "what": "a path of any length is copied into the event",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "const PATH_CHARS = 300;", "new": "const PATH_CHARS = 300000;" }]
+    },
+    {
+      "name": "all-paths-are-listed",
+      "what": "a batch of 50 files lists 50 paths",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "const PATHS_LISTED = 20;", "new": "const PATHS_LISTED = 2000;" }]
+    },
+    {
+      "name": "route-takes-the-whole-checkpoint-request",
+      "what": "a request can make a checkpoint that belongs to a task",
+      "patches": [{ "file": "hub.mjs", "old": "studio.checkpoint({label:payload.label})", "new": "studio.checkpoint(payload)" }]
+    },
+    {
+      "name": "reject-while-a-task-runs",
+      "what": "a created file is moved while the agent is waiting for a decision",
+      "patches": [{ "file": "hub.mjs", "old": "if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent dừng trước khi từ chối file nó đã tạo.'),{code:'task_in_progress',statusCode:409});", "new": "" }]
+    },
+    {
+      "name": "reject-under-sandbox-only",
+      "what": "a created file is moved out of the host workspace in sandbox-only mode",
+      "patches": [{ "file": "hub.mjs", "old": "if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không chuyển file khỏi workspace trên Windows host.'),{statusCode:403});", "new": "" }]
+    },
+    {
+      "name": "save-while-a-task-runs",
+      "what": "the editor saves a file while the agent is waiting for a decision",
+      "patches": [{ "file": "hub.mjs", "old": "if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent dừng trước khi lưu file từ editor.'),{statusCode:409});", "new": "" }]
+    },
+    {
+      "name": "review-route-does-not-say-when-the-task-stopped",
+      "what": "what the person wrote after a task stopped is listed in the review of that task",
+      "patches": [{ "file": "hub.mjs", "old": "until:task&&task.status!=='running'?task.finishedAt:null", "new": "until:null" }]
+    }
+  ]
+}
