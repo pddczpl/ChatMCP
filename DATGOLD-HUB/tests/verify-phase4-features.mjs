@@ -16,6 +16,7 @@ import { GitHubSkillRegistry } from '../lib/skill-registry.mjs';
 import { CodingWorktreeOrchestrator } from '../lib/coding-orchestrator.mjs';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
+import { checkSource, main as checkSkillManifests, MAX_SKILL_BYTES } from './live/check-skill-manifests.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -213,14 +214,14 @@ OSI prompt body.`);
     expectText(`description: ${header} + ${lines.length} line(s), last key`, () => manifestWith(header, lines, []).description, expected);
   }
   expectText('the key after a block scalar is still read', () => manifestWith('|-', ['  a']).license, 'MIT');
-  for (const header of ['|x', '>x', '|-x', '|2x', '|22', '|0', '|--', '|+-', '|-+', '| -', '>>', '>2+2', '>1-2']) {
+  for (const header of ['|x', '>x', '|-x', '|2x', '|22', '|0', '|-0', '|+0', '|--', '|2--', '|+-', '|-+', '| -', '>>', '>2+2', '>1-2']) {
     expectRejected(`description: ${header} + text`, () => manifestWith(header, ['  text']));
     expectRejected(`description: ${header} alone`, () => manifestWith(header, [])); // accepted as the string "|x" before
   }
   expectRejected('a line less indented than the first line of the text', () => manifestWith('|', ['    deep', '  shallow']));
   expectRejected('a line less indented than the indicator', () => manifestWith('|4', ['  two spaces']));
-  expectRejected('a tab in the indentation of the text', () => manifestWith('|', ['  text', '\ttab']));
-  expectRejected('a tab as the whole indentation', () => manifestWith('|', ['\ttab']));
+  expectRejected('a tab as the whole indentation', () => manifestWith('|', ['  text', '\ttab']));
+  expectRejected('a tab after the indentation of the text', () => manifestWith('|', ['  text', '  \ttab']));
   expectRejected('a block scalar inside a mapping', () => parseSkillManifest('---\nname: demo\nmetadata:\n  note: |\n    text\n---\nbody'));
 
   // What the person sees when a SKILL.md cannot be read: the Hub sends the first line of the message, the Skills card shows it as it is.
@@ -235,7 +236,8 @@ OSI prompt body.`);
   expectText('header: a folder name cannot break the message into two lines', () => failure(unreadable, 'skills/evil\nname/SKILL.md').message, sentence.replace('demo-skill', 'evilname'));
   expectText('a quote that is never closed names its key', () => failure('---\nname: demo-skill\nlicense: "MIT\n---\nbody').message, 'demo-skill: unsupported or malformed YAML in `license` (line 3).');
   expectText('an item of a list names the list', () => failure('---\nname: demo-skill\ntools:\n  - "a\n---\nbody').message, 'demo-skill: unsupported or malformed YAML in `tools` (line 4).');
-  expectText('a key twice names it', () => failure('---\nname: demo-skill\nlicense: MIT\nlicense: MIT\n---\nbody').message, 'demo-skill: unsupported or malformed YAML in `license` (line 4).');
+  expectText('a key twice names it, not the key before it', () => failure('---\nname: demo-skill\nlicense: MIT\nname: other\n---\nbody').message, 'demo-skill: unsupported or malformed YAML in `name` (line 4).');
+  expectText('a folder name is cut to 64 characters', () => failure(unreadable, `skills/${'a'.repeat(100)}/SKILL.md`).message, sentence.replace('demo-skill', 'a'.repeat(64)));
   expectText('a line that is not key: value names no key', () => failure('---\nname: demo-skill\nlicense: MIT\n???\n---\nbody').message, 'demo-skill: unsupported or malformed YAML (line 4).');
   expectText('nothing to name the skill', () => failure('---\nid: "unclosed\n---\nPrompt').message, 'SKILL.md: unsupported or malformed YAML in `id` (line 2).');
   expectText('lines are those of the file, blank lines before the first --- included', () => failure('\n\n---\nname: demo-skill\nlicense: "MIT\n---\nbody').message, 'demo-skill: unsupported or malformed YAML in `license` (line 5).');
@@ -1085,6 +1087,77 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   await assert.rejects(()=>reg.install({key:bad.key}),(error)=>error.code==='malformed_yaml'&&error.message==='broken-header: `description` uses a block scalar header that the Hub cannot read (line 3).');
   assert.ok(!pm.installed().some(p=>p.id===bad.id),'nothing is installed from a SKILL.md that cannot be read');
   ok('The registry installs the real claude-api SKILL.md byte for byte, and refuses one it cannot read with its skill and key named');
+}
+
+// V4: the live check of a catalog's manifests (tests/live/check-skill-manifests.mjs) is run here, offline, against a stand-in for GitHub: a tool nobody runs rots.
+{
+  const standIn=(files)=>{
+    const bytesByPath=new Map();
+    const tree=files.map(({file,content,missing})=>{
+      const b=Buffer.from(content);
+      if(!missing)bytesByPath.set(file,b);
+      return {path:file,mode:'100644',type:'blob',size:b.length,sha:crypto.createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex')};
+    });
+    return {
+      transport:async(url)=>{
+        if(url.endsWith('/commits/HEAD'))return {text:JSON.stringify({sha:'e'.repeat(40),commit:{tree:{sha:'f'.repeat(40)}}})};
+        if(url.includes('/git/trees/'))return {text:JSON.stringify({truncated:false,tree})};
+        throw Error('Unexpected GitHub mock URL '+url);
+      },
+      binaryTransport:async(url,{maxBytes})=>{
+        const bytes=bytesByPath.get(decodeURIComponent(new URL(url).pathname).split('/').slice(4).join('/'));
+        if(!bytes)throw Object.assign(new Error('Remote asset returned HTTP 404'),{code:'asset_fetch_failed'});
+        if(bytes.length>maxBytes)throw Object.assign(new Error('Asset exceeds download limit.'),{code:'asset_too_large'});
+        return {bytes};
+      },
+    };
+  };
+  const good=[
+    {file:'skills/claude-api/SKILL.md',content:await readFixture('claude-api.SKILL.md')},
+    {file:'skills/plain/SKILL.md',content:'---\nname: plain\ndescription: A plain scalar\n---\nbody'},
+  ];
+  const bad=[
+    {file:'skills/broken-header/SKILL.md',content:'---\nname: broken-header\ndescription: |x\n  text\n---\nbody'},
+    {file:'skills/huge/SKILL.md',content:'---\nname: huge\n---\n'+'x'.repeat(MAX_SKILL_BYTES)},
+    {file:'skills/latin1/SKILL.md',content:Buffer.concat([Buffer.from('---\nname: latin1\n---\n'),Buffer.from([0xff,0xfe,0x41])])},
+    {file:'skills/gone/SKILL.md',content:'---\nname: gone\n---\nbody',missing:true},
+  ];
+  const leftovers=async()=>(await fs.readdir(os.tmpdir())).filter((name)=>name.startsWith('datgold-live-skills-')).length;
+  const before=await leftovers();
+
+  const mixed=standIn([...good,...bad]);
+  const checked=await checkSource('anthropic',mixed);
+  assert.equal(checked.listed,6);
+  assert.equal(checked.repo,'anthropics/skills');
+  const byName=Object.fromEntries(checked.results.map((result)=>[result.folder.split('/').at(-1),result]));
+  assert.deepEqual(Object.fromEntries(Object.entries(byName).map(([name,result])=>[name,result.status])),
+    {'claude-api':'ok',plain:'ok','broken-header':'unreadable',huge:'too_large',latin1:'not_utf8',gone:'download_failed'});
+  assert.equal(byName['broken-header'].detail,'malformed_yaml: broken-header: `description` uses a block scalar header that the Hub cannot read (line 3).');
+  assert.equal(byName['claude-api'].bytes,Buffer.byteLength(good[0].content));
+
+  const lines=[],errors=[];
+  const run=(argv,standing)=>checkSkillManifests(argv,{...standing,log:(line)=>lines.push(line),logError:(line)=>errors.push(line)});
+  assert.equal(await run([],mixed),1);
+  assert.ok(lines.some((line)=>/^ {2}UNREADABLE +skills\/broken-header .*block scalar header/.test(line)),lines.join('\n'));
+  assert.ok(lines.some((line)=>/^ {2}TOO_LARGE +skills\/huge/.test(line)));
+  assert.ok(lines.some((line)=>/^ {2}NOT_UTF8 +skills\/latin1/.test(line)));
+  assert.ok(lines.some((line)=>/^ {2}DOWNLOAD_FAILED +skills\/gone/.test(line)));
+  assert.ok(!lines.some((line)=>line.includes('skills/plain')),'a skill that can be read is listed only with --verbose');
+  assert.equal(lines.at(-1),'FAIL: 4 of 6 SKILL.md cannot be read by the Hub.');
+
+  lines.length=0;
+  assert.equal(await run(['--verbose'],standIn(good)),0);
+  assert.ok(lines.some((line)=>/^ {2}ok +skills\/claude-api /.test(line)));
+  assert.equal(lines.at(-1),'OK: the Hub can read all 2 SKILL.md.');
+
+  errors.length=0;
+  assert.equal(await run(['--source','nowhere'],standIn(good)),2);
+  assert.match(errors.join('\n'),/unknown catalog "nowhere"/);
+  assert.equal(await run(['--bogus'],standIn(good)),2);
+  assert.equal(await run(['--source','anthropic'],{transport:async()=>{throw new Error('temporary registry outage');},binaryTransport:mixed.binaryTransport}),2);
+  assert.match(errors.join('\n'),/the catalog could not be listed: temporary registry outage/);
+  assert.equal(await leftovers(),before,'the temporary folder of the check is deleted');
+  ok('The live manifest check lists a catalog like the Skills card, reads each SKILL.md like Install, and names the ones it cannot read (offline stand-in)');
 }
 
 console.log(`\nPASS: ${checks} Phase 4 feature and integration checks passed cleanly.`);
