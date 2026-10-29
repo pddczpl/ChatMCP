@@ -317,18 +317,36 @@ export async function safeFetchSkillBytes(rawUrl, {maxBytes=2*1024*1024,maxRedir
 }
 
 /**
- * Strict subset parser for common Agent Skills frontmatter fields.
- * Throws `malformed_yaml` on syntax errors, unsupported nested types, or unclosed quotes.
+ * What an error calls a SKILL.md: its folder (the name the Skills card shows), else the `name:` of the file, else "SKILL.md".
+ * Letters, digits and ._- only, so that the label can never break the message into two lines (the Hub sends the first one).
  */
-function parseYamlBlock(yamlText) {
+function skillLabel(yamlText, fallbackUrl) {
+  const parts = String(fallbackUrl ?? '').split(/[\\/]/).filter(Boolean);
+  const folder = parts.at(-1) === 'SKILL.md' ? parts.at(-2) : undefined;
+  const named = /^name:[ \t]*["']?([^\s"']+)/m.exec(yamlText)?.[1];
+  return (folder ?? named ?? '').replace(/[^\p{L}\p{N}._-]+/gu, '').slice(0, 64) || 'SKILL.md';
+}
+
+/**
+ * Strict subset parser for common Agent Skills frontmatter fields.
+ * Throws `malformed_yaml` on syntax errors, unsupported nested types, or unclosed quotes. The message names the skill (`label`), the key
+ * when it is known and the line of the SKILL.md (`firstLine` is the line of the file where `yamlText` starts).
+ */
+function parseYamlBlock(yamlText, label = 'SKILL.md', firstLine = 2) {
   // An intentionally strict, dependency-free subset of YAML 1.2:
   // top-level scalars, inline lists, one-level string mappings, item lists,
   // and folded/literal block scalars. Unsupported structures fail closed.
+  //
+  // A block scalar is `|` (literal) or `>` (folded), then a chomping indicator (`-` strip, `+` keep) and an indentation indicator (1-9)
+  // in either order. Its text starts at the column of its first line, or at the one the indicator names. The text is what YAML gives, with
+  // two rules of the Hub: the final line break is not part of it unless the header keeps it (`+`), so clip gives the same text as strip
+  // (as every description always did; a break at the end would sit inside the one-line quotes of the SKILL.md that a URL install writes);
+  // and a folded body is one line of single spaces (no paragraph breaks: blank lines vanish and a more-indented line is not set apart).
   const result = Object.create(null);
   const lines = yamlText.split(/\r?\n/);
   let parent = null, block = null;
 
-  const invalid = (line) => error('malformed_yaml', 'Unsupported or malformed SKILL.md YAML on line ' + line + '.', 400);
+  const invalid = (line, key = parent) => error('malformed_yaml', `${label}: unsupported or malformed YAML${key ? ` in \`${key}\`` : ''} (line ${line}).`, 400);
   const scalar = (raw, line) => {
     let value = raw.trim();
     if (value.startsWith('"') || value.startsWith("'")) {
@@ -343,34 +361,45 @@ function parseYamlBlock(yamlText) {
   const finishBlock = () => {
     if (!block) return;
     const parts = block.lines;
-    result[block.key] = block.style === '>'
-      ? parts.join(' ').replace(/\s+/g, ' ').trim()
-      : parts.join('\n').trim();
+    let end = parts.length;
+    while (end && !parts[end - 1]) end--; // the blank lines at the end are not text
+    const body = parts.slice(0, end);
+    const text = block.style === '>' ? body.join(' ').replace(/\s+/g, ' ').trim() : body.join('\n');
+    result[block.key] = block.keep ? text + '\n'.repeat(parts.length - end + (text ? 1 : 0)) : text;
     block = null;
   };
 
   for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i], number = i + 1;
+    const raw = lines[i], number = i + firstLine;
     if (/^\s*\t/.test(raw)) throw invalid(number);
     const indent = (/^ */.exec(raw) || [''])[0].length;
     if (block) {
       if (!raw.trim()) { block.lines.push(''); continue; }
-      if (indent > block.indent) { block.lines.push(raw.slice(block.indent + 1).trimEnd()); continue; }
+      block.column ??= indent > block.indent ? indent : 0; // 0: the block is empty and this line belongs to the next key
+      if (block.column && indent >= block.column) { block.lines.push(raw.slice(block.column).trimEnd()); continue; }
       finishBlock();
     }
     const trimmed = raw.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
     if (indent === 0) {
       const match = /^([a-zA-Z0-9_-]+):(?:\s*(.*))?$/.exec(trimmed);
-      if (!match) throw invalid(number);
+      if (!match) throw invalid(number, null);
       const [,key,rawValue=''] = match;
-      if (Object.hasOwn(result,key)) throw invalid(number);
-      const value = scalar(rawValue,number);
+      if (Object.hasOwn(result,key)) throw invalid(number, key);
       parent = key;
-      if (value === '>' || value === '|') {
-        block = {key,style:value,indent,lines:[]};
+      // Decided on the text as written, before scalar() unquotes it: "|-" in quotes is a string, not a header.
+      const header = rawValue.replace(/\s+#.*$/, '').trim();
+      if (/^[|>]/.test(header)) {
+        const parts = /^([|>])([1-9][+-]?|[+-][1-9]?)?$/.exec(header);
+        if (!parts) throw error('malformed_yaml', `${label}: \`${key}\` uses a block scalar header that the Hub cannot read (line ${number}).`, 400);
+        const [, style, flags = ''] = parts;
+        const width = /[1-9]/.exec(flags)?.[0];
+        block = {key,style,keep:flags.includes('+'),indent,column:width && indent + Number(width),lines:[]};
         result[key] = '';
-      } else if (!value) result[key] = [];
+        continue;
+      }
+      const value = scalar(rawValue,number);
+      if (!value) result[key] = [];
       else if (value.startsWith('[') && value.endsWith(']')) {
         result[key] = value.slice(1,-1).split(',').map(v=>scalar(v,number)).filter(Boolean);
       } else result[key] = value;
@@ -393,8 +422,8 @@ function parseYamlBlock(yamlText) {
       if (!next.trim() || next.trim().startsWith('#')) {i=j;continue;}
       if (ni !== indent) break;
       const sub=/^([a-zA-Z0-9_-]+):\s*(.*)$/.exec(next.trim());
-      if (!sub || Object.hasOwn(result[parent],sub[1])) throw invalid(j+1);
-      result[parent][sub[1]]=scalar(sub[2],j+1);
+      if (!sub || Object.hasOwn(result[parent],sub[1])) throw invalid(j+firstLine);
+      result[parent][sub[1]]=scalar(sub[2],j+firstLine);
       i=j;
     }
   }
@@ -440,7 +469,9 @@ export function parseSkillManifest(rawText, fallbackUrl = '') {
   if (frontmatterMatch) {
     const yamlBlock = frontmatterMatch[1];
     const body = frontmatterMatch[2].trim();
-    const meta = parseYamlBlock(yamlBlock);
+    // The YAML starts on the line after the first ---: line 2 of the file, plus the blank lines that trim() took off in front of it.
+    const firstLine = 1 + String(rawText ?? '').match(/^\s*/)[0].split('\n').length;
+    const meta = parseYamlBlock(yamlBlock, skillLabel(yamlBlock, fallbackUrl), firstLine);
 
     const idCandidate = meta.id || meta.name || path.basename(fallbackUrl, '.md');
     if (!idCandidate) {
