@@ -4,7 +4,8 @@
 //
 // What it proves: the Hub runs on its own; the model is offered the real tools; every call goes through the
 // permission gate and a checkpoint; refusals reach the model as results; a command cannot be approved by
-// accident; secrets never reach the transcript; a repository cannot run programs through Git settings.
+// accident; secrets never reach the transcript; a repository cannot run programs through Git settings; a tool that can change the files makes the receipts of a coding run stale.
+// CLAIM: receipt-invalidation
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -15,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { HubManager, defaultDataDirectory } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner } from '../lib/agent.mjs';
+import { mutatesTree } from '../lib/agent-progress.mjs';
 import { parseArguments } from '../hub.mjs';
 
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -309,6 +311,143 @@ try {
     const e = await run('review-clipped', [read, ({ last }) => [tool('write_file', { path: 'calc.js', content: big, expected_sha256: last.structuredContent.sha256 })], diff, ({ last }) => { cut = last; return [say('The diff was long.')]; }]);
     check(cut.isError === false && /Diff quá lớn nên đã bị cắt/.test(textOf(cut)), 'E: (premise) the real git_diff cut the long diff');
     equal(e.task.progress.gitReviews, [], 'E: a diff shown in part is not a review');
+  });
+
+  // ---------------------------------------------------------------- which tools make the receipts stale
+  // A receipt describes the files as they were when it was made, so a tool that can change the files makes every receipt stale: the passing test, the diff that was read, the hash of the edit
+  // and what was read. The rule was a list of names (move_file, delete_file, rename_file ...) that no Hub tool has: after read, edit, `npm test` and git_diff, a move_path or a delete_path left
+  // the review, the check and the edit receipt of a tree that had changed, and the run could still end "ready". The tools here are the Hub's own, called by the real loop.
+  const held = (task) => ({ read: task.progress.verifiedInspections.length, edit: task.progress.verifiedFiles.length, check: task.progress.verifiedChecks.length, review: task.progress.gitReviews.length });
+  await section('a tool that can change the files makes the receipts stale, one that cannot leaves them (real tools)', async () => {
+    const GOAL = 'Read calc.js and find out why add() returns the wrong sum; then fix it with the smallest change and run the project tests; finally review the Git diff and report what is still limited.';
+    const ALL = { read: 1, edit: 1, check: 1, review: 1 };
+    const NONE = { read: 0, edit: 0, check: 0, review: 0 };
+    const routed = (name, args) => tool('mcp_call', { name, arguments_json: JSON.stringify(args) });
+    /** read, edit, a passing `npm test`, the diff, a second read: one receipt of each kind. Then the calls under test, one turn each, then the answer. */
+    const run = async (name, calls) => {
+      const dir = await project(name);
+      git(dir, ['branch', 'side']);
+      git(dir, ['config', 'user.name', 'Test']);
+      git(dir, ['config', 'user.email', 'test@example.invalid']);
+      await manager.selectWorkspace(dir);
+      manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
+      const asked = approver(manager, () => true);
+      let answer = null;
+      const model = scripted([
+        () => [tool('read_file', { path: 'calc.js' })],
+        ({ last }) => [tool('edit_file', { path: 'calc.js', old_string: 'a - b', new_string: 'a + b', expected_sha256: last.structuredContent.sha256 })],
+        () => [tool('run_command', { command: 'npm test', description: 'Run the tests' })],
+        () => [tool('git_diff', {})],
+        () => [tool('read_file', { path: 'calc.js' })],
+        ...calls.map((call) => () => [call]),
+        ({ last }) => { answer = last; return [say('Done.')]; },
+      ]);
+      const agent = agentFor(manager, model, name);
+      const task = await finish(agent, (await agent.start({ prompt: GOAL })).id);
+      asked.stop();
+      return { dir, task, answer };
+    };
+    const problems = [];
+    const judge = (label, ran, clears) => {
+      const want = clears ? NONE : ALL;
+      if (ran.task.status !== 'completed') problems.push(`${label}: (premise) the task ended ${ran.task.status}: ${ran.task.error ?? ''}`);
+      if (ran.answer?.isError !== false) problems.push(`${label}: (premise) the last call did not succeed: ${textOf(ran.answer).slice(0, 160)}`);
+      if (JSON.stringify(held(ran.task)) !== JSON.stringify(want)) problems.push(`${label}: holds ${JSON.stringify(held(ran.task))}, expected ${JSON.stringify(want)}`);
+      if (ran.task.verificationOutcome.ready !== !clears) problems.push(`${label}: the Hub says ready=${ran.task.verificationOutcome.ready}, expected ${!clears}`);
+    };
+    const rows = [
+      // The tools that can change the files, whatever they are given. The branch is switched through mcp_call: the arguments of the routed call decide it.
+      ['move_path', [tool('move_path', { source: 'slow.js', destination: 'moved.js' })], true],
+      ['delete_path', [tool('delete_path', { path: 'slow.js' })], true],
+      ['git_checkout', [tool('git_checkout', { ref: 'side' })], true],
+      ['git_merge', [tool('git_merge', { branch: 'side' })], true],
+      ['git_branch switch (routed)', [routed('git_branch', { action: 'switch', name: 'side' })], true],
+      // Control, and the tools that leave the files as they are: a plan, an empty folder, a list of branches, staging and committing what was reviewed.
+      ['nothing after the review', [], false],
+      ['make_directory', [tool('make_directory', { path: 'newdir' })], false],
+      ['update_plan', [tool('update_plan', { items: [{ text: 'Fix add()', status: 'done', evidence: 'npm test printed OK 1 test' }] })], false],
+      ['git_branch list', [tool('git_branch', { action: 'list' })], false],
+      ['git_add and git_commit', [tool('git_add', { paths: ['calc.js'] }), tool('git_commit', { message: 'fix: add() adds' })], false],
+    ];
+    let committed = null;
+    for (const [at, [label, calls, clears]] of rows.entries()) {
+      const ran = await run(`stale-${at}`, calls);
+      judge(label, ran, clears);
+      if (label === 'git_add and git_commit') committed = git(ran.dir, ['rev-list', '--count', 'HEAD']).trim();
+    }
+    equal(committed, '2', '(premise) the reviewed change was really committed');
+    equal(problems, [], 'every tool left the receipts as it left the files');
+  });
+
+  // ---------------------------------------------------------------- every tool is classified
+  // mutatesTree (lib/agent-progress.mjs) is a list of names: the registry's category is about permission (npm test, git_add and make_directory are all workspace_edit) and cannot say which tool
+  // changes what a file holds. So a tool added to the catalog later would stay out of the list unnoticed, and the receipts would survive it. Every tool that is not read-only is put here once,
+  // with the arguments that make it change files or not, and the first check breaks when the catalog has a tool this list has not.
+  await section('every tool of the real catalog that is not read-only is classified for the receipts', async () => {
+    const RULES = [
+      // Can change the files (with these arguments).
+      ['local.write_file', {}, true], ['local.edit_file', {}, true], ['local.files_write_batch', {}, true], ['local.files_apply_patch', {}, true],
+      ['local.move_path', {}, true], ['local.delete_path', {}, true],
+      ['local.git_checkout', {}, true], ['local.git_merge', {}, true], ['local.git_branch', { action: 'create' }, true], ['local.git_branch', { action: 'switch' }, true],
+      ['local.worktrees_create', {}, true], ['local.worktrees_remove', {}, true],
+      ['local.rename_symbol', { apply: true }, true], ['local.format_document', { apply: true }, true], ['local.organize_imports', { apply: true }, true],
+      // The same tools asked only to look.
+      ['local.git_branch', { action: 'list' }, false], ['local.rename_symbol', {}, false], ['local.format_document', {}, false], ['local.organize_imports', {}, false],
+      // Leave what the project's files hold as it is: a plan, a token profile, the Hub's own notes (.chatmcp/knowledge.json), an empty folder, staging and committing.
+      ['local.update_plan', {}, false], ['local.token_profile', {}, false], ['local.knowledge_create', {}, false], ['local.make_directory', {}, false], ['local.git_add', {}, false], ['local.git_commit', {}, false],
+      // Work outside the folder or in a browser, a debugger breakpoint, a stopped background task, a snapshot kept in the Hub's own folder.
+      ['local.tasks_cancel', {}, false], ['local.debug_breakpoint', {}, false], ['studio.checkpoint', {}, false],
+      ['local.github_action', {}, false], ['local.github_pr_merge', {}, false], ['local.github_release_create', {}, false], ['local.github_rerun_failed', {}, false], ['local.github_code_search', {}, false],
+      ['local.web_fetch', {}, false], ['local.web_search', {}, false], ['local.web_extract', {}, false], ['local.docs_search', {}, false], ['local.dependency_lookup', {}, false],
+      ['local.browser_launch', {}, false], ['local.browser_navigate', {}, false], ['local.browser_click', {}, false], ['local.browser_fill', {}, false], ['local.browser_screenshot', {}, false],
+      ['local.browser_close', {}, false], ['local.browser_trace_start', {}, false], ['local.browser_trace_stop', {}, false], ['local.responsive_check', {}, false], ['local.screenshot_capture', {}, false],
+      // Run code, so they can change files without the Hub seeing it: the documented limit. A shell command that edits a file leaves the receipts.
+      ['local.run_command', { command: 'sed -i s/a/b/ calc.js' }, false], ['local.tasks_run', { command: 'sed -i s/a/b/ calc.js' }, false], ['local.test_run', {}, false], ['local.build_run', {}, false],
+      ['local.debug_start', {}, false], ['local.debug_continue', {}, false], ['local.debug_step', {}, false], ['local.debug_evaluate', {}, false], ['local.debug_stop', {}, false],
+      ['local.git_commit', { run_hooks: true }, false],
+    ];
+    const catalog = manager.catalog.tools;
+    const writers = catalog.filter((entry) => entry.annotations?.readOnlyHint !== true).map((entry) => entry.name).sort();
+    equal(writers, [...new Set(RULES.map(([name]) => name))].sort(), 'every tool that is not read-only is in the list above, and nothing else is');
+    const wrong = RULES.filter(([name, args, mutates]) => mutatesTree(name, args) !== mutates).map(([name, args, mutates]) => `${name} ${JSON.stringify(args)} should ${mutates ? '' : 'not '}make the receipts stale`);
+    equal(wrong, [], 'and mutatesTree says what the list says');
+    equal(catalog.filter((entry) => entry.annotations?.readOnlyHint === true && mutatesTree(entry.name, {})).map((entry) => entry.name), [], 'a read-only tool never makes them stale');
+  });
+
+  // ---------------------------------------------------------------- the name a call is judged by
+  // The loop runs a call under its catalog name (mcp_call turns the short read_file into local.read_file), but the receipts were judged by the name the model wrote, and the verifier only knows
+  // the qualified one: through mcp_call the short name never left a receipt of any kind.
+  await section('a call through mcp_call leaves the same receipts under its short name as under its full name (real tools)', async () => {
+    const GOAL = 'Read calc.js and find out why add() returns the wrong sum; then fix it with the smallest change and run the project tests; finally review the Git diff and report what is still limited.';
+    const routed = (name, args) => tool('mcp_call', { name, arguments_json: JSON.stringify(args) });
+    const run = async (name, qualify) => {
+      const dir = await project(name);
+      await manager.selectWorkspace(dir);
+      manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
+      const call = (short, args) => routed(qualify ? `local.${short}` : short, args);
+      const model = scripted([
+        () => [call('read_file', { path: 'calc.js' })],
+        ({ last }) => [call('edit_file', { path: 'calc.js', old_string: 'a - b', new_string: 'a + b', expected_sha256: last.structuredContent.sha256 })],
+        () => [call('run_command', { command: 'npm test', description: 'Run the tests' })],
+        () => [call('git_diff', {})],
+        () => [call('read_file', { path: 'calc.js' })],
+        () => [say('Done.')],
+      ]);
+      const agent = agentFor(manager, model, name);
+      const task = await finish(agent, (await agent.start({ prompt: GOAL })).id);
+      equal(task.status, 'completed', `${name}: the task completed (${task.error ?? ''})`);
+      check((await fs.readFile(path.join(dir, 'calc.js'), 'utf8')).includes('a + b'), `${name}: (premise) the routed call was really run`);
+      return task;
+    };
+    // What a receipt says, less the id of a check or a review (made from the folder and the diff): the same script in two folders.
+    const shape = (task) => Object.fromEntries(['verifiedInspections', 'verifiedFiles', 'verifiedChecks', 'gitReviews'].map((key) => [key, task.progress[key].map(({ kind, step, path: file, sha256 }) => ({ kind, step, file, sha256 }))]));
+    const full = await run('names-full', true);
+    const short = await run('names-short', false);
+    equal(held(full), { read: 1, edit: 1, check: 1, review: 1 }, 'the full name: (premise) one receipt of each kind');
+    equal(held(short), held(full), 'the short name leaves one receipt of each kind too');
+    equal(shape(short), shape(full), 'the same receipts, at the same steps, for the same files');
+    equal(short.goalPlan.evidence, full.goalPlan.evidence, 'and the plan counts the same evidence');
+    equal([short.verificationOutcome.ready, full.verificationOutcome.ready], [true, true], 'and the Hub has every receipt the plan asks for');
   });
 
   // ---------------------------------------------------------------- local aliases through the MCP router

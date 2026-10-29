@@ -297,7 +297,7 @@ try {
   expectProblem('an invalid seam', /seam must be "real" or "unmapped"/); restore();
   restore = editMap((map) => { delete map.claims[0].seamNote; });
   expectProblem('a real claim without a note', /needs a seamNote/); restore();
-  restore = editMap((map) => { map.claims.find((entry) => entry.id === 'receipt-invalidation').kind = 'disclaimer'; });
+  restore = editMap((map) => { map.claims.find((entry) => entry.id === 'owner-acceptance').kind = 'disclaimer'; });
   expectProblem('a claim dressed as a disclaimer', /disclaimer must deny something/); restore();
   restore = editMap((map) => { map.claims[1].id = map.claims[0].id; });
   expectProblem('a duplicate id', /duplicate id/); restore();

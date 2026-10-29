@@ -12,10 +12,24 @@ const MAX_LABEL = 160;
 const PHASES = new Set(['planning', 'inspecting', 'editing', 'verifying', 'working']);
 const INSPECTION = /(?:^|\.)(?:mcp_catalog|mcp_describe|mcp_capabilities|read_file|read_multiple_files|list_directory|list_files|find_files|search_files|search|tree|file|git_status|git_diff|git_log|plan_get|checks_list|list_tools)$/i;
 const EDIT = /(?:^|\.)(?:edit_file|write_file|files_write_batch|create_file|delete_file|move_file|rename_file|git_add|git_commit|git_restore|apply_patch|files_apply_patch|plan_set|update_plan)$/i;
-// A mutating tool can have changed the tested/reviewed tree even if the tool
-// returned an error. Only an explicit never-executed response rules it out.
-// These names describe real file-content changes, not plan or Git staging edits.
-const FILE_MUTATION = /(?:^|\.)(?:edit_file|write_file|files_write_batch|create_file|delete_file|move_file|rename_file|apply_patch|files_apply_patch|git_restore)$/i;
+// A tool that can change the tested/reviewed tree makes the receipts stale even if it returned an error: only an explicit never-executed response rules it out.
+// Covered: the Hub's tools that write, move or delete files, move the checked-out revision or add or remove a checkout inside the folder (a second copy of the files that a
+// test can pick up), and the names that such tools have on other servers. The registry's `category` cannot say this (it is about permission: `npm test`, git_add and make_directory
+// are all workspace_edit), so the names are listed and tests/verify-local-backend.mjs checks the list against every tool of the registry. NOT covered, and a limit of this module:
+// a program that runs code (run_command, tasks_run, test_run, build_run, the debugger, a commit that runs hooks) can change files without this module seeing it, because the
+// progress holds no hash of the whole tree. Left as they are: a plan, the Hub's own notes (knowledge_create writes .chatmcp/knowledge.json), an empty folder, staging and
+// committing, listing branches - none of them changes what a project file holds.
+const FILE_MUTATION = /(?:^|\.)(?:edit_file|write_file|files_write_batch|files_apply_patch|move_path|delete_path|git_checkout|git_merge|worktrees_create|worktrees_remove|create_file|delete_file|move_file|rename_file|apply_patch|git_restore)$/i;
+// These change the files only for some arguments: any branch operation but listing (creating or switching one), and an LSP refactoring that is applied, not previewed.
+const BRANCH = /(?:^|\.)git_branch$/i;
+const REFACTORING = /(?:^|\.)(?:rename_symbol|format_document|organize_imports)$/i;
+/** Whether this call, with these arguments, can have changed what the checked-out files hold. */
+export function mutatesTree(name, args = {}) {
+  if (FILE_MUTATION.test(name)) return true;
+  if (BRANCH.test(name)) return args.action !== 'list';
+  if (REFACTORING.test(name)) return Boolean(args.apply);
+  return false;
+}
 const VERIFY = /(?:^|\.)(?:run_command|checks_run|diff_check|test|run_tests)$/i;
 // A process may legitimately be polled many times while it is still running.
 // Never interpret an unchanged poll as evidence that the coding agent is stuck.
@@ -123,9 +137,10 @@ export function observeTaskTool(progressValue, { call, result, step = 0, verifie
   // A successful test is tied to the prior content. This legacy progress
   // schema does not carry a whole-tree hash for host commands: invalidate
   // earlier edit, check and diff-review evidence conservatively after any
-  // attempted file mutation. A fresh, independently validated edit may then
-  // be recorded below. Never carry pre-repair PASS into the final report.
-  if (FILE_MUTATION.test(name) && result?.executed !== false) {
+  // attempted change of the tree (mutatesTree: not a program that runs code).
+  // A fresh, independently validated edit may then be recorded below.
+  // Never carry pre-repair PASS into the final report.
+  if (mutatesTree(name, args) && result?.executed !== false) {
     const stale = progress.verifiedInspections.length + progress.verifiedFiles.length + progress.verifiedChecks.length + progress.gitReviews.length;
     progress.verifiedInspections = [];
     progress.verifiedFiles = [];

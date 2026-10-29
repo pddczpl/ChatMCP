@@ -362,11 +362,14 @@
         "quote": "Previously passing tests and file hashes are invalidated after potentially mutating edits."
       },
       "kind": "claim",
-      "seam": "unmapped",
-      "test": null,
-      "candidateTest": "DATGOLD-HUB/tests/verify-local-backend.mjs",
-      "reason": "verify-local-backend.mjs drives the real loop and the real tools through edit_file and reads the check, file-hash and Git-review receipts that a later edit clears. Not mapped: the rule is a list of tool names (FILE_MUTATION in lib/agent-progress.mjs) that has move_file and delete_file where the Hub's tools are move_path and delete_path, so a move_path after a passing test clears nothing; the other suites build the receipts by hand.",
-      "phase": "P4"
+      "seam": "real",
+      "test": "DATGOLD-HUB/tests/verify-local-backend.mjs",
+      "seamNote": "The real HubManager, PermissionGate, LocalTools and AgentRunner on temporary Git projects; only the model is scripted. A later edit_file empties the check and Git-review receipts and leaves only its own fresh file hash. After a read, an edit, a passing `npm test` and a git_diff, each of move_path, delete_path, git_checkout, git_merge and git_branch (switched through mcp_call) empties the check, file-hash, Git-review and read receipts and the run is not ready, while make_directory, update_plan, git_branch list and git_add with git_commit leave them. A second check puts every tool of the real catalog that is not read-only in a list and asserts that the rule (mutatesTree in lib/agent-progress.mjs) says what the list says, so a new tool breaks it until it is classified; the LSP refactoring tools (applied) and the worktree tools are judged by the rule only, they are not run. Not covered: a program that runs code (run_command, tasks_run, test_run, build_run, the debugger, a commit that runs hooks) can change files without clearing a receipt.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Gate|Permission|Tools?)",
+        "\\b(?:AgentRunner|LocalTools|PermissionGate)\\s*=\\s*(?:class|function|\\{)",
+        "\\bpermissions\\s*[:=]\\s*\\{"
+      ]
     },
     {
       "id": "owner-acceptance",
