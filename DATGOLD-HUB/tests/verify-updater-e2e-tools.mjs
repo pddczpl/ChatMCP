@@ -59,7 +59,7 @@ try {
   // ----------------------------------------------------------------------------------------------------------------------------- 1. the version of a build
   {
     assert.match(repoVersion, /^\d+\.\d+\.\d+$/);
-    assert.ok(VERSION_FILES.length >= 9, `the places a build reads its version from: ${VERSION_FILES.join(', ')}`);
+    assert.ok(VERSION_FILES.length >= 8, `the places a build reads its version from: ${VERSION_FILES.join(', ')}`);
     const root = copyVersionFiles(folder('tree'));
     const before = snapshot(root);
     assert.equal(readBuildVersion(root), repoVersion, 'the tree as it is committed says one version');
@@ -80,16 +80,14 @@ try {
     assert.equal(read(root, 'DATGOLD-HUB/lib/manager.mjs').match(/export const VERSION = '([^']+)'/)?.[1], '9.8.7', 'lib/manager.mjs VERSION');
     const uiBuild = read(root, 'DATGOLD-HUB/hub.mjs').match(/export const UI_BUILD = '([^']+)'/)?.[1];
     assert.equal(uiBuild, '9.8.7-react-agent', 'hub.mjs UI_BUILD');
-    assert.equal(read(root, 'DATGOLD-HUB/web/react-app.js').match(/const BUILD = '([^']+)'/)?.[1], uiBuild, 'web/react-app.js BUILD = hub.mjs UI_BUILD (the dashboard would refuse to talk to the Hub)');
     assert.equal(read(root, 'DATGOLD-HUB/ui/src/lib/api.ts').match(/const UI_BUILD = '([^']+)';/)?.[1], uiBuild, 'ui/src/lib/api.ts UI_BUILD = hub.mjs UI_BUILD (the UI would be refused with 409)');
-    assert.equal(read(root, 'DATGOLD-HUB/web/react-app.js').match(/const uiVersion = '([^']+)'/)?.[1], '9.8.7', 'web/react-app.js uiVersion');
     const ui = JSON.parse(read(root, 'DATGOLD-HUB/ui/package.json'));
     const lock = JSON.parse(read(root, 'DATGOLD-HUB/ui/package-lock.json'));
     assert.deepEqual([ui.version, lock.version, lock.packages[''].version], ['9.8.7', '9.8.7', '9.8.7'], 'the UI package and its lock file');
     for (const project of ['desktop-shell/ChatMCP.csproj', 'installer/ChatMCP.Installer.csproj']) {
       assert.equal(read(root, project).match(/<Version>([^<]+)<\/Version>/)?.[1], '9.8.7', `${project} <Version> (the version of the program, and of the setup the shell compares with)`);
     }
-    ok('and what was written is one version everywhere, by the rules of tests/verify-docs.mjs (package.json, manager.mjs, the three UI_BUILD places, the UI package and its lock, the two programs)');
+    ok('and what was written is one version everywhere, by the rules of tests/verify-docs.mjs (package.json, manager.mjs, the two UI_BUILD places, the UI package and its lock, the two programs)');
   }
 
   // a second pass on the same tree: from the version that is there now

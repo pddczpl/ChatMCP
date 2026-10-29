@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { createHash } from 'node:crypto';
-import { createHubServer } from '../hub.mjs';
+import { createHubServer, UI_BUILD } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { PermissionGate } from '../lib/permissions.mjs';
 import { StudioTerminal } from '../lib/studio-terminal.mjs';
@@ -155,8 +155,13 @@ try{
   try{[r,v]=await save('race2.txt','w1 edited\n',race2Read.sha256);}finally{manager.studio.checkpoint=realCheckpoint;}
   eq([r.status,v.code],[409,'stale_revision'],'a change while the checkpoint is taken is refused');
   ok(same(await onDisk('race2.txt'),Buffer.from('w2 during the snapshot\n')));
-  const html=await fetch(origin+'/').then(r=>r.text());ok(html.includes('id="root"')&&html.includes('react-app.js'));
-  const script=await fetch(origin+'/react-app.js').then(r=>r.text());ok(script.includes('/api/studio/permissions/decide')&&script.includes('/api/studio/restore'));
-  const css=await fetch(origin+'/react.css').then(r=>r.text());ok(css.includes('.studio-columns'));
+  // The dashboard is the Vite build in web/dist: its entry script and its stylesheet are the hashed files that index.html names.
+  const html=await fetch(origin+'/').then(r=>r.text());
+  const entry=html.match(/<script[^>]+src="\.\/(assets\/index-[^"]+\.js)"/)?.[1];
+  const sheet=html.match(/<link[^>]+rel="stylesheet"[^>]+href="\.\/(assets\/[^"]+\.css)"/)?.[1];
+  ok(html.includes('id="root"')&&entry&&sheet&&!html.includes('react-app.js'));
+  const script=await fetch(origin+'/'+entry).then(r=>r.text());ok(script.includes('/api/studio/permissions/decide')&&script.includes('/api/studio/restore')&&script.includes(UI_BUILD));
+  const css=await fetch(origin+'/'+sheet);ok(css.status===200&&/text\/css/.test(css.headers.get('content-type')||''));
+  for(const gone of ['/classic','/legacy','/react-app.js','/ui-logic.js','/onboarding.js','/app.js','/studio.js','/style.css','/studio.css','/react.css','/vendor/react.production.min.js','/hub-session.js','/login.html']){const response=await fetch(origin+gone);eq(response.status,404,`the removed legacy route ${gone} answers 404`);await response.arrayBuffer();}
   console.log(`PASS: ${n} Studio 2.0 HTTP checks (CSRF, path security, review, Git rollback, terminal, plan, UI assets)`);
 }finally{await manager.terminal.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true,maxRetries:20,retryDelay:200}).catch(()=>{});}
