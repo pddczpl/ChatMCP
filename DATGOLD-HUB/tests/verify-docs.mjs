@@ -35,13 +35,13 @@ assert.match(version, /^\d+\.\d+\.\d+$/, 'package.json: version is not x.y.z');
   const managerVersion = read(path.join(HUB, 'lib', 'manager.mjs')).match(/export const VERSION = '([^']+)'/)?.[1];
   assert.equal(managerVersion, version, `lib/manager.mjs VERSION (${managerVersion}) differs from package.json (${version})`);
   const uiBuild = read(path.join(HUB, 'hub.mjs')).match(/export const UI_BUILD = '([^']+)'/)?.[1];
-  const bundleBuild = read(path.join(HUB, 'web', 'react-app.js')).match(/const BUILD = '([^']+)'/)?.[1];
   assert.ok(uiBuild, 'hub.mjs: UI_BUILD not found');
   const uiApiBuild = read(path.join(HUB, 'ui', 'src', 'lib', 'api.ts')).match(/const UI_BUILD = '([^']+)';/)?.[1];
-  assert.equal(bundleBuild, uiBuild, `web/react-app.js BUILD (${bundleBuild}) differs from hub.mjs UI_BUILD (${uiBuild}); the dashboard would refuse to talk to the Hub`);
+  const uiPackageVersion = JSON.parse(read(path.join(HUB, 'ui', 'package.json'))).version;
+  assert.equal(uiPackageVersion, version, `ui/package.json version (${uiPackageVersion}) differs from package.json (${version})`);
   assert.equal(uiApiBuild, uiBuild, `ui/src/lib/api.ts UI_BUILD (${uiApiBuild}) differs from hub.mjs UI_BUILD (${uiBuild}); modern UI requests would be rejected with 409`);
   assert.ok(uiBuild.startsWith(`${version}-`), `UI_BUILD ${uiBuild} does not start with the version ${version}-`);
-  ok(`one version everywhere in the code: package.json = lib/manager.mjs = ${version}; hub.mjs UI_BUILD = web/react-app.js BUILD = ui/src/lib/api.ts UI_BUILD = ${uiBuild}`);
+  ok(`one version everywhere in the code: package.json = lib/manager.mjs = ui/package.json = ${version}; hub.mjs UI_BUILD = ui/src/lib/api.ts UI_BUILD = ${uiBuild}`);
 }
 
 function walk(folder, { skip = new Set(['node_modules', '.git', 'test-results', 'vendor', '.generated', '__pycache__']) } = {}) {

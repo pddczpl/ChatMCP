@@ -23,8 +23,8 @@ CSRF checks remain as defense in depth.
 `EventSource` cannot send an `Authorization` header. The alternative, a cookie issued after a bearer-authenticated bootstrap, was
 rejected: cookies belong to a host, not a port, so a second Hub on another port (or any `127.0.0.1:<port>` dev server, including a
 Preview iframe: same-site) would share or overwrite it, and a stale cookie after a Hub restart is invisible to `EventSource` (it
-just retries) while `fetch` sees the 401 and can show "reopen DatGold". The React UI streams through `ui/src/lib/sse.ts`; the two
-older dashboards (`/classic`, `/legacy`) load `web/hub-session.js`, which gives them a fetch-based `EventSource` and the header.
+just retries) while `fetch` sees the 401 and can show "reopen DatGold". The React UI streams through `ui/src/lib/sse.ts`. (The two
+older dashboards and their `web/hub-session.js` were removed in P8; their routes answer 404.)
 
 ## How a page gets the secret
 
