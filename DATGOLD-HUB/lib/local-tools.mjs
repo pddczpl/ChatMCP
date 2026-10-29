@@ -219,16 +219,25 @@ export class LocalTools {
     return typeof tool.check === 'function' ? tool.check(value) : [];
   }
 
-  /** Existing files a call is about to change or delete, for a targeted pre-change checkpoint. */
-  async touchedPaths(name, args = {}) {
+  /**
+   * Existing files a call is about to change or delete, for a targeted pre-change checkpoint. With `includeAbsent` the paths the call is about to CREATE come after them (write_file,
+   * every file of files_write_batch, the destination of move_path and, when a folder is moved, the files that will appear in it): the checkpoint records them as absent, so that a
+   * review can tell a file the task created from one that was already there. Without it the answer is only what exists today.
+   */
+  async touchedPaths(name, args = {}, { includeAbsent = false } = {}) {
     const op = String(name).replace(/^local\./, '');
     const input = isObject(args) ? args : {};
     const files = new Set();
-    const addFile = async (value) => {
+    const absent = new Set();
+    const addFile = async (value, { creates = false } = {}) => {
       if (typeof value !== 'string' || !value) return;
       const target = await this.workspace.resolve(path.isAbsolute(value) ? await this.#spellInsideRoot(value) : value);
       const stat = await fs.lstat(target.absolute).catch(() => null);
-      if (!target.relative || !stat) return;
+      if (!target.relative) return;
+      if (!stat) {
+        if (includeAbsent && creates && !isProtectedPath(target.relative)) absent.add(target.relative);
+        return;
+      }
       if (stat.isFile() && !isProtectedPath(target.relative)) files.add(target.relative);
       else if (stat.isDirectory()) {
         for await (const file of this.#walk(target.absolute, target.root, { includeIgnored: true, state: { visited: 0 } })) {
@@ -237,8 +246,21 @@ export class LocalTools {
         }
       }
     };
+    // Moving a folder to a place where nothing is: its files appear there under the same relative names.
+    const addMovedTree = async (source, destination) => {
+      if (!includeAbsent || typeof source !== 'string' || typeof destination !== 'string' || !source || !destination) return;
+      const from = await this.workspace.resolve(path.isAbsolute(source) ? await this.#spellInsideRoot(source) : source);
+      const to = await this.workspace.resolve(path.isAbsolute(destination) ? await this.#spellInsideRoot(destination) : destination);
+      if (!from.relative || !to.relative || !(await fs.lstat(from.absolute).catch(() => null))?.isDirectory() || await fs.lstat(to.absolute).catch(() => null)) return;
+      for await (const file of this.#walk(from.absolute, from.root, { includeIgnored: true, state: { visited: 0 } })) {
+        if (absent.size >= LIMITS.checkpointFiles) break;
+        const moved = `${to.relative}${file.rel.slice(from.relative.length)}`;
+        if (!isProtectedPath(moved)) absent.add(moved);
+      }
+    };
     try {
-      if (op === 'write_file' || op === 'edit_file' || op === 'files_apply_patch') await addFile(input.path);
+      if (op === 'write_file') await addFile(input.path, { creates: true });
+      else if (op === 'edit_file' || op === 'files_apply_patch') await addFile(input.path);
       else if (['rename_symbol','format_document','organize_imports'].includes(op) && input.apply === true){
         await addFile(input.file);
         if(Array.isArray(input.expected_files)){
@@ -246,12 +268,12 @@ export class LocalTools {
         }
       }
       else if (op === 'files_write_batch') {
-        for (const f of input.files ?? []) await addFile(f.path);
+        for (const f of input.files ?? []) await addFile(f.path, { creates: true });
       }
-      else if (op === 'move_path') { await addFile(input.source); await addFile(input.destination); }
+      else if (op === 'move_path') { await addFile(input.source); await addFile(input.destination, { creates: true }); await addMovedTree(input.source, input.destination); }
       else if (op === 'delete_path') await addFile(input.path);
     } catch { /* an invalid path is reported by the call itself */ }
-    return [...files].slice(0, LIMITS.checkpointFiles);
+    return [...files, ...absent].slice(0, LIMITS.checkpointFiles);
   }
 
   /**

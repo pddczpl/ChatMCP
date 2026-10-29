@@ -27,6 +27,7 @@ import { ATTACHMENT_LIMITS, PROJECT_FOLDER_ADVICE, base64Length, limitLabel } fr
 import { agentOptionsView } from './agent-options.mjs';
 import { prepareModelInput, retentionNotice } from './compaction-v2.mjs';
 import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
+import { publicToolInput } from './tool-event-input.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -44,6 +45,8 @@ const TEXT_EXTENSIONS = /\.(?:txt|md|json|js|jsx|ts|tsx|mjs|cjs|py|cs|go|rs|java
 // Whole groups of four, the alphabet, and at most two = at the end. The check that was here, a group of four repeated, made the regular expression engine keep a place for every group and
 // ran out of stack on a picture of about 4 MB ("Maximum call stack size exceeded"); a class repeated costs no stack.
 const isBase64 = (text) => text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text);
+/** `{ input }` when a call has a path or a command to announce (lib/tool-event-input.mjs), else nothing: an empty object on every event would only be noise. */
+const toolEventInput = (args) => { const input = publicToolInput(args); return Object.keys(input).length > 0 ? { input } : {}; };
 // What the person is told when a checkpoint took pictures out of the request (lib/context-compaction.mjs tells the model in the checkpoint itself): the budget is the model's window, and with one
 // the Hub does not know it plans on 32,768 tokens.
 export const pictureNotice = (count) => count > 0 ? ` ${count} ảnh đính kèm không còn trong yêu cầu gửi model vì vượt ngân sách ngữ cảnh: đặt đúng "Ngữ cảnh model" trong cấu hình, hoặc gửi ít ảnh hơn.` : '';
@@ -620,8 +623,9 @@ export class AgentRunner {
       if (task.pendingCall?.phase === 'awaiting_approval') task.pendingCall.phase = approved ? 'executing' : 'refused';
       this.#advance(task, approved ? 'running' : (context.activeBeforeApproval ?? 'running'), event.type);
     } else return;
-    // Not awaited: this runs inside the gate. The marker reaches the disk in order with every other write of this task.
-    void this.#persist(task, { at: now(), type: 'state', state: task.state, reason: event.type, toolName: event.toolName ?? null });
+    // Not awaited: this runs inside the gate. The marker reaches the disk in order with every other write of this task. It names the call it is about (the one in flight), so that an approval
+    // can be tied to the tool_start and the tool_result of that call.
+    void this.#persist(task, { at: now(), type: 'state', state: task.state, reason: event.type, toolName: event.toolName ?? null, callId: task.pendingCall?.callId ?? null });
   }
 
   /**
@@ -645,7 +649,7 @@ export class AgentRunner {
     }
     if (context.approvalOpen) {
       context.approvalOpen = false;
-      await this.#persist(task, { at: now(), type: 'tool_decision', toolName: info.name, allowed: info.allowed, category: info.category });
+      await this.#persist(task, { at: now(), type: 'tool_decision', toolName: info.name, callId: call?.callId ?? null, allowed: info.allowed, category: info.category });
     }
   }
 
@@ -1677,7 +1681,7 @@ export class AgentRunner {
       // marked upstream and stop this run: the operation may already have run.
       if (error.upstream || context.controller.signal.aborted || !['invalid_arguments', 'unknown_function', 'unknown_tool', 'unknown_capability'].includes(error.code)) throw error;
       const result = { isError: true, error: { code: error.code, message: this.#redact(error.message) }, executed: false };
-      await this.#event(context.task, 'tool_error', result.error.message, { toolName: call.name, status: 'error' }, { call_id: call.call_id, result });
+      await this.#event(context.task, 'tool_error', result.error.message, { toolName: call.name, status: 'error', callId: call.call_id }, { call_id: call.call_id, result });
       return result;
     }
   }
@@ -1720,14 +1724,17 @@ export class AgentRunner {
     const timeout = Number.isFinite(context.deadline) ? Math.max(1, Math.min(TOOL_TIMEOUT, context.deadline - Date.now())) : TOOL_TIMEOUT;
     // `phase: 'executing'` is the cautious default: until the permission guard says otherwise, the call may have taken effect.
     task.pendingCall = { callId: call.call_id, toolName, startedAt: now(), outcome: 'pending_or_unknown', phase: 'executing' };
+    // What the events of this call say about it besides their sentence: which call it is (a model may make several calls to one tool in one turn, so the name does not pair a start with
+    // its result), and its path or command. Added to the events; the sentence and the fields that were there are as they were.
+    const identity = { callId: call.call_id, ...toolEventInput(args) };
     // Commit the crash marker BEFORE invoking a possibly mutating operation.
-    await this.#event(task, 'tool_start', `Đang gọi ${toolName}.\nTham số: ${JSON.stringify(this.#clean(args)).slice(0,900)}`, { toolName, status: 'running' }, { call_id: call.call_id, arguments: args });
+    await this.#event(task, 'tool_start', `Đang gọi ${toolName}.\nTham số: ${JSON.stringify(this.#clean(args)).slice(0,900)}`, { toolName, status: 'running', ...identity }, { call_id: call.call_id, arguments: args });
     this.#check(context);
     context.inFlight = toolName;
     task.toolCalls += 1;
     let result;
     try {
-      result = await abortable(invoke({ signal: context.controller.signal, timeout, onDecision: (info) => this.#decided(context, info) }), context.controller.signal);
+      result = await abortable(invoke({ signal: context.controller.signal, timeout, onDecision: (info) => this.#decided(context, info), onCheckpoint: (info) => this.#checkpointed(context, info) }), context.controller.signal);
     } catch (error) {
       if (context.controller.signal.aborted) throw context.controller.signal.reason;
       throw Object.assign(fault('tool_transport_failed', `MCP ${toolName} mất kết nối hoặc không trả về kết quả xác định: ${this.#redact(error?.message ?? String(error))}. Không tự chạy lại thao tác.`, 502), { upstream: true });
@@ -1735,13 +1742,27 @@ export class AgentRunner {
     // Record even an isError result, then give it to the model for recovery.
     // Persist the result before clearing the pending marker.
     await this.#persist(task, { at: now(), type: 'tool_result_full', toolName, call_id: call.call_id, result });
+    // The checkpoint the guard made for THIS call (only a call that changes files has one), noted on the pending call by #checkpointed before the call ran.
+    const checkpointId = task.pendingCall?.checkpointId;
     task.pendingCall = null;
     if (task.state === 'verifying') this.#advance(task, 'running', 'check_finished');
     const isError = result?.isError === true;
     const cleanResult = this.#clean(result);
     const preview = previewOf ? previewOf(cleanResult) : this.#preview(cleanResult);
-    await this.#event(task, isError ? 'tool_error' : 'tool_result', preview, { toolName, status: isError ? 'error' : 'completed' });
+    await this.#event(task, isError ? 'tool_error' : 'tool_result', preview, { toolName, status: isError ? 'error' : 'completed', ...identity, ...(typeof checkpointId === 'string' ? { checkpointId } : {}) });
     return cleanResult;
+  }
+
+  /**
+   * Called by the guard once it has made the checkpoint of a call and BEFORE the call runs: the id is put on the record of the call that is in flight (so that the result can announce it, and
+   * so that the task file of a Hub that dies while the call runs says which checkpoint was made for it). Awaited; if it throws, the call does not run.
+   */
+  async #checkpointed(context, info) {
+    const { task } = context;
+    const call = task.pendingCall;
+    if (!call || typeof info?.id !== 'string') return;
+    call.checkpointId = info.id;
+    await this.#persist(task, { at: now(), type: 'checkpoint', toolName: call.toolName, callId: call.callId, checkpointId: info.id, partial: info.partial === true, reused: info.reused === true });
   }
 
   #preview(result) {

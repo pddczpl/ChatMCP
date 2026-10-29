@@ -1,0 +1,85 @@
+{
+  "suite": "verify-studio-http.mjs",
+  "mutations": [
+    {
+      "name": "read-accepts-lossy-text",
+      "what": "read() hands out the text of a file that is not UTF-8 (UTF-16 without NUL bytes, Windows-1252) with U+FFFD in it, and a save would overwrite it",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(!Buffer.from(content,'utf8').equals(bytes)) throw fail('not_utf8'", "new": "if(false) throw fail('not_utf8'" }]
+    },
+    {
+      "name": "read-opens-binary-files",
+      "what": "a file with NUL bytes (UTF-16 text) is read as text",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(bytes.includes(0)) throw fail('binary_file'", "new": "if(false) throw fail('binary_file'" }]
+    },
+    {
+      "name": "save-drops-the-bom",
+      "what": "an editor that dropped the BOM character takes the BOM out of the file",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "const restoreBom=current.encoding==='utf8-bom'&&content.charCodeAt(0)!==0xfeff;", "new": "const restoreBom=false;" }]
+    },
+    {
+      "name": "save-doubles-the-bom",
+      "what": "an editor that kept the BOM character gets a second BOM in the file",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "const restoreBom=current.encoding==='utf8-bom'&&content.charCodeAt(0)!==0xfeff;", "new": "const restoreBom=current.encoding==='utf8-bom';" }]
+    },
+    {
+      "name": "save-writes-a-lone-surrogate",
+      "what": "a lone surrogate is turned into U+FFFD by Buffer.from without a word",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(typeof content.isWellFormed==='function'&&!content.isWellFormed())throw fail('invalid_unicode'", "new": "if(false)throw fail('invalid_unicode'" }]
+    },
+    {
+      "name": "limit-is-250000",
+      "what": "the limit of the editor is 250,000 bytes, not 300,000",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "export const EDITABLE_FILE_BYTES = 300_000;", "new": "export const EDITABLE_FILE_BYTES = 250_000;" }]
+    },
+    {
+      "name": "limit-is-exclusive",
+      "what": "a text of exactly 300,000 bytes is refused",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(bytes.length>EDITABLE_FILE_BYTES)throw fail('too_large'", "new": "if(bytes.length>=EDITABLE_FILE_BYTES)throw fail('too_large'" }]
+    },
+    {
+      "name": "limit-counts-characters",
+      "what": "the limit counts characters, so 100,001 three-byte characters (300,003 bytes) are written",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(bytes.length>EDITABLE_FILE_BYTES)throw fail('too_large'", "new": "if(content.length>EDITABLE_FILE_BYTES)throw fail('too_large'" }]
+    },
+    {
+      "name": "save-body-stays-64kb",
+      "what": "a save is cut at the 64 KB of an ordinary POST, so a text over 64 KB can be opened but not saved",
+      "patches": [{ "file": "hub.mjs", "old": "const BODY_LIMIT_OF = new Map([['/api/studio/file/save', EDITOR_BODY_LIMIT]]);", "new": "const BODY_LIMIT_OF = new Map();" }]
+    },
+    {
+      "name": "route-hands-out-250000",
+      "what": "the route that serves a file stops at 250,000 bytes while save() takes 300,000",
+      "patches": [{ "file": "hub.mjs", "old": "maxBytes:Math.min(EDITABLE_FILE_BYTES,Number(pick('maxBytes'))||120000)", "new": "maxBytes:Math.min(250000,Number(pick('maxBytes'))||120000)" }]
+    },
+    {
+      "name": "save-checkpoint-is-the-bounded-snapshot",
+      "what": "the checkpoint before a save is the snapshot of source files again, which holds no .txt",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "files:[target.relative],maxFiles:1,maxTotalBytes:10*1024*1024", "new": "maxFiles:250,maxTotalBytes:10*1024*1024" }]
+    },
+    {
+      "name": "no-recheck-after-the-checkpoint",
+      "what": "a change made while the checkpoint was being taken is overwritten",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(sha(fresh)!==expectedSha)throw fail('stale_revision','File thay đổi trong lúc tạo checkpoint; chưa ghi dữ liệu.',409);", "new": "" }]
+    },
+    {
+      "name": "save-ignores-the-revision",
+      "what": "a change made after the file was read is overwritten",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(current.sha256!==expectedSha)throw fail('stale_revision','File đã thay đổi; tải lại trước khi lưu.',409);", "new": "" }]
+    },
+    {
+      "name": "answer-sha-is-of-the-content-sent",
+      "what": "the answer carries the sha of the text the editor sent, not of the bytes written (they differ when the BOM was put back)",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "sha256:sha(bytes),...(restoreBom?{bomRestored:true}:{})", "new": "sha256:sha(Buffer.from(content,'utf8')),...(restoreBom?{bomRestored:true}:{})" }]
+    },
+    {
+      "name": "unchanged-save-rewrites",
+      "what": "saving what is already there takes a checkpoint and rewrites the file",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(sha(bytes)===expectedSha)return {ok:true,path:target.relative,unchanged:true,sha256:expectedSha};", "new": "" }]
+    },
+    {
+      "name": "read-says-nothing-of-the-encoding",
+      "what": "read() reports every file as UTF-8 with LF",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "encoding:content.charCodeAt(0)===0xfeff?'utf8-bom':'utf8',eol:detectEol(content)", "new": "encoding:'utf8',eol:'lf'" }]
+    }
+  ]
+}

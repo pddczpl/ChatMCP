@@ -13,6 +13,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
 - [Architecture](ARCHITECTURE.md) — System components, security model, and task state machine
 - [Hub authentication](HUB-AUTH.md) — Per-launch bearer secret, session file, dashboard sign-in ticket, and what it does not protect
+- [Review API (Hub side)](REVIEW-API.md) — The events of a tool call (`callId`, `input`, `checkpointId`), the review of a whole task as full texts, rejecting a file the task created, and the text save with its 300 KB limit
 - [Claims map](CLAIMS.md) — Which claim of the README and release notes is exercised by which test on the production path, and which is not (the unmapped ratchet)
 - [CI health](CI-HEALTH.md) — Workflow triggers (one run per push), documentation gates, `scripts/ci-health.mjs` definitions and the 2026-10-19 baseline
 - [Threat model](THREAT-MODEL.md) — Hub credential, Companion outbound filter, Read Only classifier, lifecycle hooks, agent results, project instructions and skills, and the list of models with its one optional download: assets, actors, mitigations with code references, residual risks

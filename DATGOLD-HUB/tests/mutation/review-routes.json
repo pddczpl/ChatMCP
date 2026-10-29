@@ -1,0 +1,20 @@
+{
+  "suite": "verify-hub-auth.mjs",
+  "mutations": [
+    {
+      "name": "task-review-route-undeclared",
+      "what": "GET /api/studio/task-review is answered but is not one of the declared routes, so the bearer gate of the suite never asks it",
+      "patches": [{ "file": "hub.mjs", "old": "'/api/studio/review','/api/studio/task-review',", "new": "'/api/studio/review'," }]
+    },
+    {
+      "name": "reject-created-route-undeclared",
+      "what": "POST /api/studio/review/reject-created is answered but is not one of the declared routes",
+      "patches": [{ "file": "hub.mjs", "old": "'/api/studio/restore-checkpoint','/api/studio/review/reject-created',", "new": "'/api/studio/restore-checkpoint'," }]
+    },
+    {
+      "name": "reject-created-route-declared-not-answered",
+      "what": "POST /api/studio/review/reject-created is declared but nothing answers it",
+      "patches": [{ "file": "hub.mjs", "old": "case '/api/studio/review/reject-created':", "new": "case '/api/studio/review/reject-created-moved':" }]
+    }
+  ]
+}
