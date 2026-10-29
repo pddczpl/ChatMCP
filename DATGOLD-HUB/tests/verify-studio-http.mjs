@@ -106,6 +106,7 @@ try{
   [r,v]=await save('bom-restore.txt',bomRead.content.slice(1)+'edited\n',bomRead.sha256);
   const afterDrop=await onDisk('bom-restore.txt');
   ok(r.ok&&v.bomRestored===true&&same(afterDrop,Buffer.concat([BOM,Buffer.from('bom restore\nedited\n','utf8')]))&&!same(afterDrop.subarray(3,6),BOM));
+  eq(v.sha256,sha256(afterDrop),'the answer carries the sha of the bytes on disk, the BOM that was put back included (not the sha of the text that was sent)');
   [r,v]=await get(readUrl('bom-restore.txt'));
   [r,v]=await save('bom-restore.txt',v.content+'more\n',v.sha256);
   ok(r.ok&&!v.bomRestored&&same(await onDisk('bom-restore.txt'),Buffer.concat([BOM,Buffer.from('bom restore\nedited\nmore\n','utf8')])));
@@ -140,9 +141,11 @@ try{
   [r,v]=await get(readUrl('race.txt'));
   const raceRead=v;
   await put('race.txt',Buffer.from('v2 by someone else\n'));
+  const checkpointsBeforeStale=await checkpointsAbout('race.txt');
   [r,v]=await save('race.txt','v1 edited\n',raceRead.sha256);
   eq([r.status,v.code],[409,'stale_revision'],'a change after the read is refused');
   ok(same(await onDisk('race.txt'),Buffer.from('v2 by someone else\n')));
+  eq(await checkpointsAbout('race.txt'),checkpointsBeforeStale,'and it is refused before a checkpoint is taken: a save that cannot happen leaves nothing behind');
   // ... or while the checkpoint was being taken.
   await put('race2.txt',Buffer.from('w1\n'));
   [r,v]=await get(readUrl('race2.txt'));

@@ -7,7 +7,6 @@
 // answer from what is on disk. A real Hub process answers the same questions over HTTP at the end.
 //
 // Expectations are written out by hand from the fixture bytes below, never derived by the code under test.
-// CLAIM: checkpoints
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -69,16 +68,18 @@ const root = await fs.realpath(temp);
 const approvers = [];
 const managers = [];
 
-async function createWorld(name) {
+async function createWorld(name, { withGit = true } = {}) {
   const workspace = path.join(root, name, 'project');
   for (const [file, bytes] of Object.entries(FILES)) {
     await fs.mkdir(path.dirname(path.join(workspace, file)), { recursive: true });
     await fs.writeFile(path.join(workspace, file), bytes);
   }
-  git(workspace, ['init', '-q']);
-  git(workspace, ['config', 'core.autocrlf', 'false']); // the machine's own setting must not decide what "the last commit" looks like here
-  git(workspace, ['add', '-A', '-f']); // .env is tracked on purpose: a tracked secret must still never come back through a review
-  git(workspace, ['commit', '-q', '-m', 'initial']);
+  if (withGit) {
+    git(workspace, ['init', '-q']);
+    git(workspace, ['config', 'core.autocrlf', 'false']); // the machine's own setting must not decide what "the last commit" looks like here
+    git(workspace, ['add', '-A', '-f']); // .env is tracked on purpose: a tracked secret must still never come back through a review
+    git(workspace, ['commit', '-q', '-m', 'initial']);
+  }
   const manager = new HubManager({ dataDirectory: path.join(root, name, 'data'), bundleRoot, log: () => {} });
   assembleStudio(manager, { bundleRoot });
   await manager.permissions.load();
@@ -307,13 +308,17 @@ try {
     equal(review.files.some((entry) => entry.path === '.env'), false, 'a tracked secret that a command changed is not listed');
     check(!JSON.stringify(review).includes('not-a-real-key') && !JSON.stringify(review).includes('changed-by-a-command'), 'and neither its old nor its new content is in the answer');
     check(review.omitted.protected >= 1, 'the answer says that something protected was left out');
-    // The task has stopped; the person edits a file that only the snapshot holds. Without the end of the task the review cannot tell that edit from the task's; with it, it can.
+    // The task has stopped; the person edits a file that only the snapshot holds (README.md) and one that only Git knows (counter.txt: no snapshot holds a .txt). Without the end of the
+    // task the review cannot tell those edits from the task's; with it, it can.
     const stopped = new Date().toISOString();
     await sleep(30);
     await fs.writeFile(on('README.md'), '# the person edited this after the task\n');
+    await fs.writeFile(on('counter.txt'), '99\n');
     const later = await studio.taskReview({ taskId });
     const readme = fileOf(later, 'README.md');
     equal([readme.status, readme.partial, readme.baselineText], ['modified', true, '# Demo\n'], 'without the end of the task a later edit of a file in the snapshot is listed, marked partial');
+    const counter = fileOf(later, 'counter.txt');
+    equal([counter.baselineSource, counter.partial, counter.baselineText, counter.currentText], ['git_head', true, '0\n', '99\n'], 'and so is a later edit of a file that only Git knows');
     equal((await studio.taskReview({ taskId, until: stopped })).files.map((entry) => entry.path), ['made.bin', 'made.txt', 'notes.txt', 'src/app.py'], 'with it, only what was written while the task ran (the files of the commands, found through the snapshot and Git)');
     await fs.writeFile(on('README.md'), FILES['README.md']);
     await assert.rejects(() => studio.rejectCreated({ taskId, file: 'made.txt', expectedSha: sha(Buffer.from('made by a command\n')) }), (error) => error.code === 'stale_review' || error.code === 'not_rejectable'); checks += 1;
@@ -333,6 +338,15 @@ try {
     equal([app.partial, app.baselineText, app.currentText], [false, 'def add(a, b):\n    return a - b\n', 'rewritten by a command\n'], 'the edit came first: its checkpoint is the baseline, exact');
     const readme = fileOf(review, 'README.md');
     equal([readme.partial, readme.baselineText, readme.currentText], [true, '# Demo\n', '# rewritten\n'], 'the readme was only in a snapshot: partial');
+    // After the task the person rewrites the file the task named and a file only the snapshot holds.
+    const stopped = new Date().toISOString();
+    await sleep(30);
+    await fs.writeFile(on('src/app.py'), 'the person rewrote this after the task\n');
+    await fs.writeFile(on('tools/noop.js'), '// the person edited this after the task\n');
+    equal((await studio.taskReview({ taskId })).files.map((entry) => entry.path), ['README.md', 'src/app.py', 'tools/noop.js'], 'without the end of the task the snapshot cannot tell the person\'s edit of noop.js from the task\'s');
+    const closed = await studio.taskReview({ taskId, until: stopped });
+    equal(closed.files.map((entry) => entry.path), ['README.md', 'src/app.py'], 'with it a file a call named stays the task\'s whatever happened to it afterwards (it differs from what the task found), and a file only the snapshot holds does not');
+    equal([fileOf(closed, 'src/app.py').partial, fileOf(closed, 'src/app.py').currentText], [false, 'the person rewrote this after the task\n'], 'with its exact baseline');
   });
 
   await section('two tasks never share a snapshot, even when nothing changed between them', async () => {
@@ -485,6 +499,28 @@ try {
     await fs.writeFile(on('src/app.py'), 'def add(a, b):\n    return a ** b\n');
     const changed = await studio.taskReview({ taskId });
     equal([fileOf(changed, 'src/app.py').accepted, fileOf(changed, 'src/fresh.py').accepted], [false, true], 'a file that changed since is no longer accepted');
+  });
+
+  await section('a copy in a checkpoint that does not match its sha is never shown as the baseline', async () => {
+    reset(world);
+    const taskId = randomUUID();
+    equal(failures(await runTask(world, taskId, [['local.edit_file', { path: 'notes.txt', old_string: 'milk', new_string: 'tea' }]])), [], 'the task ran');
+    const [meta] = await metasOf(studio, taskId);
+    await fs.writeFile(path.join(studio.directory, 'checkpoints', meta.id, 'files', 'notes.txt'), 'someone replaced this copy\n');
+    const notes = fileOf(await studio.taskReview({ taskId }), 'notes.txt');
+    equal([notes.status, notes.textUnavailable, notes.baselineText, notes.currentText, notes.baselineSha, notes.partial], ['modified', 'checkpoint_corrupt', null, null, sha(FILES['notes.txt']), true], 'no text for either side, the sha that was recorded, and partial');
+  });
+
+  await section('without Git the review still answers from the checkpoints, and says what it cannot see', async () => {
+    const plain = await createWorld('plain', { withGit: false });
+    const taskId = randomUUID();
+    equal(failures(await runTask(plain, taskId, [
+      ['local.edit_file', { path: 'src/app.py', old_string: 'a - b', new_string: 'a + b' }],
+      ['local.run_command', { command: 'node tools/make-bytes.js', description: 'a command that writes several files' }],
+    ])), [], 'the task ran');
+    const review = await plain.studio.taskReview({ taskId });
+    equal(review.files.map((entry) => entry.path), ['src/app.py'], 'what the checkpoints know is reviewed; what only Git could have found (a .txt, a new file) is not');
+    equal(review.limitations.map((note) => note.code), ['git_unavailable'], 'and the answer says that it could not ask Git');
   });
 
   console.log(`PASS: ${checks} task review checks`);

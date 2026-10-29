@@ -7,7 +7,6 @@
 //   B. A task file written before these fields existed still loads, and loading adds nothing to it.
 //   C. The review of the task over HTTP: the same checkpoints, a request cannot forge one, a created file is moved to the undo folder only for the sha that was reviewed.
 //   D. While a task runs nothing is saved from the editor or rejected; when it has stopped both are.
-// CLAIM: checkpoints
 import fs from 'node:fs';
 import path from 'node:path';
 import { eventually, runScenario, sha256 } from './e2e/harness.mjs';
@@ -53,6 +52,8 @@ await runScenario({
       turn: (ctx) => {
         if (ctx.turn === 0) return calls(['write_file', { path: 'out/a.txt', content: 'A\n' }], ['read_file', { path: 'out/a.txt' }], ['write_file', { path: 'out/b.txt', content: 'B\n' }]);
         if (ctx.turn === 3) return call('run_command', { command: 'node ok.js', description: 'runs a script that succeeds' });
+        // A function the Hub does not have: it answers with an error the model can read, and the event of that error must say which call it was.
+        if (ctx.turn === 4) return call('no_such_tool', { path: 'x' });
         return say('Xong.');
       },
       // A write that waits for the person to decide.
@@ -74,7 +75,9 @@ await runScenario({
   t.check(starts.every((event) => typeof event.callId === 'string' && event.callId.length > 0) && new Set(starts.map((event) => event.callId)).size === 4, 'each start has a callId of its own', JSON.stringify(starts.map((event) => event.callId)));
   const pairs = starts.map((start) => ({ start, ends: ends.filter((end) => end.callId === start.callId) }));
   t.check(pairs.every((pair) => pair.ends.length === 1 && pair.ends[0].toolName === pair.start.toolName && pair.ends[0].type === 'tool_result'), 'every start has exactly one result with the same callId, of the same tool');
-  t.equal(ends.length, 4, 'and there is no result without a start');
+  const unpaired = ends.filter((end) => !starts.some((start) => start.callId === end.callId));
+  t.check(ends.length === 5 && unpaired.length === 1 && unpaired[0].type === 'tool_error' && unpaired[0].toolName === 'no_such_tool' && typeof unpaired[0].callId === 'string' && !('input' in unpaired[0]) && !('checkpointId' in unpaired[0]),
+    'the only result without a start is the error for the function the Hub does not have, and it says which call it was', JSON.stringify(unpaired));
   t.equal(pairs.map((pair) => pair.start.input), [{ path: 'out/a.txt' }, { path: 'out/a.txt' }, { path: 'out/b.txt' }, { command: 'node ok.js' }], 'the input is the path or the command, nothing else');
   t.equal(pairs.map((pair) => pair.ends[0].input), pairs.map((pair) => pair.start.input), 'and the result repeats it, so that it can be read without its start (the log keeps the last events only)');
   const [writeA, readA, writeB, command] = pairs.map((pair) => pair.ends[0]);
@@ -82,7 +85,7 @@ await runScenario({
   t.check(!('checkpointId' in readA), 'the read between them has none: the checkpoint of the write before it is not inherited');
   t.check(typeof command.checkpointId === 'string' && command.checkpointId !== writeB.checkpointId, 'a command has the snapshot made for it');
   t.check(starts.every((event) => !('checkpointId' in event)), 'a start does not have one: it is made after the start is announced');
-  t.check(starts.every((event) => event.status === 'running' && event.message.startsWith(`Đang gọi ${event.toolName}.`)) && ends.every((event) => event.status === 'completed'), 'the status and the message of the events are as they were');
+  t.check(starts.every((event) => event.status === 'running' && event.message.startsWith(`Đang gọi ${event.toolName}.`)) && pairs.every((pair) => pair.ends[0].status === 'completed') && unpaired[0].status === 'error', 'the status and the message of the events are as they were');
   const metaOf = (id) => JSON.parse(fs.readFileSync(path.join(stateDir, 'studio', 'checkpoints', id, 'meta.json'), 'utf8'));
   t.equal([metaOf(writeA.checkpointId).taskId, metaOf(writeA.checkpointId).absent, metaOf(writeA.checkpointId).files], [started.id, ['out/a.txt'], []], 'the checkpoint of the first write is the one that recorded out/a.txt as absent, for this task');
   t.equal([metaOf(writeB.checkpointId).absent, metaOf(writeB.checkpointId).targeted, metaOf(command.checkpointId).targeted], [['out/b.txt'], true, false], 'the second write\'s is its own, and the command\'s is a snapshot of the workspace');

@@ -1,0 +1,159 @@
+{
+  "suite": "verify-task-review.mjs",
+  "mutations": [
+    {
+      "name": "checkpoint-without-the-task",
+      "what": "a checkpoint does not say which task made it, so no task has a baseline",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "taskId:owner,files:stored", "new": "taskId:null,files:stored" }]
+    },
+    {
+      "name": "guard-forgets-the-task-of-a-file-tool",
+      "what": "the guard makes the checkpoint of a file tool without the id of the task",
+      "patches": [{ "file": "lib/manager.mjs", "old": "request = { label, taskId: binding.taskId, files, maxFiles: 140, maxTotalBytes: 32 * 1024 * 1024 };", "new": "request = { label, files, maxFiles: 140, maxTotalBytes: 32 * 1024 * 1024 };" }]
+    },
+    {
+      "name": "guard-forgets-the-task-of-a-command",
+      "what": "the guard makes the snapshot before a command without the id of the task",
+      "patches": [{ "file": "lib/manager.mjs", "old": "let request = { label, taskId: binding.taskId, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };", "new": "let request = { label, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };" }]
+    },
+    {
+      "name": "guard-never-asks-for-new-files",
+      "what": "the guard asks which files exist, not which are about to be created, so a new file is not on record as absent",
+      "patches": [{ "file": "lib/manager.mjs", "old": "const files = await this.localTools.touchedPaths(name, args, { includeAbsent: true });", "new": "const files = await this.localTools.touchedPaths(name, args);" }]
+    },
+    {
+      "name": "checkpoint-forgets-what-was-absent",
+      "what": "a file that does not exist yet is not recorded as absent",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "absent.push(relative)", "new": "void relative" }]
+    },
+    {
+      "name": "checkpoints-are-not-numbered",
+      "what": "two checkpoints of one millisecond cannot be told apart",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "seq:++this.#checkpointSeq", "new": "seq:0" }]
+    },
+    {
+      "name": "ties-go-the-wrong-way",
+      "what": "of two checkpoints with the same timestamp the later one is taken for the earlier",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "(a.seq??0)-(b.seq??0)", "new": "(b.seq??0)-(a.seq??0)" }]
+    },
+    {
+      "name": "baseline-is-the-latest-checkpoint",
+      "what": "the baseline of a file is the last checkpoint that knows it, not the first",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(!evidence.has(key))evidence.set(key,{path:relative,key,explicit,...entry});", "new": "evidence.set(key,{path:relative,key,explicit,...entry});" }]
+    },
+    {
+      "name": "review-reads-the-capped-list",
+      "what": "only the last 100 checkpoints of a task are read, as checkpoints() would give them",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "return {metas,unreadable};", "new": "return {metas:metas.slice(-100),unreadable};" }]
+    },
+    {
+      "name": "checkpoint-names-the-file-as-typed",
+      "what": "a file is stored under the spelling the tool was given (SRC/APP.PY), not the one it has on disk, so one file is two entries",
+      "platforms": ["win32"],
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "try{const real=await canonicalRelative(target.root,target.absolute);if(real.inside)relative=real.relative;}catch{ /* reported below */ }", "new": "relative=target.relative;" }]
+    },
+    {
+      "name": "snapshots-are-shared-between-tasks",
+      "what": "a task that asks for a snapshot when nothing changed gets the one of another task, which is not in its review",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "&&this.lastCheckpoint.taskId===owner)return", "new": ")return" }]
+    },
+    {
+      "name": "snapshot-baseline-looks-exact",
+      "what": "a baseline taken from the snapshot of the whole workspace is not marked partial",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "partial:ev.meta.targeted!==true", "new": "partial:false" }]
+    },
+    {
+      "name": "any-created-file-can-be-rejected",
+      "what": "a file that Git found, which nothing recorded as absent, can be moved out of the workspace",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "rejectable:ev.kind==='absent'&&change==='created'&&now.state==='file',", "new": "rejectable:change==='created'&&now.state==='file'," }]
+    },
+    {
+      "name": "reject-ignores-the-reviewed-sha",
+      "what": "a created file is moved away whatever its content is now",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(item.currentSha!==expectedSha.toLowerCase())throw fail('stale_review','File đã thay đổi kể từ khi xem; hãy tải lại review.',409);", "new": "" }]
+    },
+    {
+      "name": "reject-moves-without-a-copy",
+      "what": "the file leaves the workspace and no copy is made in the undo folder",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "await fs.writeFile(backup,bytes,{mode:0o600});", "new": "await fs.mkdir(backup,{recursive:true});" }]
+    },
+    {
+      "name": "secrets-come-back-in-a-review",
+      "what": "a protected file that a command changed is listed with its old and new content",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(isProtectedPath(ev.path)||PRIVATE.test(path.basename(ev.path))||ev.path.split('/').includes('.git')){omittedProtected+=1;continue;}", "new": "" }]
+    },
+    {
+      "name": "last-commit-without-line-end-conversion",
+      "what": "the baseline taken from Git is the raw blob (LF) while the working tree has CRLF, so every line looks changed",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "'cat-file','--filters'", "new": "'cat-file','blob'" }]
+    },
+    {
+      "name": "git-lists-files-older-than-the-task",
+      "what": "a file the person changed before the task started, and the end of the task, are not looked at",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(stat?.isFile()&&stat.mtimeMs>=sinceMs&&(untilMs===null||stat.mtimeMs<=untilMs))paths.push(relative);", "new": "if(stat?.isFile())paths.push(relative);" }]
+    },
+    {
+      "name": "git-lists-files-written-after-the-task",
+      "what": "what the person wrote after the task stopped is taken for the task's, when Git is the only one who knows the file",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(stat?.isFile()&&stat.mtimeMs>=sinceMs&&(untilMs===null||stat.mtimeMs<=untilMs))paths.push(relative);", "new": "if(stat?.isFile()&&stat.mtimeMs>=sinceMs)paths.push(relative);" }]
+    },
+    {
+      "name": "snapshot-files-written-after-the-task",
+      "what": "what the person wrote after the task stopped is taken for the task's, when only the snapshot of the workspace holds the file",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(!ev.explicit&&ev.kind==='file'&&context.untilMs!==null&&now.state==='file'&&now.mtimeMs>context.untilMs)return null;", "new": "" }]
+    },
+    {
+      "name": "named-files-lose-their-changes-after-the-task",
+      "what": "a file a call named is left out when it was written after the task stopped, though it is the task's file",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(!ev.explicit&&ev.kind==='file'&&context.untilMs", "new": "if(ev.kind==='file'&&context.untilMs" }]
+    },
+    {
+      "name": "corrupt-baseline-is-trusted",
+      "what": "a copy in a checkpoint that does not match its recorded sha is shown as the baseline",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "return bytes&&sha(bytes)===item.sha256?bytes:null;", "new": "return bytes;" }]
+    },
+    {
+      "name": "binary-files-are-shown-as-text",
+      "what": "a file with NUL bytes is handed out as text",
+      "patches": [
+        { "file": "lib/studio-workspace.mjs", "old": "if (bytes.subarray(0, SNIFF_BYTES).includes(0)) return { reason: 'binary' };", "new": "" },
+        { "file": "lib/studio-workspace.mjs", "old": "if (bytes.includes(0)) return { reason: 'binary' };", "new": "" }
+      ]
+    },
+    {
+      "name": "lossy-text-is-shown",
+      "what": "a file that is not UTF-8 is handed out with U+FFFD in it",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "return Buffer.from(text, 'utf8').equals(bytes) ? { text } : { reason: 'not_utf8' };", "new": "return { text };" }]
+    },
+    {
+      "name": "large-files-are-shown-whole",
+      "what": "a file over 300 KB a side is handed out as text",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if (size > limit) return { reason: 'too_large' };", "new": "" }]
+    },
+    {
+      "name": "accepting-a-created-file-fails",
+      "what": "a file the call created cannot be accepted",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "acceptable=Boolean(bytes)&&sha(bytes)===expectedSha;", "new": "acceptable=false;" }]
+    },
+    {
+      "name": "accepted-whatever-the-file-became",
+      "what": "a file stays accepted after it changed",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "accepted:currentSha!==null&&accepted.get(ev.key)?.has(currentSha)===true,", "new": "accepted:accepted.has(ev.key)," }]
+    },
+    {
+      "name": "edit-is-said-to-create",
+      "what": "edit_file on a file that does not exist is listed as a file about to be created",
+      "patches": [{ "file": "lib/local-tools.mjs", "old": "else if (op === 'edit_file' || op === 'files_apply_patch') await addFile(input.path);", "new": "else if (op === 'edit_file' || op === 'files_apply_patch') await addFile(input.path, { creates: true });" }]
+    },
+    {
+      "name": "missing-git-is-not-reported",
+      "what": "when Git cannot be asked, the review is shorter and does not say so",
+      "patches": [{ "file": "lib/studio-workspace.mjs", "old": "if(!found.available)limitations.push({code:'git_unavailable',message:'Không hỏi được Git nên không thấy các file mà lệnh shell ghi ngoài ảnh chụp workspace.'});", "new": "" }]
+    },
+    {
+      "name": "moved-folders-are-forgotten",
+      "what": "the files that appear when a folder is moved are not listed",
+      "patches": [{ "file": "lib/local-tools.mjs", "old": " await addMovedTree(input.source, input.destination);", "new": "" }]
+    }
+  ]
+}

@@ -224,7 +224,7 @@ Agent sửa file thật trong dự án của bạn. Có ba lớp an toàn, theo 
 ### Tab Files
 - **Explorer**: duyệt cây thư mục (tối đa 350 mục mỗi thư mục; ẩn `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `build`…).
 - **Tìm codebase**: tìm *Text / Symbol / Filename*.
-- **Editor**: xem file kèm SHA-256 và kích thước; **Sửa file** → **Lưu có checkpoint**. Bản ghi chỉ thành công nếu file không bị đổi từ lúc bạn mở (kiểm tra SHA-256) — để không ghi đè nhầm thay đổi của agent hay của editor khác.
+- **Editor**: xem file kèm SHA-256 và kích thước; **Sửa file** → **Lưu có checkpoint**. Bản ghi chỉ thành công nếu file không bị đổi từ lúc bạn mở (kiểm tra SHA-256) — để không ghi đè nhầm thay đổi của agent hay của editor khác. Giới hạn: file văn bản UTF-8 tối đa **300 KB** (300.000 byte); file UTF-16, Windows-1252 hay nhị phân không mở để sửa vì lưu lại sẽ làm hỏng nội dung, và lỗi nói rõ giới hạn. BOM và kiểu xuống dòng của file được giữ nguyên; không lưu được khi agent đang chạy. Chi tiết: [Review API](REVIEW-API.md).
 
 ## 10. Kiểm thử và Terminal
 
