@@ -4,7 +4,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { AgentRunner } from '../lib/agent.mjs';
+import { LocalTools } from '../lib/local-tools.mjs';
+import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { createTaskProgress, observeTaskTool } from '../lib/agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from '../lib/agent-autonomy.mjs';
 
@@ -84,7 +87,42 @@ assert.equal(await verifyHostEvidence({manager:backend,name:'local.edit_file',re
 assert.equal(await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('no-op',{kind:'execute',exitCode:0})}),null);
 assert.equal((await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('passed',{kind:'verify',exitCode:0})})).kind,'verify');
 assert.equal(await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('failed',{kind:'verify',exitCode:1})}),null);
-assert.equal((await verifyHostEvidence({manager:backend,name:'local.git_diff',result:result('diff',{diff:'diff --git a/calc.js b/calc.js',truncated:false})})).kind,'review');
+// The review receipt is made from what the REAL local git_diff returns, on a real repository. (This test once fed the verifier {diff:'...'}, a field that no tool returns: the receipt was
+// never made in a real run, and every coding run ended with "No independently recorded Git diff review".)
+{
+  const repo=path.join(root,'diff-repo');
+  await fs.mkdir(repo);
+  const git=(...args)=>{
+    const run=spawnSync('git',['-c','user.name=Test','-c','user.email=test@example.invalid','-c','commit.gpgsign=false','-c','core.autocrlf=false',...args],{cwd:repo,encoding:'utf8'});
+    assert.equal(run.status,0,'git '+args.join(' ')+': '+run.stderr);
+  };
+  await fs.writeFile(path.join(repo,'calc.js'),initial);
+  git('init','-q');git('add','-A');git('commit','-q','-m','initial');
+  const state=path.join(root,'diff-state');
+  const tools=new LocalTools({workspace:new StudioWorkspace({manager:{workspace:repo},directory:state}),stateDirectory:state});
+  const diffOf=()=>tools.call('git_diff',{});
+  const receiptOf=(taken,manager=backend)=>verifyHostEvidence({manager,name:'local.git_diff',result:taken,step:7});
+  assert.equal(await receiptOf(await diffOf()),null,'a clean tree has nothing to review');
+  await fs.writeFile(path.join(repo,'calc.js'),fixed);
+  const taken=await diffOf();
+  assert.equal(taken.isError,false,taken.content[0].text);
+  assert.match(taken.content[0].text,/\+export const add=\(a,b\)=>a\+b;/,'(premise) the real tool returned the change');
+  const review=await receiptOf(taken);
+  assert.deepEqual([review?.kind,review?.step],['review',7],'the diff of a real change is a review receipt');
+  assert.match(review.id,/^[a-f0-9]{16}$/);
+  await fs.writeFile(path.join(repo,'calc.js'),'export const add=(a,b)=>b+a;\n');
+  assert.notEqual((await receiptOf(await diffOf())).id,review.id,'another change is another diff, so another receipt');
+  assert.equal(await receiptOf(taken,{...backend,backend:'mcp'}),null,'an external MCP server cannot fabricate a review');
+  assert.equal(await receiptOf({...taken,isError:true}),null,'a failed call is no review');
+  assert.equal(await verifyHostEvidence({manager:backend,name:'local.git_log',result:taken,step:7}),null,'the digest means something only in the answer of git_diff');
+  assert.equal(await receiptOf(result('diff',{diff:'diff --git a/calc.js b/calc.js',truncated:false})),null,'a result that carries a diff field of its own is no evidence: the tool does not vouch for it');
+  assert.equal(await receiptOf(result('diff',{...taken.structuredContent,truncated:true})),null,'a diff the tool cut is no review');
+  assert.equal(await receiptOf(result('diff',{...taken.structuredContent,diffSha256:'not a digest'})),null,'a digest that is none is no review');
+  await fs.writeFile(path.join(repo,'calc.js'),Array.from({length:4000},(_,at)=>'export const line'+at+"='"+'x'.repeat(80)+"';").join('\n')+'\n');
+  const long=await diffOf();
+  assert.match(long.content[0].text,/Diff quá lớn nên đã bị cắt/,'(premise) the tool cut the long diff');
+  assert.equal(await receiptOf(long),null,'a diff shown in part is no review');
+}
 await fs.writeFile(code,initial);
 
 let savedPlan=null, locked=false,modelTurns=0;

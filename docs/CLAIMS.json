@@ -364,8 +364,8 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "candidateTest": "DATGOLD-HUB/tests/verify-objective-acceptance.mjs",
-      "reason": "No test drives the real agent loop through an edit and then looks at the receipts: tests build the receipt objects by hand.",
+      "candidateTest": "DATGOLD-HUB/tests/verify-local-backend.mjs",
+      "reason": "verify-local-backend.mjs drives the real loop and the real tools through edit_file and reads the check, file-hash and Git-review receipts that a later edit clears. Not mapped: the rule is a list of tool names (FILE_MUTATION in lib/agent-progress.mjs) that has move_file and delete_file where the Hub's tools are move_path and delete_path, so a move_path after a passing test clears nothing; the other suites build the receipts by hand.",
       "phase": "P4"
     },
     {

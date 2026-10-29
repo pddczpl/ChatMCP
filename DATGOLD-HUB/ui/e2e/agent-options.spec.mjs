@@ -145,8 +145,8 @@ test('with the switch on, the Hub matches the check it ran only after the owner 
   await confirm('objective-2:1').click();
   await expect.poll(async () => (await app.hub.task(started.id)).goalPlan.objectives.map((objective) => objective.status)).toEqual(['verified', 'verified']);
   const done = await app.hub.task(started.id);
-  // The word the completion gets for a check the Hub accepted (accepted_with_fresh_receipts_checks_by_hub) is pinned in tests/verify-objective-acceptance.mjs with receipts made by hand: a run through the real
-  // tools cannot reach it, because the local git_diff tool leaves no review receipt and a coding plan needs one before the Hub calls its completion ready.
+  // The word the completion gets for a check the Hub accepted (accepted_with_fresh_receipts_checks_by_hub) is pinned in tests/verify-objective-acceptance.mjs with receipts made by hand. A run through the real
+  // tools reaches it only when the model also takes a git_diff after its last edit (a coding plan needs that review receipt before the Hub calls its completion ready): this scripted run does not.
   expect(done.completionOutcome).toMatchObject({ requirements: 'verified', unresolvedObjectiveIds: [] });
   expect(done.goalPlan.objectives[1].evidence.map((entry) => entry.acceptedBy).sort()).toEqual(['auto_hub_check', 'local_owner', 'local_owner']);
   await expect(panel.locator('summary')).toContainText('2/2 đã xác minh');
