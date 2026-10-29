@@ -1,6 +1,15 @@
 # Lịch sử thay đổi
 
-## [3.11.1] — 2026-10-28 — Skills chosen from the project, bigger attachments and a compaction you can tune (latest release)
+## [3.11.2] — 2026-10-29 — More skills install, review receipts that hold and the Hub side of per-hunk review (latest release)
+
+It contains everything of 3.11.1 and what was merged after it (pull requests 92 to 95). It is the first release that an installed 3.11.1 can offer through the Update button.
+
+- **More skills of the catalogs install.** The SKILL.md reader understands block scalars with a chomping or indentation indicator (`description: |-`, `|+`, `|2`, `>-`), which the real `claude-api` skill of `anthropics/skills` uses: pressing Install used to stop with "Unsupported or malformed SKILL.md YAML on line 3". `claude-api` and nine skills of `github/awesome-copilot` can be installed now. **8 of the 549 skills that the five catalogs list still cannot be read** (2 of `vercel-labs/agent-skills`, 6 of `github/awesome-copilot`). The error names the skill, the key and the line of the file (the first `---` is line 1). `node DATGOLD-HUB/tests/live/check-skill-manifests.mjs --source all` is a manual, read-only check that reads every `SKILL.md` of the catalogs that the Skills card lists.
+- **A real `git_diff` leaves its review receipt, and receipts go stale when they should.** The Hub looked for a field that the real `git_diff` tool never returned, so no coding run could have a review receipt; the tool now returns the digest of a whole, non-empty diff and the Hub makes the receipt from it. A receipt also goes stale after every tool that can change the files: `move_path`, `delete_path`, `git_checkout`, `git_merge`, adding or removing a worktree and switching branches; a tool called through `mcp_call` is judged by the name it ran under. The acceptance of the objective is still yours.
+- **The Hub side of per-hunk review (no screen uses it yet).** Tool events carry `callId`, a bounded `input` and, when the guard made one for that call, `checkpointId`. `GET /api/studio/task-review?taskId=` lists the files a task changed against the first checkpoint of the task, and `POST /api/studio/review/reject-created` moves a file that the task created to the undo folder, after a verified copy. The text save of the Studio keeps the BOM and the line endings of the file and takes up to 300,000 bytes. The contract is in `docs/REVIEW-API.md`.
+- **A file that is not UTF-8 is no longer opened for editing.** `GET /api/studio/file` answers 415 `not_utf8` for a file that would not go back to the same bytes (a Windows-1252 text, for instance): it used to open, and a save replaced it with the editor's text.
+
+## [3.11.1] — 2026-10-28 — Skills chosen from the project, bigger attachments and a compaction you can tune
 
 It contains everything of 3.11.0 and what was merged after it. It is the first release that an installed 3.11.0 can offer through the Update button.
 
