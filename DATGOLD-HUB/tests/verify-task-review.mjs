@@ -307,6 +307,15 @@ try {
     equal(review.files.some((entry) => entry.path === '.env'), false, 'a tracked secret that a command changed is not listed');
     check(!JSON.stringify(review).includes('not-a-real-key') && !JSON.stringify(review).includes('changed-by-a-command'), 'and neither its old nor its new content is in the answer');
     check(review.omitted.protected >= 1, 'the answer says that something protected was left out');
+    // The task has stopped; the person edits a file that only the snapshot holds. Without the end of the task the review cannot tell that edit from the task's; with it, it can.
+    const stopped = new Date().toISOString();
+    await sleep(30);
+    await fs.writeFile(on('README.md'), '# the person edited this after the task\n');
+    const later = await studio.taskReview({ taskId });
+    const readme = fileOf(later, 'README.md');
+    equal([readme.status, readme.partial, readme.baselineText], ['modified', true, '# Demo\n'], 'without the end of the task a later edit of a file in the snapshot is listed, marked partial');
+    equal((await studio.taskReview({ taskId, until: stopped })).files.map((entry) => entry.path), ['made.bin', 'made.txt', 'notes.txt', 'src/app.py'], 'with it, only what was written while the task ran (the files of the commands, found through the snapshot and Git)');
+    await fs.writeFile(on('README.md'), FILES['README.md']);
     await assert.rejects(() => studio.rejectCreated({ taskId, file: 'made.txt', expectedSha: sha(Buffer.from('made by a command\n')) }), (error) => error.code === 'stale_review' || error.code === 'not_rejectable'); checks += 1;
     check((await disk('made.txt')).length > 0, 'a file found only through Git is never moved away');
   });

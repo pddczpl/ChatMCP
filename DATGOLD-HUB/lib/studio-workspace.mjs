@@ -348,10 +348,10 @@ export class StudioWorkspace {
     const stat=await fs.lstat(absolute).catch(error=>{if(['ENOENT','ENOTDIR'].includes(error.code))return null;throw error;});
     if(!stat)return {state:'missing'};
     if(!stat.isFile())return {state:'other'}; // a link or a folder is not a file to review
-    if(stat.size<=REVIEW_TEXT_BYTES){const bytes=await fs.readFile(absolute);return {state:'file',size:bytes.length,sha:sha(bytes),bytes};}
+    if(stat.size<=REVIEW_TEXT_BYTES){const bytes=await fs.readFile(absolute);return {state:'file',size:bytes.length,sha:sha(bytes),bytes,mtimeMs:stat.mtimeMs};}
     const hash=createHash('sha256');let head=Buffer.alloc(0);
     for await(const chunk of createReadStream(absolute)){hash.update(chunk);if(head.length<SNIFF_BYTES)head=Buffer.concat([head,chunk]).subarray(0,SNIFF_BYTES);}
-    return {state:'file',size:stat.size,sha:hash.digest('hex'),head};
+    return {state:'file',size:stat.size,sha:hash.digest('hex'),head,mtimeMs:stat.mtimeMs};
   }
   /** The file as the last commit has it, in the form the working tree has (end-of-line conversion and the like applied: `cat-file --filters`), or null when the commit has no such file. */
   async #headFile(relative,context){
@@ -363,10 +363,12 @@ export class StudioWorkspace {
     }catch{return null;}
   }
   /**
-   * Files that Git reports as changed or new and that were written since `sinceMs`: what a command may have left that no snapshot held (it keeps source files only, and only so many).
-   * A deletion is not listed (it cannot be told from one the task did not make), nor is a file older than the task (it was the person's change).
+   * Files that Git reports as changed or new and that were written between `sinceMs` (the first snapshot of the task) and `untilMs` (when the task stopped; none while it runs or when
+   * that is not known): what a command may have left that no snapshot held (it keeps source files only, and only so many). A deletion is not listed (it cannot be told from one the
+   * task did not make), nor is a file older than the task (it was the person's change). What the person writes while the task runs, or after it when its end is not known, cannot be told
+   * apart: such a file is listed, and `partial` says that its baseline is only the last commit.
    */
-  async #changedByGit(root,sinceMs,context){
+  async #changedByGit(root,sinceMs,untilMs,context){
     context.gitReady??=this.gitRunner.ensureRepo().then(()=>true,()=>false);
     if(!await context.gitReady)return {paths:[],available:false};
     let output;
@@ -381,7 +383,7 @@ export class StudioWorkspace {
       const status=entry.slice(0,2),relative=entry.slice(3);
       if(/[DU]/.test(status)||!relative)continue;
       const stat=await fs.lstat(path.join(root,relative)).catch(()=>null);
-      if(stat?.isFile()&&stat.mtimeMs>=sinceMs)paths.push(relative);
+      if(stat?.isFile()&&stat.mtimeMs>=sinceMs&&(untilMs===null||stat.mtimeMs<=untilMs))paths.push(relative);
     }
     return {paths:paths.sort().slice(0,200),available:true};
   }
@@ -405,8 +407,9 @@ export class StudioWorkspace {
    * checkpoint of the call that created it recorded as absent: rejectCreated() never touches any other file.
    * The answer also says what it is made of (`checkpoints`) and what it cannot see (`limitations`): an empty list is not "no changes" when no checkpoint is on record.
    */
-  async taskReview({taskId,file=''}={}){
+  async taskReview({taskId,file='',until=null}={}){
     if(typeof taskId!=='string'||!UUID.test(taskId))throw fail('bad_task_id','Cần ID nhiệm vụ hợp lệ.');
+    const untilMs=typeof until==='string'&&Number.isFinite(Date.parse(until))?Date.parse(until):null;
     const root=await fs.realpath(this.requireRoot());
     const keyOf=(relative)=>process.platform==='win32'?relative.toLowerCase():relative;
     let wanted=null;
@@ -417,18 +420,23 @@ export class StudioWorkspace {
     if(!metas.length)limitations.push({code:'no_checkpoints',message:'Không có checkpoint nào của nhiệm vụ này trong thư mục trạng thái của workspace này (nhiệm vụ không sửa file, chạy ở workspace hay agent khác, hoặc chạy trước khi checkpoint ghi mã nhiệm vụ). Danh sách rỗng KHÔNG có nghĩa là không có thay đổi.'});
     // Per path, the first thing a checkpoint of the task says about it.
     const evidence=new Map();
-    const note=(relative,entry)=>{const key=keyOf(relative);if(!evidence.has(key))evidence.set(key,{path:relative,key,...entry});};
+    // `explicit`: a checkpoint of a call that NAMED the file says something about it (a snapshot of the whole workspace does not name anything).
+    const note=(relative,entry)=>{
+      const key=keyOf(relative);const explicit=entry.meta.targeted===true&&entry.kind!=='git';
+      if(!evidence.has(key))evidence.set(key,{path:relative,key,explicit,...entry});
+      else if(explicit)evidence.get(key).explicit=true;
+    };
     for(const meta of metas){
       for(const item of meta.files??[])note(item.path,{kind:'file',meta,item});
       for(const relative of meta.absent??[])note(relative,{kind:'absent',meta});
       for(const skip of meta.skipped??[])if(['too_large','limit'].includes(skip.reason))note(skip.path,{kind:'skipped',meta,skip});
     }
     const accepted=await this.#acceptedFiles(metas,keyOf);
-    const context={accepted,budget:{left:REVIEW_TOTAL_TEXT_BYTES},gitReady:null};
+    const context={accepted,budget:{left:REVIEW_TOTAL_TEXT_BYTES},gitReady:null,untilMs};
     // A command can write anywhere, and the snapshot taken before it holds source files only: ask Git what else changed since the first such snapshot.
     const broad=metas.find(meta=>meta.targeted!==true);
     if(broad&&!wanted){
-      const found=await this.#changedByGit(root,Date.parse(broad.at),context);
+      const found=await this.#changedByGit(root,Date.parse(broad.at),untilMs,context);
       if(!found.available)limitations.push({code:'git_unavailable',message:'Không hỏi được Git nên không thấy các file mà lệnh shell ghi ngoài ảnh chụp workspace.'});
       for(const relative of found.paths)note(relative,{kind:'git',meta:broad});
     }
@@ -450,6 +458,9 @@ export class StudioWorkspace {
     const target=await this.resolve(ev.path).catch(()=>null);
     if(!target)return null; // it no longer resolves inside this workspace
     const now=await this.#currentFile(target.absolute);
+    // A snapshot of the whole workspace holds every source file, so a file in it that no call of the task named is the task's only if it changed while the task was running: what was
+    // written after the task stopped is somebody else's (the person's, a later task's).
+    if(!ev.explicit&&ev.kind==='file'&&context.untilMs!==null&&now.state==='file'&&now.mtimeMs>context.untilMs)return null;
     let base;
     if(ev.kind==='absent')base={exists:false,source:'absent',partial:false};
     else if(ev.kind==='file')base={exists:true,sha:ev.item.sha256,size:ev.item.bytes,source:'checkpoint',partial:ev.meta.targeted!==true};
