@@ -10,6 +10,7 @@ import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manag
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
 import { ATTACHMENT_BODY_LIMIT } from './lib/attachment-limits.mjs';
+import { EDITABLE_FILE_BYTES, EDITOR_BODY_LIMIT } from './lib/studio-workspace.mjs';
 import { publicPresets } from './lib/provider-presets.mjs';
 import { modelInfo, modelInfoQuery, modelsList, modelsQuery } from './lib/model-info.mjs';
 import { createCatalogStore } from './lib/model-catalog-store.mjs';
@@ -304,7 +305,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/sandbox': value=await terminal?.sandbox?.status()??{ready:false};break;
           case '/api/studio/preview': value=await preview?.({port:pick('port'),pathname:pick('pathname')||'/'})??{ready:false};break;
           case '/api/studio/tree': value=await studio.tree({directory:pick('directory'),limit:Number(pick('limit'))||250});break;
-          case '/api/studio/file': value=await studio.read({file:pick('file'),maxBytes:Math.min(250000,Number(pick('maxBytes'))||120000)});break;
+          case '/api/studio/file': value=await studio.read({file:pick('file'),maxBytes:Math.min(EDITABLE_FILE_BYTES,Number(pick('maxBytes'))||120000)});break;
           case '/api/studio/search': value=await studio.search({query:pick('query'),mode:pick('mode')||'text',limit:Number(pick('limit'))||60});break;
           case '/api/studio/git/status': value=await studio.gitStatus();break;
           case '/api/studio/git/refs': {
@@ -473,7 +474,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         const requestOk=origins.has(origin)&&req.headers['x-chatmcp-request']==='local-dashboard'
           &&equalToken(req.headers['x-chatmcp-csrf'],token);
         if(!requestOk)return json(403,{error:'Phiên trang localhost không hợp lệ. Tải lại trang.',code:'csrf'});
-        const payload = await bodyJson(req, ['/api/tasks/start','/api/tasks/continue'].includes(url.pathname) ? ATTACHMENT_BODY_LIMIT : 65536);
+        // A save carries the whole text of the file (up to EDITABLE_FILE_BYTES); the answer to one that is too big is save()'s own, which says what the limit is.
+        const payload = await bodyJson(req, ['/api/tasks/start','/api/tasks/continue'].includes(url.pathname) ? ATTACHMENT_BODY_LIMIT : url.pathname === '/api/studio/file/save' ? EDITOR_BODY_LIMIT : 65536);
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return json(400, { error: 'Nội dung yêu cầu phải là JSON object.' });
         const unknownAction = () => json(404, { error: `Không tìm thấy thao tác POST ${url.pathname} trên Hub ${VERSION}. Có thể dashboard và tiến trình Hub không cùng phiên bản; hãy STOP/START Hub và Ctrl+F5.`, code:'unknown_action', path:url.pathname, method:'POST', serverVersion:VERSION, uiBuild:UI_BUILD });
         const requireIdle = (message) => { if (taskEngine?.state()?.activeTaskId) throw Object.assign(new Error(message), { statusCode: 409 }); };

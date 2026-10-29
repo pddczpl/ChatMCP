@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
-import { canonicalRelative } from './fs-safe.mjs';
+import { canonicalRelative, detectEol } from './fs-safe.mjs';
 import { isProtectedPath } from './protected-paths.mjs';
 import { GitRunner } from './git-runner.mjs';
 import { scrubEnv } from './shell-runner.mjs';
@@ -17,6 +17,11 @@ const fail = (code, message, statusCode = 400) => Object.assign(new Error(messag
 const contained = (root,target) => { const relative=path.relative(root,target); return relative === '' || (!relative.startsWith('..'+path.sep) && relative !== '..' && !path.isAbsolute(relative)); };
 const capped = (value,length=120000) => String(value).slice(0,length);
 const TARGETED_FILE_BYTES = 8 * 1024 * 1024;
+/** The most text the editor can open and save: 300,000 bytes of UTF-8 (not characters). The route that serves the file and save() both use this number. */
+export const EDITABLE_FILE_BYTES = 300_000;
+/** The body of a save request: room for EDITABLE_FILE_BYTES of text even if every byte had to be written as a six-character \u00XX escape. An ordinary POST takes 64 KB. */
+export const EDITOR_BODY_LIMIT = 6 * EDITABLE_FILE_BYTES + 4096;
+const BOM_CHAR = String.fromCharCode(0xfeff);
 
 async function command(exe,args,{cwd,timeout=20000,max=350000,env=process.env}={}) {
   return await new Promise((resolve,reject)=>{
@@ -72,26 +77,40 @@ export class StudioWorkspace {
     maxBytes=Math.max(1,Math.min(500000,Number(maxBytes)||120000));
     if(stat.size>maxBytes) throw fail('file_too_large',`File ${stat.size} byte vượt giới hạn xem ${maxBytes} byte.`,413);
     const bytes=await fs.readFile(target.absolute); if(bytes.includes(0)) throw fail('binary_file','Không mở file nhị phân dưới dạng text.',415);
-    return {path:target.relative,size:stat.size,sha256:sha(bytes),content:bytes.toString('utf8')};
+    // toString('utf8') never fails: every byte sequence that is not UTF-8 (UTF-16 without NUL bytes, Windows-1252, ...) becomes U+FFFD. Text is only what goes back to the very same bytes,
+    // and the BOM stays in `content` as its first character; a file that does not pass would be corrupted by the next save.
+    const content=bytes.toString('utf8');
+    if(!Buffer.from(content,'utf8').equals(bytes)) throw fail('not_utf8','File không phải UTF-8 hợp lệ (có thể là UTF-16 hoặc bảng mã cũ như Windows-1252). Không mở để sửa vì lưu lại sẽ làm hỏng nội dung.',415);
+    return {path:target.relative,size:stat.size,sha256:sha(bytes),content,encoding:content.charCodeAt(0)===0xfeff?'utf8-bom':'utf8',eol:detectEol(content)};
   }
+  /**
+   * Writes text the editor sends back. The file must be UTF-8 (read() refuses anything else), the bytes written are exactly `content` encoded as UTF-8 (nothing is normalized: line
+   * endings stay as sent), and the revision the person read (`expectedSha`) must still be the one on disk. A UTF-8 BOM belongs to the file: an editor that dropped the character does not
+   * take it out of the file (`bomRestored`), and one that kept it does not double it. The file as it was is saved first, in a checkpoint that holds this file whatever its extension.
+   */
   async save({file,content,expectedSha}={}){
-    if(typeof content!=='string'||Buffer.byteLength(content,'utf8')>300000)throw fail('too_large','File sửa tối đa 300 KB văn bản.',413);
+    if(typeof content!=='string')throw fail('bad_content','Nội dung lưu phải là văn bản.');
     if(typeof expectedSha!=='string'||!/^[a-f0-9]{64}$/i.test(expectedSha))throw fail('bad_revision','Cần SHA-256 bản đã đọc để lưu.',409);
-    const current=await this.read({file,maxBytes:300000});
+    // Buffer.from() would turn a lone surrogate into U+FFFD without a word; the person would find a different file than the one they edited.
+    if(typeof content.isWellFormed==='function'&&!content.isWellFormed())throw fail('invalid_unicode','Nội dung chứa ký tự Unicode không hợp lệ (surrogate đơn lẻ), không ghi được dưới dạng UTF-8 mà không đổi nội dung.');
+    const current=await this.read({file,maxBytes:EDITABLE_FILE_BYTES});
     if(current.sha256!==expectedSha)throw fail('stale_revision','File đã thay đổi; tải lại trước khi lưu.',409);
+    const restoreBom=current.encoding==='utf8-bom'&&content.charCodeAt(0)!==0xfeff;
+    const bytes=Buffer.from(restoreBom?BOM_CHAR+content:content,'utf8');
+    if(bytes.length>EDITABLE_FILE_BYTES)throw fail('too_large',`Nội dung ${bytes.length} byte vượt giới hạn lưu ${EDITABLE_FILE_BYTES} byte (300 KB văn bản) của trình soạn thảo. Dùng agent hoặc terminal cho file lớn hơn.`,413);
     const target=await this.resolve(file);
     const lstat=await fs.lstat(target.absolute);
     if(!lstat.isFile()||lstat.isSymbolicLink())throw fail('file_type','Không chỉnh symlink hoặc file không thông thường.',403);
-    if(sha(Buffer.from(content,'utf8'))===expectedSha)return {ok:true,path:target.relative,unchanged:true,sha256:expectedSha};
-    const checkpoint=await this.checkpoint({label:`Before manual edit ${target.relative}`,maxFiles:250,maxTotalBytes:10*1024*1024});
+    if(sha(bytes)===expectedSha)return {ok:true,path:target.relative,unchanged:true,sha256:expectedSha};
+    const checkpoint=await this.checkpoint({label:`Before manual edit ${target.relative}`,files:[target.relative],maxFiles:1,maxTotalBytes:10*1024*1024});
     // Check the original revision AGAIN after snapshotting. Another editor may
     // have modified it while the checkpoint was being written.
     const fresh=await fs.readFile(target.absolute);
     if(sha(fresh)!==expectedSha)throw fail('stale_revision','File thay đổi trong lúc tạo checkpoint; chưa ghi dữ liệu.',409);
     const temp=target.absolute+`.${randomUUID()}.tmp`;
-    try{await fs.writeFile(temp,content,{flag:'wx',mode:lstat.mode});await fs.rename(temp,target.absolute);}
+    try{await fs.writeFile(temp,bytes,{flag:'wx',mode:lstat.mode});await fs.rename(temp,target.absolute);}
     finally{await fs.unlink(temp).catch(()=>{});}
-    return {ok:true,path:target.relative,checkpointId:checkpoint.id,partialCheckpoint:checkpoint.partial,previousSha:expectedSha,sha256:sha(Buffer.from(content,'utf8'))};
+    return {ok:true,path:target.relative,checkpointId:checkpoint.id,partialCheckpoint:checkpoint.partial,previousSha:expectedSha,sha256:sha(bytes),...(restoreBom?{bomRestored:true}:{})};
   }
   async #files({limit=4500,bytes=500000}={}) {
     const root=await fs.realpath(this.requireRoot()); const stack=[root],files=[];
