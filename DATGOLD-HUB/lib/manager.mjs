@@ -339,8 +339,8 @@ export class HubManager {
   #guardCalls(session, { catalog, binding, checkBinding, external }) {
     const refused = (code, message) => ({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { error: { code, message }, executed: false } });
     session.callTool = async (name, args, callerOptions = {}) => {
-      // `onDecision` and `toolUseId` are for this guard only; the tool itself receives the transport options (signal, timeout).
-      const { onDecision, toolUseId: suppliedId, ...options } = callerOptions;
+      // `onDecision`, `onCheckpoint` and `toolUseId` are for this guard only; the tool itself receives the transport options (signal, timeout).
+      const { onDecision, onCheckpoint, toolUseId: suppliedId, ...options } = callerOptions;
       checkBinding();
       const definition = catalog.tools.find((tool) => tool.name === name);
       if (!definition) throw new Error('Unknown tool ' + name);
@@ -363,7 +363,7 @@ export class HubManager {
         return refused('hook_denied', `Blocked by a PreToolUse hook (${refusal}). The operation was NOT executed.`);
       }
       if (!decision.allowed) return refused('permission_denied', 'Permission denied: ' + decision.reason);
-      try { await this.#checkpointBefore(name, args, decision, binding); }
+      try { await this.#checkpointBefore(name, args, decision, binding, onCheckpoint); }
       catch (error) {
         if (options.signal?.aborted) throw error;
         return refused('checkpoint_failed', 'Could not create pre-operation checkpoint: ' + error.message + ' The operation was NOT executed.');
@@ -444,13 +444,14 @@ export class HubManager {
   /**
    * A snapshot is captured BEFORE a call that can change files, so the change can be reviewed and undone.
    * File tools name the files they will touch and only those are saved (a complete copy of exactly what
-   * is at risk); a shell command can touch anything, so it gets the bounded workspace snapshot, reused
-   * while nothing changed. A snapshot that is not complete is tagged as such and never presented as a backup.
+   * is at risk, and the ones it is about to create, which the checkpoint records as absent); a shell command can touch anything, so it gets the bounded workspace snapshot, reused
+   * while nothing changed in the same task. A snapshot that is not complete is tagged as such and never presented as a backup. Every checkpoint carries the id of the task (taskReview()
+   * finds the baseline of a task by it), and `onCheckpoint` tells the caller which checkpoint belongs to THIS call before the call runs.
    */
-  async #checkpointBefore(name, args, decision, binding) {
+  async #checkpointBefore(name, args, decision, binding, onCheckpoint) {
     if (!this.studio || !CHECKPOINT_CATEGORIES.has(decision.category)) return;
     const label = `Before ${name} · ${binding.taskId}`;
-    let request = { label, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };
+    let request = { label, taskId: binding.taskId, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };
     const BROAD_CHECKPOINT_TOOLS = new Set([
       'local.run_command',
       'local.tasks_run',
@@ -461,12 +462,13 @@ export class HubManager {
       'local.worktrees_remove',
     ]);
     if (name.startsWith('local.') && !BROAD_CHECKPOINT_TOOLS.has(name) && this.localTools) {
-      const files = await this.localTools.touchedPaths(name, args);
-      if (!files.length) return; // nothing that exists today is about to change
-      request = { label, files, maxFiles: 140, maxTotalBytes: 32 * 1024 * 1024 };
+      const files = await this.localTools.touchedPaths(name, args, { includeAbsent: true });
+      if (!files.length) return; // nothing that exists today is about to change, and nothing is about to be created
+      request = { label, taskId: binding.taskId, files, maxFiles: 140, maxTotalBytes: 32 * 1024 * 1024 };
     }
+    let snap;
     try {
-      const snap = await this.studio.checkpoint(request);
+      snap = await this.studio.checkpoint(request);
       const incomplete = snap.partial || (snap.skipped?.length ?? 0) > 0;
       this.permissions?.onEvent({ type: 'checkpoint', taskId: binding.taskId, name, id: snap.id, partial: incomplete, reused: snap.reused === true });
       await this.workflow?.mark(binding.taskId, 'checkpoint', { toolName: name, checkpoint: snap.id });
@@ -479,5 +481,7 @@ export class HubManager {
       }
       throw Object.assign(new Error(error.message), { code: 'checkpoint_failed' });
     }
+    // Awaited, like onDecision: whoever records "this is the checkpoint of this call" has written it down before the call can have any effect. If it throws, the call is refused.
+    await onCheckpoint?.({ id: snap.id, partial: snap.partial === true || (snap.skipped?.length ?? 0) > 0, reused: snap.reused === true, targeted: snap.targeted === true });
   }
 }

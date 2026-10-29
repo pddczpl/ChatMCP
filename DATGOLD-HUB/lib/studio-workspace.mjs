@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -22,6 +23,25 @@ export const EDITABLE_FILE_BYTES = 300_000;
 /** The body of a save request: room for EDITABLE_FILE_BYTES of text even if every byte had to be written as a six-character \u00XX escape. An ordinary POST takes 64 KB. */
 export const EDITOR_BODY_LIMIT = 6 * EDITABLE_FILE_BYTES + 4096;
 const BOM_CHAR = String.fromCharCode(0xfeff);
+const UUID = /^[0-9a-f-]{36}$/i;
+// What a task review hands out: each side of a file as text up to the editor's own limit, 8 MiB of text in all, 300 files.
+const REVIEW_TEXT_BYTES = EDITABLE_FILE_BYTES;
+const REVIEW_TOTAL_TEXT_BYTES = 8 * 1024 * 1024;
+const REVIEW_MAX_FILES = 300;
+const SNIFF_BYTES = 8000;
+
+/**
+ * The text of `bytes` when it IS text: no NUL byte and valid UTF-8, so Buffer.from(text) gives the same bytes back (a BOM stays as the first character, line endings as they
+ * are). Otherwise why it is not: `binary` (a NUL byte), `not_utf8`, or `too_large` (more than `limit` bytes of it). A file longer than the limit is judged by its head alone (`bytes`
+ * may be just the head; `size` is the whole length).
+ */
+function textOf(bytes, limit, size = bytes.length) {
+  if (bytes.subarray(0, SNIFF_BYTES).includes(0)) return { reason: 'binary' };
+  if (size > limit) return { reason: 'too_large' };
+  if (bytes.includes(0)) return { reason: 'binary' };
+  const text = bytes.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(bytes) ? { text } : { reason: 'not_utf8' };
+}
 
 async function command(exe,args,{cwd,timeout=20000,max=350000,env=process.env}={}) {
   return await new Promise((resolve,reject)=>{
@@ -36,6 +56,10 @@ async function command(exe,args,{cwd,timeout=20000,max=350000,env=process.env}={
 }
 
 export class StudioWorkspace {
+  // The number of the next checkpoint of this process: the clock of `at` has millisecond resolution, and two checkpoints of one task can share a millisecond.
+  #checkpointSeq = 0;
+  // checkpoint id -> { taskId, workspace }, so that finding the checkpoints of a task does not read every meta.json again (a meta is written once and never changes).
+  #owners = new Map();
   // gitOptions: extra GitRunner options (the public server passes the command broker's spawner here).
   constructor({manager, directory, now=()=>new Date().toISOString(), gitOptions={}}) {
     this.manager=manager; this.directory=path.resolve(directory); this.now=now;
@@ -186,31 +210,48 @@ export class StudioWorkspace {
     // checkpoint() stores the canonical (realpath) root, so compare against the same form;
     // a Windows 8.3 short path or a symlinked workspace path would otherwise never match.
     const root=this.root;const canonicalRoot=root?await fs.realpath(root).catch(()=>root):null;
-    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(canonicalRoot&&data?.workspace===canonicalRoot)result.push({id:data.id,at:data.at,label:data.label,fileCount:data.files.length,partial:data.partial,targeted:data.targeted===true,limitations:data.limitations??[]});}
-    return result.sort((a,b)=>b.at.localeCompare(a.at)).slice(0,Math.max(1,Math.min(limit,100)));
+    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(canonicalRoot&&data?.workspace===canonicalRoot)result.push({id:data.id,at:data.at,seq:data.seq??0,label:data.label,fileCount:data.files.length,absentCount:(data.absent??[]).length,taskId:data.taskId??null,partial:data.partial,targeted:data.targeted===true,limitations:data.limitations??[]});}
+    // Newest first. Of two made in the same millisecond the later one (its number is higher) comes first. This list is capped: a task with more checkpoints than that is read with taskReview().
+    return result.sort((a,b)=>b.at.localeCompare(a.at)||b.seq-a.seq).slice(0,Math.max(1,Math.min(limit,100)));
   }
   /**
    * Saves copies of files so a change can be reviewed or undone.
    *  - default: a bounded snapshot of the source files of the workspace (always reported as partial);
-   *  - `files`: exactly those existing files, of any content type (a targeted snapshot taken just before a
-   *    tool changes or deletes them). Files that cannot be saved are listed in `skipped`, never hidden;
-   *  - `reuseIfUnchanged`: when no file changed since the previous bounded snapshot, that snapshot is returned.
+   *  - `files`: exactly those files, of any content type (a targeted snapshot taken just before a tool changes,
+   *    deletes or creates them). The ones that exist are saved; the ones that do not exist yet are listed in
+   *    `absent` (the review needs to know they were not there). Files that cannot be saved are listed in
+   *    `skipped`, never hidden. Every path is stored as the file is really named (a Windows 8.3 short name, or
+   *    another spelling of the case, is the same file);
+   *  - `reuseIfUnchanged`: when no file changed since the previous bounded snapshot of the same task, that snapshot is returned;
+   *  - `taskId`: the task the checkpoint was made for (only the Hub's own guard says so; a request over HTTP never does), so that
+   *    taskReview() finds all of them, however many there are.
    */
-  async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024,files=null,reuseIfUnchanged=false}={}){
+  async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024,files=null,reuseIfUnchanged=false,taskId=null}={}){
     const root=await fs.realpath(this.requireRoot());
     const targeted=Array.isArray(files);
-    const limitations=[];const skipped=[];let candidates;let exhausted=false;
+    const owner=typeof taskId==='string'&&UUID.test(taskId)?taskId:null;
+    const limitations=[];const skipped=[];const absent=[];let candidates;let exhausted=false;
     if(targeted){
-      candidates=[];
+      candidates=[];const seen=new Set();
       for(const requested of files.slice(0,Math.max(1,maxFiles))){
         let target;
         try{target=await this.resolve(String(requested));}catch(error){skipped.push({path:String(requested).slice(0,300),reason:error.code||'invalid_path'});continue;}
         if(!target.relative||isProtectedPath(target.relative)){skipped.push({path:target.relative||'.',reason:'protected'});continue;}
-        const stat=await fs.lstat(target.absolute).catch(()=>null);
-        if(!stat)continue; // it does not exist yet, so there is nothing to preserve
-        if(!stat.isFile()){skipped.push({path:target.relative,reason:'not_a_regular_file'});continue;}
-        if(stat.size>TARGETED_FILE_BYTES){skipped.push({path:target.relative,reason:'too_large'});continue;}
-        candidates.push({absolute:target.absolute,relative:target.relative,size:stat.size});
+        let relative=null;
+        try{const real=await canonicalRelative(target.root,target.absolute);if(real.inside)relative=real.relative;}catch{ /* reported below */ }
+        if(!relative){skipped.push({path:target.relative,reason:'unresolvable'});continue;}
+        if(isProtectedPath(relative)){skipped.push({path:target.relative,reason:'protected'});continue;} // an 8.3 name or a link to a secret
+        const key=process.platform==='win32'?relative.toLowerCase():relative;
+        if(seen.has(key))continue;seen.add(key);
+        const stat=await fs.lstat(target.absolute).catch(error=>error);
+        if(stat instanceof Error){
+          if(['ENOENT','ENOTDIR'].includes(stat.code))absent.push(relative); // it does not exist yet: there is nothing to preserve, and the review must know it was not there
+          else skipped.push({path:relative,reason:'unreadable'});
+          continue;
+        }
+        if(!stat.isFile()){skipped.push({path:relative,reason:'not_a_regular_file'});continue;}
+        if(stat.size>TARGETED_FILE_BYTES){skipped.push({path:relative,reason:'too_large'});continue;}
+        candidates.push({absolute:target.absolute,relative,size:stat.size});
       }
       limitations.push('Checkpoint theo file: chỉ gồm các file được chỉ định trước thao tác (kể cả file nhị phân); không phải bản sao của cả workspace.');
     }else{
@@ -219,7 +260,8 @@ export class StudioWorkspace {
     let fingerprint=null;
     if(!targeted&&reuseIfUnchanged){
       fingerprint=sha(Buffer.from(JSON.stringify(candidates.map(item=>[item.relative,item.size,item.mtimeMs]))));
-      if(this.lastCheckpoint?.root===root&&this.lastCheckpoint.fingerprint===fingerprint)return {...this.lastCheckpoint.result,reused:true};
+      // Only within one task: a snapshot belongs to the task that made it, and taskReview() finds a task's baseline by the checkpoints that carry its id.
+      if(this.lastCheckpoint?.root===root&&this.lastCheckpoint.fingerprint===fingerprint&&this.lastCheckpoint.taskId===owner)return {...this.lastCheckpoint.result,reused:true};
     }
     const id=randomUUID(),dir=this.#checkpointDirectory(id);await fs.mkdir(path.join(dir,'files'),{recursive:true,mode:0o700});
     let total=0;const stored=[];
@@ -237,10 +279,11 @@ export class StudioWorkspace {
     }
     if(exhausted)limitations.push('Workspace vượt giới hạn quét 5000 file nguồn.');
     if(!targeted)limitations.push('Chỉ lưu file nguồn văn bản được hỗ trợ; không bao gồm binary, .env hoặc các thư mục bỏ qua.');
-    const meta={id,at:this.now(),label:capped(label,160),workspace:root,files:stored,partial:true,targeted,skipped,limitations,totalBytes:total};
+    const meta={id,at:this.now(),seq:++this.#checkpointSeq,label:capped(label,160),workspace:root,taskId:owner,files:stored,absent,partial:true,targeted,skipped,limitations,totalBytes:total};
     await writeJson(path.join(dir,'meta.json'),meta);
-    const result={id:meta.id,at:meta.at,label:meta.label,fileCount:stored.length,partial:meta.partial,targeted,skipped,limitations,totalBytes:total,reused:false};
-    if(fingerprint)this.lastCheckpoint={root,fingerprint,result};
+    this.#owners.set(id,{taskId:owner,workspace:root});
+    const result={id:meta.id,at:meta.at,label:meta.label,fileCount:stored.length,partial:meta.partial,targeted,skipped,absent,limitations,totalBytes:total,taskId:owner,reused:false};
+    if(fingerprint)this.lastCheckpoint={root,fingerprint,taskId:owner,result};
     return result;
   }
   async review({checkpointId,file='',limit=300000}={}){
@@ -265,12 +308,248 @@ export class StudioWorkspace {
     // created. Use Git status for additions; never offer to delete them.
     return {checkpointId,at:meta.at,label:meta.label,partial:meta.partial,limitations:meta.limitations,changes:changes.slice(0,300),truncated:changes.length>300};
   }
+
+  /** The checkpoints made for a task in this workspace, oldest first. Found by the task id in each meta.json and not through checkpoints(), which stops at 100: a long task has more. */
+  async #taskCheckpoints(taskId,root){
+    let dirs=[];try{dirs=await fs.readdir(path.join(this.directory,'checkpoints'),{withFileTypes:true});}catch(error){if(error.code!=='ENOENT')throw error;}
+    if(this.#owners.size>50000)this.#owners.clear();
+    const metas=[];let unreadable=0;
+    for(const dir of dirs){
+      if(!dir.isDirectory()||!UUID.test(dir.name))continue;
+      let owner=this.#owners.get(dir.name);let meta=null;
+      if(!owner){
+        try{meta=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));}catch{unreadable+=1;continue;}
+        if(!meta)continue; // its meta.json is the last thing a checkpoint writes: this one is still being made
+        owner={taskId:typeof meta.taskId==='string'?meta.taskId:null,workspace:meta.workspace};
+        this.#owners.set(dir.name,owner);
+      }
+      if(owner.taskId!==taskId||owner.workspace!==root)continue;
+      try{meta??=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));}catch{unreadable+=1;continue;}
+      if(meta)metas.push(meta);
+    }
+    metas.sort((a,b)=>(a.at<b.at?-1:a.at>b.at?1:0)||(a.seq??0)-(b.seq??0));
+    return {metas,unreadable};
+  }
+  /** The copy a checkpoint holds of a file, or null when it is missing or does not match the sha the checkpoint recorded for it. */
+  async #storedCopy(meta,item){
+    const base=path.join(this.#checkpointDirectory(meta.id),'files');const file=path.join(base,item.path);
+    if(!contained(base,file))return null;
+    const bytes=await fs.readFile(file).catch(()=>null);
+    return bytes&&sha(bytes)===item.sha256?bytes:null;
+  }
+  async #storedHead(meta,item){
+    const base=path.join(this.#checkpointDirectory(meta.id),'files');const file=path.join(base,item.path);
+    if(!contained(base,file))return null;
+    const handle=await fs.open(file,'r').catch(()=>null);if(!handle)return null;
+    try{const head=Buffer.alloc(SNIFF_BYTES);const {bytesRead}=await handle.read(head,0,SNIFF_BYTES,0);return head.subarray(0,bytesRead);}finally{await handle.close();}
+  }
+  /** What is on disk now. A file that fits the review is read; a longer one is hashed as a stream and only its head is kept, to tell text from binary. */
+  async #currentFile(absolute){
+    const stat=await fs.lstat(absolute).catch(error=>{if(['ENOENT','ENOTDIR'].includes(error.code))return null;throw error;});
+    if(!stat)return {state:'missing'};
+    if(!stat.isFile())return {state:'other'}; // a link or a folder is not a file to review
+    if(stat.size<=REVIEW_TEXT_BYTES){const bytes=await fs.readFile(absolute);return {state:'file',size:bytes.length,sha:sha(bytes),bytes};}
+    const hash=createHash('sha256');let head=Buffer.alloc(0);
+    for await(const chunk of createReadStream(absolute)){hash.update(chunk);if(head.length<SNIFF_BYTES)head=Buffer.concat([head,chunk]).subarray(0,SNIFF_BYTES);}
+    return {state:'file',size:stat.size,sha:hash.digest('hex'),head};
+  }
+  /** The file as the last commit has it, in the form the working tree has (end-of-line conversion and the like applied: `cat-file --filters`), or null when the commit has no such file. */
+  async #headFile(relative,context){
+    context.gitReady??=this.gitRunner.ensureRepo().then(()=>true,()=>false);
+    if(!await context.gitReady)return null;
+    try{
+      const result=await this.gitRunner.exec(['cat-file','--filters',`HEAD:${relative}`],{timeoutMs:15000,maxBytes:TARGETED_FILE_BYTES});
+      return result.code===0&&!result.truncated&&!result.timedOut?result.stdout:null;
+    }catch{return null;}
+  }
+  /**
+   * Files that Git reports as changed or new and that were written since `sinceMs`: what a command may have left that no snapshot held (it keeps source files only, and only so many).
+   * A deletion is not listed (it cannot be told from one the task did not make), nor is a file older than the task (it was the person's change).
+   */
+  async #changedByGit(root,sinceMs,context){
+    context.gitReady??=this.gitRunner.ensureRepo().then(()=>true,()=>false);
+    if(!await context.gitReady)return {paths:[],available:false};
+    let output;
+    try{
+      const result=await this.gitRunner.exec(['status','--porcelain=v1','-z','--untracked-files=all','--no-renames'],{timeoutMs:15000,maxBytes:2_000_000});
+      if(result.code!==0||result.truncated||result.timedOut)return {paths:[],available:false};
+      output=result.stdout.toString('utf8');
+    }catch{return {paths:[],available:false};}
+    const paths=[];
+    for(const entry of output.split('\0')){
+      if(entry.length<4)continue;
+      const status=entry.slice(0,2),relative=entry.slice(3);
+      if(/[DU]/.test(status)||!relative)continue;
+      const stat=await fs.lstat(path.join(root,relative)).catch(()=>null);
+      if(stat?.isFile()&&stat.mtimeMs>=sinceMs)paths.push(relative);
+    }
+    return {paths:paths.sort().slice(0,200),available:true};
+  }
+  /** key -> shas of the files the person accepted in a review of one of these checkpoints (accept() writes them). */
+  async #acceptedFiles(metas,keyOf){
+    const accepted=new Map();
+    for(const meta of metas){
+      let entry=null;try{entry=await readJson(path.join(this.directory,'reviews',`${meta.id}.json`));}catch{ /* an unreadable record accepts nothing */ }
+      for(const item of entry?.accepted??[]){const key=keyOf(String(item.file));if(!accepted.has(key))accepted.set(key,new Set());accepted.get(key).add(item.sha256);}
+    }
+    return accepted;
+  }
+
+  /**
+   * What a task changed, as full texts, for a review of the whole task (not of one checkpoint). For each file the EARLIEST checkpoint that knows it is the baseline: the file as it was
+   * before the task first touched it, or a record that it did not exist (`absent`: a file the task created). The answer for a file is
+   *   { path, status: modified|created|deleted|binary, change: modified|created|deleted, baselineText, currentText, baselineSha, currentSha, partial, accepted, baselineSource, checkpointId, rejectable }
+   * and, when there is no text, `textUnavailable`: binary and not_utf8 (status is then `binary`), too_large (over 300 KB a side), checkpoint_corrupt, budget. A text is the file's bytes and
+   * nothing else: Buffer.from(text) is the file (a BOM is the first character, line endings are as they are). `partial` is false only when the baseline is a copy made just before a tool
+   * that named the file; it is true for a copy from a snapshot of the whole workspace (taken before a command), whose reach is bounded. `rejectable` is true only for a file that the
+   * checkpoint of the call that created it recorded as absent: rejectCreated() never touches any other file.
+   * The answer also says what it is made of (`checkpoints`) and what it cannot see (`limitations`): an empty list is not "no changes" when no checkpoint is on record.
+   */
+  async taskReview({taskId,file=''}={}){
+    if(typeof taskId!=='string'||!UUID.test(taskId))throw fail('bad_task_id','Cần ID nhiệm vụ hợp lệ.');
+    const root=await fs.realpath(this.requireRoot());
+    const keyOf=(relative)=>process.platform==='win32'?relative.toLowerCase():relative;
+    let wanted=null;
+    if(file){const target=await this.resolve(file);const real=await canonicalRelative(target.root,target.absolute).catch(()=>({inside:false}));wanted=keyOf(real.inside?real.relative:target.relative);}
+    const {metas,unreadable}=await this.#taskCheckpoints(taskId,root);
+    const limitations=[];
+    if(unreadable)limitations.push({code:'unreadable_checkpoints',message:`${unreadable} checkpoint không đọc được nên không nằm trong bản review.`});
+    if(!metas.length)limitations.push({code:'no_checkpoints',message:'Không có checkpoint nào của nhiệm vụ này trong thư mục trạng thái của workspace này (nhiệm vụ không sửa file, chạy ở workspace hay agent khác, hoặc chạy trước khi checkpoint ghi mã nhiệm vụ). Danh sách rỗng KHÔNG có nghĩa là không có thay đổi.'});
+    // Per path, the first thing a checkpoint of the task says about it.
+    const evidence=new Map();
+    const note=(relative,entry)=>{const key=keyOf(relative);if(!evidence.has(key))evidence.set(key,{path:relative,key,...entry});};
+    for(const meta of metas){
+      for(const item of meta.files??[])note(item.path,{kind:'file',meta,item});
+      for(const relative of meta.absent??[])note(relative,{kind:'absent',meta});
+      for(const skip of meta.skipped??[])if(['too_large','limit'].includes(skip.reason))note(skip.path,{kind:'skipped',meta,skip});
+    }
+    const accepted=await this.#acceptedFiles(metas,keyOf);
+    const context={accepted,budget:{left:REVIEW_TOTAL_TEXT_BYTES},gitReady:null};
+    // A command can write anywhere, and the snapshot taken before it holds source files only: ask Git what else changed since the first such snapshot.
+    const broad=metas.find(meta=>meta.targeted!==true);
+    if(broad&&!wanted){
+      const found=await this.#changedByGit(root,Date.parse(broad.at),context);
+      if(!found.available)limitations.push({code:'git_unavailable',message:'Không hỏi được Git nên không thấy các file mà lệnh shell ghi ngoài ảnh chụp workspace.'});
+      for(const relative of found.paths)note(relative,{kind:'git',meta:broad});
+    }
+    const files=[];let omittedProtected=0;let truncated=false;
+    for(const ev of [...evidence.values()].sort((a,b)=>(a.path<b.path?-1:a.path>b.path?1:0))){
+      if(wanted&&ev.key!==wanted)continue;
+      // The same rule as read(): a secret or Git metadata is never handed out, not even when a checkpoint or Git has it.
+      if(isProtectedPath(ev.path)||PRIVATE.test(path.basename(ev.path))||ev.path.split('/').includes('.git')){omittedProtected+=1;continue;}
+      if(files.length>=REVIEW_MAX_FILES){truncated=true;break;}
+      const entry=await this.#reviewFile(ev,context);
+      if(entry)files.push(entry);
+    }
+    if(truncated)limitations.push({code:'truncated',message:`Chỉ trả ${REVIEW_MAX_FILES} file đầu tiên (theo đường dẫn).`});
+    const targetedCount=metas.filter(meta=>meta.targeted===true).length;
+    return {taskId,checkpoints:{total:metas.length,targeted:targetedCount,broad:metas.length-targetedCount},files,truncated,omitted:{protected:omittedProtected},limitations};
+  }
+  async #reviewFile(ev,context){
+    const {accepted,budget}=context;
+    const target=await this.resolve(ev.path).catch(()=>null);
+    if(!target)return null; // it no longer resolves inside this workspace
+    const now=await this.#currentFile(target.absolute);
+    let base;
+    if(ev.kind==='absent')base={exists:false,source:'absent',partial:false};
+    else if(ev.kind==='file')base={exists:true,sha:ev.item.sha256,size:ev.item.bytes,source:'checkpoint',partial:ev.meta.targeted!==true};
+    else{
+      // No checkpoint holds the file as it was (too large for one, or found only through Git): the last commit is the nearest thing. It may not be what the task found (the person could have
+      // changed the file before), so it is never an exact baseline.
+      const head=await this.#headFile(ev.path,context);
+      if(head)base={exists:true,sha:sha(head),size:head.length,source:'git_head',partial:true,bytes:head};
+      else if(ev.kind==='git')base={exists:false,source:'git_head',partial:true}; // the last commit has no such file: new, as far as it can tell
+      else base={exists:false,unknown:true,source:'none',partial:true};
+    }
+    let change;
+    if(!base.exists&&!base.unknown){if(now.state!=='file')return null;change='created';} // not there before, not a file now (or gone again): nothing to review
+    else if(now.state==='missing')change='deleted';
+    else if(now.state==='other')change='modified';
+    else if(base.exists&&base.sha===now.sha)return null; // the task left it as it found it
+    else change='modified';
+    // Both sides, as text when they are text.
+    let problem=null;let baseSide=null;
+    if(base.exists){
+      const bytes=base.bytes??(base.size<=REVIEW_TEXT_BYTES?await this.#storedCopy(ev.meta,ev.item):await this.#storedHead(ev.meta,ev.item));
+      if(!bytes)problem='checkpoint_corrupt';else baseSide=textOf(bytes,REVIEW_TEXT_BYTES,base.size);
+    }
+    const nowSide=now.state==='file'?textOf(now.bytes??now.head,REVIEW_TEXT_BYTES,now.size):null;
+    const reasons=[baseSide?.reason,nowSide?.reason].filter(Boolean);
+    let status=change;let textUnavailable=problem;
+    if(!textUnavailable){
+      if(reasons.includes('binary')){status='binary';textUnavailable='binary';}
+      else if(reasons.includes('not_utf8')){status='binary';textUnavailable='not_utf8';}
+      else if(reasons.includes('too_large'))textUnavailable='too_large';
+      else if(base.unknown)textUnavailable='baseline_unavailable';
+    }
+    let baselineText=null;let currentText=null;
+    if(!textUnavailable){
+      const cost=(baseSide?.text?.length??0)+(nowSide?.text?.length??0);
+      if(cost>budget.left)textUnavailable='budget';
+      else{budget.left-=cost;baselineText=baseSide?.text??null;currentText=nowSide?.text??null;}
+    }
+    const currentSha=now.state==='file'?now.sha:null;
+    return {
+      path:ev.path,status,change,baselineText,currentText,
+      baselineSha:base.exists?base.sha:null,currentSha,
+      partial:base.partial||problem!==null,
+      accepted:currentSha!==null&&accepted.get(ev.key)?.has(currentSha)===true,
+      baselineSource:base.source,checkpointId:ev.meta.id,
+      rejectable:ev.kind==='absent'&&change==='created'&&now.state==='file',
+      ...(textUnavailable?{textUnavailable}:{}),
+    };
+  }
+
+  /**
+   * Takes a file that a task created out of the workspace and puts it in the undo folder (undo/<id>/files/<path>, with a meta.json): the file is never deleted without a verified copy. Only a
+   * file that the checkpoint of the call that created it recorded as absent can be rejected, and only while it is the very file that was reviewed (`expectedSha`). The file is first renamed
+   * next to itself, so that what is checked and copied is exactly what leaves: an editor that saves meanwhile makes a new file at the old name and loses nothing.
+   */
+  async rejectCreated({taskId,file,expectedSha}={}){
+    if(typeof expectedSha!=='string'||!/^[0-9a-f]{64}$/i.test(expectedSha))throw fail('revision_required','Cần SHA-256 của file hiện tại.',409);
+    if(typeof file!=='string'||!file)throw fail('bad_path','Cần đường dẫn file.');
+    const root=await fs.realpath(this.requireRoot());
+    const review=await this.taskReview({taskId,file});
+    const item=review.files[0];
+    if(!item)throw fail('stale_review','File này không còn là file mà nhiệm vụ đã tạo; hãy tải lại review.',409);
+    if(!item.rejectable)throw fail('not_rejectable','Chỉ từ chối được file mà chính nhiệm vụ này đã tạo và Hub đã ghi nhận là chưa tồn tại trước thao tác đó.',409);
+    if(item.currentSha!==expectedSha.toLowerCase())throw fail('stale_review','File đã thay đổi kể từ khi xem; hãy tải lại review.',409);
+    const target=await this.resolve(item.path);
+    const aside=`${target.absolute}.${randomUUID()}.rejecting`;
+    try{await fs.rename(target.absolute,aside);}
+    catch(error){if(['EBUSY','EPERM','EACCES'].includes(error.code))throw fail('file_locked','File đang bị chương trình khác khóa; chưa chuyển đi.',423);throw error;}
+    try{
+      const bytes=await fs.readFile(aside);
+      if(sha(bytes)!==item.currentSha)throw fail('stale_review','File đã thay đổi kể từ khi xem; hãy tải lại review.',409);
+      const undoId=randomUUID(),undoDirectory=path.join(this.directory,'undo',undoId),backup=path.join(undoDirectory,'files',item.path);
+      await fs.mkdir(path.dirname(backup),{recursive:true,mode:0o700});
+      await fs.writeFile(backup,bytes,{mode:0o600});
+      if(sha(await fs.readFile(backup))!==item.currentSha)throw fail('undo_backup_failed','Không ghi được bản sao lưu đúng nội dung; file được giữ nguyên.',500);
+      await writeJson(path.join(undoDirectory,'meta.json'),{id:undoId,at:this.now(),kind:'reject_created',label:capped(`Rejected a file created by task ${taskId}: ${item.path}`,200),taskId,workspace:root,files:[{path:item.path,sha256:item.currentSha,bytes:bytes.length}]});
+      await fs.unlink(aside);
+      return {ok:true,path:item.path,sha256:item.currentSha,undoId,undoBackup:backup};
+    }catch(error){
+      // Back where it was, unless a file has appeared there meanwhile (then the moved one stays beside it under its new name, and the message says so).
+      const free=await fs.lstat(target.absolute).then(()=>false,()=>true);
+      if(free)await fs.rename(aside,target.absolute).catch(()=>{});
+      throw error;
+    }
+  }
+
   async accept({checkpointId,file,expectedSha}={}){
     const target=await this.resolve(file);
     if(typeof expectedSha!=='string'||!/^[0-9a-f]{64}$/i.test(expectedSha))throw fail('revision_required','Cần SHA-256 của file hiện tại.',409);
     const review=await this.review({checkpointId,file:target.relative});
     const current=review.changes.find(x=>x.path===target.relative);
-    if(!current || current.currentSha!==expectedSha) throw fail('stale_review','File đã đổi hoặc không nằm trong bản review; hãy tải lại diff.',409);
+    let acceptable=Boolean(current)&&current.currentSha===expectedSha;
+    if(!current){
+      // A file the call created is not in the checkpoint's files, but the checkpoint recorded that it was not there: that is what is accepted.
+      const meta=await readJson(path.join(this.#checkpointDirectory(checkpointId),'meta.json'));
+      const real=await canonicalRelative(target.root,target.absolute).catch(()=>({inside:false}));
+      const bytes=(meta?.absent??[]).includes(real.inside?real.relative:target.relative)?await fs.readFile(target.absolute).catch(()=>null):null;
+      acceptable=Boolean(bytes)&&sha(bytes)===expectedSha;
+    }
+    if(!acceptable) throw fail('stale_review','File đã đổi hoặc không nằm trong bản review; hãy tải lại diff.',409);
     const fileOnDisk=path.join(this.directory,'reviews',`${checkpointId}.json`);
     const entry=await readJson(fileOnDisk)??{checkpointId,accepted:[]};
     entry.accepted=entry.accepted.filter(x=>x.file!==target.relative);
