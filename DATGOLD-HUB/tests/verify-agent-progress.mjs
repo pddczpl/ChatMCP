@@ -54,6 +54,37 @@ const deniedMutation=observeTaskTool(freshCheck,{call:call('local.write_file',{p
 assert.equal(deniedMutation.verifiedChecks.length,1,'a tool conclusively not executed cannot stale a passing check');
 assert.match(progressCheckpoint(deniedMutation),/Invalidated stale evidence/);
 
+// Every tool that can change the files makes all four receipts stale, under its short and its full name, and the ones that cannot leave them. (The Hub's tools are checked against the real catalog,
+// and with the real loop, in verify-local-backend.mjs; this is the rule itself, with the arguments that decide it.)
+{
+  const held=(value)=>[value.verifiedInspections.length,value.verifiedFiles.length,value.verifiedChecks.length,value.gitReviews.length];
+  const withReceipts=()=>{
+    let state=createTaskProgress();
+    for(const [name,verified] of [
+      ['local.write_file',{kind:'edit',path:'a.js',sha256:'a'.repeat(64),step:1}],['local.read_file',{kind:'inspect',path:'a.js',sha256:'a'.repeat(64),step:2}],
+      ['local.run_command',{kind:'verify',id:'check-a',step:3}],['local.git_diff',{kind:'review',id:'diff-a',step:4}],
+    ])state=observeTaskTool(state,{call:call(name,{}),result:{isError:false},step:verified.step,verified}).progress;
+    return state;
+  };
+  assert.deepEqual(held(withReceipts()),[1,1,1,1],'(premise) one receipt of each kind');
+  const after=(name,args,result={isError:false})=>observeTaskTool(withReceipts(),{call:call(name,args),result,step:5}).progress;
+  for(const [name,args] of [
+    ['move_path',{source:'a.js',destination:'b.js'}],['delete_path',{path:'a.js'}],['git_checkout',{ref:'side'}],['git_merge',{branch:'side'}],
+    ['git_branch',{action:'switch',name:'side'}],['git_branch',{action:'create',name:'side'}],['worktrees_create',{path:'wt',branch:'side'}],['worktrees_remove',{path:'wt'}],
+    ['rename_symbol',{apply:true}],['format_document',{apply:true}],['organize_imports',{apply:true}],['write_file',{path:'a.js'}],['files_write_batch',{files:[]}],
+  ])for(const full of [name,`local.${name}`]){
+    const progress=after(full,args);
+    assert.deepEqual(held(progress),[0,0,0,0],`${full} ${JSON.stringify(args)} makes every receipt stale`);
+    assert.equal(progress.invalidatedEvidence,4,`${full}: and they are counted`);
+  }
+  for(const [name,args] of [
+    ['make_directory',{path:'d'}],['git_add',{paths:['a.js']}],['git_commit',{message:'m'}],['git_branch',{action:'list'}],['update_plan',{items:[]}],['knowledge_create',{title:'t',content:'c'}],
+    ['rename_symbol',{apply:false}],['rename_symbol',{}],['read_file',{path:'a.js'}],['git_status',{}],['run_command',{command:'npm test'}],
+  ])for(const full of [name,`local.${name}`])assert.deepEqual(held(after(full,args)),[1,1,1,1],`${full} ${JSON.stringify(args)} leaves them`);
+  assert.deepEqual(held(after('local.move_path',{source:'a.js',destination:'b.js'},{isError:true,executed:false})),[1,1,1,1],'a call that never ran changes nothing');
+  assert.deepEqual(held(after('local.move_path',{source:'a.js',destination:'b.js'},{isError:true})),[0,0,0,0],'a call that failed may still have changed the files');
+}
+
 const pollCall=call('desktop-commander.get_process_output',{pid:123});
 p=createTaskProgress();
 for(let i=0;i<25;i++) {

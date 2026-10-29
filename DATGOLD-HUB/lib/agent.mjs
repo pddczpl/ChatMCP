@@ -1534,7 +1534,9 @@ export class AgentRunner {
           context.seenCalls.add(call.call_id);
           const result = await this.#dispatch(context, call);
           this.#check(context);
-          const actualName=context.direct?.byName?.get(call.name) ?? callIdentity(call).name;
+          // The name the call ran under: dispatch resolves a short name given to mcp_call (read_file is local.read_file), and the verifier knows only the qualified one.
+          const named=callIdentity(call).name;
+          const actualName=context.direct?.byName?.get(call.name) ?? catalogToolName(context,named) ?? named;
           const verified=await verifyHostEvidence({manager:this.manager,name:actualName,result,step:task.steps});
           const evidence=observeTaskTool(task.progress,{call,result,step:task.steps,verified});
           task.progress=evidence.progress;
