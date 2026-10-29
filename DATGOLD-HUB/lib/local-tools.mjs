@@ -1151,7 +1151,10 @@ export class LocalTools {
     if (hidden.length) notes.push(`${hidden.length} file bí mật bị ẩn khỏi diff: ${hidden.join(', ')}`);
     if (result.truncated || result.stdout.length > LIMITS.diffChars) notes.push('Diff quá lớn nên đã bị cắt; hỏi theo từng file bằng tham số path.');
     const body = result.stdout.trim() ? clip(result.stdout, LIMITS.diffChars) : 'Không có thay đổi.';
-    return ok(`${body}${notes.length ? `\n[${notes.join(' ')}]` : ''}`, { files: changed.length - hidden.length, hidden: hidden.length, staged, truncated: result.truncated });
+    // The Hub vouches for a diff (agent-autonomy.mjs turns the digest into a review receipt) only when there was a change and the model was shown all of it.
+    // `truncated` is the cap of the Git runner alone; the clip above is another cut.
+    const whole = result.stdout.trim() !== '' && !result.truncated && result.stdout.length <= LIMITS.diffChars;
+    return ok(`${body}${notes.length ? `\n[${notes.join(' ')}]` : ''}`, { files: changed.length - hidden.length, hidden: hidden.length, staged, truncated: result.truncated, ...(whole ? { diffSha256: sha256(result.stdout) } : {}) });
   }
 
   async #gitLog({ limit = 20, path: p }, { signal }) {

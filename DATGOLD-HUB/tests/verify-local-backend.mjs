@@ -240,6 +240,77 @@ try {
     equal(manager.taskId, null, 'the workspace lock was released');
   });
 
+  // ---------------------------------------------------------------- the review receipt of a real git_diff
+  // The receipt is made from what the REAL local git_diff returns, in a run of the real loop. (tests/verify-agent-autonomy.mjs once fed the verifier a `diff` field that no tool returns: the receipt was never
+  // made in a real run, and every coding run ended with "No independently recorded Git diff review".)
+  await section('a git_diff after the last edit is a review receipt, one before a later edit is not (real tools)', async () => {
+    const GOAL = 'Read calc.js and find out why add() returns the wrong sum; then fix it with the smallest change and run the project tests; finally review the Git diff and report what is still limited.';
+    const NO_CHECK = 'No verified successful project check';
+    const NO_REVIEW = 'No independently recorded Git diff review';
+    /** One run of the real loop on a fresh project; the plan of the goal has a review phase, so the Hub has to judge the completion. */
+    const run = async (name, steps) => {
+      const dir = await project(name);
+      await manager.selectWorkspace(dir);
+      manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
+      const agent = agentFor(manager, scripted(steps), name);
+      const started = await agent.start({ prompt: GOAL });
+      const task = await finish(agent, started.id);
+      equal(task.status, 'completed', `${name}: the task completed (${task.error ?? ''})`);
+      check(task.goalPlan?.phases?.some((phase) => phase.id === 'review'), `${name}: (premise) the goal has a plan with a review phase`);
+      return { dir, task };
+    };
+    const read = () => [tool('read_file', { path: 'calc.js' })];
+    const fix = ({ last }) => [tool('edit_file', { path: 'calc.js', old_string: 'a - b', new_string: 'a + b', expected_sha256: last.structuredContent.sha256 })];
+    const again = (sha) => () => [tool('edit_file', { path: 'calc.js', old_string: 'a + b', new_string: 'b + a', expected_sha256: sha() })];
+    const test = () => [tool('run_command', { command: 'npm test', description: 'Chạy test' })];
+    const diff = () => [tool('git_diff', {})];
+
+    // A: read, edit, test, then the diff of the finished change.
+    let shown;
+    const a = await run('review-after', [read, fix, test, diff, ({ last }) => { shown = last; return [say('add() adds now and npm test prints OK 1 test; I read the diff.')]; }]);
+    check((await fs.readFile(path.join(a.dir, 'calc.js'), 'utf8')).includes('a + b'), 'A: (premise) the file was really changed');
+    check(shown.isError === false && textOf(shown).includes('+exports.add = (a, b) => a + b;'), 'A: (premise) the real git_diff returned the change');
+    const progress = a.task.progress;
+    equal(progress.gitReviews.length, 1, 'A: the diff taken after the last edit is one review receipt');
+    check(progress.gitReviews[0]?.kind === 'review' && /^[a-f0-9]{16}$/.test(progress.gitReviews[0]?.id ?? ''), 'A: of the kind review, named by the diff');
+    check(progress.verifiedFiles[0].step < progress.verifiedChecks[0].step && progress.verifiedChecks[0].step < progress.gitReviews[0]?.step, 'A: taken after the edit and after the passing test');
+    equal(a.task.goalPlan.evidence.review, 1, 'A: the plan counts it');
+    equal([a.task.verificationOutcome.ready, a.task.verificationOutcome.missing], [true, []], 'A: the Hub has every receipt the plan asks for');
+    check(!/NOT independently verified/.test(a.task.finalText), 'A: and the answer carries no verification warning');
+    // Receipts are not the owner's acceptance: no objective is accepted, so the completion still waits for the owner.
+    equal([a.task.completionOutcome.requirements, a.task.completionOutcome.verification], ['unverified', 'evidence_present_not_objective_certified'], 'A: the objectives are still the owner\'s to accept');
+
+    // B: the model edits once more after the diff: the diff and the passing test describe a file that is gone.
+    let first;
+    const b = await run('review-before-edit', [read, fix, ({ last }) => { first = last.structuredContent.sha256; return test(); }, diff, again(() => first), () => [say('I changed it once more after the diff.')]]);
+    equal(b.task.progress.gitReviews, [], 'B: a diff taken before a later edit is not a review of what the file is now');
+    equal(b.task.progress.verifiedChecks, [], 'B: nor is the passing test before it a check of the file');
+    equal(b.task.progress.verifiedFiles.length, 1, 'B: only the last edit holds a file hash');
+    check(b.task.progress.verifiedFiles[0].sha256 !== first, 'B: and it is the hash of the last edit');
+    check(b.task.progress.invalidatedEvidence >= 3, 'B: the Hub counts what the last edit made stale');
+    equal(b.task.verificationOutcome.missing, [NO_CHECK, NO_REVIEW], 'B: the Hub says what is missing');
+    check(b.task.finalText.includes(NO_REVIEW), 'B: and so does the answer');
+
+    // C: the model looks again after the later edit: that diff is the one that counts.
+    let second;
+    const c = await run('review-again', [read, fix, ({ last }) => { second = last.structuredContent.sha256; return diff(); }, again(() => second), diff, () => [say('Edited, then read the diff again.')]]);
+    equal(c.task.progress.gitReviews.length, 1, 'C: only the diff taken after the last edit is kept');
+    check(c.task.progress.gitReviews[0]?.step > c.task.progress.verifiedFiles[0].step, 'C: and it was taken after that edit');
+
+    // D: nothing changed, nothing to review.
+    let clean;
+    const d = await run('review-nothing', [read, diff, ({ last }) => { clean = last; return [say('Nothing has changed yet.')]; }]);
+    check(clean.isError === false && /Không có thay đổi/.test(textOf(clean)), 'D: (premise) the real git_diff of a clean tree says that nothing changed');
+    equal(d.task.progress.gitReviews, [], 'D: a diff with no change is not a review');
+
+    // E: a diff too long for the tool to show is shown in part: the Hub cannot say that the model read it.
+    const big = `${Array.from({ length: 4000 }, (_, at) => `exports.line${at} = '${'x'.repeat(80)}';`).join('\n')}\n`;
+    let cut;
+    const e = await run('review-clipped', [read, ({ last }) => [tool('write_file', { path: 'calc.js', content: big, expected_sha256: last.structuredContent.sha256 })], diff, ({ last }) => { cut = last; return [say('The diff was long.')]; }]);
+    check(cut.isError === false && /Diff quá lớn nên đã bị cắt/.test(textOf(cut)), 'E: (premise) the real git_diff cut the long diff');
+    equal(e.task.progress.gitReviews, [], 'E: a diff shown in part is not a review');
+  });
+
   // ---------------------------------------------------------------- local aliases through the MCP router
   await section('MCP routers resolve advertised local names without bypassing schema or permissions', async () => {
     const dir = await project('router-aliases');

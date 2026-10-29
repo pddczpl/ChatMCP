@@ -143,8 +143,10 @@ export async function verifyHostEvidence({manager, name, result, step = 0} = {})
     !meta.timedOut && !meta.cancelled && !meta.lingering && !meta.truncated?.stdout && !meta.truncated?.stderr) {
     return {kind:'verify',id:hash(nameStr+'\0'+meta.cwd+'\0'+step).slice(0,16),step};
   }
-  if(nameStr==='local.git_diff' && typeof meta.diff==='string' && !meta.truncated && meta.diff.length>0){
-    return {kind:'review',id:hash(meta.diff).slice(0,16),step};
+  // The local git_diff tool gives a digest of its diff only when there was a change and the model was shown all of it. As for a passing check, the receipt trusts that field of the
+  // first-party result: unlike a read or an edit, nothing is read again from the disk.
+  if(nameStr==='local.git_diff' && /^[a-f0-9]{64}$/i.test(meta.diffSha256??'') && meta.truncated!==true){
+    return {kind:'review',id:meta.diffSha256.toLowerCase().slice(0,16),step};
   }
   return null;
 }
