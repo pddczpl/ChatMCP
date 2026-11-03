@@ -4,7 +4,7 @@ import { applyDocumentLanguage, languageOf } from '@/lib/document-language';
 export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'vi' | 'en';
 /** The tabs of the right-hand work panel. Model, skills, permissions and the rest live in the Settings view. */
-export type InspectorTab = 'plan' | 'changes' | 'files' | 'terminal' | 'activity' | 'agents' | 'preview';
+export type InspectorTab = 'plan' | 'changes' | 'review' | 'files' | 'terminal' | 'activity' | 'agents' | 'preview';
 export type SettingsSection = 'workspace' | 'model' | 'permissions' | 'agent-channel' | 'skills' | 'code-intelligence' | 'appearance' | 'updates' | 'about';
 
 interface ToastState {
@@ -36,6 +36,10 @@ interface AppStore {
   selectedBaseRef: string;
   setSelectedBaseRef: (ref: string) => void;
   setActiveTab: (tab: InspectorTab) => void;
+  /** A request to open the Review tab on one file (the link in the receipt of an edit): the path, and when it was asked, so that asking for the same file again still counts. */
+  reviewFocus: { path: string; at: number } | null;
+  focusReview: (path: string) => void;
+  clearReviewFocus: () => void;
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
   fullAccessModalOpen: boolean;
@@ -103,6 +107,9 @@ export const useAppStore = create<AppStore>((set) => ({
   selectedBaseRef: '',
   setSelectedBaseRef: (selectedBaseRef) => set({selectedBaseRef}),
   setActiveTab: (tab) => set({ activeTab: tab, inspectorOpen: true }),
+  reviewFocus: null,
+  focusReview: (path) => set({ activeTab: 'review', inspectorOpen: true, reviewFocus: { path, at: Date.now() } }),
+  clearReviewFocus: () => set({ reviewFocus: null }),
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   fullAccessModalOpen: false,

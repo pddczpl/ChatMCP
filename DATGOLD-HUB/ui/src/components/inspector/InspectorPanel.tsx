@@ -11,12 +11,13 @@ import { BackgroundTasks } from '@/components/layout/BackgroundTasks';
 import { ActivityTab } from './ActivityTab';
 import { FilesTab } from './FilesTab';
 import { GitTab } from './GitTab';
+import { ReviewTab } from './ReviewTab';
 import { TerminalTab } from './TerminalTab';
 import { PlanTab } from './PlanTab';
 import { PreviewTab } from './PreviewTab';
 
 /** Tabs that are always in the strip. The activity log and the preview are used less: they sit under "More" until chosen. */
-const PRIMARY: InspectorTab[] = ['plan', 'changes', 'files', 'terminal', 'agents'];
+const PRIMARY: InspectorTab[] = ['plan', 'changes', 'review', 'files', 'terminal', 'agents'];
 const OVERFLOW: InspectorTab[] = ['activity', 'preview'];
 
 export function InspectorPanel() {
@@ -30,6 +31,7 @@ export function InspectorPanel() {
   const labels: Record<InspectorTab, string> = {
     plan: t('tab_progress'),
     changes: t('tab_changes'),
+    review: t('tab_review'),
     files: t('tab_files'),
     terminal: t('tab_terminal'),
     activity: t('tab_activity'),
@@ -121,6 +123,7 @@ export function InspectorPanel() {
           <>
             {activeTab === 'plan' && <PlanTab />}
             {activeTab === 'changes' && <GitTab />}
+            {activeTab === 'review' && <ReviewTab />}
             {activeTab === 'files' && <FilesTab />}
             {activeTab === 'terminal' && <TerminalTab />}
             {activeTab === 'activity' && <ActivityTab />}
