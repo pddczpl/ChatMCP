@@ -276,10 +276,10 @@ const secretsOf = (git, extra = []) => [...(typeof git?.secrets === 'function' ?
 const isProgramAddress = (url) => /^[A-Za-z0-9+.-]+::/.test(url) || url.startsWith('-') || /[\0\r\n]/.test(url);
 /**
  * Settings of the HTTP transport that the REPOSITORY could use to send a push through a proxy of its own or to weaken the check of the certificate (together they let the
- * author of a folder read what is sent), to add a header or to name the certificates to trust. A regular expression over the names Git reports, `git config --local`
- * (the person's own global configuration is theirs and is not looked at).
+ * author of a folder read what is sent), to add a header, to override the DNS answer for a host or to name the certificates to trust. A regular expression over the names Git
+ * reports, for the repository's own configuration (`git config --local` and `--worktree`; the person's own global configuration is theirs and is not looked at).
  */
-const TRANSPORT_SETTINGS = '^https?\\.(.*\\.)?(proxy|proxyauthmethod|sslverify|sslcainfo|sslcapath|sslcert|sslkey|pinnedpubkey|extraheader|cookiefile)$';
+const TRANSPORT_SETTINGS = '^https?\\.(.*\\.)?(proxy|proxyauthmethod|sslverify|sslcainfo|sslcapath|sslcert|sslkey|pinnedpubkey|extraheader|cookiefile|curloptresolve)$';
 
 /**
  * Looks at the repository and decides whether this push may be put in front of the person. Local Git only: nothing is sent, nothing is asked of the remote.
@@ -303,10 +303,16 @@ async function plan(git, { remote, branch, setUpstream, signal, scanLimit }) {
   // the repository's own configuration must not name a program that Git would run to talk to the network
   const safety = await inspectGitSafety(root, { hooks: false });
   const programs = safety.risks.filter((risk) => risk.affects === 'network').map((risk) => risk.key); // (a configuration too large to read is refused by the runner already)
-  const transport = await run(['config', '--local', '--name-only', '--get-regexp', TRANSPORT_SETTINGS]);
-  if (transport.code === 0) programs.push(...transport.stdout.split('\n').map((line) => line.trim()).filter(Boolean));
+  // `--local` is `.git/config`; `--worktree` is `.git/config.worktree` when extensions.worktreeConfig is on (a linked worktree has its own, under the common directory) and
+  // `.git/config` again when it is off. `--local` alone never reads the worktree file, and Git applies what is in it.
+  const transport = new Set();
+  for (const scope of ['--local', '--worktree']) {
+    const found = await run(['config', scope, '--name-only', '--get-regexp', TRANSPORT_SETTINGS]);
+    if (found.code === 0) for (const line of found.stdout.split('\n')) if (line.trim()) transport.add(line.trim());
+  }
+  programs.push(...transport);
   if (programs.length) {
-    return fault('push_untrusted_repo', `Cấu hình của kho này (.git/config) có mục chạy chương trình hoặc đổi đường đi của kết nối khi Git nói chuyện với remote: ${programs.slice(0, 6).join(', ')}. git_push không đẩy khi chưa kiểm tra để tránh chạy mã của kho hoặc để lộ dữ liệu qua proxy của kho. Xem và xóa các mục đó nếu bạn tin kho, hoặc tự đẩy bằng terminal.`);
+    return fault('push_untrusted_repo', `Cấu hình của kho này (.git/config, .git/config.worktree) có mục chạy chương trình hoặc đổi đường đi của kết nối khi Git nói chuyện với remote: ${programs.slice(0, 6).join(', ')}. git_push không đẩy khi chưa kiểm tra để tránh chạy mã của kho hoặc để lộ dữ liệu qua proxy của kho. Xem và xóa các mục đó nếu bạn tin kho, hoặc tự đẩy bằng terminal.`);
   }
 
   const listed = await run(['remote']);

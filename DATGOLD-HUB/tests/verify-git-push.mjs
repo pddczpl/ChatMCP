@@ -475,6 +475,7 @@ try {
       ['http.proxyAuthMethod', 'basic'],
       ['https.proxy', 'http://127.0.0.1:9'],
       ['http.extraHeader', 'X-Test: 1'],
+      ['http.curloptResolve', 'example.com:443:127.0.0.1'], // overrides the DNS answer for a host, like a proxy of the repository's own
     ];
     for (const [index, [key, value]] of cases.entries()) {
       sh(p.work, 'config', key, value);
@@ -498,6 +499,52 @@ try {
     sh(p.work, 'config', '--unset-all', 'filter.pwn.clean');
     assert.equal((await p.call({})).isError, false, 'with the settings gone the push goes through');
     ok(`untrusted folder: ${cases.length} repository settings that name a program for the network are refused by name (never by value), a clean-filter is refused by the runner, nothing ran`);
+  }
+  {
+    // The configuration of a WORKTREE (.git/config.worktree, which Git reads when extensions.worktreeConfig is on) is the repository's own as well. `git config --local` never
+    // reads it, so a proxy and a switched-off certificate check that sit there were pushed through (found in an audit of the first version of the check).
+    const p = await project();
+    const before = p.refs();
+    sh(p.work, 'config', 'extensions.worktreeConfig', 'true');
+    sh(p.work, 'config', '--worktree', 'http.proxy', 'http://127.0.0.1:9');
+    sh(p.work, 'config', '--worktree', 'http.sslVerify', 'false');
+    // the premise: the shared file has neither, the worktree file has both
+    assert.ok(shFails(p.work, 'config', '--local', '--get-regexp', '^http[.]'), 'nothing of the kind in .git/config');
+    assert.match(sh(p.work, 'config', '--worktree', '--name-only', '--get-regexp', '^http[.]'), /http\.proxy[\s\S]*http\.sslverify/, 'both in .git/config.worktree');
+    sh(p.work, 'config', '--local', 'http.extraHeader', 'X-Test: 1'); // and one in the shared file: with the worktree file in use, both files are read
+    const result = await p.call({});
+    assert.equal(errorCode(result), 'push_untrusted_repo', textOf(result));
+    const said = textOf(result).toLowerCase();
+    assert.ok(said.includes('http.proxy') && said.includes('http.sslverify') && said.includes('http.extraheader'), `it names the settings of both files: ${said}`);
+    assert.ok(!said.includes('127.0.0.1') && !said.includes('x-test'), 'and not a value');
+    sh(p.work, 'config', '--local', '--unset-all', 'http.extraHeader');
+    const verdict = await p.tools.assess('git_push', {});
+    assert.equal(verdict.category, 'blocked', 'no question is asked');
+    assert.equal(verdict.code, 'push_untrusted_repo');
+    assert.equal(p.refs(), before, 'nothing was pushed');
+
+    // the same in a LINKED worktree (the folder of the workspace is one), where the worktree file lives under the common directory
+    const lwDir = path.join(p.dir, 'lw');
+    sh(p.work, 'worktree', 'add', '-q', '-b', 'feature/y', lwDir);
+    const lwStudio = new StudioWorkspace({ manager: { workspace: lwDir, secrets: [] }, directory: path.join(p.state, 'studio-lw') });
+    const lwTools = new LocalTools({ workspace: lwStudio, stateDirectory: path.join(p.state, 'lw'), git: new GitRunner({ workspace: lwStudio, hooksDirectory: path.join(p.state, 'no-hooks-lw'), env: gitEnv }) });
+    sh(lwDir, 'config', '--worktree', 'http.proxy', 'http://127.0.0.1:9');
+    sh(p.work, 'config', '--worktree', '--unset-all', 'http.proxy'); // the settings of the first worktree do not matter to the second
+    sh(p.work, 'config', '--worktree', '--unset-all', 'http.sslVerify');
+    const linked = await lwTools.call('git_push', {});
+    assert.equal(errorCode(linked), 'push_untrusted_repo', `a linked worktree: ${textOf(linked)}`);
+    assert.ok(textOf(linked).toLowerCase().includes('http.proxy'));
+    assert.equal(p.refs(), before, 'nothing was pushed from it either');
+
+    // the guard that the fix must not lose: a program named in the worktree file was refused before the transport settings were looked at
+    const q = await project();
+    sh(q.work, 'config', 'extensions.worktreeConfig', 'true');
+    sh(q.work, 'config', '--worktree', 'credential.helper', '!sh -c true');
+    const guarded = await q.call({});
+    assert.equal(errorCode(guarded), 'push_untrusted_repo');
+    assert.ok(textOf(guarded).toLowerCase().includes('credential.helper'), 'a credential helper in config.worktree is named');
+    assert.equal(q.refs().includes('feature/x'), false);
+    ok('the per-worktree configuration (.git/config.worktree, also in a linked worktree) is read for the HTTP transport settings and for programs: a proxy and a switched-off certificate check there are refused by name, nothing is pushed');
   }
   {
     // an address that runs a program
