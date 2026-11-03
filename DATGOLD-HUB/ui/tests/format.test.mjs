@@ -76,6 +76,10 @@ test('a receipt names what the Hub put in the structured input of the call; the 
   assert.equal(toolTarget({ args: { path: 'a.js', truncated: true }, summary: sentence }), 'a.js…', 'what the Hub cut is marked as cut');
   assert.equal(toolTarget({ args: { paths: ['a.js', 'b.js'], truncated: true }, summary: sentence }), 'a.js, b.js…');
   assert.equal(toolTarget({ args: { paths: [] }, summary: sentence }), sentence, 'an empty list names nothing');
+  assert.equal(toolTarget({ args: { path: '', command: 'npm test' }, summary: sentence }), 'npm test', 'an empty path is skipped');
+  assert.equal(toolTarget({ args: { paths: ['', 'b.js', 7], source: '' }, summary: sentence }), 'b.js', 'only text names a file');
+  assert.equal(toolTarget({ args: { source: '', destination: 'b.js' }, summary: sentence }), 'b.js', 'an empty end of a move is not named');
+  assert.equal(toolTarget({ args: { paths: 'a.js' }, summary: sentence }), sentence, 'a list that is not a list names nothing, and does not throw');
   assert.equal(toolTarget({ args: {}, summary: sentence }), sentence, 'a call with nothing to announce shows its sentence, as it always did');
   assert.equal(toolTarget({ summary: sentence }), sentence);
   assert.equal(toolTarget({ args: { path: 7 } }), '', 'a path that is not text is no target');

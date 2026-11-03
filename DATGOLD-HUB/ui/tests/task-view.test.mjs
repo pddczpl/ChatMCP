@@ -125,6 +125,7 @@ test('a call that made no checkpoint has none, whatever its neighbours have', ()
     finished(4, 'local.edit_file', 'call_e', 'edited', { checkpointId: 'cp-e' }),
   ]);
   assert.deepEqual(calls.map(call => call.checkpointId), [undefined, 'cp-e']);
+  assert.equal(Object.hasOwn(calls[0], 'checkpointId'), false, 'the field is absent, not set to undefined');
 });
 
 test('a result for a call the page never saw is an entry of its own and settles no other call', () => {

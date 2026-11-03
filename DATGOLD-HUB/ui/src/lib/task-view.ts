@@ -91,7 +91,7 @@ export function normalizeTask(input: TaskDetail | TaskSummary): Task {
   const toolCalls: ToolCall[] = [];
   for (const [index, event] of (raw.events || []).entries()) {
     if (!event.toolName || !['tool_start', 'tool_result', 'tool_error'].includes(event.type)) continue;
-    const callId = typeof event.callId === 'string' && event.callId !== '' ? event.callId : undefined;
+    const callId = typeof event.callId === 'string' ? event.callId : '';
     if (event.type === 'tool_start') {
       const currentRun = runAt(event.at) === Math.max(1, runs.length);
       toolCalls.push({ id: `tool:${index}`, ...(callId && { callId }), name: event.toolName, summary: event.message, args: event.input, timestamp: event.at, status: activeStates.has(status) && currentRun ? 'running' : 'unknown' });
