@@ -1,0 +1,413 @@
+{
+  "suite": "verify-approval-preview.mjs",
+  "description": "The card of a file change (lib/approval-preview.mjs): the bounds (20 files, 200 rows, 400 characters, 120,000 characters, 500 characters of a refusal), a line cut at a character and not inside one, the guard of every file of the call and the digest of the arguments, and the body of a private key hidden by its place in the old and the new text, judged by tests/verify-approval-preview.mjs.",
+  "mutations": [
+    {
+      "name": "AP-files-more",
+      "what": "twenty-one files on the card",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  files: 20,",
+          "new": "  files: 21,"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-more",
+      "what": "two hundred and one rows of a file",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  rows: 200,",
+          "new": "  rows: 201,"
+        }
+      ]
+    },
+    {
+      "name": "AP-row-chars-more",
+      "what": "a line is cut at 401 characters",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  rowChars: 400,",
+          "new": "  rowChars: 401,"
+        }
+      ]
+    },
+    {
+      "name": "AP-chars-more",
+      "what": "the card holds 130,000 characters",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  chars: 120_000,",
+          "new": "  chars: 130_000,"
+        }
+      ]
+    },
+    {
+      "name": "AP-message-more",
+      "what": "the message of a refusal is cut at 5000 characters",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  messageChars: 500,",
+          "new": "  messageChars: 5000,"
+        }
+      ]
+    },
+    {
+      "name": "AP-canonical-sort",
+      "what": "the keys of the arguments are not sorted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "Object.keys(value).sort().map(",
+          "new": "Object.keys(value).map("
+        }
+      ]
+    },
+    {
+      "name": "AP-clip-ending",
+      "what": "the line ending is counted in the line",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const body = ending ? row.text.slice(0, -ending.length) : row.text;",
+          "new": "const body = row.text;"
+        }
+      ]
+    },
+    {
+      "name": "AP-clip-surrogate",
+      "what": "a character can be cut in two",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "if (last >= 0xd800 && last <= 0xdbff) end -= 1;",
+          "new": "if (false) end -= 1;"
+        }
+      ]
+    },
+    {
+      "name": "AP-clip-omitted",
+      "what": "a cut line says it lost all its characters",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "omitted: body.length - end }",
+          "new": "omitted: body.length }"
+        }
+      ]
+    },
+    {
+      "name": "AP-clip-end",
+      "what": "a cut line loses its line ending",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "text: body.slice(0, end) + ending,",
+          "new": "text: body.slice(0, end),"
+        }
+      ]
+    },
+    {
+      "name": "AP-clip-limit",
+      "what": "a line of exactly the limit is cut",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "if (body.length <= PREVIEW_LIMITS.rowChars) return",
+          "new": "if (body.length < PREVIEW_LIMITS.rowChars) return"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-begin",
+      "what": "the start of a private key is not recognised",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = true;",
+          "new": "if (false) open = true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-end",
+      "what": "the end of a private key is not recognised",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "else if (/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = false;",
+          "new": "else if (false) open = false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-body",
+      "what": "the lines of a private key body are not hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "else if (open) inside.add(index);",
+          "new": "else if (false) inside.add(index);"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-public",
+      "what": "a public key is taken for a private one",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line)",
+          "new": "/-----BEGIN [A-Z0-9 ]*KEY-----/.test(line)"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-lead",
+      "what": "the rows before the first change are counted wrong",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "let lead = 0;",
+          "new": "let lead = 3;"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-old",
+      "what": "the place in the old text does not move",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "if (row.kind !== 'added') old += 1;",
+          "new": "if (row.kind !== 'added') old += 0;"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-current",
+      "what": "the place in the new text does not move",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "if (row.kind !== 'removed') current += 1;",
+          "new": "if (row.kind !== 'removed') current += 0;"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-removed",
+      "what": "a removed row is looked up in the new text",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const secret = row.kind === 'removed' ? oldLines.has(old) : newLines.has(current);",
+          "new": "const secret = newLines.has(current);"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-added",
+      "what": "an added row is looked up in the old text",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const secret = row.kind === 'removed' ? oldLines.has(old) : newLines.has(current);",
+          "new": "const secret = oldLines.has(old);"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-ending",
+      "what": "a hidden row loses its line ending",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "text: `[REDACTED]${terminatorOf(row.text)}`",
+          "new": "text: '[REDACTED]'"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-flag",
+      "what": "the card does not say that a call touches a private key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "...(keys ? { privateKeys: true } : {})",
+          "new": "...{}"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-flag-old",
+      "what": "a key that goes away is not key material",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "[plan.oldText, plan.newText].some(",
+          "new": "[plan.newText].some("
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-flag-new",
+      "what": "a key that appears is not key material",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "[plan.oldText, plan.newText].some(",
+          "new": "[plan.oldText].some("
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-old-text",
+      "what": "the old text of a plan is not looked at",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const oldLines = typeof plan.oldText === 'string' ? privateKeyBodyLines(plan.oldText) : new Set();",
+          "new": "const oldLines = new Set();"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-new-text",
+      "what": "the new text of a plan is not looked at",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const newLines = typeof plan.newText === 'string' ? privateKeyBodyLines(plan.newText) : new Set();",
+          "new": "const newLines = new Set();"
+        }
+      ]
+    },
+    {
+      "name": "AP-guard-all",
+      "what": "the guard holds the files of the card only",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "files: plans.map((plan) => ({ path: plan.relative, baseSha: plan.baseSha })) };",
+          "new": "files: plans.slice(0, PREVIEW_LIMITS.files).map((plan) => ({ path: plan.relative, baseSha: plan.baseSha })) };"
+        }
+      ]
+    },
+    {
+      "name": "AP-guard-sha",
+      "what": "the guard holds the path and not the hash",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "({ path: plan.relative, baseSha: plan.baseSha })",
+          "new": "({ path: plan.relative, baseSha: null })"
+        }
+      ]
+    },
+    {
+      "name": "AP-guard-tool",
+      "what": "a card made for another tool is accepted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "guard.tool === tool && guard.argsSha256",
+          "new": "guard.argsSha256"
+        }
+      ]
+    },
+    {
+      "name": "AP-guard-args",
+      "what": "a card made for other arguments is accepted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "&& guard.argsSha256 === argumentsDigest(args)",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-guard-files",
+      "what": "a card with no list of files is accepted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "&& Array.isArray(guard.files);",
+          "new": ";"
+        }
+      ]
+    },
+    {
+      "name": "AP-hidden-files",
+      "what": "the files that are not on the card are not counted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "hiddenFiles: plans.length - files.length,",
+          "new": "hiddenFiles: 0,"
+        }
+      ]
+    },
+    {
+      "name": "AP-truncated-files",
+      "what": "files that are not shown do not make the card truncated",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "truncated: plans.length > files.length ||",
+          "new": "truncated:"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-hidden",
+      "what": "the rows that are not shown are not counted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "hiddenRows: total - shown,",
+          "new": "hiddenRows: 0,"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-cut",
+      "what": "a hunk that is cut does not say how much",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "...(rows.length < hunk.rows.length ? { cut: hunk.rows.length - rows.length } : {}),",
+          "new": "...{},"
+        }
+      ]
+    },
+    {
+      "name": "AP-action-create",
+      "what": "a new file is an overwrite",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "action: plan.kind === 'edit' ? 'edit' : plan.created ? 'create' : 'overwrite',",
+          "new": "action: plan.kind === 'edit' ? 'edit' : 'overwrite',"
+        }
+      ]
+    },
+    {
+      "name": "AP-error-code",
+      "what": "a refusal without a code has none",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "code: String(failure.code ?? 'local_error')",
+          "new": "code: String(failure.code ?? '')"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,537 @@
+{
+  "suite": "verify-line-diff.mjs",
+  "description": "The line diff of the Hub (lib/line-diff.mjs): lines that keep their terminator, the shortest script (Myers) with its bounds, the hunks with three lines of context, hunks merged six lines apart, the counts and the digest, judged by tests/verify-line-diff.mjs (hand-made shapes, exact text, 2500 seeded pairs against a longest-common-subsequence table, the bounds).",
+  "mutations": [
+    {
+      "name": "LD-context-two",
+      "what": "two lines of context instead of three",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "export const CONTEXT_LINES = 3;",
+          "new": "export const CONTEXT_LINES = 2;"
+        }
+      ]
+    },
+    {
+      "name": "LD-context-four",
+      "what": "four lines of context instead of three",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "export const CONTEXT_LINES = 3;",
+          "new": "export const CONTEXT_LINES = 4;"
+        }
+      ]
+    },
+    {
+      "name": "LD-merge-gap-short",
+      "what": "changes six lines apart are two hunks",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "const MERGE_GAP = 2 * CONTEXT_LINES;",
+          "new": "const MERGE_GAP = CONTEXT_LINES;"
+        }
+      ]
+    },
+    {
+      "name": "LD-merge-gap-long",
+      "what": "changes seven lines apart are one hunk",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "const MERGE_GAP = 2 * CONTEXT_LINES;",
+          "new": "const MERGE_GAP = 2 * CONTEXT_LINES + 1;"
+        }
+      ]
+    },
+    {
+      "name": "LD-edit-length-small",
+      "what": "the search gives up after ten edits",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "export const MAX_EDIT_LENGTH = 1000;",
+          "new": "export const MAX_EDIT_LENGTH = 10;"
+        }
+      ]
+    },
+    {
+      "name": "LD-edit-length-large",
+      "what": "the search never gives up on the edits",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "export const MAX_EDIT_LENGTH = 1000;",
+          "new": "export const MAX_EDIT_LENGTH = 1000000;"
+        }
+      ]
+    },
+    {
+      "name": "LD-steps-small",
+      "what": "the search gives up after ten steps",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "export const MAX_DIFF_STEPS = 4_000_000;",
+          "new": "export const MAX_DIFF_STEPS = 10;"
+        }
+      ]
+    },
+    {
+      "name": "LD-steps-unbounded",
+      "what": "the step limit is not checked",
+      "equivalent": "no input reaches 4,000,000 steps under the 1000-edit limit (the most of about thirty adversarial inputs, 100,000 lines of repeated text with up to 900 edits, was 957,056): the cap is a second guard, and its constant is pinned by LD-steps-small",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (steps > MAX_DIFF_STEPS) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LD-split-no-terminator",
+      "what": "a line loses its line feed",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "lines.push(text.slice(start, end + 1));",
+          "new": "lines.push(text.slice(start, end));"
+        }
+      ]
+    },
+    {
+      "name": "LD-split-last-line",
+      "what": "a last line without a terminator is dropped",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "lines.push(text.slice(start));",
+          "new": "lines.push(text.slice(start)); lines.pop();"
+        }
+      ]
+    },
+    {
+      "name": "LD-split-cr",
+      "what": "a carriage return ends a line",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "const end = text.indexOf('\\n', start);",
+          "new": "const end = text.slice(start).search(/[\\r\\n]/) === -1 ? -1 : start + text.slice(start).search(/[\\r\\n]/);"
+        }
+      ]
+    },
+    {
+      "name": "LD-head-off",
+      "what": "the common first lines are not set aside",
+      "equivalent": "only makes the search run over more lines: the shortest script is the same",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "while (head < a.length && head < b.length && a[head] === b[head]) head += 1;",
+          "new": "while (false) head += 1;"
+        }
+      ]
+    },
+    {
+      "name": "LD-tail-off",
+      "what": "the common last lines are not set aside",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1;",
+          "new": "while (false) tail += 1;"
+        }
+      ]
+    },
+    {
+      "name": "LD-tail-overlap",
+      "what": "the last lines may reach into the first lines",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "while (tail < a.length - head && tail < b.length - head &&",
+          "new": "while (tail < a.length && tail < b.length &&"
+        }
+      ]
+    },
+    {
+      "name": "LD-equal-texts",
+      "what": "equal texts are not recognised",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (head === aEnd && head === bEnd) return [];",
+          "new": "if (false) return [];"
+        }
+      ]
+    },
+    {
+      "name": "LD-equal-either",
+      "what": "a text that is a prefix of the other has no change",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (head === aEnd && head === bEnd) return [];",
+          "new": "if (head === aEnd || head === bEnd) return [];"
+        }
+      ]
+    },
+    {
+      "name": "LD-pure-change",
+      "what": "a pure insertion or removal is searched like any change",
+      "equivalent": "the search answers a pure insertion or removal with the same single block",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (head === aEnd || head === bEnd) return [everything];",
+          "new": "if (false) return [everything];"
+        }
+      ]
+    },
+    {
+      "name": "LD-search-tie",
+      "what": "a tie between going down and going right goes the other way",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "v[offset + k - 1] < v[offset + k + 1]) ? v[offset + k + 1]",
+          "new": "v[offset + k - 1] <= v[offset + k + 1]) ? v[offset + k + 1]"
+        }
+      ]
+    },
+    {
+      "name": "LD-search-wrong-way",
+      "what": "the furthest path is the lower one",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "v[offset + k - 1] < v[offset + k + 1]) ? v[offset + k + 1]",
+          "new": "v[offset + k - 1] > v[offset + k + 1]) ? v[offset + k + 1]"
+        }
+      ]
+    },
+    {
+      "name": "LD-search-edge",
+      "what": "the diagonal at the edge is chosen like the others",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "let x = k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1]) ?",
+          "new": "let x = (k !== d && v[offset + k - 1] < v[offset + k + 1]) ?"
+        }
+      ]
+    },
+    {
+      "name": "LD-search-step",
+      "what": "going right does not take a line",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": ": v[offset + k - 1] + 1;",
+          "new": ": v[offset + k - 1];"
+        }
+      ]
+    },
+    {
+      "name": "LD-search-end",
+      "what": "the search stops when it reaches the end of one list",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (x >= n && y >= m) return blocksFrom(trace, n, m);",
+          "new": "if (x >= n || y >= m) return blocksFrom(trace, n, m);"
+        }
+      ]
+    },
+    {
+      "name": "LD-search-snake",
+      "what": "a run of equal lines is not followed",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "while (x < n && y < m && a[x] === b[y]) {",
+          "new": "while (false) {"
+        }
+      ]
+    },
+    {
+      "name": "LD-trace-offset",
+      "what": "the walk back reads the paths one place off",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "trace.push(v.slice(offset - d - 1, offset + d + 2));",
+          "new": "trace.push(v.slice(offset - d, offset + d + 2));"
+        }
+      ]
+    },
+    {
+      "name": "LD-back-sign",
+      "what": "a line taken away and a line put in are swapped",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (d > 0) moves.push(x === previousX ? 1 : -1);",
+          "new": "if (d > 0) moves.push(x === previousX ? -1 : 1);"
+        }
+      ]
+    },
+    {
+      "name": "LD-back-first-round",
+      "what": "the walk back counts a move that was never made",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (d > 0) moves.push(x === previousX ? 1 : -1);",
+          "new": "if (d >= 0) moves.push(x === previousX ? 1 : -1);"
+        }
+      ]
+    },
+    {
+      "name": "LD-back-choice",
+      "what": "the walk back chooses the other path",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "reach(k - 1) < reach(k + 1)) ? k + 1 : k - 1;",
+          "new": "reach(k - 1) > reach(k + 1)) ? k + 1 : k - 1;"
+        }
+      ]
+    },
+    {
+      "name": "LD-blocks-open",
+      "what": "a change next to a change is not one block",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (open) { blocks.push(open); open = null; }",
+          "new": "if (open) { blocks.push(open); }"
+        }
+      ]
+    },
+    {
+      "name": "LD-group-strict",
+      "what": "changes exactly six lines apart are two hunks",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "block.aStart - group[group.length - 1].aEnd <= MERGE_GAP",
+          "new": "block.aStart - group[group.length - 1].aEnd < MERGE_GAP"
+        }
+      ]
+    },
+    {
+      "name": "LD-group-never",
+      "what": "changes are never merged",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (group && block.aStart - group[group.length - 1].aEnd <= MERGE_GAP) group.push(block);",
+          "new": "if (false) group.push(block);"
+        }
+      ]
+    },
+    {
+      "name": "LD-visible-bom",
+      "what": "a byte order mark counts as a character of the line",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "line.charCodeAt(0) === BYTE_ORDER_MARK ? line.slice(1) : line",
+          "new": "line"
+        }
+      ]
+    },
+    {
+      "name": "LD-visible-crlf",
+      "what": "a carriage return counts as a character of the line",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "text.endsWith('\\r\\n') ? -2 : -1",
+          "new": "-1"
+        }
+      ]
+    },
+    {
+      "name": "LD-looks-length",
+      "what": "a line that appears looks like no change",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "return gone.length === put.length && gone.every(",
+          "new": "return gone.every("
+        }
+      ]
+    },
+    {
+      "name": "LD-looks-every",
+      "what": "one line that looks the same is enough",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "gone.every((words, at) => words === put[at])",
+          "new": "gone.some((words, at) => words === put[at])"
+        }
+      ]
+    },
+    {
+      "name": "LD-before-context",
+      "what": "the context before the first line reaches outside the file",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "const before = Math.min(CONTEXT_LINES, first.bStart);",
+          "new": "const before = CONTEXT_LINES;"
+        }
+      ]
+    },
+    {
+      "name": "LD-removed-count",
+      "what": "the removed lines are counted on the new side",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "removed: blocks.reduce((total, block) => total + block.aEnd - block.aStart, 0),",
+          "new": "removed: blocks.reduce((total, block) => total + block.bEnd - block.bStart, 0),"
+        }
+      ]
+    },
+    {
+      "name": "LD-added-count",
+      "what": "the added lines are counted on the old side",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "added: blocks.reduce((total, block) => total + block.bEnd - block.bStart, 0),",
+          "new": "added: blocks.reduce((total, block) => total + block.aEnd - block.aStart, 0),"
+        }
+      ]
+    },
+    {
+      "name": "LD-row-kind",
+      "what": "a removed line is drawn as an added one",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "span.push({ kind: 'removed', text: baselineLines[line] });",
+          "new": "span.push({ kind: 'added', text: baselineLines[line] });"
+        }
+      ]
+    },
+    {
+      "name": "LD-interior-context",
+      "what": "the lines between two changes are taken from the old side",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "contextRows(currentLines, blocks[at - 1].bEnd, block.bStart)",
+          "new": "contextRows(currentLines, blocks[at - 1].aEnd, block.bStart)"
+        }
+      ]
+    },
+    {
+      "name": "LD-after-context",
+      "what": "four lines of context after the last change",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "contextRows(currentLines, last.bEnd, last.bEnd + CONTEXT_LINES)",
+          "new": "contextRows(currentLines, last.bEnd, last.bEnd + CONTEXT_LINES + 1)"
+        }
+      ]
+    },
+    {
+      "name": "LD-block-offset",
+      "what": "the places of the blocks forget the lines set aside at the start",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "aStart: block.aStart + head,",
+          "new": "aStart: block.aStart,"
+        }
+      ]
+    },
+    {
+      "name": "LD-fallback",
+      "what": "a change that is too scattered has no hunk at all",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "if (!found) return [everything];",
+          "new": "if (!found) return [];"
+        }
+      ]
+    },
+    {
+      "name": "LD-additions",
+      "what": "additions are the removed lines",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "additions: hunks.reduce((total, hunk) => total + hunk.added, 0)",
+          "new": "additions: hunks.reduce((total, hunk) => total + hunk.removed, 0)"
+        }
+      ]
+    },
+    {
+      "name": "LD-deletions",
+      "what": "deletions are the added lines",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "deletions: hunks.reduce((total, hunk) => total + hunk.removed, 0)",
+          "new": "deletions: hunks.reduce((total, hunk) => total + hunk.added, 0)"
+        }
+      ]
+    },
+    {
+      "name": "LD-digest-length",
+      "what": "the length of a row is not part of the digest",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "`${row.kind[0]}${row.text.length}:${row.text}`",
+          "new": "`${row.kind[0]}:${row.text}`"
+        }
+      ]
+    },
+    {
+      "name": "LD-digest-kind",
+      "what": "the kind of a row is not part of the digest",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "`${row.kind[0]}${row.text.length}:${row.text}`",
+          "new": "`${row.text.length}:${row.text}`"
+        }
+      ]
+    },
+    {
+      "name": "LD-digest-separator",
+      "what": "hunks are not separated in the digest",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": ".join('\\u0000');",
+          "new": ".join('');"
+        }
+      ]
+    },
+    {
+      "name": "LD-digest-place",
+      "what": "the place of a hunk is not part of the digest",
+      "patches": [
+        {
+          "file": "lib/line-diff.mjs",
+          "old": "`@${hunk.baselineStart},${hunk.baselineEnd},${hunk.currentStart},${hunk.currentEnd}\\n",
+          "new": "`@\\n"
+        }
+      ]
+    }
+  ]
+}

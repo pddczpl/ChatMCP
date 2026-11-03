@@ -6,17 +6,17 @@ import { buildChangePreview, PREVIEW_LIMITS } from '../../lib/approval-preview.m
 
 // The change an approval card shows (P8 ux-7), rendered by the real ApprovalStack for requests shaped by the Hub's own planners and buildChangePreview(), so that the page and the Hub
 // cannot drift apart. What is pinned is what the owner reads before saying yes: for each file what it does (new, overwrite, edit), its counts, the hunks as the Review tab draws them,
-// what is not shown and how much of it, and that nothing of it can be taken for markup. The card is read-only: the only buttons are the two of the request.
+// what is not shown and how much of it, and that nothing of it can be taken for markup. The card is read-only: the only buttons are the two of the request. How the request is read
+// (what it accepts and how much) is in change-preview.test.mjs.
 const { loaded, dispose } = await bundleTsx(`
   ${renderPrelude}
   import { ApprovalStack } from './src/components/approval/ApprovalStack';
-  import { parseChangePreview, refusalSentenceKey, CHANGE_FILES_SHOWN, CHANGE_ROWS_SHOWN } from './src/lib/change-preview';
   import { normalizeApproval } from './src/lib/task-view';
   import { translations } from './src/lib/i18n';
-  export { ApprovalStack, parseChangePreview, refusalSentenceKey, CHANGE_FILES_SHOWN, CHANGE_ROWS_SHOWN, normalizeApproval, translations };
+  export { ApprovalStack, normalizeApproval, translations };
 `, 'chatmcp-approval-changes-');
 after(dispose);
-const { renderWith, ApprovalStack, parseChangePreview, refusalSentenceKey, CHANGE_FILES_SHOWN, CHANGE_ROWS_SHOWN, normalizeApproval, translations } = loaded;
+const { renderWith, ApprovalStack, normalizeApproval, translations } = loaded;
 
 const DIACRITICS = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
 const at = (relative) => ({ relative });
@@ -160,29 +160,6 @@ test('a call that would be refused says why, a file that does not change says so
   assert.match(inner(await render(detailOf([blob], { kind: 'write' }), 'en'), 'change-unreadable'), /not readable text/);
 });
 
-test('every refusal the planners make, and every code the tools refuse a file change with, has a sentence in the page', () => {
-  const big = 'x'.repeat(2 * 1024 * 1024 + 1);
-  const refusals = [
-    () => planEdit({ path: 'x', old_string: 'zz', new_string: 'y' }, bytes('a'), at('x')),
-    () => planEdit({ path: 'x', old_string: 'a', new_string: 'y' }, bytes('aa'), at('x')),
-    () => planEdit({ path: 'x', old_string: '', new_string: 'y' }, bytes('a'), at('x')),
-    () => planEdit({ path: 'x', old_string: 'a', new_string: 'y', expected_sha256: 'f'.repeat(64) }, bytes('a'), at('x')),
-    () => planEdit({ path: 'x', old_string: 'a', new_string: 'y' }, Buffer.from([0, 1]), at('x')),
-    () => planEdit({ path: 'x', old_string: 'a', new_string: 'y' }, Buffer.from([0xe9, 0x74]), at('x')),
-    () => planEdit({ path: 'x', old_string: 'a', new_string: 'y\ud800' }, bytes('a'), at('x')),
-    () => planWrite({ path: 'x', content: 'y' }, bytes('a'), at('x')),
-    () => planWrite({ path: 'x', content: big }, null, at('x')),
-    () => planWrite({ path: 'x', content: 'a\0' }, null, at('x')),
-  ];
-  const codes = refusals.map((run) => { try { run(); } catch (error) { return error.code; } throw new Error('a refusal did not refuse'); });
-  // the batch, and the ones the tools raise while they look at the disk (lib/local-tools.mjs: #target, #loadBatchItem, #preflightWrite, #preflightEdit)
-  codes.push('bad_files', 'bad_path', 'bad_revision', 'duplicate_path', 'not_directory', 'file_too_large', 'protected_path', 'symlink', 'is_directory', 'not_file', 'outside_workspace', 'alternate_stream', 'bad_name');
-  const missing = [...new Set(codes)].filter((code) => refusalSentenceKey(code) === null);
-  assert.deepEqual(missing, [], 'codes the card would show in the Hub\'s own words');
-  assert.equal(refusalSentenceKey('constructor'), null, 'a code is looked up by its own name, never through the prototype');
-  assert.equal(refusalSentenceKey('file_locked'), null);
-});
-
 test('lines are text, never markup, and characters nobody can see are shown as markers', async () => {
   const nasty = planWrite({ path: 'x.html', content: '<img src=x onerror=alert(1)> & "q"\n</pre><script>alert(1)</script>\nsafe‮evil\n' }, null, at('x.html'));
   const html = await render(detailOf([nasty], { kind: 'write' }));
@@ -208,38 +185,6 @@ test('a broken preview does not break the page', async () => {
   const html = await render({ kind: 'edit', path: 'a.txt', preview: { files: [{ path: 'ok2.txt', hunks: [{ rows: [{ kind: 'weird', text: 'x' }, { kind: 'added', text: 'fine\n' }, { kind: 'added', text: 5 }] }] }] } });
   assert.equal(rowsIn(html, 'added'), 1, 'only the row that is a row is drawn');
   assert.equal(rowsIn(html, 'removed') + rowsIn(html, 'context'), 0);
-});
-
-test('parseChangePreview reads only what it knows, bounded', () => {
-  assert.equal(parseChangePreview(undefined), null);
-  assert.equal(parseChangePreview({ kind: 'edit' }), null);
-  assert.equal(parseChangePreview({ preview: [] }), null);
-  assert.equal(parseChangePreview({ preview: null }), null);
-  assert.equal(parseChangePreview('x'), null);
-  assert.equal(CHANGE_FILES_SHOWN, 20);
-  assert.equal(CHANGE_ROWS_SHOWN, 200);
-  const view = parseChangePreview({ preview: buildChangePreview([editPlan()]) });
-  assert.equal(view.files.length, 1);
-  assert.deepEqual({ ...view.files[0], hunks: view.files[0].hunks.length }, {
-    path: 'src/app.js', action: 'edit', baseSha: view.files[0].baseSha, additions: 1, deletions: 1, unchanged: false, oldUnreadable: false, hunks: 1, shownRows: 4, hiddenRows: 0, truncated: false,
-  });
-  assert.equal(view.files[0].baseSha?.length, 64);
-  assert.deepEqual([view.fileCount, view.hiddenFiles, view.truncated, view.error], [1, 0, false, null]);
-  assert.deepEqual(view.files[0].hunks[0].rows.map((row) => row.kind), ['context', 'removed', 'added', 'context']);
-  // never more than the card shows, whatever was sent
-  const flood = parseChangePreview({ preview: {
-    files: Array.from({ length: 60 }, (_, n) => ({ path: `f${n}`, action: 'edit', hunks: [{ rows: Array.from({ length: 900 }, () => ({ kind: 'added', text: 'x'.repeat(5000) })) }] })), fileCount: 60 } });
-  assert.equal(flood.files.length, 20, 'twenty files');
-  assert.equal(flood.hiddenFiles, 40);
-  assert.equal(flood.files[0].hunks.flatMap((hunk) => hunk.rows).length, 200, 'two hundred rows');
-  assert.ok(flood.files[0].hunks[0].rows[0].text.length <= 410, 'a line is cut');
-  assert.equal(flood.files[0].action, 'edit');
-  const strange = parseChangePreview({ preview: { files: [{ path: 'p', action: 'rm -rf', additions: -5, deletions: 'x', baseSha: 'not a hash', hunks: [] }], fileCount: -1, hiddenFiles: 'a', error: { code: 7, message: 'm' } } });
-  assert.equal(strange.files[0].action, 'edit', 'an action it does not know is an edit');
-  assert.deepEqual([strange.files[0].additions, strange.files[0].deletions, strange.files[0].baseSha], [0, 0, null]);
-  assert.equal(strange.fileCount, 1);
-  assert.equal(strange.hiddenFiles, 0);
-  assert.deepEqual(strange.error, { code: 'local_error', message: 'm' });
 });
 
 test('every string of the card exists in both languages, the Vietnamese has its diacritics and the English none', () => {

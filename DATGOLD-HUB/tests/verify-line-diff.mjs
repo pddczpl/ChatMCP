@@ -89,6 +89,7 @@ const rowsOf = (hunk) => hunk.rows.map((row) => `${row.kind[0]}${row.text.replac
   assert.equal(ending.hunks[0].invisibleOnly, true, 'only the line endings differ');
   assert.equal(diffHunks('a\nb\n', 'a\nB\n').hunks[0].invisibleOnly, false);
   assert.equal(diffHunks('a\n', 'a\n\n').hunks[0].invisibleOnly, false, 'a line that appears is not invisible');
+  assert.equal(diffHunks('a\r\nb\n', 'a\nB\n').hunks[0].invisibleOnly, false, 'one line says the same and the other does not');
   // a byte order mark inside the first line is a character like any other
   const bom = diffHunks('﻿a\nb\n', 'a\nb\n');
   assert.deepEqual(rowsOf(bom.hunks[0]), ['r﻿a\\n', 'aa\\n', 'cb\\n']);
@@ -256,6 +257,9 @@ function seeded(seed) {
   const written = (list) => list.map((hunk) => `@${hunk.baselineStart},${hunk.baselineEnd},${hunk.currentStart},${hunk.currentEnd}\n${hunk.rows.map((row) => `${row.kind[0]}${row.text.length}:${row.text}`).join('')}`).join('\u0000');
   assert.equal(digest, createHash('sha256').update(written(hunks)).digest('hex'), 'the digest is sha256 of the written form');
   assert.equal(hunksDigest(joined), createHash('sha256').update(written(joined)).digest('hex'));
+  const spread = diffHunks(base, base.replace('line 5\n', 'FIVE\n').replace('line 25\n', 'TWENTY-FIVE\n')).hunks;
+  assert.equal(spread.length, 2);
+  assert.equal(hunksDigest(spread), createHash('sha256').update(written(spread)).digest('hex'), 'hunks are written one after the other, separated by NUL');
   ok('hunksDigest: stable, sha256 of a written form, sees every row, kind, order, place and count');
 }
 

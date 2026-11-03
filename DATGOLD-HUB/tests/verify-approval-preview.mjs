@@ -23,7 +23,7 @@ import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { PermissionGate } from '../lib/permissions.mjs';
 import { HookRunner } from '../lib/hooks.mjs';
-import { PREVIEW_LIMITS, argumentsDigest } from '../lib/approval-preview.mjs';
+import { PREVIEW_LIMITS, argumentsDigest, buildChangePreview } from '../lib/approval-preview.mjs';
 import { diffHunks, hunksDigest } from '../lib/line-diff.mjs';
 
 let checks = 0;
@@ -192,6 +192,14 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.equal(heavy.request.detail.preview.truncated, true);
   assert.ok(heavy.request.detail.preview.files.at(-1).hiddenRows > 0, 'the last files of a heavy card show less and say how much');
   assert.ok(JSON.stringify(heavy.request).length < 400_000, 'the whole request stays bounded');
+  const longMessage = buildChangePreview([], { code: 'x', message: 'm'.repeat(900) }).error.message;
+  assert.equal(PREVIEW_LIMITS.messageChars, 500);
+  assert.equal(longMessage.length, 501, 'the message of a refusal is cut at 500 characters');
+  assert.equal(buildChangePreview([], { message: 'no code given' }).error.code, 'local_error', 'a refusal that has no code says so');
+  const exact = await ask(newGate(), 'local.write_file', { path: 'exact.txt', content: `${'z'.repeat(400)}\n${'y'.repeat(401)}\n` });
+  const [exactRow, longerRow] = rowsOf(exact.request.detail.preview.files[0]);
+  assert.deepEqual([exactRow.text.length, 'omitted' in exactRow], [401, false], 'a line of exactly 400 characters is not cut');
+  assert.deepEqual([longerRow.text.length, longerRow.omitted], [401, 1], 'a line of 401 is cut by one');
   ok('bounds: 20 files of 25 (the call is held to all 25), 200 rows of a 1000-line file with the counts of the whole file, a line cut at 400 characters (never inside a character), 120,000 characters for twenty heavy files, the request stays under 400 KB');
 }
 
@@ -236,11 +244,18 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.equal(inside.request.detail.old_string, undefined, 'and the words the model wrote (they can be a line of the body) are left out');
   assert.equal(inside.request.detail.hidden, true);
   assert.ok(!JSON.stringify(inside.request).includes(BODY[1]) && !JSON.stringify(inside.events).includes(BODY[1]), 'a line of the body that the model typed as old_string is nowhere');
+  const gone = await ask(newGate(), 'local.edit_file', { path: 'keys/key.txt', old_string: `${FRAME[0]}\n${BODY.join('\n')}\n${FRAME[1]}\n`, new_string: '' });
+  assert.equal(gone.request.detail.preview.privateKeys, true, 'a key that is deleted is still key material');
+  assert.deepEqual(rowsOf(gone.request.detail.preview.files[0]).filter((row) => row.kind === 'removed').map((row) => row.text), [`${FRAME[0]}\n`, '[REDACTED]\n', '[REDACTED]\n', '[REDACTED]\n', `${FRAME[1]}\n`], 'the key that goes away: its frame is shown, its body is not');
+  const publicKey = await ask(newGate(), 'local.write_file', { path: 'keys/public.txt', content: '-----BEGIN PUBLIC KEY-----\nMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL\n-----END PUBLIC KEY-----\n' });
+  assert.equal(publicKey.request.detail.preview.privateKeys, undefined, 'a public key is not key material');
+  assert.ok(rowsOf(publicKey.request.detail.preview.files[0]).some((row) => row.text.includes('MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL')), 'and is shown');
   const ordinary = await ask(newGate(), 'local.edit_file', { path: 'src/app.js', old_string: 'const a = 1;', new_string: 'const a = 11;' });
   assert.equal(ordinary.request.detail.preview.privateKeys, undefined, 'an ordinary call does not say it');
   assert.equal(ordinary.request.detail.old_string, 'const a = 1;');
   const fresh = await ask(newGate(), 'local.write_file', { path: 'keys/new.txt', content: `${FRAME[0]}\n${BODY.join('\n')}\n${FRAME[1]}\n` });
   assert.deepEqual(rowsOf(fresh.request.detail.preview.files[0]).map((row) => row.text), [`${FRAME[0]}\n`, '[REDACTED]\n', '[REDACTED]\n', '[REDACTED]\n', `${FRAME[1]}\n`], 'a new file with a key');
+  assert.equal(fresh.request.detail.preview.privateKeys, true, 'a key that appears is key material');
   await put('keys/rot.txt', `${FRAME[0]}\n${BODY[0]}\n${FRAME[1]}\n`);
   const rotation = await ask(newGate(), 'local.write_file', { path: 'keys/rot.txt', content: `${FRAME[0]}\n${BODY[2]}\n${FRAME[1]}\n`, overwrite: true });
   const rotated = rowsOf(rotation.request.detail.preview.files[0]);
@@ -483,6 +498,12 @@ try {
     // a card that is for this call but does not hold the file it now names (a name that leads somewhere else) lets nothing through
     const foreign = { tool: 'edit_file', argsSha256: argumentsDigest({ path: 'card.txt', old_string: 'c1', new_string: 'C1' }), files: [{ path: 'not-this-one.txt', baseSha: sha(Buffer.from('c1\nc2\n')) }] };
     refusedWith(await hubTools.call('local.edit_file', { path: 'card.txt', old_string: 'c1', new_string: 'C1' }, { guard: foreign }), 'stale_after_approval');
+    assert.equal(await fs.readFile(file('card.txt'), 'utf8'), 'c1\nc2\n');
+    // a card whose tool is not the tool of the call, with the digest of the arguments that the call has; and a card that holds no files
+    const writeArgs = { path: 'card.txt', content: 'x', overwrite: true };
+    const mismatched = { tool: 'edit_file', argsSha256: argumentsDigest(writeArgs), files: [{ path: 'card.txt', baseSha: sha(Buffer.from('c1\nc2\n')) }] };
+    refusedWith(await hubTools.call('local.write_file', writeArgs, { guard: mismatched }), 'stale_after_approval');
+    refusedWith(await hubTools.call('local.write_file', writeArgs, { guard: { tool: 'write_file', argsSha256: argumentsDigest(writeArgs) } }), 'stale_after_approval');
     assert.equal(await fs.readFile(file('card.txt'), 'utf8'), 'c1\nc2\n');
     const free = await hubTools.call('local.edit_file', { path: 'card.txt', old_string: 'c1', new_string: 'C1' });
     assert.equal(free.isError, false);

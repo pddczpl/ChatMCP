@@ -6,14 +6,14 @@
       "name": "E1",
       "what": "each edit is applied to the original text instead of the text the edits before it left",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "        updatedLf = step.text;", "new": "" }
+        { "file": "lib/local-tools.mjs", "old": "      updatedLf = step.text;", "new": "" }
       ]
     },
     {
       "name": "E2",
       "what": "an edit that does not fit is skipped and the others are written (not all or nothing)",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "} catch (failure) { throw many ? this.#editFailure(failure, index, list.length) : failure; }", "new": "} catch (failure) { /* skipped */ }" }
+        { "file": "lib/local-tools.mjs", "old": "} catch (failure) { throw many ? editFailure(failure, index, list.length) : failure; }", "new": "} catch (failure) { /* skipped */ }" }
       ]
     },
     {
@@ -27,7 +27,7 @@
       "name": "E4",
       "what": "edits that cancel out are written anyway and reported as a change",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "if (updatedLf === hay) {", "new": "if (false) {" }
+        { "file": "lib/local-tools.mjs", "old": "if (updatedLf === hay) return { ...plan, unchanged: true,", "new": "if (false) return { ...plan, unchanged: true," }
       ]
     },
     {
@@ -69,7 +69,7 @@
       "name": "E10",
       "what": "the receipt does not say how many edits there were",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "{ path: target.relative, edits: list.length, replacements: count, firstLine, sha256: digest, previousSha: before });", "new": "{ path: target.relative, replacements: count, firstLine, sha256: digest, previousSha: before });" }
+        { "file": "lib/local-tools.mjs", "old": "{ path: target.relative, edits: plan.edits, replacements: count, firstLine, sha256: plan.sha256, previousSha: plan.baseSha });", "new": "{ path: target.relative, replacements: count, firstLine, sha256: plan.sha256, previousSha: plan.baseSha });" }
       ]
     },
     {

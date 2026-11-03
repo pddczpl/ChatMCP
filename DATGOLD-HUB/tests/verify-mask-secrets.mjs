@@ -47,6 +47,11 @@ const MASKED = [
   ['google key', `AIza${'B'.repeat(35)}`, `AIza${'B'.repeat(35)}`, ''],
   ['stripe live key', STRIPE, STRIPE, ''],
   ['npm token', `npm_${R.repeat(3)}`, `npm_${R.repeat(3)}`, ''],
+  ['pypi token', `pypi-${R.repeat(3)}`, `pypi-${R.repeat(3)}`, ''],
+  ['google oauth token', `ya29.${R.repeat(3)}`, `ya29.${R.repeat(3)}`, ''],
+  ['github token on its own', TOKEN, TOKEN, ''],
+  ['aws access key id on its own', 'AKIAABCDEFGHIJKLMNOP', 'AKIAABCDEFGHIJKLMNOP', ''],
+  ['openai key on its own', `sk-${R.repeat(3)}`, `sk-${R.repeat(3)}`, ''],
   ['gitlab token', `glpat-${R.repeat(2)}`, `glpat-${R.repeat(2)}`, ''],
   ['hugging face token', `hf_${R.repeat(3)}`, `hf_${R.repeat(3)}`, ''],
   ['sendgrid key', `SG.${R.repeat(2)}.${R.repeat(2)}`, `SG.${R.repeat(2)}.${R.repeat(2)}`, ''],
@@ -77,6 +82,12 @@ const BENIGN = [
   'Authorization is checked before the handler runs.',
   'for (const token of tokens) {',
   'password_field = forms.CharField(widget=forms.PasswordInput)',
+  'token: 123456789',
+  'token = /abcdefghij/;',
+  'password: none',
+  'token: abc',
+  'password: "no"',
+  'the bearer of bad news',
 ];
 
 for (const [label, line, secret, kept] of MASKED) {
@@ -97,6 +108,9 @@ assert.equal(maskSecrets('plain text with no secret'), 'plain text with no secre
 assert.equal(maskSecrets('Authorization: Bearer abcdefghijklmnop1234'), 'Authorization: Bearer [REDACTED]', 'the bearer rule and the authorization rule do not mask twice');
 assert.equal(maskSecrets('a secret value is registered', ['value is']), 'a secret [REDACTED] registered');
 assert.equal(maskSecrets(42), '42');
+assert.equal(maskSecrets('password: "first\nsecond"'), 'password: "first\nsecond"', 'a quoted value is masked within its line: the lines of a text stay its lines');
+assert.equal(maskSecrets('abc xyz', ['xyz']), 'abc xyz', 'a registered value of fewer than four characters is not masked: it would eat ordinary text');
+assert.equal(maskSecrets('abc wxyz', ['wxyz']), 'abc [REDACTED]', 'four characters is enough');
 ok('what was pinned before is unchanged');
 
 // several lines at once, as a head of a file or a pair of strings of an edit

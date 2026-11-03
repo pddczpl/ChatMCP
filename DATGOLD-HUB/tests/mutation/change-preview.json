@@ -1,0 +1,459 @@
+{
+  "suite": "ui-change-preview-for-mutation.mjs",
+  "description": "The part of the approval card that reads the request (ui/src/lib/change-preview.ts): what it accepts of a preview that arrives as JSON, how much, the sentence for a refusal and the details without the preview, judged by ui/tests/change-preview.test.mjs. tests/ui-change-preview-for-mutation.mjs runs that file in the copy of the Hub that the runner makes. The components (ChangePreview.tsx, ApprovalStack.tsx) are judged by ui/tests/approval-changes.test.mjs and ui/e2e/approval-changes.spec.mjs and are not mutated here.",
+  "mutations": [
+    {
+      "name": "CP-files-more",
+      "what": "twenty-one files are read",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "export const CHANGE_FILES_SHOWN = 20;",
+          "new": "export const CHANGE_FILES_SHOWN = 21;"
+        }
+      ]
+    },
+    {
+      "name": "CP-rows-more",
+      "what": "two hundred and one rows are read",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "export const CHANGE_ROWS_SHOWN = 200;",
+          "new": "export const CHANGE_ROWS_SHOWN = 201;"
+        }
+      ]
+    },
+    {
+      "name": "CP-row-chars",
+      "what": "a line of 420 characters is read",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "const CHANGE_ROW_CHARS = 410;",
+          "new": "const CHANGE_ROW_CHARS = 420;"
+        }
+      ]
+    },
+    {
+      "name": "CP-hunks-more",
+      "what": "two hundred hunks are read",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "const CHANGE_HUNKS_SHOWN = 100;",
+          "new": "const CHANGE_HUNKS_SHOWN = 200;"
+        }
+      ]
+    },
+    {
+      "name": "CP-row-kind",
+      "what": "a row of any kind is a row",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "|| !ROW_KINDS.has(value.kind) ||",
+          "new": "||"
+        }
+      ]
+    },
+    {
+      "name": "CP-row-text",
+      "what": "a row without text is a row",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "|| typeof value.text !== 'string') return null;",
+          "new": ") return null;"
+        }
+      ]
+    },
+    {
+      "name": "CP-row-omitted",
+      "what": "every row says it was cut",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "...(omitted > 0 ? { omitted } : {})",
+          "new": "...{ omitted }"
+        }
+      ]
+    },
+    {
+      "name": "CP-room",
+      "what": "the rows of the hunks are not limited to what is left",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "if (rows.length >= room) break;",
+          "new": "if (false) break;"
+        }
+      ]
+    },
+    {
+      "name": "CP-room-left",
+      "what": "a hunk is read when no room is left",
+      "equivalent": "with no room left the loop over the rows ends at once, the hunk has no row and the next check skips it: the same answer",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "if (room <= 0) break;",
+          "new": "if (false) break;"
+        }
+      ]
+    },
+    {
+      "name": "CP-hunk-empty",
+      "what": "a hunk without a row is a hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "if (!rows.length) continue;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "CP-hunk-rows",
+      "what": "a hunk without a list of rows is a hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "|| !Array.isArray(entry.rows)) continue;",
+          "new": ") continue;"
+        }
+      ]
+    },
+    {
+      "name": "CP-hunk-invisible",
+      "what": "any value says the hunk is invisible",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "invisibleOnly: entry.invisibleOnly === true,",
+          "new": "invisibleOnly: Boolean(entry.invisibleOnly),"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-path",
+      "what": "a file with an empty path is a file",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "typeof value.path !== 'string' || !value.path) return [];",
+          "new": "typeof value.path !== 'string') return [];"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-path-cut",
+      "what": "a path is not cut",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "path: value.path.slice(0, 500),",
+          "new": "path: value.path,"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-action",
+      "what": "an action it does not know is kept",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "ACTIONS.has(value.action) ? value.action as ChangeAction : 'edit',",
+          "new": "ACTIONS.has(value.action) ? value.action as ChangeAction : (value.action as ChangeAction),"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-sha",
+      "what": "any string is a hash",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "/^[0-9a-f]{64}$/.test(value.baseSha)",
+          "new": "/^[0-9a-f]{6}/.test(value.baseSha)"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-sha-case",
+      "what": "a hash may be in capitals",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "/^[0-9a-f]{64}$/.test(value.baseSha)",
+          "new": "/^[0-9a-fA-F]{64}$/.test(value.baseSha)"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-unchanged",
+      "what": "any value says the file is unchanged",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "unchanged: value.unchanged === true,",
+          "new": "unchanged: Boolean(value.unchanged),"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-unreadable",
+      "what": "any value says the old file is unreadable",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "oldUnreadable: value.oldUnreadable === true,",
+          "new": "oldUnreadable: Boolean(value.oldUnreadable),"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-shown",
+      "what": "the rows shown are the rows the Hub said even when it said nothing",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "shownRows: value.shownRows === undefined ? rows : count(value.shownRows),",
+          "new": "shownRows: count(value.shownRows),"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-truncated",
+      "what": "rows left out do not make the file truncated",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "truncated: value.truncated === true || hiddenRows > 0,",
+          "new": "truncated: value.truncated === true,"
+        }
+      ]
+    },
+    {
+      "name": "CP-count-negative",
+      "what": "a negative number is a count",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0)",
+          "new": "Number.isFinite(value) ? Math.floor(value) : 0)"
+        }
+      ]
+    },
+    {
+      "name": "CP-count-fraction",
+      "what": "a fraction is a count",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "Math.floor(value)",
+          "new": "value"
+        }
+      ]
+    },
+    {
+      "name": "CP-preview-object",
+      "what": "an array is a preview",
+      "equivalent": "an array has no files and no refusal, so the next check refuses it: the same answer",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "if (!isObject(detail) || !isObject(detail.preview)) return null;",
+          "new": "if (!isObject(detail) || typeof detail.preview !== 'object' || detail.preview === null) return null;"
+        }
+      ]
+    },
+    {
+      "name": "CP-preview-empty",
+      "what": "a preview with nothing in it is a preview",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "if (!Array.isArray(raw.files) && !error) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "CP-error-code",
+      "what": "a refusal without a code has none",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "refusal.code ? refusal.code.slice(0, 64) : 'local_error'",
+          "new": "refusal.code ? refusal.code.slice(0, 64) : ''"
+        }
+      ]
+    },
+    {
+      "name": "CP-error-code-cut",
+      "what": "the code of a refusal is not cut",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "refusal.code.slice(0, 64)",
+          "new": "refusal.code"
+        }
+      ]
+    },
+    {
+      "name": "CP-error-message-cut",
+      "what": "the message of a refusal is not cut",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "refusal.message.slice(0, 600)",
+          "new": "refusal.message"
+        }
+      ]
+    },
+    {
+      "name": "CP-error-array",
+      "what": "an array is a refusal",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "const refusal = isObject(raw.error) ? raw.error : null;",
+          "new": "const refusal = typeof raw.error === 'object' ? raw.error as Record<string, unknown> : null;"
+        }
+      ]
+    },
+    {
+      "name": "CP-file-count",
+      "what": "the number of files is what the Hub said even when more were sent",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "const fileCount = Math.max(count(raw.fileCount), sent.length);",
+          "new": "const fileCount = count(raw.fileCount);"
+        }
+      ]
+    },
+    {
+      "name": "CP-hidden-files",
+      "what": "the files not shown are what the Hub said only",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "const hiddenFiles = Math.max(count(raw.hiddenFiles), fileCount - files.length);",
+          "new": "const hiddenFiles = count(raw.hiddenFiles);"
+        }
+      ]
+    },
+    {
+      "name": "CP-hidden-count",
+      "what": "the files not shown are what is left after twenty only",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "const hiddenFiles = Math.max(count(raw.hiddenFiles), fileCount - files.length);",
+          "new": "const hiddenFiles = fileCount - files.length;"
+        }
+      ]
+    },
+    {
+      "name": "CP-truncated",
+      "what": "files not shown do not make the preview truncated",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "truncated: raw.truncated === true || hiddenFiles > 0 || files.some((file) => file.truncated), error };",
+          "new": "truncated: raw.truncated === true || files.some((file) => file.truncated), error };"
+        }
+      ]
+    },
+    {
+      "name": "CP-truncated-files",
+      "what": "a truncated file does not make the preview truncated",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "|| files.some((file) => file.truncated), error };",
+          "new": ", error };"
+        }
+      ]
+    },
+    {
+      "name": "CP-sentence-not-found",
+      "what": "a refusal that a file is not found has no sentence",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "  not_found: 'agents_apr_changes_why_not_found',\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "CP-sentence-ambiguous",
+      "what": "the sentence of an ambiguous match is the one of a missing text",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "ambiguous_match: 'agents_apr_changes_why_ambiguous_match',",
+          "new": "ambiguous_match: 'agents_apr_changes_why_not_found',"
+        }
+      ]
+    },
+    {
+      "name": "CP-sentence-stale",
+      "what": "a stale sha has no sentence",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "  stale_revision: 'agents_apr_changes_why_stale_revision',\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "CP-sentence-protected",
+      "what": "a protected path has no sentence",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "  protected_path: 'agents_apr_changes_why_protected_path',\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "CP-sentence-bad-name",
+      "what": "a name that is not valid has no sentence",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "  bad_name: 'agents_apr_changes_why_bad_request',\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "CP-sentence-prototype",
+      "what": "a code is looked up through the prototype",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "Object.prototype.hasOwnProperty.call(REFUSAL_SENTENCES, code) ? REFUSAL_SENTENCES[code] : null",
+          "new": "code in REFUSAL_SENTENCES ? REFUSAL_SENTENCES[code] : null"
+        }
+      ]
+    },
+    {
+      "name": "CP-details",
+      "what": "the details keep the preview",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "filter(([key]) => key !== 'preview')",
+          "new": "filter(([key]) => key !== 'previews')"
+        }
+      ]
+    }
+  ]
+}

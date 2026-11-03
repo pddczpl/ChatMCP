@@ -47,6 +47,9 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   assert.equal(kept.newText, 'ONE\r\nTWO\r\nthree\r\n');
   assert.deepEqual(kept.data, buf('ONE\r\nTWO\r\nthree\r\n'));
   assert.deepEqual(kept.hunks[0].rows.map((row) => row.text), ['one\r\n', 'two\r\n', 'ONE\r\n', 'TWO\r\n', 'three\r\n'], 'the rows carry the real line endings');
+  // a CR LF in what the model wrote is one line ending, not two, and an old_string that spells the file's own endings still matches
+  const spelled = planEdit({ path: 'x', old_string: 'one\r\ntwo', new_string: 'a\r\nb' }, crlf, at);
+  assert.equal(spelled.newText, 'a\r\nb\r\nthree\r\n');
   // a BOM and UTF-16LE stay
   const bom = planEdit({ path: 'x', old_string: 'two', new_string: 'TWO' }, buf('one\ntwo\n', 'utf8-bom'), at);
   assert.deepEqual(bom.data, buf('one\nTWO\n', 'utf8-bom'));
@@ -65,12 +68,22 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   assert.equal(listed.newText, 'both\nthree\n');
   assert.equal(listed.edits, 2);
   assert.equal(listed.many, true);
+  const spread = planEdit({ path: 'x', edits: [{ old_string: 'one', new_string: 'ONE' }, { old_string: 'three', new_string: 'THREE' }] }, lf, at);
+  assert.equal(spread.firstLine, 1, 'the line of the first edit');
+  assert.deepEqual(spread.steps, [{ firstLine: 1, count: 1 }, { firstLine: 3, count: 1 }], 'and the line of each edit, at its turn');
+  assert.equal(spread.replacements, 2);
   // edits that cancel each other
   const cancel = planEdit({ path: 'x', edits: [{ old_string: 'one', new_string: 'ONE' }, { old_string: 'ONE', new_string: 'one' }] }, lf, at);
   assert.equal(cancel.unchanged, true);
   assert.deepEqual(cancel.hunks, []);
   assert.deepEqual([cancel.additions, cancel.deletions], [0, 0]);
   assert.deepEqual(cancel.data, lf);
+  // edits that cancel each other in a file with a byte order mark: the bytes are the file's own
+  const bomFile = buf('one\ntwo\n', 'utf8-bom');
+  const bomCancel = planEdit({ path: 'x', edits: [{ old_string: 'one', new_string: 'ONE' }, { old_string: 'ONE', new_string: 'one' }] }, bomFile, at);
+  assert.deepEqual(bomCancel.data, bomFile, 'nothing to write: the data is the file as it is, byte order mark included');
+  assert.equal(bomCancel.newText, 'one\ntwo\n');
+  assert.equal(bomCancel.sha256, sha256(bomFile));
   // the sha that the model quotes
   assert.equal(planEdit({ path: 'x', old_string: 'two', new_string: 'TWO', expected_sha256: sha256(lf).toUpperCase() }, lf, at).newText, 'one\nTWO\nthree\n', 'a quoted sha is compared in lower case');
   ok('planEdit: LF, CRLF, BOM, UTF-16LE, no final newline, Unicode, replace_all, a list of edits, edits that cancel out');
@@ -82,6 +95,7 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   refused(() => planEdit({ path: 'x', old_string: 'one', new_string: 'one' }, lf, at), 'bad_edit', 400);
   refused(() => planEdit({ path: 'x', old_string: 'one' }, lf, at), 'bad_edit', 400);
   refused(() => planEdit({ path: 'x', old_string: 'one', new_string: 'x', edits: [] }, lf, at), 'bad_edit', 400);
+  refused(() => planEdit({ path: 'x', old_string: 'one', new_string: 'x', edits: [{ old_string: 'two', new_string: 'TWO' }] }, lf, at), 'bad_edit', 400);
   refused(() => planEdit({ path: 'x', edits: [] }, lf, at), 'bad_edit', 400);
   refused(() => planEdit({ path: 'x', edits: Array.from({ length: 51 }, (_, n) => ({ old_string: `a${n}`, new_string: `b${n}` })) }, lf, at), 'bad_edit', 400);
   refused(() => planEdit({ path: 'x', old_string: 'one', new_string: 'x', expected_sha256: 'f'.repeat(64) }, lf, at), 'stale_revision', 409);
@@ -90,6 +104,12 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   refused(() => planEdit({ path: 'x', old_string: 'one', new_string: 'x' }, Buffer.from([0xfe, 0xff, 0, 0x61]), at), 'unsupported_encoding', 415);
   refused(() => planEdit({ path: 'x', old_string: 'one', new_string: 'x' }, Buffer.from([0xe9, 0x74, 0xe9]), at), 'unsupported_encoding', 415);
   refused(() => planEdit({ path: 'x', old_string: 'one', new_string: 'x\ud800' }, lf, at), 'invalid_unicode', 400);
+  // every edit is judged by its form before any is applied: an edit that cannot be found does not come first
+  refused(() => planEdit({ path: 'x', edits: [{ old_string: 'zzz', new_string: 'x' }, { old_string: '', new_string: 'y' }] }, lf, at), 'bad_edit', 400);
+  refused(() => planEdit({ path: 'x', edits: [{ old_string: 'zzz', new_string: 'x' }, { old_string: 'a', new_string: 'a' }] }, lf, at), 'bad_edit', 400);
+  refused(() => planEdit({ path: 'x', edits: [{ old_string: 'zzz', new_string: 'x' }, { old_string: 5, new_string: 'a' }] }, lf, at), 'bad_edit', 400);
+  const fifty = Array.from({ length: 50 }, (_, n) => ({ old_string: `w${n}_`, new_string: `v${n}_` }));
+  assert.equal(planEdit({ path: 'x', edits: fifty }, buf(fifty.map((edit) => `${edit.old_string}\n`).join('')), at).edits, 50, 'fifty edits are the most');
   // in a list the refusal says which edit and that nothing is written
   assert.throws(() => planEdit({ path: 'x', edits: [{ old_string: 'one', new_string: 'ONE' }, { old_string: 'zzz', new_string: 'x' }] }, lf, at), (error) => {
     assert.equal(error.code, 'not_found');
@@ -137,6 +157,7 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   assert.deepEqual(over.data, buf('one\r\nTWO\r\n', 'utf8-bom'), 'and keeps its byte order mark');
   assert.deepEqual([over.additions, over.deletions], [1, 1]);
   assert.deepEqual(planWrite({ path: 'w.txt', content: 'one\nTWO\n', expected_sha256: sha256(old) }, old, at).data, over.data);
+  assert.deepEqual(planWrite({ path: 'w.txt', content: 'one\nTWO\n', expected_sha256: sha256(old).toUpperCase() }, old, at).data, over.data, 'a quoted sha is compared in lower case');
   const same = planWrite({ path: 'w.txt', content: 'one\ntwo\n', overwrite: true }, old, at);
   assert.equal(same.unchanged, true);
   assert.deepEqual(same.hunks, []);
@@ -150,6 +171,7 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   assert.equal(planWrite({ path: 'w.txt', content: 'text\n', overwrite: true }, old, at).oldUnreadable, undefined);
   refused(() => planWrite({ path: 'w.txt', content: 'a\0b' }, null, at), 'bad_content', 400);
   refused(() => planWrite({ path: 'w.txt', content: 'x'.repeat(2 * 1024 * 1024 + 1) }, null, at), 'content_too_large', 413);
+  refused(() => planWrite({ path: 'w.txt', content: 'é'.repeat(1024 * 1024 + 10) }, null, at), 'content_too_large', 413); // the size is in bytes, not in characters
   refused(() => planWrite({ path: 'w.txt', content: 'bad\udc00' }, null, at), 'invalid_unicode', 400);
   ok('planWrite: a new file, the rules of expected_sha256 and overwrite, the encoding and the CRLF of the file it replaces, no change, an old file that is not text, NUL, size, lone surrogate');
 
@@ -171,6 +193,8 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   assert.equal(plans[0].baseSha, null);
   assert.equal(plans[1].absolute, '/ws/old.txt', 'what the loader found travels with the plan');
   assert.equal(plans[1].mode, 0o644);
+  const upper = await planWriteBatch([{ path: 'old.txt', content: 'o\nL\n', expected_sha256: sha256(disk.get('old.txt')).toUpperCase() }], load);
+  assert.equal(upper.length, 1, 'a quoted sha is compared in lower case');
   const rejects = async (files, code) => assert.rejects(planWriteBatch(files, load), (error) => { assert.equal(error.code, code, `${error.code}: ${error.message}`); return true; });
   await rejects([], 'bad_files');
   await rejects(Array.from({ length: 51 }, (_, n) => ({ path: `f${n}.txt`, content: 'x' })), 'bad_files');
@@ -178,6 +202,8 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   await rejects([{ path: 'a.txt', content: 5 }], 'bad_content');
   await rejects([{ path: 'a.txt', content: 'a\0' }], 'bad_content');
   await rejects([{ path: 'a.txt', content: 'x', expected_sha256: 'nope' }], 'bad_revision');
+  await rejects([{ path: 'a.txt', content: 'x', expected_sha256: 'a'.repeat(63) }], 'bad_revision');
+  await rejects([{ path: 'a.txt', content: 'x', expected_sha256: 'a'.repeat(65) }], 'bad_revision');
   await rejects([{ path: 'a.txt', content: 'x' }, { path: 'a.txt', content: 'y' }], 'duplicate_path');
   await rejects([{ path: 'old.txt', content: 'x' }, { path: 'plain.txt', content: 'x' }], 'file_exists');
   await rejects([{ path: 'old.txt', content: 'x', expected_sha256: 'c'.repeat(64) }], 'stale_revision');
@@ -242,17 +268,21 @@ function oracleEdit(buffer, edits, expectedSha) {
   if (!decoded.ok) return { ok: false, code: decoded.reason === 'binary' ? 'binary_file' : 'unsupported_encoding' };
   const crlf = decoded.eol === 'crlf';
   let text = crlf ? decoded.text.split('\r\n').join('\n') : decoded.text;
-  for (const edit of edits) {
+  let count = 0;
+  let firstLine = 0;
+  for (const [index, edit] of edits.entries()) {
     const from = crlf ? edit.old_string.split('\r\n').join('\n') : edit.old_string;
     const to = crlf ? edit.new_string.split('\r\n').join('\n') : edit.new_string;
     if (from === '' || from === to) return { ok: false, code: 'bad_edit' };
     const parts = text.split(from);
     if (parts.length === 1) return { ok: false, code: 'not_found' };
     if (parts.length > 2 && !edit.replace_all) return { ok: false, code: 'ambiguous_match' };
+    if (index === 0) firstLine = parts[0].split('\n').length;
+    count += edit.replace_all ? parts.length - 1 : 1;
     text = edit.replace_all ? parts.join(to) : parts[0] + to + parts.slice(1).join(from);
   }
   const written = crlf ? text.split('\n').join('\r\n') : text;
-  return { ok: true, text: written, encoding: decoded.encoding, data: encodeText(written, decoded.encoding), before: decoded.text };
+  return { ok: true, text: written, encoding: decoded.encoding, data: encodeText(written, decoded.encoding), before: decoded.text, count, firstLine };
 }
 
 {
@@ -296,6 +326,11 @@ function oracleEdit(buffer, edits, expectedSha) {
       assert.equal(hunksDigest(plan.hunks), hunksDigest(written.hunks), `${where}: the hunks of the plan and the hunks of the file differ`);
       assert.deepEqual([plan.additions, plan.deletions], [written.additions, written.deletions], `${where}: the counts`);
       assert.equal(plan.unchanged, after.equals(file.data), `${where}: unchanged`);
+      assert.equal(plan.replacements, want.count, `${where}: how many places were replaced`);
+      assert.equal(plan.firstLine, want.firstLine, `${where}: the line of the first edit`);
+      assert.equal(plan.edits, list.length, `${where}: how many edits`);
+      assert.equal(plan.many, form === 1 || form === 3, `${where}: one edit or a list`);
+      if (!plan.unchanged) assert.equal(result.structuredContent.replacements, want.count, `${where}: the count the tool reports`);
       if (!plan.unchanged) assert.equal(result.structuredContent.sha256, plan.sha256, `${where}: the sha the tool reports`);
       succeeded += 1;
     } else {
