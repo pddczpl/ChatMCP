@@ -621,6 +621,20 @@ test('this project has no hard-coded string that is not in the frozen baseline o
   assert.equal(result.staleAllow.length, 0, `allowlist entries that match nothing: remove them\n${result.staleAllow.map((entry) => JSON.stringify(entry.text)).join('\n')}`);
 });
 
+// The baseline is frozen: the tool never takes a violation in (--init-baseline is refused when the file exists, --shrink-baseline is refused while a violation is new). But the
+// file is plain JSON, so a person, or an agent, can add an entry by hand next to a string they want to hide (the hash is the first 16 hex digits of the SHA-256 of the words),
+// and nothing else would fail. This number is the freeze written where a review sees it: it is checked with equality, so every change of the baseline is also a change of this line.
+const FROZEN_ENTRIES = 410;
+
+test('the baseline has exactly the frozen number of entries: one added by hand, or one taken away, is seen', () => {
+  const { entries } = JSON.parse(fs.readFileSync(path.join(ui, 'i18n-baseline.json'), 'utf8'));
+  const more = entries.length - FROZEN_ENTRIES;
+  const advice = more > 0
+    ? `${more} more than the frozen ${FROZEN_ENTRIES}: a violation was taken into the baseline by hand. The baseline never grows: fix the string (put the words in the dictionaries and ask for them with t()) and remove the entry.`
+    : `${-more} fewer than the frozen ${FROZEN_ENTRIES}. If strings were fixed, node scripts/lint-i18n.mjs --shrink-baseline drops exactly the entries whose string is gone: then set FROZEN_ENTRIES in tests/i18n-lint.test.mjs to ${entries.length}. If entries were only deleted, put them back (the project test above names the strings that became new).`;
+  assert.equal(entries.length, FROZEN_ENTRIES, `i18n-baseline.json has ${entries.length} entries, ${advice}`);
+});
+
 test('every dictionary the lint skips is a file that exists, and no other file of lib is skipped', () => {
   for (const name of DICTIONARY_FILES) assert.ok(fs.existsSync(path.join(ui, name)), `${name} does not exist: the list of skipped files is out of date`);
   const lib = fs.readdirSync(path.join(ui, 'src', 'lib')).filter((name) => /^i18n.*\.ts$/.test(name)).map((name) => `src/lib/${name}`).sort();
