@@ -194,7 +194,8 @@ test('a new file is moved to the undo folder, a deleted file is only read, a bin
   await page.getByRole('button', { name: 'Chấp nhận tệp calc.js', exact: true }).click();
   await expect(status(page)).toHaveText('Đã chấp nhận calc.js.');
   await expect.poll(async () => (await app.hub.get(`/api/studio/task-review?taskId=${started.id}`)).json.files.find((file) => file.path === 'calc.js')?.accepted).toBe(true);
-  await expect(page.getByTestId('review-file-view').getByText('Đã chấp nhận', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('review-file-view').locator('header').getByText('Đã chấp nhận', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('review-hunk')).toHaveAttribute('data-state', 'accepted');
 
   // A new file: its lines are shown, and rejecting it moves it away (nothing is deleted) without making a checkpoint.
   await openFile(page, 'created.txt');
