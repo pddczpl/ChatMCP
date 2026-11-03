@@ -123,8 +123,10 @@ export function ReviewTab() {
     if (!item.diff) return null;
     const outcome = await rejectHunkOf(source, item.file, item.diff, index);
     if (!outcome.ok) return refused(outcome.kind, item.file.path);
-    // A hunk that is still there after this one went keeps its mark: its fingerprint does not depend on where in the file it is. Another change of the file starts again.
-    if (outcome.sha && outcome.text !== null) remember(item, outcome.sha, carryMarks(item.accepted, diffFile(item.file.baselineText ?? '', outcome.text).hunks));
+    // A hunk that is still there after this one went keeps its mark: its fingerprint does not depend on where in the file it is. Another change of the file starts again. A file the Hub had
+    // recorded as accepted counted all its hunks as accepted; that record belongs to the version that was saved over, so the hunks that are left take it over as marks.
+    const looked = item.file.accepted ? markAllAccepted(item.accepted, item.diff.hunks) : item.accepted;
+    if (outcome.sha && outcome.text !== null) remember(item, outcome.sha, carryMarks(looked, diffFile(item.file.baselineText ?? '', outcome.text).hunks));
     await reload();
     return { tone: 'ok', text: t('review_result_hunk', { path: item.file.path }) };
   });

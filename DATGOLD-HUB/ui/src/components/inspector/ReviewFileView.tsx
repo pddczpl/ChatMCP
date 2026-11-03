@@ -1,6 +1,6 @@
 import type { KeyboardEvent, RefObject } from 'react';
 import { Check, Undo2 } from 'lucide-react';
-import { fileActions } from '@/lib/review-rules';
+import { fileActions, hunkAccepted } from '@/lib/review-rules';
 import type { ReviewItem, WriteState } from '@/lib/review-rules';
 import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
@@ -56,7 +56,7 @@ export function ReviewFileView(props: ReviewFileViewProps) {
         <>
           <div ref={listRef} onKeyDown={onKeyDown} data-testid="review-hunks" className="space-y-3">
             {hunks.map((hunk, index) => (
-              <ReviewHunk key={hunk.fingerprint} path={file.path} hunk={hunk} index={index} total={hunks.length} accepted={accepted.has(hunk.fingerprint)} active={index === activeHunk}
+              <ReviewHunk key={hunk.fingerprint} path={file.path} hunk={hunk} index={index} total={hunks.length} accepted={hunkAccepted(file, accepted, hunk)} active={index === activeHunk}
                 canAccept={actions.acceptHunk} canReject={actions.rejectHunk} busy={busy} onActivate={() => onActivateHunk(index)}
                 onAccept={() => onAcceptHunk(index)} onReject={() => onRejectHunk(index)} />
             ))}

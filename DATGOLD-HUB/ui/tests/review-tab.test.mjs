@@ -219,3 +219,17 @@ test('the dialog says what would be done, in numbers, puts Cancel first so that 
   assert.equal(normalise(byTag(english, 'p')[0].text), 'The files go back to what they were before this conversation changed them. Files rewritten: 3 (hunks put back: 5). New files moved to the undo folder: 1. Files left as they are: 2. Every write makes a checkpoint you can go back to.');
   assert.deepEqual(byTag(english, 'button').map((node) => normalise(node.text)), ['Cancel', 'Reject all']);
 });
+
+test('a file the Hub has recorded as accepted shows its hunks accepted: in the summary, in the list, on the hunks and on their buttons, with no mark made on this page', async () => {
+  const { root } = await tab([FILE({ accepted: true })]);
+  assert.equal(normalise(byTestId(root, 'review-summary')[0].text), 'Tệp: 1 · Đoạn chờ xem lại: 0');
+  assert.match(normalise(byTestId(root, 'review-file')[0].text), /^notes\.txtĐã sửa\+2 -2Chờ xem lại: 0\/2Đã chấp nhận$/);
+  assert.deepEqual(byTestId(root, 'review-hunk').map((node) => node.attrs['data-state']), ['accepted', 'accepted']);
+  assert.equal(button(root, 'Chấp nhận đoạn 1/2 của notes.txt').disabled, true);
+  assert.equal(button(root, 'Chấp nhận đoạn 2/2 của notes.txt').disabled, true);
+  assert.equal(button(root, 'Chấp nhận tất cả').disabled, true, 'nothing is left to accept');
+  assert.equal(button(root, 'Từ chối đoạn 1/2 của notes.txt').disabled, false, 'an accepted hunk can still be put back');
+  const open = await tab([FILE()]);
+  assert.deepEqual(byTestId(open.root, 'review-hunk').map((node) => node.attrs['data-state']), ['pending', 'pending'], 'a file that was not accepted is as before');
+  assert.equal(button(open.root, 'Chấp nhận tất cả').disabled, false);
+});

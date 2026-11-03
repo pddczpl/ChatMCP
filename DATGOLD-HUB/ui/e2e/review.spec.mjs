@@ -335,3 +335,44 @@ test('the English screen of the tab, its dialog and its notes read English from 
   for (const text of texts) expect(text, 'no Vietnamese letter on the English screen').not.toMatch(DIACRITICS);
   expect(violations).toEqual([]);
 });
+
+// ---- three things the audit of the tab found, each pinned against the real Hub -------------------------------------------------------------------------------------
+
+
+test('accepting a file counts its hunks as accepted: in the summary, in the list, on the hunks and on their buttons, after a reload, and after one of them is put back', async ({ page, app }) => {
+  const violations = await watchPolicy(page);
+  await runWork(page, app);
+  await openReview(page);
+  await writesAllowed(page);
+  await expect(page.getByTestId('review-summary')).toHaveText('Tệp: 5 · Đoạn chờ xem lại: 5');
+  await openFile(page, 'notes.txt');
+  const hunks = page.getByTestId('review-hunk');
+  const accepted = page.locator('[data-testid="review-hunk"][data-state="accepted"]');
+  await expect(hunks).toHaveCount(3);
+
+  await page.getByRole('button', { name: 'Chấp nhận tệp notes.txt', exact: true }).click();
+  await expect(status(page)).toHaveText('Đã chấp nhận notes.txt.');
+  const everywhere = async () => {
+    await expect(page.getByTestId('review-summary')).toHaveText('Tệp: 5 · Đoạn chờ xem lại: 2');
+    await expect(page.getByTestId('review-file').filter({ hasText: 'notes.txt' })).toContainText('Chờ xem lại: 0/3');
+    await expect(accepted).toHaveCount(3);
+    await expect(page.getByRole('button', { name: 'Chấp nhận đoạn 1/3 của notes.txt', exact: true })).toBeDisabled();
+  };
+  await everywhere();
+
+  // A page that never made a mark says the same, because it is what the Hub recorded.
+  await page.reload();
+  await openReview(page);
+  await writesAllowed(page);
+  await openFile(page, 'notes.txt');
+  await everywhere();
+
+  // Putting one hunk back changes the file, so the Hub's record of the old version no longer applies; the hunks that are left stay accepted.
+  await page.getByRole('button', { name: 'Từ chối đoạn 2/3 của notes.txt', exact: true }).click();
+  await expect(status(page)).toHaveText('Đã trả lại một đoạn của notes.txt.');
+  await expect(hunks).toHaveCount(2);
+  await expect(accepted).toHaveCount(2);
+  await expect(page.getByTestId('review-summary')).toHaveText('Tệp: 5 · Đoạn chờ xem lại: 2');
+  expect(violations).toEqual([]);
+});
+

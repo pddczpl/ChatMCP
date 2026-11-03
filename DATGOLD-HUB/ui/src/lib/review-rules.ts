@@ -1,7 +1,6 @@
 // What the Review tab may offer for a file, given what the Hub says about the file and about the moment: the rules, without a page. A rule that the Hub enforces is mirrored here so that
 // the tab does not offer what will be refused, and says why; the Hub still decides. Nothing here throws, and nothing here has a word in it: a note is a code that the tab turns into text.
-import { pendingHunks } from './review-hunks.ts';
-import type { DiffRow, FileDiff } from './review-hunks.ts';
+import type { DiffRow, FileDiff, Hunk } from './review-hunks.ts';
 import type { ReviewFile } from './review-source.ts';
 
 /** A hunk shows this many rows before it asks to show more. */
@@ -119,13 +118,21 @@ export function lineBody(text: string): string {
 
 export interface FileSummary { hunks: number; pending: number; added: number; removed: number }
 
+/**
+ * Whether a hunk counts as looked at: it was marked on this page, or the Hub has the file, as it was reviewed, recorded as accepted. Both belong to one version of the file (a mark to the
+ * sha of the page's key, the Hub's record to the sha it was given), so a file that changed starts again.
+ */
+export function hunkAccepted(file: ReviewFile, accepted: ReadonlySet<string>, hunk: Hunk): boolean {
+  return file.accepted === true || accepted.has(hunk.fingerprint);
+}
+
 /** A file for the list: its hunks, how many are still to be reviewed, and the lines added and taken away. */
 export function summarizeFile(file: ReviewFile, diff: FileDiff | null, accepted: ReadonlySet<string>): FileSummary {
   const mode = fileMode(file);
   if (!diff || mode === 'binary' || mode === 'unavailable') return { hunks: 0, pending: 0, added: 0, removed: 0 };
   return {
     hunks: diff.hunks.length,
-    pending: pendingHunks(diff.hunks, accepted).length,
+    pending: diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length,
     added: diff.hunks.reduce((total, hunk) => total + hunk.added, 0),
     removed: diff.hunks.reduce((total, hunk) => total + hunk.removed, 0),
   };
@@ -177,7 +184,7 @@ export function planAccept(items: readonly ReviewItem[], state: WriteState): Acc
   for (const { file, diff, accepted } of items) {
     const actions = fileActions(file, state);
     if (actions.acceptFile && !file.accepted) plan.files += 1;
-    if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += pendingHunks(diff.hunks, accepted).length;
+    if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;
   }
   return plan;
 }

@@ -1242,7 +1242,7 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "pending: pendingHunks(diff.hunks, accepted).length,",
+          "old": "pending: diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length,",
           "new": "pending: diff.hunks.length,"
         }
       ]
@@ -1407,8 +1407,8 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += pendingHunks(diff.hunks, accepted).length;",
-          "new": "if (diff) plan.hunks += pendingHunks(diff.hunks, accepted).length;"
+          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;",
+          "new": "if (diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;"
         }
       ]
     },
@@ -1418,8 +1418,63 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += pendingHunks(diff.hunks, accepted).length;",
+          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;",
           "new": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.length;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-hunk-accepted-marks-only",
+      "what": "a hunk counts as accepted only by a mark made on this page: the Hub's record of the file is not looked at",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return file.accepted === true || accepted.has(hunk.fingerprint);",
+          "new": "return accepted.has(hunk.fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-hunk-accepted-file-only",
+      "what": "a hunk counts as accepted only by the Hub's record of the file: the marks of this page are not looked at",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return file.accepted === true || accepted.has(hunk.fingerprint);",
+          "new": "return file.accepted === true;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-hunk-accepted-both",
+      "what": "a hunk counts as accepted only when the Hub has the file and a mark was made as well",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return file.accepted === true || accepted.has(hunk.fingerprint);",
+          "new": "return file.accepted === true && accepted.has(hunk.fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-hub-record",
+      "what": "the list does not look at the Hub's record of the file when it counts the hunks still to be reviewed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "pending: diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length,",
+          "new": "pending: diff.hunks.filter((hunk) => !accepted.has(hunk.fingerprint)).length,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-accept-hunks-hub-record",
+      "what": "the hunks of a file the Hub has recorded as accepted are offered to be marked again",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;",
+          "new": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !accepted.has(hunk.fingerprint)).length;"
         }
       ]
     },

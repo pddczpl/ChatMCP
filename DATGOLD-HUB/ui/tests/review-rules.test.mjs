@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ROW_LIMIT, conflictKind, fileActions, fileMode, keyAction, lineBody, moveHunk, pendingTotal, planAccept, planReject, summarizeFile, terminatorOf, visibleRows, writeState } from '../src/lib/review-rules.ts';
+import { ROW_LIMIT, conflictKind, fileActions, fileMode, hunkAccepted, keyAction, lineBody, moveHunk, pendingTotal, planAccept, planReject, summarizeFile, terminatorOf, visibleRows, writeState } from '../src/lib/review-rules.ts';
 import { diffFile } from '../src/lib/review-hunks.ts';
 
 // What the Review tab may offer for a file, given what the Hub says about the file and about the moment: the rules, without a page.
@@ -206,12 +206,13 @@ test('"accept everything" is planned from the review: the files the Hub can reco
     item(binary({ path: 'f.bin' })),
     item(modified({ path: 'h.js', currentSha: null })),
   ];
-  // files: a.js, c.txt and f.bin (b.js is accepted already, e.txt has no sha to record, h.js has none either); hunks: the 2 of a.js, the one of b.js and the one of h.js (a new file is not accepted hunk by hunk)
-  assert.deepEqual(planAccept(items, 'ok'), { files: 3, hunks: 4 });
+  // files: a.js, c.txt and f.bin (b.js is accepted already, e.txt has no sha to record, h.js has none either); hunks: the 2 of a.js and the one of h.js (b.js is accepted, so its hunk
+  // counts as accepted; a new file is not accepted hunk by hunk)
+  assert.deepEqual(planAccept(items, 'ok'), { files: 3, hunks: 3 });
   const oneMarked = [{ ...first, accepted: new Set([first.diff.hunks[0].fingerprint]) }, ...items.slice(1)];
-  assert.deepEqual(planAccept(oneMarked, 'ok'), { files: 3, hunks: 3 }, 'a hunk that is accepted already is not counted again');
-  assert.deepEqual(planAccept(items, 'running'), { files: 3, hunks: 4 }, 'accepting is not writing: it goes on while a task runs');
-  assert.deepEqual(planAccept(items, 'policy'), { files: 0, hunks: 4 }, 'under sandbox-only the Hub records nothing, but the marks are the page\'s');
+  assert.deepEqual(planAccept(oneMarked, 'ok'), { files: 3, hunks: 2 }, 'a hunk that is accepted already is not counted again');
+  assert.deepEqual(planAccept(items, 'running'), { files: 3, hunks: 3 }, 'accepting is not writing: it goes on while a task runs');
+  assert.deepEqual(planAccept(items, 'policy'), { files: 0, hunks: 3 }, 'under sandbox-only the Hub records nothing, but the marks are the page\'s');
   assert.deepEqual(planAccept([], 'ok'), { files: 0, hunks: 0 });
 });
 
@@ -258,3 +259,25 @@ test('the guards do not depend on the caller: a file with no text is summed up a
   assert.deepEqual(summarizeFile(unavailable('budget'), diff, new Set()), { hunks: 0, pending: 0, added: 0, removed: 0 });
   assert.deepEqual(planReject([{ file: modified(), diff: null, accepted: new Set() }], 'ok'), { rewrite: 0, hunks: 0, created: 0, left: 1 });
 });
+
+// ---- the audit of the tab: an accepted file, the place to land on after a hunk is put back, and what a write really did ------------------------------------------------
+
+test('a file the Hub has recorded as accepted counts all its hunks as accepted: none is left to review, none is offered to be marked, and a mark on this page changes nothing', () => {
+  const edited = { baselineText: TWO_HUNKS, currentText: TWO_HUNKS_EDITED };
+  const accepted = modified({ ...edited, accepted: true });
+  const open = modified({ ...edited });
+  const diff = diffFile(edited.baselineText, edited.currentText);
+  const [first, second] = diff.hunks;
+  assert.equal(hunkAccepted(accepted, new Set(), first), true, 'the Hub has the file');
+  assert.equal(hunkAccepted(accepted, new Set(['0123456789abcdef']), second), true, 'a mark that is about no hunk of it does not undo that');
+  assert.equal(hunkAccepted(open, new Set(), first), false);
+  assert.equal(hunkAccepted(open, new Set([first.fingerprint]), first), true, 'a mark on this page');
+  assert.equal(hunkAccepted(open, new Set([first.fingerprint]), second), false, 'it is for that hunk only');
+  const summed = summarizeFile(accepted, diff, new Set());
+  assert.deepEqual([summed.hunks, summed.pending], [2, 0], 'the hunks are still there; none is left to review');
+  assert.equal(pendingTotal([item(accepted)]), 0);
+  assert.equal(pendingTotal([item(accepted), item(open)]), 2, 'the other file is still to be reviewed');
+  assert.deepEqual(planAccept([item(accepted)], 'ok'), { files: 0, hunks: 0 }, 'nothing to record and nothing to mark');
+  assert.deepEqual(planAccept([item(accepted), item(open)], 'ok'), { files: 1, hunks: 2 });
+});
+
