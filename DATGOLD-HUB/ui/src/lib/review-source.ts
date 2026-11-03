@@ -28,6 +28,9 @@ export interface ReviewFile {
 export interface ReviewLimitation { code: string; message: string }
 
 export interface ReviewSnapshot {
+  /** The task the review is about, and how many checkpoints it has: what `task-review` says besides the files; a source that has no task leaves them out. */
+  taskId?: string;
+  checkpoints?: { total: number; targeted: number; broad: number };
   files: ReviewFile[];
   truncated: boolean;
   omitted: { protected: number };

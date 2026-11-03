@@ -139,6 +139,44 @@ test('a line whose only change is its terminator is a hunk of its own, and says 
   assert.equal(diffFile('a\n', 'a\nb\n').hunks[0].invisibleOnly, false);
 });
 
+test('lines are judged block by block: a line that moved is a visible change even when the endings and the counts add up', () => {
+  // `b` is after `k` in the baseline and before it in the current text, and two endings changed as well. The lines taken away (a, b) and the lines put in their place
+  // (a, b) look the same one by one, but they are two blocks on either side of `k`: nothing here is a change of endings only.
+  const moved = diffFile('a\nk\nb\r\n', 'a\r\nb\nk\n');
+  assert.equal(moved.hunks.length, 1);
+  assert.deepEqual([moved.hunks[0].removed, moved.hunks[0].added], [2, 2]);
+  assert.equal(moved.hunks[0].invisibleOnly, false);
+  const back = diffFile('a\r\nb\nk\n', 'a\nk\nb\r\n');
+  assert.equal(back.hunks.length, 1);
+  assert.equal(back.hunks[0].invisibleOnly, false);
+});
+
+test('a hunk of several blocks is invisible only when every block is', () => {
+  const both = diffFile('a\r\nm\nb\r\n', 'a\nm\nb\n');
+  assert.deepEqual([both.hunks.length, both.hunks[0].removed, both.hunks[0].added], [1, 2, 2]);
+  assert.equal(both.hunks[0].invisibleOnly, true);
+  assert.equal(diffFile('a\r\nm\nb\n', 'a\nm\nb\r\n').hunks[0].invisibleOnly, true, 'one ending each way');
+  const mixed = diffFile('a\r\nm\nb\n', 'a\nm\nB\n');
+  assert.equal(mixed.hunks.length, 1);
+  assert.equal(mixed.hunks[0].invisibleOnly, false, 'the second block changes a word');
+});
+
+test('a block that puts in more lines, or fewer, than it takes away is not invisible', () => {
+  assert.equal(diffFile('a\r\n', 'a\nb\n').hunks[0].invisibleOnly, false);
+  assert.equal(diffFile('a\r\nb\n', 'a\n').hunks[0].invisibleOnly, false);
+  assert.equal(diffFile('a\n', 'a\nb\n').hunks[0].invisibleOnly, false);
+  assert.equal(diffFile('a\r\nb\r\n', 'b\na\n').hunks[0].invisibleOnly, false, 'the same words in another order');
+});
+
+test('turning a whole file from CRLF into LF is invisible, with the search or without it', () => {
+  const crlf = (count) => numbered(count).map((line) => line.replace('\n', '\r\n')).join('');
+  const small = diffFile(crlf(20), numbered(20).join(''));
+  assert.deepEqual([small.hunks.length, small.hunks[0].removed, small.hunks[0].added, small.hunks[0].invisibleOnly], [1, 20, 20, true]);
+  const big = diffFile(crlf(600), numbered(600).join(''));
+  assert.deepEqual([big.hunks.length, big.hunks[0].removed, big.hunks[0].added, big.hunks[0].invisibleOnly], [1, 600, 600, true], 'past the limit of the search the hunk is one block of the whole file');
+  assert.equal(rejectAll(big), crlf(600));
+});
+
 // ---- undoing hunks: bytes --------------------------------------------------------------------------------------------------------------------
 
 const THREE = (() => {

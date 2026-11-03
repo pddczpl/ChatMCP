@@ -25,7 +25,7 @@ export interface Hunk {
   currentEnd: number;
   removed: number;
   added: number;
-  /** Only line endings or a byte order mark differ: every changed line says the same in both versions. */
+  /** Only line endings or a byte order mark differ: every block of the hunk puts back as many lines as it takes away, and each says the same as the line it replaces. */
   invisibleOnly: boolean;
   /** Sixteen hex digits that tell this hunk from the others of its file: what it changes, and where in the baseline. */
   fingerprint: string;
@@ -107,22 +107,23 @@ const visibleText = (line: string): string => {
 
 const contextRows = (lines: readonly string[], from: number, to: number): DiffRow[] => lines.slice(from, to).map((text) => ({ kind: 'context', text }));
 
+const wordsOf = (lines: readonly string[], from: number, to: number): string[] => lines.slice(from, to).map(visibleText);
+
+/** One block only: it puts back as many lines as it takes away and each says the same as the one it replaces. Pairing lines across blocks would take a moved line for the same one. */
+const looksTheSame = (block: Block, baselineLines: readonly string[], currentLines: readonly string[]): boolean => {
+  const gone = wordsOf(baselineLines, block.aStart, block.aEnd);
+  const put = wordsOf(currentLines, block.bStart, block.bEnd);
+  return gone.length === put.length && gone.every((words, at) => words === put[at]);
+};
+
 const buildHunk = (blocks: readonly Block[], index: number, baselineLines: readonly string[], currentLines: readonly string[]): Hunk => {
   const first = blocks[0];
   const last = blocks[blocks.length - 1];
   const span: DiffRow[] = [];
-  const gone: string[] = [];
-  const put: string[] = [];
   blocks.forEach((block, at) => {
     if (at > 0) span.push(...contextRows(currentLines, blocks[at - 1].bEnd, block.bStart));
-    for (let line = block.aStart; line < block.aEnd; line += 1) {
-      span.push({ kind: 'removed', text: baselineLines[line] });
-      gone.push(baselineLines[line]);
-    }
-    for (let line = block.bStart; line < block.bEnd; line += 1) {
-      span.push({ kind: 'added', text: currentLines[line] });
-      put.push(currentLines[line]);
-    }
+    for (let line = block.aStart; line < block.aEnd; line += 1) span.push({ kind: 'removed', text: baselineLines[line] });
+    for (let line = block.bStart; line < block.bEnd; line += 1) span.push({ kind: 'added', text: currentLines[line] });
   });
   // Context before the first changed line cannot start below line 0 (a negative start would count from the end); context after is cut off by the end of the file.
   const before = Math.min(CONTEXT_LINES, first.bStart);
@@ -132,9 +133,9 @@ const buildHunk = (blocks: readonly Block[], index: number, baselineLines: reado
     baselineEnd: last.aEnd,
     currentStart: first.bStart,
     currentEnd: last.bEnd,
-    removed: gone.length,
-    added: put.length,
-    invisibleOnly: gone.length === put.length && gone.every((line, at) => visibleText(line) === visibleText(put[at])),
+    removed: blocks.reduce((total, block) => total + block.aEnd - block.aStart, 0),
+    added: blocks.reduce((total, block) => total + block.bEnd - block.bStart, 0),
+    invisibleOnly: blocks.every((block) => looksTheSame(block, baselineLines, currentLines)),
     // Every row is written with its kind and its length, so that lines which run together when written out cannot be mistaken for other lines.
     fingerprint: hashText(`${first.aStart}:${span.map((row) => `${row.kind[0]}${row.text.length}:${row.text}`).join('')}`),
     rows: [...contextRows(currentLines, first.bStart - before, first.bStart), ...span, ...contextRows(currentLines, last.bEnd, last.bEnd + CONTEXT_LINES)],
