@@ -13,7 +13,8 @@ const MERGE_GAP = 2 * CONTEXT_LINES;
 const BYTE_ORDER_MARK = 0xfeff;
 
 export type RowKind = 'context' | 'removed' | 'added';
-export interface DiffRow { kind: RowKind; text: string }
+/** `omitted` is only set by a sender that cut a very long line (the approval card): how many characters of it are not in `text`. */
+export interface DiffRow { kind: RowKind; text: string; omitted?: number }
 
 export interface Hunk {
   /** Its place in FileDiff.hunks: the number rejectHunk takes. */

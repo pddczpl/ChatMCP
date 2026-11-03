@@ -18,7 +18,7 @@ const FILES = [
 ].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useCheckGrants.ts',
   'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx', 'components/layout/PhaseRibbon.tsx', 'components/conversation/StateBanner.tsx',
   'components/conversation/ConversationView.tsx', 'components/sessions/SessionSidebar.tsx',
-  'components/approval/OutboundReviewCard.tsx', 'components/approval/ApprovalStack.tsx', 'components/approval/GitPushPreview.tsx', 'lib/git-push-approval.ts', 'components/conversation/Composer.tsx', 'components/conversation/MessageItem.tsx',
+  'components/approval/OutboundReviewCard.tsx', 'components/approval/ApprovalStack.tsx', 'components/approval/GitPushPreview.tsx', 'lib/git-push-approval.ts', 'components/approval/ChangePreview.tsx', 'lib/change-preview.ts', 'components/conversation/Composer.tsx', 'components/conversation/MessageItem.tsx',
   'components/ui/CopyButton.tsx', 'components/conversation/ModelProfilePicker.tsx', 'components/conversation/ToolActivityGroup.tsx', 'components/conversation/ToolReceipt.tsx',
   'components/ui/Toast.tsx', 'components/conversation/EmptyState.tsx',
   'components/layout/Header.tsx', 'components/layout/StatusBar.tsx', 'components/layout/FullAccessBanner.tsx', 'components/layout/GitWorkspacePicker.tsx',
