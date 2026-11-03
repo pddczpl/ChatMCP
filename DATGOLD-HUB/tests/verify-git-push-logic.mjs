@@ -64,6 +64,7 @@ ok('arguments: each bad field is reported by name, good ones are not');
 for (const name of ['main', 'master', 'Main', 'MASTER']) assert.notEqual(protectedBranchReason(name, null), null, `${name} is refused`);
 assert.notEqual(protectedBranchReason('trunk', 'trunk'), null, 'the remote default is refused');
 assert.notEqual(protectedBranchReason('Develop', 'develop'), null, 'compared without regard to case: the same file on a case-insensitive disk');
+assert.notEqual(protectedBranchReason('develop', 'Develop'), null, 'whichever of the two is written with capitals');
 for (const name of ['feature/main', 'main2', 'maintenance', 'mainline', 'my-master', 'develop', 'trunk']) assert.equal(protectedBranchReason(name, null), null, `${name} may be pushed`);
 assert.equal(protectedBranchReason('feature/x', 'main'), null);
 assert.match(protectedBranchReason('main', null), /pull request/i, 'the message says what to do instead');
@@ -120,6 +121,7 @@ ok('output: credentials in addresses, token shapes and registered secrets are hi
   assert.deepEqual(parseCommitList(['not-a-hash', 'Dev', '2026-11-03T10:00:00+07:00', 'looks like a record'].join('\u001f')), [], 'four fields but no commit hash: not a commit');
   assert.equal(parseCommitList(`${record(7, 'a\u001fb')}\0`)[0].subject, 'a\u001fb', 'a subject that holds the field separator is kept whole');
   assert.equal(parseCommitList(record(6)).length, 1, 'no trailing separator needed');
+  assert.deepEqual(parseCommitList(`${SHA(8)}\u001fDev`), [], 'a commit hash with no date and no subject is not a record');
 }
 ok('commit list: sha, author, date and subject read from the NUL-separated log; bad records skipped; subjects bounded');
 
@@ -256,8 +258,9 @@ ok('porcelain: the url, one entry per ref, rejections counted, "Done" noticed');
   assert.equal(few.commitsOmitted, 0);
   assert.equal(few.commits.length, 2);
   const longStat = pushApprovalDetail({ ...plan, stat: Array.from({ length: 300 }, (_, i) => ` file${i} | 1 +`).join('\n') });
-  assert.ok(longStat.diffstat.split('\n').length <= PUSH_LIMITS.statLines + 2, 'a long diffstat is cut');
-  assert.match(longStat.diffstat, /…|\+\d+/, 'and says so');
+  assert.equal(longStat.diffstat.split('\n').length, PUSH_LIMITS.statLines, 'a long diffstat is cut to exactly the limit, the totals line included');
+  assert.match(longStat.diffstat, /^… \(\+261 dòng nữa\)$/m, 'and says how many lines are left out (300 lines, 38 kept, the totals line kept apart)');
+  assert.equal(longStat.diffstat.split('\n').at(-1), ' file299 | 1 +', 'the last line of the stat is the last line of the stat');
 }
 ok('approval detail: kind, remote, redacted address, local branch -> remote ref, at most 50 commits (the rest counted), the diffstat (cut when long)');
 

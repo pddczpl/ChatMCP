@@ -109,6 +109,11 @@ test('parseGitPushDetail reads only what it knows, bounded', () => {
   assert.equal(parseGitPushDetail({ kind: 'git_push', remoteRef: 'refs/heads/a/b' }).remoteBranch, 'a/b');
 });
 
+test('the Full Access banner still says that a push asks (the Hub makes that true: tests/verify-git-push.mjs)', () => {
+  assert.match(translations.vi.full_access_banner, /push, merge, release\) vẫn hỏi lại/);
+  assert.match(translations.en.full_access_banner, /push, merge, release\) still ask/);
+});
+
 test('every string of the card exists in both languages, and the Vietnamese has its diacritics', () => {
   const keys = Object.keys(translations.vi).filter((key) => key.startsWith('agents_apr_push_'));
   assert.ok(keys.length >= 9, `the push strings: ${keys.length}`);

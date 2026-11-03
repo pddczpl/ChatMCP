@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { eventually, runScenario, sha256 } from './e2e/harness.mjs';
 import { answerApprovals, connectModel, pendingApprovals, setMode, startTask, waitForState } from './e2e/hub-process.mjs';
-import { BUGGY_CALC, exists, gitInit, makeCalcProject, read } from './e2e/fixtures.mjs';
+import { BUGGY_CALC, exists, git, gitInit, makeBareRemote, makeCalcProject, read, slashes } from './e2e/fixtures.mjs';
 import { call, calls, say, sequence } from './e2e/scenarios.mjs';
 import { publicToolInput } from '../lib/tool-event-input.mjs';
 
@@ -68,6 +68,8 @@ await runScenario({
       },
       // A write that waits for the person to decide.
       waits: sequence([call('write_file', { path: 'wait.txt', content: 'W\n' })], { final: 'Đã xong.' }),
+      // A push of the branch that the test makes, with the arguments a model would pass.
+      pushes: sequence([call('git_push', { remote: 'origin', branch: 'feature/events', set_upstream: true })], { final: 'Đã đẩy.' }),
     },
   });
   const hub = await t.hub({ project, stateDir, logName: 'hub-1.log' });
@@ -148,6 +150,30 @@ await runScenario({
   t.equal([noTextFor.json.files, noTextFor.json.checkpoints.total], [[], 0], 'the refused write made no checkpoint, so that task has nothing to review');
   // The person saved calc.js after the first task had stopped; Git sees it as changed since that task\'s snapshot of the workspace, but the task had ended by then.
   t.equal((await hub.get(`/api/studio/task-review?taskId=${started.id}`)).json.files.map((entry) => entry.path), ['out/b.txt'], 'what the person wrote after a task stopped is not in the review of that task');
+
+  // ---- E. a push: its events say where the branch went, and a push changes no file ------------------------------------------------------
+  const bare = makeBareRemote(t.scratch, t.scratch);
+  git(project, t.scratch, ['remote', 'add', 'origin', slashes(bare)]);
+  git(project, t.scratch, ['push', '-q', '-u', 'origin', 'main']);
+  git(project, t.scratch, ['checkout', '-q', '-b', 'feature/events']);
+  fs.writeFileSync(path.join(project, 'pushed.txt'), 'P\n');
+  git(project, t.scratch, ['add', 'pushed.txt']);
+  git(project, t.scratch, ['commit', '-q', '-m', 'feat: a file to push']);
+  const pushedHead = git(project, t.scratch, ['rev-parse', 'HEAD']).stdout;
+  mock.setScenario('pushes');
+  const pushing = await startTask(hub, 'Đẩy nhánh feature/events lên origin.');
+  const pushed = await answerApprovals(hub, pushing.id, () => true);
+  t.equal(pushed.task.state, 'completed', 'the push task completes once the owner has said yes');
+  t.equal(pushed.answered.map((entry) => [entry.toolName, entry.category, entry.detail?.kind, entry.detail?.commitCount, entry.detail?.commits?.map((commit) => commit.subject)]), [['local.git_push', 'dangerous', 'git_push', 1, ['feat: a file to push']]], 'the owner was asked once, with the commit that would be sent');
+  const pushTask = await hub.task(pushing.id);
+  const pushStart = pushTask.events.find((event) => event.type === 'tool_start');
+  const pushEnd = pushTask.events.find((event) => event.type === 'tool_result');
+  t.equal([pushStart.toolName, pushStart.input], ['local.git_push', { remote: 'origin', branch: 'feature/events' }], 'a push is announced by its remote and its branch, and by nothing else of its arguments');
+  t.equal([pushEnd.callId === pushStart.callId, pushEnd.input, 'checkpointId' in pushEnd], [true, pushStart.input, false], 'its result repeats them under the same callId, and has no checkpoint: no file of the project changed');
+  t.equal(git(bare, t.scratch, ['rev-parse', 'refs/heads/feature/events']).stdout, pushedHead, 'the remote has the commit');
+  const pushTranscript = fs.readFileSync(path.join(stateDir, 'api-tasks', pushing.id, 'transcript.jsonl'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  t.check(pushTranscript.some((line) => line.type === 'tool_result_full' && JSON.stringify(line).includes(pushedHead)), 'and the result the model read names the commit that was pushed (the range)');
+  t.equal((await hub.get(`/api/studio/task-review?taskId=${pushing.id}`)).json.checkpoints.total, 0, 'the push left no checkpoint to review');
 
   // ---- B. a task file from before these fields --------------------------------------------------------------------------------------
   await hub.stop();

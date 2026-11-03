@@ -375,7 +375,13 @@ try {
     assert.equal(plan.ok, false);
     assert.equal(plan.code, 'push_scan_incomplete', 'a range that is too large to read is refused, not waved through');
     assert.ok(PUSH_LIMITS.scanChars >= 1_000_000, 'but the limit is generous: a megabyte of change is read');
-    ok('a range too large to scan is refused (fail closed)');
+    // the same when Git's answer was read whole and is just longer than the limit
+    const q = await project();
+    await commit(q, 'mid.txt', 'y\n'.repeat(600));
+    const mid = await planPush(q.git, { remote: 'origin', scanLimit: 1000 });
+    assert.equal(mid.ok, false);
+    assert.equal(mid.code, 'push_scan_incomplete', 'a range that was read but is longer than the limit is refused as well');
+    ok('a range too large to scan is refused (fail closed), whether Git cut its answer or it was read whole');
   }
   {
     // a current branch whose name is not a plain one (it holds a zero-width space, which Git allows)
@@ -671,6 +677,20 @@ try {
     assert.ok(performance.now() - started < 20_000);
     assert.equal(p.refs().includes('feature/x'), false);
     ok('a push that takes longer than its timeout is ended with push_timeout');
+  }
+  {
+    // a remote that declines the push says why, and nothing is forced around it
+    const p = await project();
+    const hook = path.join(p.bare, 'hooks', 'pre-receive');
+    await write(hook, '#!/bin/sh\necho "policy: no thanks" >&2\nexit 1\n');
+    await fs.chmod(hook, 0o755);
+    const before = p.refs();
+    const declined = await p.call({});
+    assert.equal(errorCode(declined), 'push_rejected');
+    assert.match(textOf(declined), /policy: no thanks/, 'what the remote said is passed on');
+    assert.match(textOf(declined), /không ép/, 'and the model is told that there is no way around it');
+    assert.equal(p.refs(), before, 'the remote has nothing');
+    ok('a push that the remote declines is push_rejected, with the remote\'s own words');
   }
 } finally {
   await fs.rm(root, { recursive: true, force: true, maxRetries: 30, retryDelay: 400 }).catch(() => console.warn(`  (could not remove ${root})`));
