@@ -4,7 +4,7 @@
 import { rejectAll, rejectHunk } from './review-hunks.ts';
 import type { FileDiff } from './review-hunks.ts';
 import type { ReviewFile, ReviewSource } from './review-source.ts';
-import { conflictKind, fileActions, fileMode } from './review-rules.ts';
+import { conflictKind, fileActions, fileMode, listPaths } from './review-rules.ts';
 import type { ConflictKind, ReviewItem, WriteState } from './review-rules.ts';
 
 export type ActionOutcome = { ok: true; sha: string | null; text: string | null } | { ok: false; kind: ConflictKind };
@@ -94,4 +94,15 @@ export async function acceptAllOf(source: ReviewSource, items: readonly ReviewIt
     record(await acceptFileOf(source, file), file.path, done, failed);
   }
   return tally(items.length, done, failed);
+}
+
+/** The lines the status after a batch is made of (the tab turns each key into text): the counts; the files that were saved and are still different once the review was read again; the files that could not be done, by name. */
+export type BatchLineKey = 'review_result_all' | 'review_result_all_kept' | 'review_result_all_failed_files';
+export interface BatchSummary { tone: 'ok' | 'warn'; lines: Array<{ key: BatchLineKey; values: Record<string, string | number> }> }
+
+export function summarizeBatch(result: BatchResult, kept: readonly string[]): BatchSummary {
+  const lines: BatchSummary['lines'] = [{ key: 'review_result_all', values: { done: result.done.length, failed: result.failed.length, skipped: result.skipped } }];
+  if (kept.length > 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(kept) } });
+  if (result.failed.length > 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.failed.map((failure) => failure.path)) } });
+  return { tone: result.failed.length > 0 || kept.length > 0 ? 'warn' : 'ok', lines };
 }

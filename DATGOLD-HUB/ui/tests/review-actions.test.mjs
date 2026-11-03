@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptAllOf, acceptFileOf, rejectAllOf, rejectFileOf, rejectHunkOf } from '../src/lib/review-actions.ts';
+import { acceptAllOf, acceptFileOf, rejectAllOf, rejectFileOf, rejectHunkOf, summarizeBatch } from '../src/lib/review-actions.ts';
 import { diffFile, rejectHunk } from '../src/lib/review-hunks.ts';
 
 // What the Review tab does with a file, against a source of review that is told exactly what to write. Nothing here knows the Hub: the source is a recorder.
@@ -184,4 +184,21 @@ test('"put everything back" leaves a text file with nothing to put back alone: i
   const same = FILE({ path: 'same.js', currentText: FILE().baselineText });
   const result = await rejectAllOf(recorder().source, [item(same), item(FILE({ path: 'b.js' }))], 'ok');
   assert.deepEqual(result, { done: ['b.js'], failed: [], skipped: 1 });
+});
+
+test('the status after a batch gives the counts, then names the files that are still different after being saved and the files that could not be done', () => {
+  const clean = summarizeBatch({ done: ['a.txt', 'b.txt'], failed: [], skipped: 1 }, []);
+  assert.deepEqual(clean, { tone: 'ok', lines: [{ key: 'review_result_all', values: { done: 2, failed: 0, skipped: 1 } }] });
+  const kept = summarizeBatch({ done: ['a.txt', 'b.txt'], failed: [], skipped: 0 }, ['b.txt']);
+  assert.equal(kept.tone, 'warn');
+  assert.deepEqual(kept.lines.map((line) => line.key), ['review_result_all', 'review_result_all_kept']);
+  assert.deepEqual(kept.lines[1].values, { kept: 'b.txt' });
+  const failed = summarizeBatch({ done: ['a.txt', 'c.txt'], failed: [{ path: 'b.txt', kind: 'stale' }], skipped: 0 }, []);
+  assert.equal(failed.tone, 'warn');
+  assert.deepEqual(failed.lines.map((line) => line.key), ['review_result_all', 'review_result_all_failed_files']);
+  assert.deepEqual(failed.lines[0].values, { done: 2, failed: 1, skipped: 0 });
+  assert.deepEqual(failed.lines[1].values, { paths: 'b.txt' });
+  const both = summarizeBatch({ done: ['a'], failed: ['x1', 'x2', 'x3', 'x4'].map((path) => ({ path, kind: 'other' })), skipped: 0 }, ['a']);
+  assert.deepEqual(both.lines.map((line) => line.key), ['review_result_all', 'review_result_all_kept', 'review_result_all_failed_files']);
+  assert.equal(both.lines[2].values.paths, 'x1, x2, x3, …', 'the first few are named, and the rest are said to be more');
 });

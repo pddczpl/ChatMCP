@@ -8,13 +8,13 @@ import { hasTranslation, useTranslation } from '@/lib/i18n';
 import { acceptHunk as markAccepted, acceptHunks as markAllAccepted, diffFile } from '@/lib/review-hunks';
 import { carryMarks, readMarks, writeMarks } from '@/lib/review-accepted';
 import type { MarkStore } from '@/lib/review-accepted';
-import { acceptAllOf, acceptFileOf, rejectAllOf, rejectFileOf, rejectHunkOf } from '@/lib/review-actions';
+import { acceptAllOf, acceptFileOf, rejectAllOf, rejectFileOf, rejectHunkOf, summarizeBatch } from '@/lib/review-actions';
 import type { BatchResult } from '@/lib/review-actions';
 import { findReviewFile } from '@/lib/review-offer';
-import { fileActions, fileMode, keyAction, landAfterReject, moveHunk, pendingTotal, planAccept, planReject, writeState } from '@/lib/review-rules';
+import { byteOrderMarkDiffers, fileActions, fileGone, fileMode, hunkGone, keyAction, landAfterReject, moveHunk, pendingTotal, planAccept, planReject, touchesByteOrderMark, writeState } from '@/lib/review-rules';
 import type { ConflictKind, ReviewItem } from '@/lib/review-rules';
 import { taskCheckpointSource } from '@/lib/review-source-task';
-import type { ReviewFile, ReviewLimitation } from '@/lib/review-source';
+import type { ReviewFile, ReviewLimitation, ReviewSnapshot } from '@/lib/review-source';
 import { Button } from '@/components/ui/Button';
 import { EmptyBlock, ErrorLine, LoadingLine, TabBody } from './parts';
 import { ReviewConfirm } from './ReviewConfirm';
@@ -47,8 +47,9 @@ export function ReviewTab() {
   // (an answer can carry megabytes of text) and not read again when the window gets the focus, so that what is on screen stays the review the sha of a write refers to.
   const version = `${task?.status ?? ''}:${task?.finishedAt ?? ''}`;
   const source = useMemo(() => taskCheckpointSource(selectedTaskId, api), [selectedTaskId]);
+  const reviewKey = ['taskReview', selectedTaskId, version];
   const reviewQuery = useQuery({
-    queryKey: ['taskReview', selectedTaskId, version], queryFn: () => source.load(), enabled: Boolean(selectedTaskId),
+    queryKey: reviewKey, queryFn: () => source.load(), enabled: Boolean(selectedTaskId),
     refetchOnWindowFocus: false, refetchOnReconnect: false,
     placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[1] === selectedTaskId ? previous : undefined),
   });
@@ -111,7 +112,10 @@ export function ReviewTab() {
     clearReviewFocus();
   }, [reviewFocus, reviewQuery.isPending, files, clearReviewFocus]);
 
-  const reload = () => queryClient.invalidateQueries({ queryKey: ['taskReview', selectedTaskId] });
+  // Reads the review again and hands it back, so that what a write did can be checked against what the Hub says now (null when it could not be read: the query shows why).
+  const reload = async (): Promise<ReviewSnapshot | null> => {
+    try { return await queryClient.fetchQuery({ queryKey: reviewKey, queryFn: () => source.load(), staleTime: 0 }); } catch { return null; }
+  };
   const remember = (item: ReviewItem, sha: string | null, marks: ReadonlySet<string>) => {
     if (sha) memoryMarks.current.set(`${selectedTaskId}\n${item.file.path}\n${sha}`, marks);
     writeMarks(browserStore(), selectedTaskId, item.file.path, sha, marks);
@@ -126,7 +130,10 @@ export function ReviewTab() {
     if (kind === 'stale') await reload();
     return { tone: 'warn', text: t(`review_conflict_${kind}`, { path }) };
   };
-  const summary = (result: BatchResult): Status => ({ tone: result.failed.length ? 'warn' : 'ok', text: t('review_result_all', { done: result.done.length, failed: result.failed.length, skipped: result.skipped }) });
+  const summary = (result: BatchResult, kept: readonly string[] = []): Status => {
+    const { tone, lines } = summarizeBatch(result, kept);
+    return { tone, text: lines.map((line) => t(line.key, line.values)).join(' ') };
+  };
 
   const acceptHunkAt = (item: ReviewItem, index: number) => {
     const hunk = item.diff?.hunks[index];
@@ -135,7 +142,8 @@ export function ReviewTab() {
     bumpMarks();
   };
   const rejectHunkAt = (item: ReviewItem, index: number) => settle(async () => {
-    if (!item.diff) return null;
+    const hunk = item.diff?.hunks[index];
+    if (!item.diff || !hunk) return null;
     landing.current = { path: item.file.path, index };
     const outcome = await rejectHunkOf(source, item.file, item.diff, index);
     if (!outcome.ok) {
@@ -146,7 +154,12 @@ export function ReviewTab() {
     // recorded as accepted counted all its hunks as accepted; that record belongs to the version that was saved over, so the hunks that are left take it over as marks.
     const looked = item.file.accepted ? markAllAccepted(item.accepted, item.diff.hunks) : item.accepted;
     if (outcome.sha && outcome.text !== null) remember(item, outcome.sha, carryMarks(looked, diffFile(item.file.baselineText ?? '', outcome.text).hunks));
-    await reload();
+    // The save went through, but "put back" is true only if the review that is read now no longer has the hunk: the Hub keeps a byte order mark on every save, so the hunk that put one in stays.
+    const fresh = await reload();
+    if (fresh && !hunkGone(fresh.files, item.file.path, hunk.fingerprint)) {
+      landing.current = null;
+      return { tone: 'warn', text: t(touchesByteOrderMark(item.file, hunk) ? 'review_result_hunk_kept_bom' : 'review_result_hunk_kept', { path: item.file.path }) };
+    }
     return { tone: 'ok', text: t('review_result_hunk', { path: item.file.path }) };
   });
   const acceptFile = (item: ReviewItem) => settle(async () => {
@@ -158,7 +171,8 @@ export function ReviewTab() {
   const rejectFile = (item: ReviewItem) => settle(async () => {
     const outcome = await rejectFileOf(source, item.file, item.diff);
     if (!outcome.ok) return refused(outcome.kind, item.file.path);
-    await reload();
+    const fresh = await reload();
+    if (fresh && !fileGone(fresh.files, item.file.path)) return { tone: 'warn', text: t(byteOrderMarkDiffers(item.file) ? 'review_result_file_kept_bom' : 'review_result_file_kept', { path: item.file.path }) };
     return { tone: 'ok', text: t(item.file.change === 'created' ? 'review_result_created' : 'review_result_file', { path: item.file.path }) };
   });
   const confirmAll = () => settle(async () => {
@@ -166,8 +180,8 @@ export function ReviewTab() {
     setConfirm(null);
     if (kind === 'reject') {
       const result = await rejectAllOf(source, items, state);
-      await reload();
-      return summary(result);
+      const fresh = await reload();
+      return summary(result, fresh ? result.done.filter((path) => !fileGone(fresh.files, path)) : []);
     }
     for (const item of items) if (item.diff && fileActions(item.file, state).byHunk) remember(item, item.file.currentSha, markAllAccepted(item.accepted, item.diff.hunks));
     bumpMarks();

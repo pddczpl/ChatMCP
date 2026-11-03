@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ROW_LIMIT, conflictKind, fileActions, fileMode, hunkAccepted, keyAction, landAfterReject, lineBody, moveHunk, pendingTotal, planAccept, planReject, summarizeFile, terminatorOf, visibleRows, writeState } from '../src/lib/review-rules.ts';
+import { ROW_LIMIT, byteOrderMarkDiffers, conflictKind, fileActions, fileGone, fileMode, hunkAccepted, hunkGone, keyAction, landAfterReject, lineBody, listPaths, moveHunk, pendingTotal, planAccept, planReject, summarizeFile, terminatorOf, touchesByteOrderMark, visibleRows, writeState } from '../src/lib/review-rules.ts';
 import { diffFile } from '../src/lib/review-hunks.ts';
 
 // What the Review tab may offer for a file, given what the Hub says about the file and about the moment: the rules, without a page.
@@ -294,3 +294,52 @@ test('after a hunk is put back the person lands on the hunk that now sits at tha
   assert.equal(landAfterReject(-1, 4), 0, 'no place given: the first one');
 });
 
+
+const MARK = String.fromCharCode(0xfeff);
+const THIRTY = Array.from({ length: 30 }, (_, at) => `k${String(at + 1).padStart(2, '0')}\n`).join('');
+
+test('what a write did is read from the review read afterwards: a hunk is gone only when no hunk of the file has its fingerprint, a file only when it is not listed', () => {
+  const file = modified({ path: 'a.js', baselineText: TWO_HUNKS, currentText: TWO_HUNKS_EDITED });
+  const [first, second] = diffFile(file.baselineText, file.currentText).hunks;
+  const afterFirst = modified({ path: 'a.js', baselineText: TWO_HUNKS, currentText: TWO_HUNKS.replace('l\n', 'L\n') });
+  assert.equal(hunkGone([afterFirst], 'a.js', first.fingerprint), true, 'the first hunk was put back');
+  assert.equal(hunkGone([afterFirst], 'a.js', second.fingerprint), false, 'the second is still there, by its fingerprint although it is the first of the file now');
+  assert.equal(hunkGone([file], 'a.js', first.fingerprint), false, 'nothing changed: it is still there');
+  assert.equal(hunkGone([], 'a.js', first.fingerprint), true, 'the file left the review, and the hunk with it');
+  assert.equal(hunkGone([modified({ path: 'other.js' })], 'a.js', first.fingerprint), true, 'another file does not count');
+  assert.equal(hunkGone([binary({ path: 'a.js' })], 'a.js', first.fingerprint), true, 'a file that is not text any more has no hunk to be found in');
+  const fresh = created({ path: 'new.txt' });
+  assert.equal(hunkGone([fresh], 'new.txt', diffFile('', fresh.currentText).hunks[0].fingerprint), true, 'a new file is not judged hunk by hunk, even if its one block has that fingerprint');
+  assert.equal(fileGone([file], 'a.js'), false);
+  assert.equal(fileGone([file, modified({ path: 'b.js' })], 'b.js'), false);
+  assert.equal(fileGone([file], 'b.js'), true);
+  assert.equal(fileGone([], 'a.js'), true);
+});
+
+test('a byte order mark is told apart: the hunk at the top of a file that puts one in, or takes one out, is the one the Hub keeps on every save', () => {
+  const put = modified({ baselineText: THIRTY, currentText: MARK + THIRTY.replace('k15', 'k15 X') });
+  const putHunks = diffFile(put.baselineText, put.currentText).hunks;
+  assert.equal(putHunks.length, 2);
+  assert.equal(touchesByteOrderMark(put, putHunks[0]), true, 'the mark was put in');
+  assert.equal(touchesByteOrderMark(put, putHunks[1]), false, 'a hunk further down is not the mark');
+  const taken = modified({ baselineText: MARK + THIRTY, currentText: THIRTY.replace('k15', 'k15 X') });
+  const takenHunks = diffFile(taken.baselineText, taken.currentText).hunks;
+  assert.equal(touchesByteOrderMark(taken, takenHunks[0]), true, 'the mark was taken out');
+  const both = modified({ baselineText: MARK + THIRTY, currentText: MARK + THIRTY.replace('k01', 'k01 X') });
+  assert.equal(touchesByteOrderMark(both, diffFile(both.baselineText, both.currentText).hunks[0]), false, 'both have it: the first line changed, not the mark');
+  const neither = modified({ baselineText: THIRTY, currentText: THIRTY.replace('k01', 'k01 X') });
+  assert.equal(touchesByteOrderMark(neither, diffFile(neither.baselineText, neither.currentText).hunks[0]), false);
+  // The file as a whole: one of the two texts starts with a mark and the other does not.
+  assert.deepEqual([put, taken, both, neither].map(byteOrderMarkDiffers), [true, true, false, false]);
+  assert.equal(byteOrderMarkDiffers(modified({ baselineText: null, currentText: MARK })), true, 'a side with no text has no mark');
+  assert.equal(byteOrderMarkDiffers(modified({ baselineText: '', currentText: '' })), false);
+});
+
+test('a list of paths for a sentence shows the first few and says there are more', () => {
+  assert.equal(listPaths(['a.txt']), 'a.txt');
+  assert.equal(listPaths(['a.txt', 'b.txt', 'c.txt']), 'a.txt, b.txt, c.txt');
+  assert.equal(listPaths(['a.txt', 'b.txt', 'c.txt', 'd.txt']), 'a.txt, b.txt, c.txt, …');
+  assert.equal(listPaths(['a.txt', 'b.txt', 'c.txt', 'd.txt'], 2), 'a.txt, b.txt, …');
+  assert.equal(listPaths(['a.txt', 'b.txt'], 2), 'a.txt, b.txt');
+  assert.equal(listPaths([]), '');
+});

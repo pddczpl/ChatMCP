@@ -1,5 +1,6 @@
 // What the Review tab may offer for a file, given what the Hub says about the file and about the moment: the rules, without a page. A rule that the Hub enforces is mirrored here so that
 // the tab does not offer what will be refused, and says why; the Hub still decides. Nothing here throws, and nothing here has a word in it: a note is a code that the tab turns into text.
+import { diffFile } from './review-hunks.ts';
 import type { DiffRow, FileDiff, Hunk } from './review-hunks.ts';
 import type { ReviewFile } from './review-source.ts';
 
@@ -192,4 +193,40 @@ export function planAccept(items: readonly ReviewItem[], state: WriteState): Acc
     if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;
   }
   return plan;
+}
+
+const BYTE_ORDER_MARK = 0xfeff;
+const startsWithMark = (text: string | null | undefined): boolean => typeof text === 'string' && text.charCodeAt(0) === BYTE_ORDER_MARK;
+
+/**
+ * After a write the review is read again, and what the person asked for is true only if the new review says so. A hunk is gone when its file is not in the review any more, or is no
+ * longer text, or none of the hunks of the file has its fingerprint (the fingerprint does not depend on where in the file the hunk is).
+ */
+export function hunkGone(files: readonly ReviewFile[], path: string, fingerprint: string): boolean {
+  const file = files.find((candidate) => candidate.path === path);
+  if (!file || fileMode(file) !== 'text') return true;
+  return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);
+}
+
+/** A file is gone when it is not listed any more: a file that is as it was before the conversation is not a change. */
+export function fileGone(files: readonly ReviewFile[], path: string): boolean {
+  return !files.some((candidate) => candidate.path === path);
+}
+
+/** Whether one of the two texts of a file starts with a byte order mark and the other does not. */
+export function byteOrderMarkDiffers(file: ReviewFile): boolean {
+  return startsWithMark(file.baselineText) !== startsWithMark(file.currentText);
+}
+
+/**
+ * Whether the hunk is the one at the top of the file that puts a byte order mark in, or takes it out. The Hub keeps the mark of a file on every save, so putting such a hunk back saves
+ * the file and changes nothing.
+ */
+export function touchesByteOrderMark(file: ReviewFile, hunk: Pick<Hunk, 'baselineStart'>): boolean {
+  return hunk.baselineStart === 0 && byteOrderMarkDiffers(file);
+}
+
+/** The first few paths for a sentence, and a mark that there are more. */
+export function listPaths(paths: readonly string[], limit = 3): string {
+  return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');
 }

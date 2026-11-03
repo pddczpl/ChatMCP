@@ -430,3 +430,45 @@ test('after a hunk is put back with r the focus stays in the hunks: j, r, j, r p
   expect(violations).toEqual([]);
 });
 
+
+test('a change the Hub cannot take out is not reported as put back: a byte order mark put in by the task stays on every save, and the tab says so', async ({ page, app }) => {
+  const violations = await watchPolicy(page);
+  const mark = String.fromCharCode(0xfeff);
+  const base = rows(30).join('');
+  fs.writeFileSync(path.join(app.project, 'added.txt'), base);
+  await runSteps(page, app, 'review-bom', [
+    call('read_file', { path: 'added.txt' }),
+    ({ last }) => call('write_file', { path: 'added.txt', content: mark + base.replace('row 15', 'row 15 CHANGED'), expected_sha256: shaOf(last) }),
+  ], 'Thêm BOM vào added.txt và sửa một dòng.');
+  expect(bytesOf(app, 'added.txt').subarray(0, 3).toString('hex'), 'the task put a byte order mark in').toBe('efbbbf');
+  await openReview(page);
+  await writesAllowed(page);
+  await openFile(page, 'added.txt');
+  const hunks = page.getByTestId('review-hunk');
+  await expect(hunks).toHaveCount(2);
+
+  // The Hub keeps the mark of a file on every save, so putting back the hunk that put it in saves the file and changes nothing. The tab must not call that "put back".
+  await page.getByRole('button', { name: 'Từ chối đoạn 1/2 của added.txt', exact: true }).click();
+  await expect(status(page)).toHaveAttribute('data-tone', 'warn');
+  await expect(status(page)).toHaveText('Đã lưu added.txt, nhưng đoạn này vẫn còn: Hub giữ ký tự BOM của tệp ở mọi lần lưu, nên không bỏ BOM từ đây được.');
+  expect(bytesOf(app, 'added.txt').subarray(0, 3).toString('hex')).toBe('efbbbf');
+  await expect(hunks).toHaveCount(2);
+
+  // The other hunk does go back, and says so.
+  await page.getByRole('button', { name: 'Từ chối đoạn 2/2 của added.txt', exact: true }).click();
+  await expect(status(page)).toHaveText('Đã trả lại một đoạn của added.txt.');
+  await expect(status(page)).toHaveAttribute('data-tone', 'ok');
+  await expect(hunks).toHaveCount(1);
+  expect(bytesOf(app, 'added.txt').toString('utf8')).toBe(mark + base);
+
+  // The whole file cannot go back either: the same mark. And "reject all" counts the file as done, and says that it is still different.
+  await page.getByRole('button', { name: 'Từ chối tệp added.txt', exact: true }).click();
+  await expect(status(page)).toHaveAttribute('data-tone', 'warn');
+  await expect(status(page)).toHaveText('Đã lưu added.txt, nhưng tệp vẫn khác nội dung cũ: Hub giữ ký tự BOM của tệp ở mọi lần lưu.');
+  await page.getByRole('button', { name: 'Từ chối tất cả', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Từ chối tất cả thay đổi?' }).getByRole('button', { name: 'Từ chối tất cả', exact: true }).click();
+  await expect(status(page)).toHaveText('Tệp đã xong: 1. Lỗi: 0. Bỏ qua: 0. Còn khác nội dung cũ sau khi lưu: added.txt.');
+  await expect(status(page)).toHaveAttribute('data-tone', 'warn');
+  expect(bytesOf(app, 'added.txt').toString('utf8')).toBe(mark + base);
+  expect(violations).toEqual([]);
+});

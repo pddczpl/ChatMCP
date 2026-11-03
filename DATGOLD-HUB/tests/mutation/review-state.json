@@ -1534,6 +1534,292 @@
       ]
     },
     {
+      "name": "RRU-gone-unlisted-file",
+      "what": "a file that is not in the review is looked into",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (!file || fileMode(file) !== 'text') return true;",
+          "new": "if (fileMode(file) !== 'text') return true;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-not-text",
+      "what": "a file that is not text is judged by the hunks of an empty text",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (!file || fileMode(file) !== 'text') return true;",
+          "new": "if (!file) return true;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-fingerprint-differs",
+      "what": "a hunk is gone when some hunk of the file has another fingerprint",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);",
+          "new": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint !== fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-inverted",
+      "what": "a hunk is gone when it is still there",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);",
+          "new": "return diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-file-gone-inverted",
+      "what": "a file is gone when it is listed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !files.some((candidate) => candidate.path === path);",
+          "new": "return files.some((candidate) => candidate.path === path);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-file-gone-other-path",
+      "what": "a file is gone when some other file is listed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !files.some((candidate) => candidate.path === path);",
+          "new": "return !files.some((candidate) => candidate.path !== path);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-differs-equal",
+      "what": "the mark differs when both texts start with it or neither does",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return startsWithMark(file.baselineText) !== startsWithMark(file.currentText);",
+          "new": "return startsWithMark(file.baselineText) === startsWithMark(file.currentText);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-baseline-only",
+      "what": "only the baseline is asked whether it starts with a mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return startsWithMark(file.baselineText) !== startsWithMark(file.currentText);",
+          "new": "return startsWithMark(file.baselineText);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-no-type-check",
+      "what": "a text that is not there is asked for its first character",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const startsWithMark = (text: string | null | undefined): boolean => typeof text === 'string' && text.charCodeAt(0) === BYTE_ORDER_MARK;",
+          "new": "const startsWithMark = (text: string | null | undefined): boolean => (text as string).charCodeAt(0) === BYTE_ORDER_MARK;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-other-char",
+      "what": "another character is taken for the mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const startsWithMark = (text: string | null | undefined): boolean => typeof text === 'string' && text.charCodeAt(0) === BYTE_ORDER_MARK;",
+          "new": "const startsWithMark = (text: string | null | undefined): boolean => typeof text === 'string' && text.charCodeAt(0) === 0xfffe;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-touches-any-hunk",
+      "what": "every hunk of a file whose mark differs is the mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return hunk.baselineStart === 0 && byteOrderMarkDiffers(file);",
+          "new": "return byteOrderMarkDiffers(file);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-touches-not-top",
+      "what": "the hunk that is not at the top of the file is the mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return hunk.baselineStart === 0 && byteOrderMarkDiffers(file);",
+          "new": "return hunk.baselineStart !== 0 && byteOrderMarkDiffers(file);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-touches-no-difference",
+      "what": "the hunk at the top of the file is the mark whether or not a mark differs",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return hunk.baselineStart === 0 && byteOrderMarkDiffers(file);",
+          "new": "return hunk.baselineStart === 0;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-default-two",
+      "what": "two paths are named by default",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "export function listPaths(paths: readonly string[], limit = 3): string {",
+          "new": "export function listPaths(paths: readonly string[], limit = 2): string {"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-one-more",
+      "what": "one path more than the limit is named",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit + 1).join(', ') + (paths.length > limit ? ', …' : '');"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-more-at-limit",
+      "what": "a list exactly as long as the limit is said to have more",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit).join(', ') + (paths.length >= limit ? ', …' : '');"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-separator",
+      "what": "the paths are joined without a space",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit).join(',') + (paths.length > limit ? ', …' : '');"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-no-mark",
+      "what": "a list that has more is not said to",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit).join(', ');"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-kept-always",
+      "what": "the line about files that are still different is always there",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (kept.length > 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(kept) } });",
+          "new": "if (kept.length >= 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(kept) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-failed-always",
+      "what": "the line that names the files that could not be done is always there",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (result.failed.length > 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.failed.map((failure) => failure.path)) } });",
+          "new": "if (result.failed.length >= 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.failed.map((failure) => failure.path)) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-kept-names",
+      "what": "the files that are still different are the files that were done",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (kept.length > 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(kept) } });",
+          "new": "if (kept.length > 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(result.done) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-failed-names",
+      "what": "the files that could not be done are the files that were done",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (result.failed.length > 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.failed.map((failure) => failure.path)) } });",
+          "new": "if (result.failed.length > 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.done) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-tone-kept",
+      "what": "files that are still different do not make the status a warning",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { tone: result.failed.length > 0 || kept.length > 0 ? 'warn' : 'ok', lines };",
+          "new": "return { tone: result.failed.length > 0 ? 'warn' : 'ok', lines };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-tone-failed",
+      "what": "files that could not be done do not make the status a warning",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { tone: result.failed.length > 0 || kept.length > 0 ? 'warn' : 'ok', lines };",
+          "new": "return { tone: kept.length > 0 ? 'warn' : 'ok', lines };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-tone-both",
+      "what": "the status is a warning only when files failed and are still different as well",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { tone: result.failed.length > 0 || kept.length > 0 ? 'warn' : 'ok', lines };",
+          "new": "return { tone: result.failed.length > 0 && kept.length > 0 ? 'warn' : 'ok', lines };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-skipped",
+      "what": "the files left alone are not counted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "const lines: BatchSummary['lines'] = [{ key: 'review_result_all', values: { done: result.done.length, failed: result.failed.length, skipped: result.skipped } }];",
+          "new": "const lines: BatchSummary['lines'] = [{ key: 'review_result_all', values: { done: result.done.length, failed: result.failed.length, skipped: 0 } }];"
+        }
+      ]
+    },
+    {
       "name": "RAX-hunk-missing",
       "what": "a hunk that is not there is saved",
       "patches": [
