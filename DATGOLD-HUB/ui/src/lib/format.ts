@@ -15,14 +15,20 @@ export function formatTime(value: string | number | Date | undefined | null, lan
   return date ? date.toLocaleTimeString(localeOf(lang), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '';
 }
 
+/** vi: 20/10/2026, en: Oct 20, 2026 */
+export function formatDate(value: string | number | Date | undefined | null, lang: FormatLang = 'vi'): string {
+  const date = toDate(value);
+  if (!date) return '';
+  return lang === 'en'
+    ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 /** vi: 20/10/2026 14:47, en: Oct 20, 2026, 14:47 */
 export function formatDateTime(value: string | number | Date | undefined | null, lang: FormatLang = 'vi'): string {
   const date = toDate(value);
   if (!date) return '';
-  const time = formatTime(date, lang);
-  return lang === 'en'
-    ? `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, ${time}`
-    : `${date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${time}`;
+  return `${formatDate(date, lang)}${lang === 'en' ? ',' : ''} ${formatTime(date, lang)}`;
 }
 
 /** "5 phút trước", "hôm qua", "just now" */
@@ -36,7 +42,7 @@ export function formatRelative(value: string | number | Date | undefined | null,
   if (abs < 3600) return formatter.format(Math.round(seconds / 60), 'minute');
   if (abs < 86400) return formatter.format(Math.round(seconds / 3600), 'hour');
   if (abs < 86400 * 7) return formatter.format(Math.round(seconds / 86400), 'day');
-  return formatDateTime(date, lang).split(' ')[0];
+  return formatDate(date, lang);
 }
 
 export function formatNumber(value: number | undefined | null, lang: FormatLang = 'vi'): string {

@@ -1090,9 +1090,11 @@ export const translations = {
 };
 
 export type TranslationKey = keyof typeof translations.vi | keyof typeof modelsVi;
-/** Values for the {name} placeholders of a string: t('agents_works_on', { folder }). */
+/** The name of a family of plural forms: 'agents_ribbon_requests' for agents_ribbon_requests_one and agents_ribbon_requests_other, asked with a count. */
+export type PluralKey = TranslationKey extends infer Key ? (Key extends `${infer Family}_other` ? Family : never) : never;
+/** Values for the {name} placeholders of a string: t('agents_works_on', { folder }). A numeric `count` also chooses the plural form of a family. */
 export type TranslationParams = Record<string, string | number>;
-export type Translate = (key: TranslationKey, params?: TranslationParams) => string;
+export type Translate = (key: TranslationKey | PluralKey, params?: TranslationParams) => string;
 
 /**
  * Strings that come with a script fetched after the first screen (lib/i18n-models.ts, the model picker's). The script adds them as it is evaluated, which is
@@ -1106,13 +1108,26 @@ export function addTranslations(vi: Record<string, string>, en: Record<string, s
 /** For a key built at run time (a status, a role) that may not have a string: ask first, fall back to the raw value. */
 export const hasTranslation = (key: string): key is TranslationKey => Object.hasOwn(translations.vi, key);
 
+const pluralRules: Record<string, Intl.PluralRules> = {};
+
+/** The plural category of a count in a language ("one", "other"), by the rules of that language: English has "one" and "other", Vietnamese only "other". */
+function pluralCategory(lang: string, count: number): string {
+  const locale = lang === 'en' ? 'en-US' : 'vi-VN';
+  return (pluralRules[locale] ??= new Intl.PluralRules(locale)).select(count);
+}
+
 /**
  * A string in the language asked for, else in Vietnamese, else the key itself. {name} is replaced by params.name; a placeholder with no
  * value is left as written, so a missing value is visible instead of turning into "undefined".
+ * With a numeric params.count the key names a family of forms spelled key_one, key_other (the way the dictionaries already do): the form the language uses
+ * for that count is chosen (Intl.PluralRules), else key_other, else the key itself, so a plain string with a {count} placeholder keeps working.
  */
 export function translate(lang: string, key: string, params?: TranslationParams): string {
+  const count = params?.count;
+  const names = typeof count === 'number' && Number.isFinite(count) ? [`${key}_${pluralCategory(lang, count)}`, `${key}_other`, key] : [key];
   const dict = (translations as Record<string, Record<string, string>>)[lang] || translations.vi;
-  const text = dict[key] || (translations.vi as Record<string, string>)[key] || key;
+  const vietnamese = translations.vi as Record<string, string>;
+  const text = names.map((name) => dict[name]).find(Boolean) || names.map((name) => vietnamese[name]).find(Boolean) || key;
   return params ? text.replace(/\{(\w+)\}/g, (placeholder, name) => (Object.hasOwn(params, name) ? String(params[name]) : placeholder)) : text;
 }
 

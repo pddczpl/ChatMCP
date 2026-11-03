@@ -156,7 +156,9 @@ test('FULL ACCESS needs the typed words, shows a permanent banner, and one click
 test('the FULL ACCESS banner and the way back to Review read in English, with no Vietnamese in them', async ({ page, app }) => {
   await onboard(page, app);
   const settings = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await expect(page.locator('html'), 'the page starts in Vietnamese and says so').toHaveAttribute('lang', 'vi');
   await settings.getByRole('button', { name: 'English' }).click();
+  await expect(page.locator('html'), 'choosing English changes the language of the page with it').toHaveAttribute('lang', 'en');
   await closeSettings(page);
   // FULL ACCESS is turned on through the Hub the way the dialog does it (the dialog and its typed words are tested above)
   await app.hub.post('/api/studio/permissions/config', { mode: 'autonomous', executionPolicy: 'full-access', confirmation: 'FULL ACCESS' });
@@ -182,6 +184,7 @@ test('the first-run setup reads English from the first screen and sets up the sa
   await page.goto(await app.signInUrl());
   const setup = page.getByRole('dialog', { name: 'DatGold setup' });
   await expect(setup.getByRole('heading', { name: 'Welcome to DatGold Studio' })).toBeVisible();
+  await expect(page.locator('html'), 'a saved English is declared on the page from the first screen').toHaveAttribute('lang', 'en');
   expect(await setup.innerText(), 'step 1 reads English').not.toMatch(VIETNAMESE);
   await page.getByLabel('Workspace path', { exact: true }).fill(app.project);
   await page.getByRole('button', { name: 'Apply workspace', exact: true }).click();

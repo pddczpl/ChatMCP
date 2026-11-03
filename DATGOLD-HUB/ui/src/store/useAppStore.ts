@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { applyDocumentLanguage, languageOf } from '@/lib/document-language';
 
 export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'vi' | 'en';
@@ -54,7 +55,9 @@ interface AppStore {
 }
 
 const initialTheme = (typeof window !== 'undefined' && (localStorage.getItem('chatmcp:theme') as Theme)) || 'dark';
-const initialLang = (typeof window !== 'undefined' && (localStorage.getItem('chatmcp:language') as Language)) || 'vi';
+// Vietnamese unless English was chosen (a value that is not a language counts as nothing saved); the page says which one before anything renders.
+const initialLang: Language = languageOf(typeof window !== 'undefined' ? localStorage.getItem('chatmcp:language') : null);
+applyDocumentLanguage(initialLang);
 const initialTask = (typeof window !== 'undefined' && localStorage.getItem('chatmcp:selected-conversation')) || '';
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -70,6 +73,7 @@ export const useAppStore = create<AppStore>((set) => ({
   lang: initialLang,
   setLang: (lang) => {
     localStorage.setItem('chatmcp:language', lang);
+    applyDocumentLanguage(lang);
     set({ lang });
   },
   selectedTaskId: initialTask,
