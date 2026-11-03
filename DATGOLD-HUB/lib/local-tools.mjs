@@ -194,7 +194,7 @@ export class LocalTools {
   #lookup(name) { return this.tools.get(String(name).replace(/^local\./, '')); }
 
   /** What PermissionGate needs to know about a call before it runs: category, reason and a one-line summary. */
-  async assess(name, args = {}) {
+  async assess(name, args = {}, context = {}) {
     const tool = this.#lookup(name);
     if (!tool) return { category: 'unknown', reason: 'Công cụ local không tồn tại.', summary: String(name) };
     const input = isObject(args) ? args : {};
@@ -204,7 +204,7 @@ export class LocalTools {
         return { category: 'blocked', reason: `Đường dẫn bị chặn: "${value}" là file bí mật hoặc metadata Git.`, summary: tool.summary(input) };
       }
     }
-    const verdict = typeof tool.category === 'function' ? await tool.category(input) : { category: tool.category, reason: tool.reason };
+    const verdict = typeof tool.category === 'function' ? await tool.category(input, context) : { category: tool.category, reason: tool.reason };
     return {
       category: verdict.category, reason: verdict.reason ?? tool.reason ?? '', summary: verdict.summary ?? tool.summary(input), ...(verdict.risk ? { risk: verdict.risk } : {}),
       ...(verdict.command !== undefined ? { command: verdict.command } : {}), ...(verdict.detail ? { detail: verdict.detail } : {}), ...(verdict.code ? { code: verdict.code } : {}),
@@ -657,7 +657,7 @@ export class LocalTools {
         set_upstream: bool('Make the remote branch the upstream of the local one (default: only when the branch has no upstream yet).'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-      category: (a) => this.#assessPush(a), check: (a) => pushArgumentProblems(a),
+      category: (a, context) => this.#assessPush(a, context), check: (a) => pushArgumentProblems(a),
       summary: (a) => `git push ${a.remote ?? 'origin'} ${a.branch ?? '(nhánh hiện tại)'}`, run: (a, ctx) => this.#gitPush(a, ctx),
     });
     define('worktrees_list', {
@@ -1281,14 +1281,15 @@ export class LocalTools {
   }
 
   // ------------------------------------------------------------------ git_push (the rules are in git-push.mjs)
-  #pushKey(args) { return `${args.remote ?? 'origin'}\0${args.branch ?? ''}`; }
+  /** One memo per task and push: what was shown to one task is what that task's call is held to, whatever another task is asked about the same branch. */
+  #pushKey(args, taskId) { return `${taskId ?? ''}\0${args.remote ?? 'origin'}\0${args.branch ?? ''}`; }
 
   /** Looks at the repository (no network) and remembers where the branch was, so that the call that follows the question is held to what was shown. */
-  async #planPush(args, signal) {
+  async #planPush(args, signal, taskId) {
     const planned = await planPush(this.git, { remote: args.remote ?? 'origin', branch: args.branch, setUpstream: args.set_upstream, signal });
     if (planned.ok) {
       const now = Date.now();
-      this.#pushPlans.set(this.#pushKey(args), { headSha: planned.plan.headSha, url: planned.plan.remoteUrl, at: now });
+      this.#pushPlans.set(this.#pushKey(args, taskId), { headSha: planned.plan.headSha, url: planned.plan.remoteUrl, at: now });
       for (const [key, memo] of this.#pushPlans) if (now - memo.at > PUSH_PLAN_TTL_MS) this.#pushPlans.delete(key);
       while (this.#pushPlans.size > 20) this.#pushPlans.delete(this.#pushPlans.keys().next().value);
     }
@@ -1296,9 +1297,9 @@ export class LocalTools {
   }
 
   /** What PermissionGate asks about: `dangerous` with the commits that would be sent, or `blocked` (no question) with the reason. */
-  async #assessPush(args) {
+  async #assessPush(args, context = {}) {
     let planned;
-    try { planned = await this.#planPush(args); } catch (error) { planned = { ok: false, code: 'push_unavailable', message: describeError(error).message }; }
+    try { planned = await this.#planPush(args, undefined, context?.taskId); } catch (error) { planned = { ok: false, code: 'push_unavailable', message: describeError(error).message }; }
     if (!planned.ok) return { category: 'blocked', code: planned.code, reason: planned.message };
     const { plan } = planned;
     return {
@@ -1307,11 +1308,11 @@ export class LocalTools {
     };
   }
 
-  async #gitPush(args, { signal }) {
-    const key = this.#pushKey(args);
+  async #gitPush(args, { taskId, signal }) {
+    const key = this.#pushKey(args, taskId);
     const asked = this.#pushPlans.get(key);
     this.#pushPlans.delete(key);
-    const planned = await this.#planPush(args, signal); // every refusal again: a call that did not come through the question is held to the same rules
+    const planned = await this.#planPush(args, signal, taskId); // every refusal again: a call that did not come through the question is held to the same rules
     if (!planned.ok) throw fault(planned.code, planned.message, 409);
     const { plan } = planned;
     if (asked && Date.now() - asked.at <= PUSH_PLAN_TTL_MS && (asked.headSha !== plan.headSha || asked.url !== plan.remoteUrl)) {

@@ -699,6 +699,30 @@ try {
     const done = await p.call({});
     assert.equal(done.isError, false, textOf(done));
     assert.equal(done.structuredContent.commits, 3);
+    // what was shown to ONE task is what that task's call is held to: another task's question about the same branch does not move it
+    const t = await project();
+    const forA = await t.tools.assess('git_push', {}, { taskId: 'task-A' });
+    assert.equal(forA.detail.commitCount, 2, 'task A was shown two commits');
+    await commit(t);
+    const forB = await t.tools.assess('git_push', {}, { taskId: 'task-B' });
+    assert.equal(forB.detail.commitCount, 3, 'task B is shown three');
+    const beforeA = t.refs();
+    const staleA = await t.tools.call('git_push', {}, { taskId: 'task-A' });
+    assert.equal(errorCode(staleA), 'plan_changed', 'task A\'s owner saw two commits: the question of task B does not change what A was shown');
+    assert.equal(t.refs(), beforeA, 'so nothing was pushed for A');
+    const forBagain = await t.tools.call('git_push', {}, { taskId: 'task-B' });
+    assert.equal(forBagain.isError, false, textOf(forBagain));
+    assert.equal(forBagain.structuredContent.commits, 3, 'and B pushes exactly what B was shown');
+    // the gate hands the id of the task to the assessment (outcome() asks as task-1)
+    const g = await project();
+    const gate = g.gate();
+    gate.configure({ mode: 'review' });
+    const askedAsTask = await outcome(gate, 'local.git_push', {}, { approve: true });
+    assert.equal(askedAsTask.result.allowed, true);
+    await commit(g);
+    const beforeG = g.refs();
+    assert.equal(errorCode(await g.tools.call('git_push', {}, { taskId: 'task-1' })), 'plan_changed', 'the question that the gate asked for task-1 is remembered under task-1');
+    assert.equal(g.refs(), beforeG);
     // the address is held to what was shown as well: another task may change the configuration between the question and the call
     const q = await project();
     const asked = await q.tools.assess('git_push', {});

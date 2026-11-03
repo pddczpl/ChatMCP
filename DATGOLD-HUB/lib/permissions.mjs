@@ -156,9 +156,9 @@ export class PermissionGate {
     return {category:'unknown',reason:'Chưa phân loại được công cụ'};
   }
   /** Category of one concrete call. Local tools are assessed per call (a shell command is read, edit, exec or dangerous by its text). */
-  async assess(name,args={},definition={}){
+  async assess(name,args={},definition={},context={}){
     if(String(name).toLowerCase().startsWith('local.')&&this.localTools?.has(name)){
-      const verdict=await this.localTools.assess(name,args);
+      const verdict=await this.localTools.assess(name,args,context);
       return {category:verdict.category,reason:verdict.reason||'Công cụ local',summary:verdict.summary,risk:verdict.risk,local:true,detail:verdict.detail,code:verdict.code};
     }
     return {...this.classify(name,args,definition),local:false};
@@ -217,7 +217,7 @@ export class PermissionGate {
    * turn a refusal into an approval; `askReason` is shown with the question. A result with `asked: true` went to the owner.
    */
   async authorize({name,args={},definition={},taskId,signal,forceAsk=false,askReason=''}={}){
-    const verdict=await this.assess(name,args,definition);
+    const verdict=await this.assess(name,args,definition,{taskId});
     const {category,reason}=verdict;
     if(signal?.aborted)throw signal.reason || error('cancelled','Tác vụ đã dừng.');
     // Protected files (.env, private keys, .git ...) are never touched and never prompt, in any mode or policy.
