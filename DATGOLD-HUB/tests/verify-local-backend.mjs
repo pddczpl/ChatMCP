@@ -170,7 +170,7 @@ try {
     equal(state.services.local.state, 'ready', 'local service ready');
     equal(state.backend, 'local', 'state reports the backend');
     equal(state.dataDirectory, dataDirectory, 'state reports the data folder');
-    check(state.catalogReady === true && state.toolCounts.local === 99, `99 local tools (${state.toolCounts.local})`);
+    check(state.catalogReady === true && state.toolCounts.local === 100, `100 local tools (${state.toolCounts.local})`);
     check(state.toolCounts.studio > 0 && state.toolCounts.studio < 17, 'only the Studio tools that add something are listed');
     check(!manager.catalog.tools.some((entry) => ['studio.read', 'studio.tree', 'studio.plan_set'].includes(entry.name)), 'Studio tools that duplicate local.* are not offered');
     check(manager.catalog.tools.every((entry) => entry.name === `${entry.server}.${entry.originalName}`), 'catalog names are qualified');
@@ -398,6 +398,8 @@ try {
       // Work outside the folder or in a browser, a debugger breakpoint, a stopped background task, a snapshot kept in the Hub's own folder.
       ['local.tasks_cancel', {}, false], ['local.debug_breakpoint', {}, false], ['studio.checkpoint', {}, false],
       ['local.github_action', {}, false], ['local.github_pr_merge', {}, false], ['local.github_release_create', {}, false], ['local.github_rerun_failed', {}, false], ['local.github_code_search', {}, false],
+      // Publishes commits to a remote: no file of the project changes, so what was tested and reviewed stays tested and reviewed.
+      ['local.git_push', {}, false], ['local.git_push', { remote: 'origin', branch: 'feature/x', set_upstream: true }, false],
       ['local.web_fetch', {}, false], ['local.web_search', {}, false], ['local.web_extract', {}, false], ['local.docs_search', {}, false], ['local.dependency_lookup', {}, false],
       ['local.browser_launch', {}, false], ['local.browser_navigate', {}, false], ['local.browser_click', {}, false], ['local.browser_fill', {}, false], ['local.browser_screenshot', {}, false],
       ['local.browser_close', {}, false], ['local.browser_trace_start', {}, false], ['local.browser_trace_stop', {}, false], ['local.responsive_check', {}, false], ['local.screenshot_capture', {}, false],
@@ -683,7 +685,7 @@ try {
     check(snapshot?.services?.local?.state === 'ready', `the Hub became ready on its own\n${output}`);
     equal([snapshot.backend, snapshot.agent.mode, snapshot.workspace.path], ['local', 'api', dir], 'local backend, API mode, project opened');
     equal(snapshot.dataDirectory, state, 'data goes where --state-dir says');
-    check(snapshot.toolCounts.local === 99, 'tools registered');
+    check(snapshot.toolCounts.local === 100, 'tools registered');
     equal((await fetch(`${base}/api/state`)).status, 401, 'no state without the session secret');
     const text = await fetch(`${base}/api/instructions`, { headers: auth }).then((response) => response.status);
     equal(text, 410, 'removed legacy MCP instructions explicitly return Gone');

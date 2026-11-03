@@ -88,6 +88,31 @@
       "name": "review-route-does-not-say-when-the-task-stopped",
       "what": "what the person wrote after a task stopped is listed in the review of that task",
       "patches": [{ "file": "hub.mjs", "old": "until:task&&task.status!=='running'?task.finishedAt:null", "new": "until:null" }]
+    },
+    {
+      "name": "git-push-input-not-announced",
+      "what": "the events of a push do not say which remote and branch it was",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "if (GIT_PUSH.test(String(toolName))) {", "new": "if (false) {" }]
+    },
+    {
+      "name": "git-push-input-for-every-tool",
+      "what": "every tool that has a branch argument (git_merge, worktrees_create) is announced by it, not only git_push",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "const GIT_PUSH = /(?:^|\\.)git_push$/i;", "new": "const GIT_PUSH = /./;" }]
+    },
+    {
+      "name": "git-push-remote-uncut",
+      "what": "a remote name of any length is copied into the event",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "const REMOTE_CHARS = 64;", "new": "const REMOTE_CHARS = 6400;" }]
+    },
+    {
+      "name": "git-push-branch-uncut",
+      "what": "a branch name of any length is copied into the event",
+      "patches": [{ "file": "lib/tool-event-input.mjs", "old": "const BRANCH_CHARS = 200;", "new": "const BRANCH_CHARS = 20000;" }]
+    },
+    {
+      "name": "agent-announces-without-the-tool-name",
+      "what": "the loop builds the input of an event without telling it which tool was called, so a push is announced by nothing",
+      "patches": [{ "file": "lib/agent.mjs", "old": "const identity = { callId: call.call_id, ...toolEventInput(args, toolName) };", "new": "const identity = { callId: call.call_id, ...toolEventInput(args) };" }]
     }
   ]
 }

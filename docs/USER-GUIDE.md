@@ -30,6 +30,7 @@ Dành cho người dùng cuối: bạn đã cài và chạy được Hub (xem [W
 - Không đụng vào file nhạy cảm bằng công cụ file: `.env*`, khóa riêng (`id_*`, `*.pem`, `*.key`, `*.pfx`…), `credentials`, `.npmrc`, `.git-credentials`, thư mục `.git`, `.ssh`, `.aws`… Các thao tác này bị từ chối thẳng (không hỏi) ở **cả ba chế độ** và cả khi bật Full Access.
 - Công cụ `git_commit` của agent từ chối commit khi vùng stage đang chứa file bí mật (`protected_staged`).
 - Không đẩy code lên GitHub thay bạn một cách âm thầm: `git push` luôn bị coi là thao tác nguy hiểm và luôn hỏi bạn (ở chế độ Chỉ đọc thì bị từ chối). Hub không có công cụ riêng để tạo Pull Request; nếu agent thử `gh`, `curl`… qua shell thì đó là lệnh truy cập mạng và phải được bạn duyệt.
+- Công cụ `git_push` của agent chỉ đẩy **một nhánh** lên remote đã cấu hình, không bao giờ ép (`--force`), từ chối `main`, `master` và nhánh mặc định của remote (hãy dùng nhánh tính năng rồi mở Pull Request), và từ chối khi các commit sắp đẩy có bí mật hoặc file được bảo vệ. Mỗi lần đều hiện danh sách commit sẽ được gửi và hỏi bạn, **kể cả khi bật Full Access**; ở chế độ `sandbox-only` thì bị từ chối. Chi tiết: [GIT-PUSH.md](GIT-PUSH.md).
 - Không tự chạy lại một thao tác mà nó không chắc đã chạy hay chưa (xem mục 8).
 
 **Điều bạn cần nhớ**: agent chạy lệnh *bằng quyền Windows của bạn*, không có sandbox hệ điều hành. Chọn đúng thư mục dự án và đọc kỹ lệnh trước khi bấm **Cho phép**. Xem [SECURITY.md](../SECURITY.md) cho đầy đủ các giới hạn.
@@ -127,7 +128,7 @@ Công tắc **Chỉ đọc · Review · Tự động** nằm cạnh ô nhập (v
 | Ghi/sửa/đổi tên file, tạo thư mục, `git add`/`commit`, tạo/đổi nhánh | **Từ chối**, không hỏi | **Hỏi từng lần** | Tự chạy |
 | Lệnh kiểm tra (`pytest`, `npm test`, build, lint…) và lệnh sửa file trong dự án | **Từ chối** | **Hỏi** | Tự chạy |
 | Chạy chương trình khác, truy cập mạng, đường dẫn ngoài dự án | **Từ chối** | **Hỏi** | **Hỏi** |
-| Lệnh nguy hiểm (xóa, `git push`, ghi đè lịch sử, cài đặt hệ thống…), `delete_path` | **Từ chối** | **Hỏi** | **Hỏi** |
+| Lệnh nguy hiểm (xóa, `git push`, ghi đè lịch sử, cài đặt hệ thống…), `delete_path`, công cụ `git_push` | **Từ chối** | **Hỏi** | **Hỏi** |
 | Công cụ chưa phân loại (chỉ gặp với MCP ngoài ở backend cũ) | **Từ chối** | **Hỏi** | **Từ chối** |
 | File nhạy cảm (`.env`, khóa, `.git`…) | **Từ chối** | **Từ chối** | **Từ chối** |
 
@@ -262,7 +263,7 @@ Quy tắc: **chỉ tin "đạt" khi bạn thấy exit code 0 do Hub ghi**, khôn
 2. Chế độ **Chỉ đọc**: *"Tìm hiểu dự án và đề xuất kế hoạch cho việc X. Chưa sửa gì."* Đọc kế hoạch; sửa ở tab Plan.
 3. Chuyển sang **Review**: *"Thực hiện bước 1, 2. Chạy `pytest -q` sau mỗi bước."* Đọc từng khung duyệt.
 4. Khi **Hoàn tất**: đọc dòng bằng chứng → **Xem thay đổi** → đọc diff → tự chạy lại kiểm thử ở tab Terminal nếu muốn chắc.
-5. **Bạn** `git add`/`git commit` (hoặc yêu cầu agent commit, và đọc commit đó). `git push`/PR luôn do bạn quyết định.
+5. **Bạn** `git add`/`git commit` (hoặc yêu cầu agent commit, và đọc commit đó). Agent chỉ đẩy nhánh bằng `git_push` khi bạn yêu cầu và duyệt danh sách commit; đẩy `main`, ép đẩy và Pull Request luôn do bạn quyết định.
 
 ## 14. Việc cần lưu ý (giới hạn đã biết)
 

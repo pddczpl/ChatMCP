@@ -15,7 +15,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 // Operations that Full Access still asks about. Category 'dangerous' (deletion, history rewrite, git push, destructive gh/npm/kubectl/
 // terraform commands as classified by lib/command-analysis.mjs) covers most of them; the tool names are listed too so that
 // re-categorising a tool can never silently drop them from the list.
-const ALWAYS_ASK_TOOLS=/(?:^|\.)(?:github_pr_merge|github_release_create)$/i;
+const ALWAYS_ASK_TOOLS=/(?:^|\.)(?:github_pr_merge|github_release_create|git_push)$/i;
 function mustAskEvenInFullAccess(name,verdict){
   return verdict.category==='dangerous'||verdict.risk?.kind==='dangerous'||ALWAYS_ASK_TOOLS.test(String(name));
 }
@@ -156,10 +156,10 @@ export class PermissionGate {
     return {category:'unknown',reason:'Chưa phân loại được công cụ'};
   }
   /** Category of one concrete call. Local tools are assessed per call (a shell command is read, edit, exec or dangerous by its text). */
-  async assess(name,args={},definition={}){
+  async assess(name,args={},definition={},context={}){
     if(String(name).toLowerCase().startsWith('local.')&&this.localTools?.has(name)){
-      const verdict=await this.localTools.assess(name,args);
-      return {category:verdict.category,reason:verdict.reason||'Công cụ local',summary:verdict.summary,risk:verdict.risk,local:true};
+      const verdict=await this.localTools.assess(name,args,context);
+      return {category:verdict.category,reason:verdict.reason||'Công cụ local',summary:verdict.summary,risk:verdict.risk,local:true,detail:verdict.detail,code:verdict.code};
     }
     return {...this.classify(name,args,definition),local:false};
   }
@@ -196,6 +196,9 @@ export class PermissionGate {
       detail=editListDetail(input);
     }else if(op==='edit_file'){
       detail={kind:'edit',path:input.path,replace_all:Boolean(input.replace_all),old_string:cut(input.old_string,800),new_string:cut(input.new_string,800)};
+    }else if(op==='git_push'&&isObject(verdict.detail)&&verdict.detail.kind==='git_push'){
+      // The commits that would be sent, worked out by LocalTools from the repository (lib/git-push.mjs), not the two names the model wrote.
+      detail=verdict.detail;
     }else{
       detail={kind:'tool',arguments:safePreview(args,1500,secrets)};
     }
@@ -214,7 +217,7 @@ export class PermissionGate {
    * turn a refusal into an approval; `askReason` is shown with the question. A result with `asked: true` went to the owner.
    */
   async authorize({name,args={},definition={},taskId,signal,forceAsk=false,askReason=''}={}){
-    const verdict=await this.assess(name,args,definition);
+    const verdict=await this.assess(name,args,definition,{taskId});
     const {category,reason}=verdict;
     if(signal?.aborted)throw signal.reason || error('cancelled','Tác vụ đã dừng.');
     // Protected files (.env, private keys, .git ...) are never touched and never prompt, in any mode or policy.
@@ -245,6 +248,9 @@ export class PermissionGate {
         return {allowed:false,category,reason:'Sandbox-only: external MCP không chạy trong Docker sandbox. Chuyển sang host-review nếu muốn dùng Desktop Commander.'};
       if(verdict.local&&(category==='execute'||String(name).toLowerCase()==='local.run_command'))
         return {allowed:false,category,reason:'Sandbox-only: lệnh shell chạy trực tiếp trên máy host nên bị chặn. Chuyển sang host-review để dùng (mỗi lệnh đều cần xác nhận).'};
+      // A push is Git on the host talking to the network with the owner's credentials: "ghi/lệnh trên host", which sandbox-only refuses (docs/PHASE1-DESIGN.md).
+      if(verdict.local&&/(?:^|\.)git_push$/i.test(String(name)))
+        return this.#refuse(name,args,verdict,taskId,'policy','Sandbox-only: git_push chạy Git trên máy host và gửi commit ra ngoài nên bị chặn. Chuyển sang host-review nếu muốn đẩy (mỗi lần đều hỏi).');
     }
     if(!forceAsk&&(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous')))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
     if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Chế độ Tự động: công cụ chưa phân loại bị từ chối. Chuyển sang Review nếu muốn được hỏi từng lần.'};

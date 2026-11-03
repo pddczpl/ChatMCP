@@ -1,6 +1,6 @@
 # DatGold Agent Tools & Token Optimization
 
-> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **99 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
+> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **100 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
 
 ## Scope
 
@@ -12,6 +12,7 @@ This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and Permis
 |---|---|---|
 | Public research | web_fetch, web_extract, web_search, docs_search, dependency_lookup, github_code_search | HTTPS DNS pinned to validated public IP for direct fetches, redirects rechecked, bounded text and no JS execution. Search provider may throttle; gh code search needs authentication. Permission category execute. |
 | GitHub automation | github_workflow_runs, github_workflow_status, github_job_logs, github_pr_review, github_rerun_failed, github_pr_merge, github_release_create | Uses authenticated local gh CLI; mutation requires explicit high-risk approval and respects remote branch protection. |
+| Publishing a branch | git_push | One branch to a configured remote, never forced, never main/master/the remote default, hooks not run. Permission category dangerous: asks every time, in every mode and in Full Access, with the commits that would be sent; refused without a question when the commits hold a secret or a protected file. See [GIT-PUSH.md](GIT-PUSH.md). Not verified against a real host. |
 | Tests | test_discover, test_run, test_results, test_coverage, test_impact_analysis | Fixed known runners only. Impact is filename heuristic, not complete test selection. No claim that coverage instrumentation is installed automatically. |
 | Browser | browser_launch, browser_navigate, browser_click, browser_fill, browser_screenshot, browser_console, browser_network, browser_close | Headless Playwright optional; localhost-only by default with explicit CHATMCP_BROWSER_ALLOWED_HOSTS. Requests to other origins are blocked. Requires local browser binary. |
 | Visual | screenshot_capture, screenshot_compare, visual_diff, responsive_check, accessibility_audit | Captures real PNG with browser, pixel-level RGBA diff; no AI aesthetic judgment or full WCAG/axe certification (only lightweight accessibility smoke checks). |
@@ -23,7 +24,7 @@ This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and Permis
 
 ## Direct tool count (adjustable; no <50 gate)
 
-The legacy `verify-local-backend` assertion requiring fewer than 50 function definitions was a local schema-size design choice, **not an API restriction**. The default now advertises **all 99 LocalTools plus four internal router functions = 103**. Environment variable `CHATMCP_DIRECT_TOOL_LIMIT` selects 0..124 direct tools (99 available today); set `48` for providers with smaller context or tool limits, `99` for full exposure. Invalid values revert to 99, and requested values above 124 are capped at 124 to keep the total within 128 functions. Restart the Hub after changing the environment variable. Tool names remain subject to schema validation; remaining tools continue to be listed by `mcp_catalog`, inspected by `mcp_describe` and executed via internal `mcp_call` through PermissionGate. More schemas consume more prompt tokens and may exceed an individual provider's limits; RTK/Headroom output compression does not erase the tokens used by function schemas.
+The legacy `verify-local-backend` assertion requiring fewer than 50 function definitions was a local schema-size design choice, **not an API restriction**. The default now advertises **all 100 LocalTools plus four internal router functions = 104**. Environment variable `CHATMCP_DIRECT_TOOL_LIMIT` selects 0..124 direct tools (100 available today); set `48` for providers with smaller context or tool limits, `100` for full exposure. Invalid values revert to 100, and requested values above 124 are capped at 124 to keep the total within 128 functions. Restart the Hub after changing the environment variable. Tool names remain subject to schema validation; remaining tools continue to be listed by `mcp_catalog`, inspected by `mcp_describe` and executed via internal `mcp_call` through PermissionGate. More schemas consume more prompt tokens and may exceed an individual provider's limits; RTK/Headroom output compression does not erase the tokens used by function schemas.
 
 ## RTK + Headroom + Caveman: complementary strategies
 

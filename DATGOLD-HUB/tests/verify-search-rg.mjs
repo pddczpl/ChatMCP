@@ -535,14 +535,14 @@ try {
     assert.match(definitions.get('search_files').description, /gitignore/i);
     assert.match(definitions.get('find_files').description, /gitignore/i);
     assert.match(definitions.get('search_files').description, /lookahead|backreference/i, 'the model is told what only ripgrep adds');
-    assert.equal(definitions.size, 99, 'the number of tools is unchanged');
+    assert.equal(definitions.size, 100, 'the number of tools is 100 (git_push added)');
     for (const name of ['search_files', 'find_files']) assert.equal(definitions.get(name).inputSchema.properties.include_ignored.type, 'boolean');
     const assemble = await fs.readFile(path.join(here, '..', 'lib', 'assemble.mjs'), 'utf8');
     assert.match(assemble, /ripgrep\s*[:=]\s*new Ripgrep\(/, 'the Hub assembles LocalTools with ripgrep');
     assert.match(assemble, /import \{ Ripgrep \} from '\.\/ripgrep\.mjs'/);
     const source = await fs.readFile(path.join(here, '..', 'lib', 'local-tools.mjs'), 'utf8');
     assert.ok(!/ripgrep\s*=\s*new Ripgrep/.test(source), 'tests that build LocalTools by hand get the built-in search unless they ask for ripgrep');
-    ok('the descriptions mention .gitignore and what only ripgrep adds, the tool count is 99, assemble.mjs turns ripgrep on and LocalTools alone does not');
+    ok('the descriptions mention .gitignore and what only ripgrep adds, the tool count is 100, assemble.mjs turns ripgrep on and LocalTools alone does not');
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------ 9. a cancelled search ends the program (a real process behind the real class)
