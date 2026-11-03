@@ -11,7 +11,7 @@ import type { MarkStore } from '@/lib/review-accepted';
 import { acceptAllOf, acceptFileOf, rejectAllOf, rejectFileOf, rejectHunkOf } from '@/lib/review-actions';
 import type { BatchResult } from '@/lib/review-actions';
 import { findReviewFile } from '@/lib/review-offer';
-import { fileActions, fileMode, keyAction, moveHunk, pendingTotal, planAccept, planReject, writeState } from '@/lib/review-rules';
+import { fileActions, fileMode, keyAction, landAfterReject, moveHunk, pendingTotal, planAccept, planReject, writeState } from '@/lib/review-rules';
 import type { ConflictKind, ReviewItem } from '@/lib/review-rules';
 import { taskCheckpointSource } from '@/lib/review-source-task';
 import type { ReviewFile, ReviewLimitation } from '@/lib/review-source';
@@ -87,7 +87,22 @@ export function ReviewTab() {
     setStatus(null);
     setConfirm(null);
   }, [selectedTaskId]);
-  useEffect(() => setActiveHunk(-1), [selected?.file.path, selected?.file.currentSha]);
+  // A hunk that is put back is gone when the file is read again, and the focus with it. The person lands on the hunk that now sits at that place (or the last one), so that the keys go on
+  // without a click; any other change of the open file, or another file, starts with no hunk open.
+  const landing = useRef<{ path: string; index: number } | null>(null);
+  const [focusHunk, setFocusHunk] = useState<number | null>(null);
+  useEffect(() => {
+    const wanted = landing.current;
+    landing.current = null;
+    const next = wanted && wanted.path === selected?.file.path ? landAfterReject(wanted.index, selected?.diff?.hunks.length ?? 0) : -1;
+    setActiveHunk(next);
+    setFocusHunk(next >= 0 ? next : null);
+  }, [selected?.file.path, selected?.file.currentSha]);
+  useEffect(() => {
+    if (focusHunk === null) return;
+    listRef.current?.querySelector<HTMLElement>(`[data-hunk-index="${focusHunk}"]`)?.focus();
+    setFocusHunk(null);
+  }, [focusHunk, items]);
   // The receipt of an edit asks for one file: open it as soon as the review is there.
   useEffect(() => {
     if (!reviewFocus || reviewQuery.isPending) return;
@@ -121,8 +136,12 @@ export function ReviewTab() {
   };
   const rejectHunkAt = (item: ReviewItem, index: number) => settle(async () => {
     if (!item.diff) return null;
+    landing.current = { path: item.file.path, index };
     const outcome = await rejectHunkOf(source, item.file, item.diff, index);
-    if (!outcome.ok) return refused(outcome.kind, item.file.path);
+    if (!outcome.ok) {
+      landing.current = null;
+      return refused(outcome.kind, item.file.path);
+    }
     // A hunk that is still there after this one went keeps its mark: its fingerprint does not depend on where in the file it is. Another change of the file starts again. A file the Hub had
     // recorded as accepted counted all its hunks as accepted; that record belongs to the version that was saved over, so the hunks that are left take it over as marks.
     const looked = item.file.accepted ? markAllAccepted(item.accepted, item.diff.hunks) : item.accepted;

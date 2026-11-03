@@ -97,6 +97,11 @@ export function moveHunk(current: number, delta: number, count: number): number 
   return Math.min(count - 1, Math.max(0, current + delta));
 }
 
+/** After the hunk at `index` was put back, the hunk to land on: the one that now sits at that place, or the last one when it was the last; -1 when none is left. */
+export function landAfterReject(index: number, count: number): number {
+  return count <= 0 ? -1 : Math.min(Math.max(index, 0), count - 1);
+}
+
 /** The first `shown` rows of a hunk and how many are still hidden ("N more lines"). */
 export function visibleRows(rows: readonly DiffRow[], shown: number = ROW_LIMIT): { rows: DiffRow[]; hidden: number } {
   const limit = Number.isNaN(shown) ? ROW_LIMIT : Math.max(0, Math.floor(shown));

@@ -376,3 +376,56 @@ test('accepting a file counts its hunks as accepted: in the summary, in the list
   expect(violations).toEqual([]);
 });
 
+
+/** A scripted model that carries out `steps` on files the project already holds; it is done when this returns. */
+async function runSteps(page, app, name, steps, prompt) {
+  app.mock.define(name, sequence(steps, { final: 'Xong.' }));
+  app.mock.setScenario(name);
+  await onboard(page, app);
+  app.mock.setScenario(name); // the connection check of the first-run dialog is not part of the script
+  await send(page, prompt);
+  const started = await taskByPrompt(app, prompt);
+  const { task } = await answerApprovals(app.hub, started.id, () => true);
+  expect(task.state).toBe('completed');
+  return started;
+}
+const bytesOf = (app, name) => fs.readFileSync(path.join(app.project, name));
+const rows = (count) => Array.from({ length: count }, (_, at) => `row ${String(at + 1).padStart(2, '0')}\n`);
+
+test('after a hunk is put back with r the focus stays in the hunks: j, r, j, r put back two hunks of four without a click', async ({ page, app }) => {
+  const violations = await watchPolicy(page);
+  const before = rows(60).join('');
+  fs.writeFileSync(path.join(app.project, 'four.txt'), before);
+  await runSteps(page, app, 'review-four', [
+    call('read_file', { path: 'four.txt' }),
+    ({ last }) => call('edit_file', { path: 'four.txt', edits: ['05', '20', '35', '50'].map((n) => ({ old_string: `row ${n}`, new_string: `row ${n} CHANGED` })), expected_sha256: shaOf(last) }),
+  ], 'Sửa bốn chỗ của four.txt.');
+  await openReview(page);
+  await writesAllowed(page);
+  await openFile(page, 'four.txt');
+  const hunks = page.getByTestId('review-hunk');
+  await expect(hunks).toHaveCount(4);
+
+  await hunks.first().focus();
+  await page.keyboard.press('j');
+  await expect(hunks.nth(1)).toBeFocused();
+  await expect(hunks.nth(1)).toContainText('row 20 CHANGED');
+  await page.keyboard.press('r');
+  await expect(status(page)).toHaveText('Đã trả lại một đoạn của four.txt.');
+  await expect(hunks).toHaveCount(3);
+  // The hunk that sat third now sits second, and has the focus: the keys go on without a click.
+  await expect(hunks.nth(1)).toBeFocused();
+  await expect(hunks.nth(1)).toHaveAttribute('aria-current', 'true');
+  await expect(hunks.nth(1)).toContainText('row 35 CHANGED');
+  await page.keyboard.press('j');
+  await expect(hunks.nth(2)).toBeFocused();
+  await expect(hunks.nth(2)).toContainText('row 50 CHANGED');
+  await page.keyboard.press('r');
+  await expect(hunks).toHaveCount(2);
+  // It was the last one, so the focus is on the new last one.
+  await expect(hunks.nth(1)).toBeFocused();
+  await expect(hunks.nth(1)).toContainText('row 35 CHANGED');
+  expect(disk(app, 'four.txt')).toBe(before.replace('row 05', 'row 05 CHANGED').replace('row 35', 'row 35 CHANGED'));
+  expect(violations).toEqual([]);
+});
+

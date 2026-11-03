@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ROW_LIMIT, conflictKind, fileActions, fileMode, hunkAccepted, keyAction, lineBody, moveHunk, pendingTotal, planAccept, planReject, summarizeFile, terminatorOf, visibleRows, writeState } from '../src/lib/review-rules.ts';
+import { ROW_LIMIT, conflictKind, fileActions, fileMode, hunkAccepted, keyAction, landAfterReject, lineBody, moveHunk, pendingTotal, planAccept, planReject, summarizeFile, terminatorOf, visibleRows, writeState } from '../src/lib/review-rules.ts';
 import { diffFile } from '../src/lib/review-hunks.ts';
 
 // What the Review tab may offer for a file, given what the Hub says about the file and about the moment: the rules, without a page.
@@ -279,5 +279,18 @@ test('a file the Hub has recorded as accepted counts all its hunks as accepted: 
   assert.equal(pendingTotal([item(accepted), item(open)]), 2, 'the other file is still to be reviewed');
   assert.deepEqual(planAccept([item(accepted)], 'ok'), { files: 0, hunks: 0 }, 'nothing to record and nothing to mark');
   assert.deepEqual(planAccept([item(accepted), item(open)], 'ok'), { files: 1, hunks: 2 });
+});
+
+
+test('after a hunk is put back the person lands on the hunk that now sits at that place, or on the last one', () => {
+  assert.equal(landAfterReject(1, 3), 1, 'the next hunk took its place');
+  assert.equal(landAfterReject(0, 3), 0);
+  assert.equal(landAfterReject(2, 3), 2);
+  assert.equal(landAfterReject(2, 2), 1, 'it was the last one: the new last one');
+  assert.equal(landAfterReject(5, 2), 1);
+  assert.equal(landAfterReject(0, 1), 0);
+  assert.equal(landAfterReject(0, 0), -1, 'no hunk left');
+  assert.equal(landAfterReject(3, 0), -1);
+  assert.equal(landAfterReject(-1, 4), 0, 'no place given: the first one');
 });
 
