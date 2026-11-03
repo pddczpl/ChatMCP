@@ -88,8 +88,6 @@
     { "id": "g08", "kind": "git", "lang": "vi", "prompt": "Commit các thay đổi hiện tại với message rõ ràng.", "tools": ["git_status", "git_diff", "git_add", "git_commit"] },
     { "id": "g09", "kind": "git", "lang": "vi", "prompt": "Tạo nhánh mới tên feature/export-csv rồi chuyển sang nhánh đó.", "tools": ["git_branch"] },
     { "id": "g10", "kind": "git", "lang": "vi", "prompt": "Cho mình xem 5 commit gần nhất của file lib/config.mjs.", "tools": ["git_log"] },
-    { "id": "g11", "kind": "git", "lang": "en", "prompt": "Push this branch to origin so I can open a pull request.", "tools": ["git_log", "git_push"] },
-    { "id": "g12", "kind": "git", "lang": "vi", "prompt": "Đẩy nhánh hiện tại lên origin để mình mở pull request.", "tools": ["git_log", "git_push"] },
 
     { "id": "b01", "kind": "browser-ui", "lang": "en", "prompt": "Open the app on localhost:3000 and take a screenshot of the dashboard.", "tools": ["browser_launch", "browser_navigate", "browser_screenshot"] },
     { "id": "b02", "kind": "browser-ui", "lang": "en", "prompt": "The checkout page looks broken on mobile. Can you check it at 375px width?", "tools": ["browser_launch", "browser_navigate", "responsive_check"] },

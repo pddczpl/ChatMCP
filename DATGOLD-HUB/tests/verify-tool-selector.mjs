@@ -106,8 +106,7 @@ const summary='recall '+(100*recall).toFixed(1)+'% ('+(100*decided).toFixed(1)+'
 // A tool the prompt needs but the selector did not offer is a detour; the file-changing tools below are the ones whose absence strands an
 // ordinary edit prompt ("Update the version in package.json", "Remove the unused helper", "Convert this file to TypeScript").
 const FLOOR={recall:1,decided:1,served:rows.length};
-// median 5000 -> 5010: the corpus gained two prompts that ask for a push (g11, g12); they cost more than the median prompt and moved it by 4 tokens.
-const CEILING={median:5010,max:8000};
+const CEILING={median:5000,max:8000};
 assert.ok(recall>=FLOOR.recall,'the selector offers the tools a solution calls: '+summary+'. Missed: '+misses(rows));
 assert.ok(decided>=FLOOR.decided,'and those it has to decide on: '+summary+'. Missed: '+misses(rows));
 assert.ok(served>=FLOOR.served,'prompts served in full: '+summary+'. Missed: '+misses(rows));
