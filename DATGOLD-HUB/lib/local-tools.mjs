@@ -188,7 +188,7 @@ export function planEdit(args, buffer, { relative }) {
   });
   const [{ firstLine, replacedLines }] = steps;
   const plan = {
-    kind: 'edit', relative, baseSha, encoding: decoded.encoding, edits: list.length, many, replacements: steps.reduce((sum, step) => sum + step.count, 0), firstLine, replacedLines, lfText: updatedLf,
+    kind: 'edit', relative, baseSha, encoding: decoded.encoding, edits: list.length, many, replacements: steps.reduce((sum, step) => sum + step.count, 0), firstLine, replacedLines, lfText: updatedLf, oldText: decoded.text,
     steps: steps.map((step) => ({ firstLine: step.firstLine, count: step.count })),
   };
   if (updatedLf === hay) return { ...plan, unchanged: true, newText: decoded.text, data: buffer, sha256: baseSha, hunks: [], additions: 0, deletions: 0 };
@@ -230,7 +230,7 @@ function writePlan({ relative, existing, content }) {
   const unchanged = existing !== null && data.equals(existing);
   const readable = old?.ok === true;
   return {
-    kind: 'write', relative, created: existing === null, baseSha: existing ? sha256(existing) : null, newText: text, data, sha256: sha256(data), encoding, unchanged,
+    kind: 'write', relative, oldText: readable ? old.text : '', created: existing === null, baseSha: existing ? sha256(existing) : null, newText: text, data, sha256: sha256(data), encoding, unchanged,
     // A file that exists but is not text (binary, legacy encoding) is replaced as UTF-8; its old content cannot be shown, so every new line counts as added.
     ...(existing && !readable ? { oldUnreadable: true } : {}),
     ...(unchanged ? { hunks: [], additions: 0, deletions: 0 } : diffHunks(readable ? old.text : '', text)),

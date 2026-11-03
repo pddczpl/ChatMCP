@@ -45,16 +45,49 @@ function clipRow(row) {
   return { kind: row.kind, text: body.slice(0, end) + ending, omitted: body.length - end };
 }
 
+/**
+ * The 0-based numbers of the lines that are the body of a private key: between a `-----BEGIN ... PRIVATE KEY-----` line and the `-----END` line (or the end of the text, when the end is not
+ * there). The frame lines are not secret and stay. A line of a body looks like any base64, so only its place tells what it is; the card cuts a file into rows, which keeps their place.
+ */
+export function privateKeyBodyLines(text) {
+  const inside = new Set();
+  let open = false;
+  text.split('\n').forEach((line, index) => {
+    if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = true;
+    else if (/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = false;
+    else if (open) inside.add(index);
+  });
+  return inside;
+}
+
+/** The rows of a hunk, with the rows that are a line of a private key's body replaced by a marker (the row keeps its kind and its line ending). */
+function hideKeyBodies(hunk, oldLines, newLines) {
+  if (!oldLines.size && !newLines.size) return hunk.rows;
+  let lead = 0;
+  while (lead < hunk.rows.length && hunk.rows[lead].kind === 'context') lead += 1;
+  // The context before the first change is lines of both texts; from there each row moves the place in the old text (not an added row) and in the new text (not a removed row).
+  let old = hunk.baselineStart - lead;
+  let current = hunk.currentStart - lead;
+  return hunk.rows.map((row) => {
+    const secret = row.kind === 'removed' ? oldLines.has(old) : newLines.has(current);
+    if (row.kind !== 'added') old += 1;
+    if (row.kind !== 'removed') current += 1;
+    return secret ? { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` } : row;
+  });
+}
+
 /** One file of the card. `budget.chars` is what is left of the characters of the whole card, and is used up here. */
 function fileEntry(plan, budget) {
   const hunks = [];
   let shown = 0;
   let total = 0;
   for (const hunk of plan.hunks) total += hunk.rows.length;
+  const oldLines = typeof plan.oldText === 'string' ? privateKeyBodyLines(plan.oldText) : new Set();
+  const newLines = typeof plan.newText === 'string' ? privateKeyBodyLines(plan.newText) : new Set();
   for (const hunk of plan.hunks) {
     if (shown >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;
     const rows = [];
-    for (const row of hunk.rows) {
+    for (const row of hideKeyBodies(hunk, oldLines, newLines)) {
       if (shown + rows.length >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;
       const clipped = clipRow(row);
       budget.chars -= clipped.text.length;
@@ -93,7 +126,9 @@ export function buildChangePreview(plans, failure = null) {
   }
   const budget = { chars: PREVIEW_LIMITS.chars };
   const files = plans.slice(0, PREVIEW_LIMITS.files).map((plan) => fileEntry(plan, budget));
-  return { files, fileCount: plans.length, hiddenFiles: plans.length - files.length, truncated: plans.length > files.length || files.some((file) => file.truncated) };
+  // A call that touches private key material says so: the gate then leaves the words the model wrote out of the card, because they can hold a line of the body, which only its place gives away.
+  const keys = plans.some((plan) => [plan.oldText, plan.newText].some((text) => typeof text === 'string' && privateKeyBodyLines(text).size > 0));
+  return { files, fileCount: plans.length, hiddenFiles: plans.length - files.length, truncated: plans.length > files.length || files.some((file) => file.truncated), ...(keys ? { privateKeys: true } : {}) };
 }
 
 /**

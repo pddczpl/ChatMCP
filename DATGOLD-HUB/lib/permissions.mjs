@@ -28,6 +28,10 @@ const SECRET_KEYS=/authorization|secret|password|token|api.?key|private.?key/i;
 
 // Best-effort masking of credentials that were not registered as secrets (previews are shown in the UI
 // and kept in the audit history). Registered secrets are always replaced exactly.
+// The name of a secret as code and configuration spell it: DB_PASSWORD, clientSecret, "access_token", x-api-key, aws_secret_access_key, app.config["SECRET_KEY"]. The word may carry a prefix and one
+// of a few endings (_key, token, value, hash, id, string), nothing else: tokenCount, passwordInput and tokenizer are names of code that talks about secrets, not secrets.
+const SECRET_WORD = String.raw`(?:api[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|pwd|passphrase|token|credentials?)`;
+const SECRET_NAME = String.raw`\b[A-Za-z0-9_.$-]{0,40}${SECRET_WORD}(?:[_-]?(?:key|token|value|hash|id|string))?["']?\]?`;
 const TOKEN_PATTERNS = [
   [/\bsk-[A-Za-z0-9_-]{16,}/g, '[REDACTED]'],
   [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, '[REDACTED]'],
@@ -35,8 +39,23 @@ const TOKEN_PATTERNS = [
   [/\bAKIA[0-9A-Z]{16}\b/g, '[REDACTED]'],
   [/\bAIza[0-9A-Za-z_-]{30,}/g, '[REDACTED]'],
   [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, '[REDACTED]'],
+  [/\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}/g, '[REDACTED]'],
+  [/\bnpm_[A-Za-z0-9]{30,}/g, '[REDACTED]'],
+  [/\bglpat-[A-Za-z0-9_-]{20,}/g, '[REDACTED]'],
+  [/\bhf_[A-Za-z0-9]{30,}/g, '[REDACTED]'],
+  [/\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g, '[REDACTED]'],
+  [/\bpypi-[A-Za-z0-9_-]{30,}/g, '[REDACTED]'],
+  [/\bya29\.[A-Za-z0-9_-]{20,}/g, '[REDACTED]'],
+  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}/g, '[REDACTED]'],
+  // The body of a private key (it starts with MII once decoded: DER), and the whole block when the text holds its two frames.
+  [/(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----)/g, '$1\n[REDACTED]\n$2'],
+  [/\bMII[A-Za-z0-9+/]{30,}={0,2}/g, '[REDACTED]'],
   [/(\bBearer\s+)[A-Za-z0-9._~+/=-]{12,}/gi, '$1[REDACTED]'],
-  [/(\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)\b\s*[=:]\s*)(["']?)[^\s"'&]{6,}\2/gi, '$1$2[REDACTED]$2'],
+  // Any other Authorization header (Basic, Token, Digest ...): everything after it, unless the Bearer rule has masked it already.
+  [/(\bAuthorization["']?\s*[:=]\s*["']?)(?![^\r\n]*\[REDACTED\])[^\r\n"']{6,}/gi, '$1[REDACTED]'],
+  // A secret assigned to a name: in quotes (up to the closing quote, spaces included), or bare (not a number, not a regular expression, not a call, not a ${placeholder} or <placeholder>).
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(["'])(?:(?!\2)[^\r\n]){4,}\2`, 'gi'), '$1$2[REDACTED]$2'],
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(?!["'/]|[0-9]+(?![\w.@/+=-])|[^\s"'&,;(){}\[\]<>]*\()[^\s"'&,;(){}\[\]<>]{6,}`, 'gi'), '$1[REDACTED]'],
   [/(\/\/[^\s/:@]+:)[^\s/@]{3,}(@)/g, '$1[REDACTED]$2'],
 ];
 export function maskSecrets(value, secrets = []) {
@@ -193,7 +212,7 @@ export class PermissionGate {
     if(!verdict.local)return {...words,preview:maskSecrets(safePreview(args,1800,secrets),secrets),detail:null};
     const input=isObject(args)?args:{};
     const op=String(name).replace(/^local\./i,'');
-    const secret=typeof input.path==='string'&&isProtectedPath(input.path);
+    const secret=(typeof input.path==='string'&&isProtectedPath(input.path))||changes?.privateKeys===true;
     let detail;
     if(op==='run_command'){
       detail={kind:'command',command:cut(input.command,9000),cwd:input.cwd||'.',shell:verdict.risk?.shell??input.shell??'auto',timeout_seconds:input.timeout_seconds??null,description:input.description??null,assessed_as:verdict.risk?.kind??null,reasons:verdict.risk?.reasons??[]};

@@ -219,6 +219,35 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.ok(rowsOf(written.request.detail.preview.files[0]).every((row) => row.text.includes('[REDACTED]')));
   ok('secrets: a token in a line put in, taken away and kept, a password and a registered secret are masked in the card, the request, the events, the pending state and the history');
 
+  // a private key over several lines: a line of its body looks like any base64, so only its place tells; the rows keep their place
+  const BODY = ['MIIEowIBAAKCAQEAv7xTZ3KxNf2jT1', 'Zm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e', 'dGhpcyBpcyBub3QgYSByZWFsIGtleQ0123'];
+  const FRAME = ['-----BEGIN RSA PRIVATE KEY-----', '-----END RSA PRIVATE KEY-----'];
+  await put('keys/key.txt', `intro\n${FRAME[0]}\n${BODY.join('\n')}\n${FRAME[1]}\noutro\n`);
+  const around = await ask(newGate(), 'local.edit_file', { path: 'keys/key.txt', edits: [{ old_string: 'intro', new_string: 'INTRO' }, { old_string: 'outro', new_string: 'OUTRO' }] });
+  const aroundRows = rowsOf(around.request.detail.preview.files[0]);
+  assert.deepEqual(aroundRows.map((row) => row.kind), ['removed', 'added', 'context', 'context', 'context', 'context', 'context', 'removed', 'added'], 'the key sits between the two changes, as context');
+  assert.deepEqual(aroundRows.slice(2, 7).map((row) => row.text), [`${FRAME[0]}\n`, '[REDACTED]\n', '[REDACTED]\n', '[REDACTED]\n', `${FRAME[1]}\n`], 'the frame stays, every line of the body is masked, each keeps its line ending');
+  assert.deepEqual(BODY.filter((line) => JSON.stringify(around.request).includes(line) || JSON.stringify(around.events).includes(line)), [], 'no line of the body is anywhere in the request or the events');
+  const inside = await ask(newGate(), 'local.edit_file', { path: 'keys/key.txt', old_string: `${BODY[1]}\n`, new_string: '' });
+  const insideRows = rowsOf(inside.request.detail.preview.files[0]);
+  assert.ok(insideRows.some((row) => row.kind === 'removed' && row.text === '[REDACTED]\n'), 'a body line that is taken away is masked');
+  assert.deepEqual([inside.request.detail.preview.files[0].additions, inside.request.detail.preview.files[0].deletions], [0, 1], 'the counts are those of the real change');
+  assert.equal(inside.request.detail.preview.privateKeys, true, 'the card says that the call touches private key material');
+  assert.equal(inside.request.detail.old_string, undefined, 'and the words the model wrote (they can be a line of the body) are left out');
+  assert.equal(inside.request.detail.hidden, true);
+  assert.ok(!JSON.stringify(inside.request).includes(BODY[1]) && !JSON.stringify(inside.events).includes(BODY[1]), 'a line of the body that the model typed as old_string is nowhere');
+  const ordinary = await ask(newGate(), 'local.edit_file', { path: 'src/app.js', old_string: 'const a = 1;', new_string: 'const a = 11;' });
+  assert.equal(ordinary.request.detail.preview.privateKeys, undefined, 'an ordinary call does not say it');
+  assert.equal(ordinary.request.detail.old_string, 'const a = 1;');
+  const fresh = await ask(newGate(), 'local.write_file', { path: 'keys/new.txt', content: `${FRAME[0]}\n${BODY.join('\n')}\n${FRAME[1]}\n` });
+  assert.deepEqual(rowsOf(fresh.request.detail.preview.files[0]).map((row) => row.text), [`${FRAME[0]}\n`, '[REDACTED]\n', '[REDACTED]\n', '[REDACTED]\n', `${FRAME[1]}\n`], 'a new file with a key');
+  await put('keys/rot.txt', `${FRAME[0]}\n${BODY[0]}\n${FRAME[1]}\n`);
+  const rotation = await ask(newGate(), 'local.write_file', { path: 'keys/rot.txt', content: `${FRAME[0]}\n${BODY[2]}\n${FRAME[1]}\n`, overwrite: true });
+  const rotated = rowsOf(rotation.request.detail.preview.files[0]);
+  assert.deepEqual(rotated.map((row) => [row.kind, row.text]), [['context', `${FRAME[0]}\n`], ['removed', '[REDACTED]\n'], ['added', '[REDACTED]\n'], ['context', `${FRAME[1]}\n`]], 'a key that is replaced by another still shows that the line changed');
+  assert.deepEqual(leaks(rotation.request).concat(BODY.filter((line) => JSON.stringify(rotation.request).includes(line))), []);
+  ok('a private key: the frame stays, every line of the body is masked wherever the card shows it (context, taken away, put in), the counts are still those of the real change');
+
   // a protected file: asked with nothing to show, and the content is nowhere
   const gate1 = newGate();
   const blocked = await ask(gate1, 'local.write_file', { path: '.env', content: `${ENV_MARKER}=1\n` });
