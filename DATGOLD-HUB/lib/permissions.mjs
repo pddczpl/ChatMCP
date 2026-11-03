@@ -1,4 +1,6 @@
 import { writeJson, readJson, redact as redactSecrets } from './runtime.mjs';
+import { FILE_CHANGE_TOOLS } from './approval-preview.mjs';
+import { isProtectedPath } from './protected-paths.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -179,23 +181,36 @@ export class PermissionGate {
     };
     await visit(args);
   }
-  /** What the person sees when asked to approve: the whole command for shell calls, never a truncated prefix. */
-  #describe(name,args,verdict){
+  /**
+   * What the person sees when asked to approve: the whole command for shell calls, never a truncated prefix. `changes` is the change a file tool would make, drawn from the plan of
+   * the call (LocalTools.previewChanges): it goes into the card as `detail.preview` and is masked like every other word of the card. The text of the request (`preview`) is the card without it,
+   * so that the history and the pending list stay small. What a protected file would hold is never written into the card, whether or not the call is allowed.
+   */
+  #describe(name,args,verdict,changes=null){
     const secrets=this.manager?.secrets??[];
     // The summary and the reason can quote the command, so they are masked like the preview.
     const words={summary:maskSecrets(verdict.summary??name,secrets),reason:maskSecrets(verdict.reason??'',secrets)};
     if(!verdict.local)return {...words,preview:maskSecrets(safePreview(args,1800,secrets),secrets),detail:null};
     const input=isObject(args)?args:{};
     const op=String(name).replace(/^local\./i,'');
+    const secret=typeof input.path==='string'&&isProtectedPath(input.path);
     let detail;
     if(op==='run_command'){
       detail={kind:'command',command:cut(input.command,9000),cwd:input.cwd||'.',shell:verdict.risk?.shell??input.shell??'auto',timeout_seconds:input.timeout_seconds??null,description:input.description??null,assessed_as:verdict.risk?.kind??null,reasons:verdict.risk?.reasons??[]};
     }else if(op==='write_file'){
-      detail={kind:'write',path:input.path,bytes:Buffer.byteLength(String(input.content??'')),overwrite:Boolean(input.overwrite),head:cut(input.content,600)};
+      detail=secret?{kind:'write',path:input.path,hidden:true}:{kind:'write',path:input.path,bytes:Buffer.byteLength(String(input.content??'')),overwrite:Boolean(input.overwrite),head:cut(input.content,600)};
+    }else if(op==='edit_file'&&secret){
+      detail={kind:'edit',path:input.path,hidden:true};
     }else if(op==='edit_file'&&Array.isArray(input.edits)){
       detail=editListDetail(input);
     }else if(op==='edit_file'){
       detail={kind:'edit',path:input.path,replace_all:Boolean(input.replace_all),old_string:cut(input.old_string,800),new_string:cut(input.new_string,800)};
+    }else if(op==='files_apply_patch'){
+      detail=secret?{kind:'edit',path:input.path,hidden:true}:{kind:'edit',path:input.path,replace_all:false,old_string:cut(input.old_text,800),new_string:cut(input.new_text,800)};
+    }else if(op==='files_write_batch'&&Array.isArray(input.files)){
+      // The paths and the sizes, never the content: what each file would hold is on the card only through the plan, and a protected file's not at all.
+      const items=input.files.filter(isObject);
+      detail={kind:'batch',count:items.length,files:items.slice(0,50).map((item)=>({path:String(item.path??''),bytes:Buffer.byteLength(String(item.content??'')),overwrite:Boolean(item.overwrite),checked:typeof item.expected_sha256==='string'}))};
     }else if(op==='git_push'&&isObject(verdict.detail)&&verdict.detail.kind==='git_push'){
       // The commits that would be sent, worked out by LocalTools from the repository (lib/git-push.mjs), not the two names the model wrote.
       detail=verdict.detail;
@@ -203,7 +218,16 @@ export class PermissionGate {
       detail={kind:'tool',arguments:safePreview(args,1500,secrets)};
     }
     detail=maskDeep(detail,secrets);
-    return {...words,preview:JSON.stringify(detail),detail};
+    const text=JSON.stringify(detail);
+    if(changes&&FILE_CHANGE_TOOLS.includes(op))detail={...detail,preview:maskDeep(changes,secrets)};
+    return {...words,preview:text,detail};
+  }
+  /** The change a file tool would make, drawn from its plan before anyone is asked; null for any other call, or when it cannot be drawn (the card is then the old card). */
+  async #previewChanges(name,args,verdict,signal){
+    if(!verdict.local||typeof this.localTools?.previewChanges!=='function')return null;
+    if(!FILE_CHANGE_TOOLS.includes(String(name).replace(/^local\./i,'')))return null;
+    try{return await this.localTools.previewChanges(name,args,{signal});}
+    catch(caught){if(signal?.aborted)throw signal.reason||caught;return null;}
   }
   #refuse(name,args,verdict,taskId,decision,reason){
     const {preview,summary}=this.#describe(name,args,verdict);
@@ -260,7 +284,11 @@ export class PermissionGate {
     }
     if(!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin quyền.');
     if(signal?.aborted)throw signal.reason;
-    const id=randomUUID();const {preview,detail,summary,reason:describedReason}=this.#describe(name,args,verdict);
+    const id=randomUUID();
+    // The owner is shown what the call would leave on disk, worked out now from the files as they are; the call that follows the answer is held to it (`guard`).
+    const shown=await this.#previewChanges(name,args,verdict,signal);
+    if(signal?.aborted)throw signal.reason||error('cancelled','Tác vụ đã dừng.');
+    const {preview,detail,summary,reason:describedReason}=this.#describe(name,args,verdict,shown?.preview);
     // A hook that asked for this question says why; the text is the hook's (already cleaned), so it is masked like every other reason.
     const hookReason=forceAsk&&askReason?maskSecrets(`Hook: ${String(askReason).slice(0,500)}`,this.manager?.secrets??[]):'';
     const shownReason=hookReason?(describedReason?`${hookReason} · ${describedReason}`:hookReason):describedReason;
@@ -275,7 +303,7 @@ export class PermissionGate {
     });
     this.#emit({type:'approval_requested',...request});
     const yes=await promise;
-    return {allowed:yes,category,risk:verdict.risk,local:verdict.local,asked:true,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt'};
+    return {allowed:yes,category,risk:verdict.risk,local:verdict.local,asked:true,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt',...(yes&&shown?.guard?{guard:shown.guard}:{})};
   }
   #record(request,decision){
     // The audit trail keeps a bounded preview, never the full structured detail.
