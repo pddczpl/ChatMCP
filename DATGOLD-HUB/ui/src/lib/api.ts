@@ -1,5 +1,5 @@
 import { browseNativeWorkspace } from './native-folder-picker.ts';
-import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo, AccountModel, CatalogModels, CatalogStatus, UpdateInfo, UpdateCheckAnswer, UpdateDownloadAnswer, UpdateCancelAnswer } from '@/types';
+import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TaskReviewAnswer, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo, AccountModel, CatalogModels, CatalogStatus, UpdateInfo, UpdateCheckAnswer, UpdateDownloadAnswer, UpdateCancelAnswer } from '@/types';
 import { normalizeTask } from './task-view.ts';
 import { getHubSecret, hubSessionReady, reportHubSessionLost } from './session.ts';
 
@@ -189,6 +189,11 @@ export const api = {
   createCheckpoint: (label: string) => request<Checkpoint>('/api/studio/checkpoint', { method: 'POST', body: JSON.stringify({ label }) }),
   getCheckpoints: () => request<Checkpoint[]>('/api/studio/checkpoints'),
   getReview: (checkpointId: string) => request<GitReview>(`/api/studio/review?checkpointId=${encodeURIComponent(checkpointId)}`),
+  /** The files a conversation changed, as full texts (docs/REVIEW-API.md). */
+  getTaskReview: (taskId: string) => request<TaskReviewAnswer>(`/api/studio/task-review?taskId=${encodeURIComponent(taskId)}`),
+  /** Moves a file the conversation created to the Hub's undo folder, if it still has the sha that was reviewed. */
+  rejectCreated: (taskId: string, file: string, expectedSha: string) =>
+    request<any>('/api/studio/review/reject-created', { method: 'POST', body: JSON.stringify({ taskId, file, expectedSha }) }),
   restoreFile: (checkpointId: string, file: string, expectedSha: string) =>
     request<any>('/api/studio/restore', { method: 'POST', body: JSON.stringify({ checkpointId, file, expectedSha }) }),
   acceptFile: (checkpointId: string, file: string, expectedSha: string) =>
