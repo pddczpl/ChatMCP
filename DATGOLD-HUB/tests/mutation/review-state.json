@@ -1820,6 +1820,28 @@
       ]
     },
     {
+      "name": "RRU-gone-first-hunk-only",
+      "what": "a hunk is looked for by the fingerprint of the first hunk of the file only",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);",
+          "new": "return diffFile(file.baselineText ?? '', file.currentText ?? '').hunks[0]?.fingerprint !== fingerprint;"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-kept-unlimited",
+      "what": "the files that are still different are joined without the limit of three",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "values: { kept: listPaths(kept) }",
+          "new": "values: { kept: kept.join(', ') }"
+        }
+      ]
+    },
+    {
       "name": "RAX-hunk-missing",
       "what": "a hunk that is not there is saved",
       "patches": [

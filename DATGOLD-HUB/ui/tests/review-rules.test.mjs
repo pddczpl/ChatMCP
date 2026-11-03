@@ -343,3 +343,32 @@ test('a list of paths for a sentence shows the first few and says there are more
   assert.equal(listPaths(['a.txt', 'b.txt'], 2), 'a.txt, b.txt');
   assert.equal(listPaths([]), '');
 });
+
+test('a hunk is looked for among all the hunks of the file, not only the first: it is still there when it is the second or the last of three, and it is gone when only another one remains', () => {
+  const edit = (...marks) => marks.reduce((text, [from, to]) => text.replace(from, to), THIRTY);
+  const A = ['k03', 'k03 A'];
+  const B = ['k15', 'k15 B'];
+  const C = ['k27', 'k27 C'];
+  const three = modified({ path: 'a.js', baselineText: THIRTY, currentText: edit(A, B, C) });
+  const [first, second, third] = diffFile(three.baselineText, three.currentText).hunks;
+  assert.equal(diffFile(three.baselineText, three.currentText).hunks.length, 3, 'the setup: three hunks, far apart');
+  for (const [name, hunk] of [['first', first], ['second', second], ['third', third]]) assert.equal(hunkGone([three], 'a.js', hunk.fingerprint), false, `the ${name} is still there`);
+
+  // The second and the third were put back, and only the first remains: they are gone although the first is a hunk of the file.
+  const onlyFirst = modified({ path: 'a.js', baselineText: THIRTY, currentText: edit(A) });
+  assert.equal(hunkGone([onlyFirst], 'a.js', first.fingerprint), false);
+  assert.equal(hunkGone([onlyFirst], 'a.js', second.fingerprint), true, 'the one that was asked for went, and another hunk is the first now');
+  assert.equal(hunkGone([onlyFirst], 'a.js', third.fingerprint), true);
+
+  // The first was put back: the second and the third are still there, although neither is the first hunk of the file now.
+  const noFirst = modified({ path: 'a.js', baselineText: THIRTY, currentText: edit(B, C) });
+  assert.equal(hunkGone([noFirst], 'a.js', first.fingerprint), true);
+  assert.equal(hunkGone([noFirst], 'a.js', second.fingerprint), false, 'the second is the first of the file now');
+  assert.equal(hunkGone([noFirst], 'a.js', third.fingerprint), false, 'the third is the second of the file now');
+
+  // Only the last remains.
+  const onlyLast = modified({ path: 'a.js', baselineText: THIRTY, currentText: edit(C) });
+  assert.equal(hunkGone([onlyLast], 'a.js', third.fingerprint), false);
+  assert.equal(hunkGone([onlyLast], 'a.js', first.fingerprint), true);
+  assert.equal(hunkGone([onlyLast], 'a.js', second.fingerprint), true);
+});

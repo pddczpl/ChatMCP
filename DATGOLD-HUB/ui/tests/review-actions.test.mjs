@@ -202,3 +202,17 @@ test('the status after a batch gives the counts, then names the files that are s
   assert.deepEqual(both.lines.map((line) => line.key), ['review_result_all', 'review_result_all_kept', 'review_result_all_failed_files']);
   assert.equal(both.lines[2].values.paths, 'x1, x2, x3, …', 'the first few are named, and the rest are said to be more');
 });
+
+test('the status after a batch names at most three of the files that are still different and at most three of the files that could not be done, and says that there are more', () => {
+  const kept = ['k1.txt', 'k2.txt', 'k3.txt', 'k4.txt'];
+  const failed = ['f1.txt', 'f2.txt', 'f3.txt', 'f4.txt', 'f5.txt'].map((path) => ({ path, kind: 'stale' }));
+  const summary = summarizeBatch({ done: kept, failed, skipped: 0 }, kept);
+  assert.equal(summary.tone, 'warn');
+  assert.deepEqual(summary.lines.map((line) => line.key), ['review_result_all', 'review_result_all_kept', 'review_result_all_failed_files']);
+  assert.deepEqual(summary.lines[0].values, { done: 4, failed: 5, skipped: 0 });
+  assert.equal(summary.lines[1].values.kept, 'k1.txt, k2.txt, k3.txt, …', 'four files that are still different: the first three, and the mark');
+  assert.equal(summary.lines[2].values.paths, 'f1.txt, f2.txt, f3.txt, …', 'five files that could not be done: the first three, and the mark');
+  // Exactly three is not "more".
+  const three = summarizeBatch({ done: kept.slice(0, 3), failed: [], skipped: 0 }, kept.slice(0, 3));
+  assert.equal(three.lines[1].values.kept, 'k1.txt, k2.txt, k3.txt');
+});
