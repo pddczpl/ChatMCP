@@ -1,0 +1,210 @@
+{
+  "suite": "ui-unit-for-mutation.mjs",
+  "description": "The pairing of a tool result with its call by callId (ui/src/lib/task-view.ts) and the naming of a receipt by the structured input of its call (ui/src/lib/tool-labels.ts), judged by ui/tests/task-view.test.mjs and ui/tests/format.test.mjs. The component that shows the label (ToolReceipt.tsx) is rendered by ui/tests/conversation-core.test.mjs, which bundles React from node_modules: the mutation tool does not copy node_modules, so that component is not mutated here.",
+  "mutations": [
+    {
+      "name": "TV1",
+      "what": "the id of an event is never read: every result is paired by tool name again",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "const callId = typeof event.callId === 'string' ? event.callId : '';", "new": "const callId = '';" }
+      ]
+    },
+    {
+      "name": "TV2",
+      "what": "anything that is not nothing counts as an id (a number, null)",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "const callId = typeof event.callId === 'string' ? event.callId : '';", "new": "const callId = event.callId ?? '';" }
+      ]
+    },
+    {
+      "name": "TV3",
+      "what": "a result is paired by tool name even when it carries an id",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "(callId ? tool.callId === callId : tool.name === event.toolName) && tool.result", "new": "(tool.name === event.toolName) && tool.result" }
+      ]
+    },
+    {
+      "name": "TV4",
+      "what": "a result is always paired by id, so a result without one never finds its call",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "(callId ? tool.callId === callId : tool.name === event.toolName) && tool.result", "new": "(tool.callId === callId) && tool.result" }
+      ]
+    },
+    {
+      "name": "TV5",
+      "what": "a call that already has its result can be settled again",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": " && tool.result === undefined && ", "new": " && " }
+      ]
+    },
+    {
+      "name": "TV6",
+      "what": "a result may settle a call of an earlier run",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": " && runAt(tool.timestamp) === runAt(event.at));", "new": ");" }
+      ]
+    },
+    {
+      "name": "TV7",
+      "what": "the FIRST open call is settled instead of the last one",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "const call = [...toolCalls].reverse().find(", "new": "const call = [...toolCalls].find(" }
+      ]
+    },
+    {
+      "name": "TV8",
+      "what": "the start of a call forgets its id",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "...(callId && { callId }), name: event.toolName, summary", "new": "name: event.toolName, summary" }
+      ]
+    },
+    {
+      "name": "TV9",
+      "what": "a result that no call claims forgets its own id",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "...(callId && { callId }), ...(event.checkpointId && { checkpointId: event.checkpointId }), name", "new": "...(event.checkpointId && { checkpointId: event.checkpointId }), name" }
+      ]
+    },
+    {
+      "name": "TV10",
+      "what": "a result that no call claims forgets its checkpoint",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "...(event.checkpointId && { checkpointId: event.checkpointId }), name: event.toolName", "new": "name: event.toolName" }
+      ]
+    },
+    {
+      "name": "TV11",
+      "what": "a result that no call claims forgets what its call was about",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "...(event.input && { args: event.input }), result", "new": "result" }
+      ]
+    },
+    {
+      "name": "TV12",
+      "what": "the checkpoint of a result never reaches the call it settles",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "if (event.checkpointId) call.checkpointId = event.checkpointId;", "new": "void 0;" }
+      ]
+    },
+    {
+      "name": "TV13",
+      "what": "a call without a checkpoint gets the field set to undefined instead of having none",
+      "patches": [
+        { "file": "ui/src/lib/task-view.ts", "old": "if (event.checkpointId) call.checkpointId = event.checkpointId;", "new": "call.checkpointId = event.checkpointId;" }
+      ]
+    },
+    {
+      "name": "TL1",
+      "what": "the two ends of a move are not named",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "[a.path, a.command, moved, listed]", "new": "[a.path, a.command, listed]" }
+      ]
+    },
+    {
+      "name": "TL2",
+      "what": "a batch does not name its files",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "[a.path, a.command, moved, listed]", "new": "[a.path, a.command, moved]" }
+      ]
+    },
+    {
+      "name": "TL3",
+      "what": "a command is named before a path",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "[a.path, a.command, moved, listed]", "new": "[a.command, a.path, moved, listed]" }
+      ]
+    },
+    {
+      "name": "TL4",
+      "what": "a list of files is named before a move",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "[a.path, a.command, moved, listed]", "new": "[a.path, a.command, listed, moved]" }
+      ]
+    },
+    {
+      "name": "TL5",
+      "what": "the two ends of a move are joined with another sign",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": ".join(' → ');", "new": ".join(' - ');" }
+      ]
+    },
+    {
+      "name": "TL6",
+      "what": "the files of a batch are joined without a space",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": ".join(', ') : '';", "new": ".join(',') : '';" }
+      ]
+    },
+    {
+      "name": "TL7",
+      "what": "something the Hub cut is not marked as cut",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "return a.truncated === true ? `${named}…` : named;", "new": "return named;" }
+      ]
+    },
+    {
+      "name": "TL8",
+      "what": "every target is marked as cut",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "return a.truncated === true ? `${named}…` : named;", "new": "return `${named}…`;" }
+      ]
+    },
+    {
+      "name": "TL9",
+      "what": "a move with one end missing prints the missing end",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "const moved = [a.source, a.destination].filter(part => typeof part === 'string' && part !== '').join(' → ');", "new": "const moved = [a.source, a.destination].join(' → ');" }
+      ]
+    },
+    {
+      "name": "TL10",
+      "what": "an empty end of a move is named",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "const moved = [a.source, a.destination].filter(part => typeof part === 'string' && part !== '')", "new": "const moved = [a.source, a.destination].filter(part => typeof part === 'string')" }
+      ]
+    },
+    {
+      "name": "TL11",
+      "what": "entries of the list that are not text are named",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "a.paths.filter((part: unknown) => typeof part === 'string' && part !== '')", "new": "a.paths.filter((part: unknown) => part !== '')" }
+      ]
+    },
+    {
+      "name": "TL12",
+      "what": "empty entries of the list are named",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "a.paths.filter((part: unknown) => typeof part === 'string' && part !== '')", "new": "a.paths.filter((part: unknown) => typeof part === 'string')" }
+      ]
+    },
+    {
+      "name": "TL13",
+      "what": "a list that is not an array is read as one",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "const listed = Array.isArray(a.paths) ? a.paths", "new": "const listed = a.paths ? a.paths" }
+      ]
+    },
+    {
+      "name": "TL14",
+      "what": "a path that is not text is named",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": ".find(part => typeof part === 'string' && part !== '');", "new": ".find(part => part);" }
+      ]
+    },
+    {
+      "name": "TL15",
+      "what": "an empty path hides the command after it",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": ".find(part => typeof part === 'string' && part !== '');", "new": ".find(part => typeof part === 'string');" }
+      ]
+    },
+    {
+      "name": "TL16",
+      "what": "the cut marker follows any value of the flag, not only true",
+      "equivalent": "the Hub sets truncated to true or leaves it out, and the type says boolean: for those inputs a truthiness test and a test against true give the same answer",
+      "patches": [
+        { "file": "ui/src/lib/tool-labels.ts", "old": "return a.truncated === true ? `${named}…` : named;", "new": "return a.truncated ? `${named}…` : named;" }
+      ]
+    }
+  ]
+}
