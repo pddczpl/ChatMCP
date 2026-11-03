@@ -1,6 +1,6 @@
 # Review API (Hub side)
 
-What the Hub tells a client about the work of one task, and the one thing a client may undo without a checkpoint. It is the data the Review tab (a later slice) and an editor over ACP read; the page does not use it yet. Everything here is behind the per-launch bearer ([Hub authentication](HUB-AUTH.md)), and a POST also needs the page's Origin, request marker and CSRF token. Tests: `tests/verify-task-review.mjs` (the code, on a real `HubManager`), `tests/verify-e2e-review.mjs` (a real Hub process), `tests/verify-studio-http.mjs` (the text save).
+What the Hub tells a client about the work of one task, and the one thing a client may undo without a checkpoint. It is the data the Review tab (a later slice) and an editor over ACP read; of all this the page uses only the events of a tool call so far. Everything here is behind the per-launch bearer ([Hub authentication](HUB-AUTH.md)), and a POST also needs the page's Origin, request marker and CSRF token. Tests: `tests/verify-task-review.mjs` (the code, on a real `HubManager`), `tests/verify-e2e-review.mjs` (a real Hub process), `tests/verify-studio-http.mjs` (the text save).
 
 ## Events of a tool call
 
@@ -13,6 +13,8 @@ What the Hub tells a client about the work of one task, and the one thing a clie
 | `checkpointId` | result, error | the checkpoint the Hub made for THIS call before it ran (a call that changes files has one; a read has none). It is not inherited from an earlier call. |
 
 The sentence of the event (`Đang gọi <tool>.` and the first 900 characters of the arguments) is unchanged. Older `task.json` files, which have none of these fields, load as they are.
+
+How the page reads them (`ui/src/lib/task-view.ts`, `ui/src/lib/tool-labels.ts`): a `tool_result` or `tool_error` that has a `callId` settles the call whose start has that id, in the same run and only if that call has no result yet, and no other call: two calls of one tool in one turn keep their own results and their own `checkpointId`. A result whose id no start has (the refused call above) is an entry of its own. A result without an id (a task saved before the Hub sent ids; the browser transport, which sends none) is paired as it always was, by tool name: the last call of that name in the run that has no result yet. A receipt names a call by its `input` (the path, the command, `source → destination`, the list of paths, a `…` after it when `truncated`) and shows the sentence of the event only for a call that announced nothing.
 
 ## Checkpoints
 

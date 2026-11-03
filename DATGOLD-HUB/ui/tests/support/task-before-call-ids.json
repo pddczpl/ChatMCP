@@ -1,0 +1,363 @@
+{
+  "description": "The events of a task saved before the Hub sent call ids (and of the browser transport, which still sends none) and what normalizeTask made of them with the name-based pairing. ui/tests/task-view.test.mjs asserts that it still makes exactly this.",
+  "task": {
+    "id": "before-call-ids",
+    "prompt": "Fix the tests",
+    "runs": [
+      {
+        "startedAt": "2026-10-12T00:00:00Z",
+        "status": "cancelled"
+      },
+      {
+        "startedAt": "2026-10-12T00:00:20Z",
+        "status": "completed"
+      }
+    ],
+    "events": [
+      {
+        "type": "assistant",
+        "message": "Reading the project first.",
+        "at": "2026-10-12T00:00:01Z"
+      },
+      {
+        "type": "tool_start",
+        "toolName": "local.read_file",
+        "message": "Đang gọi local.read_file.\nTham số: {\"path\":\"index.js\"}",
+        "input": {
+          "path": "index.js"
+        },
+        "at": "2026-10-12T00:00:02Z"
+      },
+      {
+        "type": "tool_result",
+        "toolName": "local.read_file",
+        "message": "source text of index.js",
+        "at": "2026-10-12T00:00:03Z"
+      },
+      {
+        "type": "tool_start",
+        "toolName": "local.edit_file",
+        "message": "Đang gọi local.edit_file.\nTham số: {\"path\":\"a.js\"}",
+        "input": {
+          "path": "a.js"
+        },
+        "at": "2026-10-12T00:00:04Z"
+      },
+      {
+        "type": "tool_start",
+        "toolName": "local.edit_file",
+        "message": "Đang gọi local.edit_file.\nTham số: {\"path\":\"b.js\"}",
+        "input": {
+          "path": "b.js"
+        },
+        "at": "2026-10-12T00:00:05Z"
+      },
+      {
+        "type": "tool_result",
+        "toolName": "local.edit_file",
+        "message": "edited, first result",
+        "at": "2026-10-12T00:00:06Z"
+      },
+      {
+        "type": "tool_result",
+        "toolName": "local.edit_file",
+        "message": "edited, second result",
+        "at": "2026-10-12T00:00:07Z"
+      },
+      {
+        "type": "tool_start",
+        "toolName": "local.run_command",
+        "message": "Đang gọi local.run_command.\nTham số: {\"command\":\"node test.js\"}",
+        "input": {
+          "command": "node test.js"
+        },
+        "at": "2026-10-12T00:00:08Z"
+      },
+      {
+        "type": "tool_result",
+        "toolName": "local.run_command",
+        "message": "{\"exitCode\":1,\"output\":\"failed test\"}",
+        "at": "2026-10-12T00:00:09Z",
+        "durationMs": 1500
+      },
+      {
+        "type": "tool_start",
+        "toolName": "local.write_file",
+        "message": "Đang gọi local.write_file.\nTham số: {\"path\":\"c.js\"}",
+        "input": {
+          "path": "c.js"
+        },
+        "at": "2026-10-12T00:00:10Z"
+      },
+      {
+        "type": "tool_start",
+        "toolName": "browser.open_page",
+        "message": "Đang gọi browser.open_page.\nTham số: {\"url\":\"https://example.test/\"}",
+        "at": "2026-10-12T00:00:11Z"
+      },
+      {
+        "type": "tool_error",
+        "toolName": "browser.open_page",
+        "message": "browser.open_page: công cụ báo lỗi; trả kết quả cho ChatGPT xem xét.",
+        "at": "2026-10-12T00:00:12Z"
+      },
+      {
+        "type": "tool_error",
+        "toolName": "local.write_file",
+        "message": "New call rejected before execution",
+        "at": "2026-10-12T00:00:21Z"
+      },
+      {
+        "type": "tool_start",
+        "toolName": "local.read_file",
+        "message": "Đang gọi local.read_file.\nTham số: {\"path\":\"index.js\"}",
+        "input": {
+          "path": "index.js"
+        },
+        "at": "2026-10-12T00:00:22Z"
+      },
+      {
+        "type": "tool_error",
+        "toolName": "local.read_file",
+        "message": "ENOENT: no such file",
+        "at": "2026-10-12T00:00:23Z",
+        "durationMs": 40
+      },
+      {
+        "type": "tool_start",
+        "toolName": "local.git_status",
+        "message": "Đang gọi local.git_status.\nTham số: {}",
+        "at": "2026-10-12T00:00:24Z"
+      },
+      {
+        "type": "assistant",
+        "message": "Done.",
+        "at": "2026-10-12T00:00:25Z"
+      }
+    ]
+  },
+  "expected": {
+    "completed": {
+      "toolCalls": [
+        {
+          "id": "tool:1",
+          "name": "local.read_file",
+          "summary": "Đang gọi local.read_file.\nTham số: {\"path\":\"index.js\"}",
+          "args": {
+            "path": "index.js"
+          },
+          "timestamp": "2026-10-12T00:00:02Z",
+          "status": "success",
+          "result": "source text of index.js",
+          "durationMs": 1000
+        },
+        {
+          "id": "tool:3",
+          "name": "local.edit_file",
+          "summary": "Đang gọi local.edit_file.\nTham số: {\"path\":\"a.js\"}",
+          "args": {
+            "path": "a.js"
+          },
+          "timestamp": "2026-10-12T00:00:04Z",
+          "status": "success",
+          "result": "edited, second result",
+          "durationMs": 3000
+        },
+        {
+          "id": "tool:4",
+          "name": "local.edit_file",
+          "summary": "Đang gọi local.edit_file.\nTham số: {\"path\":\"b.js\"}",
+          "args": {
+            "path": "b.js"
+          },
+          "timestamp": "2026-10-12T00:00:05Z",
+          "status": "success",
+          "result": "edited, first result",
+          "durationMs": 1000
+        },
+        {
+          "id": "tool:7",
+          "name": "local.run_command",
+          "summary": "Đang gọi local.run_command.\nTham số: {\"command\":\"node test.js\"}",
+          "args": {
+            "command": "node test.js"
+          },
+          "timestamp": "2026-10-12T00:00:08Z",
+          "status": "error",
+          "result": "{\"exitCode\":1,\"output\":\"failed test\"}",
+          "durationMs": 1500
+        },
+        {
+          "id": "tool:9",
+          "name": "local.write_file",
+          "summary": "Đang gọi local.write_file.\nTham số: {\"path\":\"c.js\"}",
+          "args": {
+            "path": "c.js"
+          },
+          "timestamp": "2026-10-12T00:00:10Z",
+          "status": "unknown"
+        },
+        {
+          "id": "tool:10",
+          "name": "browser.open_page",
+          "summary": "Đang gọi browser.open_page.\nTham số: {\"url\":\"https://example.test/\"}",
+          "timestamp": "2026-10-12T00:00:11Z",
+          "status": "error",
+          "result": "browser.open_page: công cụ báo lỗi; trả kết quả cho ChatGPT xem xét.",
+          "durationMs": 1000
+        },
+        {
+          "id": "tool:12",
+          "name": "local.write_file",
+          "result": "New call rejected before execution",
+          "status": "error",
+          "timestamp": "2026-10-12T00:00:21Z"
+        },
+        {
+          "id": "tool:13",
+          "name": "local.read_file",
+          "summary": "Đang gọi local.read_file.\nTham số: {\"path\":\"index.js\"}",
+          "args": {
+            "path": "index.js"
+          },
+          "timestamp": "2026-10-12T00:00:22Z",
+          "status": "error",
+          "result": "ENOENT: no such file",
+          "durationMs": 40
+        },
+        {
+          "id": "tool:15",
+          "name": "local.git_status",
+          "summary": "Đang gọi local.git_status.\nTham số: {}",
+          "timestamp": "2026-10-12T00:00:24Z",
+          "status": "unknown"
+        }
+      ],
+      "timeline": [
+        "message:prompt:0",
+        "message:event:0",
+        "tool:tool:1",
+        "tool:tool:3",
+        "tool:tool:4",
+        "tool:tool:7",
+        "tool:tool:9",
+        "tool:tool:10",
+        "tool:tool:12",
+        "tool:tool:13",
+        "tool:tool:15",
+        "message:event:16"
+      ]
+    },
+    "running": {
+      "toolCalls": [
+        {
+          "id": "tool:1",
+          "name": "local.read_file",
+          "summary": "Đang gọi local.read_file.\nTham số: {\"path\":\"index.js\"}",
+          "args": {
+            "path": "index.js"
+          },
+          "timestamp": "2026-10-12T00:00:02Z",
+          "status": "success",
+          "result": "source text of index.js",
+          "durationMs": 1000
+        },
+        {
+          "id": "tool:3",
+          "name": "local.edit_file",
+          "summary": "Đang gọi local.edit_file.\nTham số: {\"path\":\"a.js\"}",
+          "args": {
+            "path": "a.js"
+          },
+          "timestamp": "2026-10-12T00:00:04Z",
+          "status": "success",
+          "result": "edited, second result",
+          "durationMs": 3000
+        },
+        {
+          "id": "tool:4",
+          "name": "local.edit_file",
+          "summary": "Đang gọi local.edit_file.\nTham số: {\"path\":\"b.js\"}",
+          "args": {
+            "path": "b.js"
+          },
+          "timestamp": "2026-10-12T00:00:05Z",
+          "status": "success",
+          "result": "edited, first result",
+          "durationMs": 1000
+        },
+        {
+          "id": "tool:7",
+          "name": "local.run_command",
+          "summary": "Đang gọi local.run_command.\nTham số: {\"command\":\"node test.js\"}",
+          "args": {
+            "command": "node test.js"
+          },
+          "timestamp": "2026-10-12T00:00:08Z",
+          "status": "error",
+          "result": "{\"exitCode\":1,\"output\":\"failed test\"}",
+          "durationMs": 1500
+        },
+        {
+          "id": "tool:9",
+          "name": "local.write_file",
+          "summary": "Đang gọi local.write_file.\nTham số: {\"path\":\"c.js\"}",
+          "args": {
+            "path": "c.js"
+          },
+          "timestamp": "2026-10-12T00:00:10Z",
+          "status": "unknown"
+        },
+        {
+          "id": "tool:10",
+          "name": "browser.open_page",
+          "summary": "Đang gọi browser.open_page.\nTham số: {\"url\":\"https://example.test/\"}",
+          "timestamp": "2026-10-12T00:00:11Z",
+          "status": "error",
+          "result": "browser.open_page: công cụ báo lỗi; trả kết quả cho ChatGPT xem xét.",
+          "durationMs": 1000
+        },
+        {
+          "id": "tool:12",
+          "name": "local.write_file",
+          "result": "New call rejected before execution",
+          "status": "error",
+          "timestamp": "2026-10-12T00:00:21Z"
+        },
+        {
+          "id": "tool:13",
+          "name": "local.read_file",
+          "summary": "Đang gọi local.read_file.\nTham số: {\"path\":\"index.js\"}",
+          "args": {
+            "path": "index.js"
+          },
+          "timestamp": "2026-10-12T00:00:22Z",
+          "status": "error",
+          "result": "ENOENT: no such file",
+          "durationMs": 40
+        },
+        {
+          "id": "tool:15",
+          "name": "local.git_status",
+          "summary": "Đang gọi local.git_status.\nTham số: {}",
+          "timestamp": "2026-10-12T00:00:24Z",
+          "status": "running"
+        }
+      ],
+      "timeline": [
+        "message:prompt:0",
+        "message:event:0",
+        "tool:tool:1",
+        "tool:tool:3",
+        "tool:tool:4",
+        "tool:tool:7",
+        "tool:tool:9",
+        "tool:tool:10",
+        "tool:tool:12",
+        "tool:tool:13",
+        "tool:tool:15",
+        "message:event:16"
+      ]
+    }
+  }
+}

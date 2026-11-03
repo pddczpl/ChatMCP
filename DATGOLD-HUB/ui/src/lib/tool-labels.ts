@@ -32,9 +32,18 @@ const verbs: Record<ToolKind, { vi: string; en: string }> = {
   tool: { vi: 'Công cụ', en: 'Tool' },
 };
 
+/**
+ * What the call is about, in a few words. The Hub announces it in the structured input of the call (docs/REVIEW-API.md: path, command, source and destination, a list of
+ * paths; `truncated` says that something was cut), and that is read first. Only a call that announced nothing (an older record, the browser transport, a tool with no
+ * file or command) falls back to the sentence of its event, as it always did.
+ */
 export function toolTarget(tool: Pick<ToolCall, 'args' | 'summary'>): string {
   const a = tool.args ?? {};
-  const value = a.path ?? a.command ?? a.cmd ?? a.query ?? a.TargetFile ?? a.file ?? a.pattern ?? tool.summary ?? '';
+  const moved = [a.source, a.destination].filter(part => typeof part === 'string' && part !== '').join(' → ');
+  const listed = Array.isArray(a.paths) ? a.paths.filter((part: unknown) => typeof part === 'string' && part !== '').join(', ') : '';
+  const named = [a.path, a.command, moved, listed].find(part => typeof part === 'string' && part !== '');
+  if (named) return a.truncated === true ? `${named}…` : named;
+  const value = a.cmd ?? a.query ?? a.TargetFile ?? a.file ?? a.pattern ?? tool.summary ?? '';
   return typeof value === 'string' ? value : '';
 }
 
