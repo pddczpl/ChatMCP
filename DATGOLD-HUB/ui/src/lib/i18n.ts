@@ -762,7 +762,7 @@ export const translations = {
     sidebar_empty_chats: 'No conversations yet. Start a new chat to hand off work.',
     tab_progress: 'Progress',
     tab_changes: 'Changes',
-    tab_review: 'Review',
+    tab_review: 'Review changes',
     tab_agents: 'Agents',
     tab_more: 'More',
     inspector_nav: 'Work tools',

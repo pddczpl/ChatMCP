@@ -320,7 +320,7 @@ test('the English screen of the tab, its dialog and its notes read English from 
   await page.reload();
   await expect(page.getByTestId('review-offer')).toContainText('Files changed in this conversation: 5');
   await expect(page.getByTestId('review-offer').getByRole('button', { name: 'Review changes' })).toBeVisible();
-  await openReview(page, 'Review');
+  await openReview(page, 'Review changes');
   await expect(page.getByTestId('review-summary')).toHaveText('Files: 5 · Hunks to review: 5');
   await openFile(page, 'notes.txt');
   await expect(page.getByRole('button', { name: 'Reject hunk 2 of 3 in notes.txt', exact: true })).toBeVisible();
