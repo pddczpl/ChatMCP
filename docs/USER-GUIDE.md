@@ -144,8 +144,8 @@ Khi cần quyền, khung **"Agent đang chờ bạn duyệt n thao tác"** hiệ
 Mỗi thẻ cho bạn thấy *chính xác* điều sẽ xảy ra:
 
 - **Chạy lệnh**: lệnh đầy đủ, thư mục chạy, shell, phân loại (*Lệnh chỉ đọc / Lệnh kiểm tra / Lệnh có thể sửa file / Chạy chương trình / Lệnh nguy hiểm*), lý do phân loại, giới hạn thời gian.
-- **Ghi file**: đường dẫn, kích thước, có ghi đè không, phần đầu nội dung.
-- **Sửa file**: đường dẫn, đoạn cũ → đoạn mới, thay một chỗ hay *tất cả* chỗ khớp.
+- **Ghi file**: đường dẫn, kích thước, có ghi đè không, rồi các dòng sẽ thay đổi thật sự (Hub tính trước từ chính tệp trên đĩa; tệp mới thì mọi dòng là dòng thêm; tệp có sẵn giữ kiểu xuống dòng và BOM cũ).
+- **Sửa file**: đường dẫn, rồi từng đoạn thay đổi thật sự với 3 dòng ngữ cảnh, giống tab "Xem lại thay đổi"; mỗi tệp thu gọn sẵn, bấm (hoặc Enter) để mở, Esc để đóng; thẻ hiện tối đa 20 tệp và 200 dòng mỗi tệp, phần còn lại được đếm. Nếu tệp đổi sau khi thẻ hiện ra, lệnh không chạy (`stale_after_approval`) và agent được báo; chi tiết ở [APPROVAL-PREVIEW.md](APPROVAL-PREVIEW.md).
 
 Bấm **Cho phép** hoặc **Từ chối** (có thêm **Từ chối tất cả** khi có nhiều yêu cầu). Mỗi yêu cầu có đồng hồ đếm ngược; hết **10 phút** mà bạn chưa quyết định thì bị **từ chối tự động**. Khi bị từ chối (do bạn hoặc do hết hạn), agent nhận thông báo "Người dùng từ chối hoặc hết hạn phê duyệt" và thường thử cách khác hoặc hỏi lại bạn.
 

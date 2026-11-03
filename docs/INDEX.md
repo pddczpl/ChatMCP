@@ -15,6 +15,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Hub authentication](HUB-AUTH.md) — Per-launch bearer secret, session file, dashboard sign-in ticket, and what it does not protect
 - [Review API (Hub side)](REVIEW-API.md) — The events of a tool call (`callId`, `input`, `checkpointId`), the review of a whole task as full texts, rejecting a file the task created, and the text save with its 300 KB limit
 - [The `git_push` tool](GIT-PUSH.md) — The agent publishing a branch: one branch, never forced, never main, asked every time (also in Full Access), what is checked before the question, the card, credentials, and what is not verified
+- [The change on the approval card](APPROVAL-PREVIEW.md) — What the card of a file change shows (the hunks, planned by the same code the tools write with), its bounds, what is kept off it, the guard that refuses a file changed after the card (`stale_after_approval`), and what it does not cover
 - [Claims map](CLAIMS.md) — Which claim of the README and release notes is exercised by which test on the production path, and which is not (the unmapped ratchet)
 - [CI health](CI-HEALTH.md) — Workflow triggers (one run per push), documentation gates, `scripts/ci-health.mjs` definitions and the 2026-10-19 baseline
 - [Threat model](THREAT-MODEL.md) — Hub credential, Companion outbound filter, Read Only classifier, lifecycle hooks, agent results, project instructions and skills, and the list of models with its one optional download: assets, actors, mitigations with code references, residual risks
