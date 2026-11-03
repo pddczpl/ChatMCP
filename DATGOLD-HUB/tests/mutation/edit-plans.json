@@ -300,6 +300,72 @@
       ]
     },
     {
+      "name": "EP-echo-mask",
+      "what": "the lines the model reads back after an edit are not masked",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const shown = keyBodies.has(from - 1 + i) ? '[REDACTED]' : maskSecrets(line, registered);",
+          "new": "const shown = line;"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-key-place",
+      "what": "the body of a private key is not hidden by its place in the answer",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const shown = keyBodies.has(from - 1 + i) ? '[REDACTED]' : maskSecrets(line, registered);",
+          "new": "const shown = maskSecrets(line, registered);"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-key-offset",
+      "what": "the place of a line of a key is one line off in the answer",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "keyBodies.has(from - 1 + i)",
+          "new": "keyBodies.has(from + i)"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-registered",
+      "what": "the registered secrets are not used in the answer",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "maskSecrets(line, registered);",
+          "new": "maskSecrets(line, []);"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-note",
+      "what": "the answer does not say that something was hidden",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (shown !== line) masked = true;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-secrets-option",
+      "what": "the tools are not given the secrets of the Hub",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "    this.secrets = secrets;",
+          "new": "    this.secrets = () => [];"
+        }
+      ]
+    },
+    {
       "name": "EP-patch-all",
       "what": "a patch replaces every match",
       "patches": [

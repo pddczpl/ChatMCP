@@ -19,7 +19,8 @@ import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
 import { executePush, planPush, pushApprovalDetail, pushArgumentProblems, PUSH_LIMITS } from './git-push.mjs';
 import { diffHunks } from './line-diff.mjs';
-import { FILE_CHANGE_TOOLS, buildApprovalGuard, buildChangePreview, guardMatches } from './approval-preview.mjs';
+import { FILE_CHANGE_TOOLS, buildApprovalGuard, buildChangePreview, guardMatches, privateKeyBodyLines } from './approval-preview.mjs';
+import { maskSecrets } from './permissions.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
@@ -353,6 +354,7 @@ export class LocalTools {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('LocalTools cần workspace có resolve().');
     this.workspace = workspace;
     this.stateDirectory = stateDirectory;
+    this.secrets = secrets;
     this.shell = shell ?? new ShellRunner({ workspace, stateDirectory, secrets });
     this.git = git ?? new GitRunner({ workspace, hooksDirectory: path.join(stateDirectory ?? path.join(os.tmpdir(), `chatmcp-${process.pid}`), 'no-hooks'), secrets });
     this.tools = new Map();
@@ -1277,7 +1279,16 @@ export class LocalTools {
     const outLines = plan.lfText.split('\n');
     const from = Math.max(1, firstLine - 3);
     const to = Math.min(outLines.length, firstLine + replacedLines - 1 + 3);
-    const snippet = outLines.slice(from - 1, to).map((line, i) => renderLine(line, from + i)).join('\n');
+    // The lines the model gets back are the ones around its edit. A secret in them is hidden in this answer (the file keeps it), as it is on the owner's card: by its spelling, and a line of
+    // the body of a private key by its place.
+    const keyBodies = privateKeyBodyLines(plan.lfText);
+    const registered = this.secrets?.() ?? [];
+    let masked = false;
+    const snippet = outLines.slice(from - 1, to).map((line, i) => {
+      const shown = keyBodies.has(from - 1 + i) ? '[REDACTED]' : maskSecrets(line, registered);
+      if (shown !== line) masked = true;
+      return renderLine(shown, from + i);
+    }).join('\n') + (masked ? '\n[Giá trị giống bí mật trong các dòng trên đã được che trong câu trả lời này; file vẫn giữ nguyên chúng.]' : '');
     if (!plan.many) {
       return ok(`Đã sửa ${target.relative}: thay ${count} chỗ${count === 1 ? ` (dòng ${firstLine})` : ''}.\nsha256: ${plan.sha256}\n${snippet}`,
         { path: target.relative, replacements: count, firstLine, sha256: plan.sha256, previousSha: plan.baseSha });

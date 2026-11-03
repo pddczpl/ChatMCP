@@ -171,7 +171,36 @@ test('a call with 25 files, a CRLF file and a BOM file: twenty on the card, the 
   for (const item of files.slice(2)) expect(await fs.readFile(path.join(app.project, item.path), 'utf8'), `${item.path}, also the ones that were not on the card`).toBe(item.content);
 });
 
-test('a secret in a file is masked on the card and never reaches the model', async ({ page, app }) => {
+test('an approved edit: the model reads back the lines around it with the secrets hidden, and the file keeps them and has the edit', async ({ page, app }) => {
+  const PASSWORD = 'Sup3rS3cretDbValue9';
+  const original = `const z = 1;\nDB_PASSWORD=${PASSWORD}\nconst key = "${OPENAI_KEY}";\nconst url = "https://example.test";\n`;
+  await fs.writeFile(path.join(app.project, 'config.js'), original);
+  const seen = [];
+  app.mock.define('edit-config-approved', ({ turn, last }) => {
+    if (turn === 0) return call('edit_file', { path: 'config.js', old_string: 'const z = 1;', new_string: 'const z = 2;' });
+    seen.push(String(last));
+    return say('Xong.');
+  });
+  app.mock.setScenario('edit-config-approved');
+  await onboard(page, app);
+  app.mock.watch([OPENAI_KEY, PASSWORD]);
+  const prompt = 'Set z to 2 in config.js, thanks.';
+  await send(page, prompt);
+  const task = await taskByPrompt(app, prompt);
+  const card = page.getByRole('region', { name: 'Phê duyệt local.edit_file' });
+  await card.getByTestId('change-file').locator('summary').click();
+  expect((await drawnRows(card.getByTestId('change-file'))).filter(([, text]) => /DB_PASSWORD|const key/.test(text)), 'the lines are on the card, masked').toEqual([['context', 'DB_PASSWORD=[REDACTED]'], ['context', 'const key = "[REDACTED]";']]);
+  await approveButton(card, page).click();
+  await waitForState(app.hub, task.id, 'completed');
+  expect(await fs.readFile(path.join(app.project, 'config.js'), 'utf8'), 'the file has the edit and still has what was hidden').toBe(original.replace('const z = 1;', 'const z = 2;'));
+  expect(seen[0], 'the model got the lines around its edit').toMatch(/DB_PASSWORD=\[REDACTED\]/);
+  expect(seen[0]).toMatch(/đã được che trong câu trả lời này/);
+  const report = app.mock.watchReport();
+  expect(report.scanned, 'the watch looked at the requests of the model').toBeGreaterThan(0);
+  expect(report.hits, 'neither the password nor the key was in any request to the model').toEqual([]);
+});
+
+test('a secret in a file is masked on the card, and a call that is refused never lets it reach the model', async ({ page, app }) => {
   await fs.writeFile(path.join(app.project, 'config.js'), `const url = "https://example.test";\nconst key = "${OPENAI_KEY}";\nconst z = 1;\n`);
   app.mock.watch([OPENAI_KEY]);
   const seen = [];

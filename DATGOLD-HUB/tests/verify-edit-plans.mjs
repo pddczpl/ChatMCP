@@ -468,5 +468,48 @@ function oracleWrite(existing, content) {
   ok(`120 seeded files_write_batch calls: ${wrote} wrote every file exactly as planned, ${refusedCount} refused with the planned code and wrote nothing`);
 }
 
+// ------------------------------------------------------------------ 5. what the model reads back after an edit
+// The answer of edit_file shows the lines around the edit. A secret in them is hidden in that answer, as on the owner's card, and the file keeps it.
+{
+  const REGISTERED = 'registered-secret-value-4711';
+  const PASSWORD = 'Sup3rS3cretDbValue9';
+  const KEY = `sk-${'Ab12Cd34'.repeat(4)}`;
+  const BODY = ['MIIEowIBAAKCAQEAv7xTZ3KxNf2jT1', 'Zm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e'];
+  const secretive = new LocalTools({ workspace: studio, stateDirectory: state, secrets: () => [REGISTERED] });
+  const original = ['const a = 1;', `DB_PASSWORD=${PASSWORD}`, `const key = "${KEY}";`, '-----BEGIN RSA PRIVATE KEY-----', ...BODY, '-----END RSA PRIVATE KEY-----', `const r = "${REGISTERED}";`, 'const z = 1;', ''].join('\n');
+  const target = path.join(work, 'echo.js');
+  const readBack = (result) => result.content.map((part) => part.text).join('\n');
+  const leaked = (text) => [PASSWORD, KEY, REGISTERED, ...BODY].filter((secret) => text.includes(secret));
+
+  await fs.writeFile(target, original);
+  const top = await secretive.call('edit_file', { path: 'echo.js', old_string: 'const a = 1;', new_string: 'const a = 2;' });
+  assert.equal(top.isError, false, readBack(top));
+  assert.deepEqual(leaked(readBack(top)), [], 'the password and the key in the lines under the edit are not in the answer');
+  assert.match(readBack(top), /DB_PASSWORD=\[REDACTED\]/, 'the rest of the line stays');
+  assert.match(readBack(top), /const key = "\[REDACTED\]";/);
+  assert.match(readBack(top), /đã được che trong câu trả lời này; file vẫn giữ nguyên chúng/, 'and the answer says that the file has them');
+  assert.match(readBack(top), /\n\s+1\tconst a = 2;/, 'the line numbers and the edited line are as they were');
+  assert.equal(top.structuredContent.sha256, sha256(await fs.readFile(target)), 'the receipt is the real one');
+  assert.ok((await fs.readFile(target, 'utf8')).includes(PASSWORD), 'the file keeps what was hidden from the answer');
+
+  const bottom = await secretive.call('edit_file', { path: 'echo.js', old_string: 'const z = 1;', new_string: 'const z = 2;' });
+  assert.deepEqual(leaked(readBack(bottom)), [], 'a line of the body of a private key (by its place) and a registered secret are not in the answer');
+  assert.match(readBack(bottom), /-----END RSA PRIVATE KEY-----/, 'the frame of the key stays');
+  assert.match(readBack(bottom), /\n\s+6\t\[REDACTED\]/, 'a line of the body of the key is hidden whole');
+  const patched = await secretive.call('files_apply_patch', { path: 'echo.js', old_text: 'const z = 2;', new_text: 'const z = 3;' });
+  assert.deepEqual(leaked(readBack(patched)), [], 'files_apply_patch is an edit and hides the same');
+
+  await fs.writeFile(target, 'one\ntwo\nthree\n');
+  const ordinary = await secretive.call('edit_file', { path: 'echo.js', old_string: 'two', new_string: 'TWO' });
+  assert.doesNotMatch(readBack(ordinary), /REDACTED|che trong/, 'an answer with no secret in it is as it was');
+  assert.match(readBack(ordinary), /\n\s+2\tTWO/);
+  // an instance that was told no secrets still hides what is spelled like one (the registered value is not known to it)
+  await fs.writeFile(target, original);
+  const unregistered = await local.call('edit_file', { path: 'echo.js', old_string: 'const z = 1;', new_string: 'const z = 2;' });
+  assert.ok(readBack(unregistered).includes(REGISTERED), 'a value that nobody registered and that is spelled like nothing is shown');
+  assert.ok(!readBack(unregistered).includes(BODY[1]), 'a line of the key body is hidden by its place without any registration');
+  ok('what the model reads back after an edit: a password, a key, a registered secret and the body of a private key are hidden in the answer by spelling or by place, the frame and the rest of the line stay, the answer says so, the file keeps them, files_apply_patch does the same, and an answer with no secret is as it was');
+}
+
 await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
 console.log(`PASS: ${checks} edit plan checks`);

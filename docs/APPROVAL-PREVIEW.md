@@ -46,6 +46,9 @@ Bounds: 20 files, 200 rows of a file, a line cut at 400 characters (with `omitte
   `tests/verify-mask-secrets.mjs` is the table.
 - A line of a private key's body looks like any base64, so only its place tells. The card masks the rows by their place in the old and in the new text, wherever it shows them (kept, taken away, put in), and keeps the
   frame lines, the row kinds and the real counts. The history keeps the request without the rows.
+- The answer of `edit_file` and `files_apply_patch` to the model shows the lines around the edit (the model gets them back so that it can check its work). A secret in them is hidden in that answer in the same two
+  ways (by spelling, with the registered secrets of the Hub, and the body of a private key by its place), the answer says that something was hidden, and the file keeps it: `tests/verify-edit-plans.mjs` (section 5) and
+  `ui/e2e/approval-changes.spec.mjs` (the model's requests are watched for the secret after an approval).
 
 ## The call that follows the answer
 
@@ -64,8 +67,8 @@ is. A "no" is `permission_denied` as before. A call that came without a card (Au
 
 - Shell commands, `move_path` and `delete_path`: no preview.
 - It is a pattern mask. A secret in a spelling nobody listed shows on the card; a protected file never does.
-- What the model gets back after an approved edit is the result the tool always gave: the lines around the edit, as they are in the file. A secret in an ordinary (not protected) file that sits in those lines reaches
-  the model that way, as it does through `read_file`; the card masks it, the result does not.
+- `read_file`, `search_files` and the other tools that show the model the content of an ordinary (not protected) file are as they were: a secret in such a file reaches the model when the model reads that file.
+  Only the card and the answer of an edit were changed here.
 - A registered secret that spans several lines is masked line by line, so it is not masked as one.
 - A file that changes between the check and the rename is caught by the re-hash in `writeFileAtomic` (`stale_revision`), not by the guard.
 
@@ -73,4 +76,4 @@ Tests: `tests/verify-line-diff.mjs`, `tests/verify-edit-plans.mjs`, `tests/verif
 `ui/tests/approval-changes.test.mjs` (the real components), `ui/tests/change-preview-vs-review.test.mjs` (the hunks of the card are those of the Review tab) and `ui/e2e/approval-changes.spec.mjs`.
 
 Mutation lists (`node tests/mutation/run-mutations.mjs tests/mutation/<list>.json`): `line-diff.json`, `edit-plans.json` (the planners), `approval-guard.json` (the guard, the gate, the manager), `approval-preview.json`
-(the card: bounds, a cut line, key material), `mask-secrets.json` and `change-preview.json` (the page's reader): 256 mutations, 248 killed, 8 equivalent with the reason written in the list, 0 survived.
+(the card: bounds, a cut line, key material), `mask-secrets.json` and `change-preview.json` (the page's reader): 262 mutations, 254 killed, 8 equivalent with the reason written in the list, 0 survived.
