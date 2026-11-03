@@ -1,11 +1,12 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { DICTIONARY_FILES, RULES, findViolations, fingerprint, initBaseline, lintProject, selfTest, shrinkBaseline } from '../scripts/lint-i18n.mjs';
+import { DICTIONARY_FILES, RULES, findViolations, fingerprint, initBaseline, lintProject, selfTest, selfTestReport, shrinkBaseline } from '../scripts/lint-i18n.mjs';
 
 // The lint that keeps hard-coded words out of the components (scripts/lint-i18n.mjs): what it flags, what it leaves alone, how a violation is told apart
 // from another (file, rule, hash of the string), how the frozen baseline and the allowlist gate a project, and the gate on this very project.
@@ -72,6 +73,88 @@ test('Vietnamese anywhere else in a string is flagged, so a helper that takes bo
   assert.deepEqual(rulesOf("prompt(copy('Nhập REMOVE để gỡ', 'Type REMOVE to remove'));"), ['vietnamese-literal'], 'the Vietnamese half of the pair; the call is not a toast, a confirm or an alert');
 });
 
+test('letters that are not ASCII count as letters, upper case Vietnamese included', () => {
+  assert.deepEqual(rulesOf('const A = () => <p>Đã</p>;'), ['jsx-text'], 'a text of Vietnamese letters only');
+  assert.deepEqual(rulesOf("const s = 'ĐỒNG Ý';"), ['vietnamese-literal'], 'capitals only');
+  assert.deepEqual(rulesOf("const s = 'ăâđêôơư';"), ['vietnamese-literal']);
+});
+
+test('the other attributes a screen reader speaks are flagged too', () => {
+  for (const name of ['aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']) assert.deepEqual(rulesOf(`const A = () => <x ${name}="Close it" />;`), ['jsx-attribute'], name);
+});
+
+test('Error is flagged called as well as constructed, and only its message', () => {
+  for (const name of ['Error', 'TypeError', 'RangeError', 'SyntaxError']) assert.deepEqual(rulesOf(`throw ${name}('Cannot continue');`), ['call-argument'], `${name}(...)`);
+  assert.deepEqual(rulesOf("throw new Error('Cannot continue', { cause: 'the other words' });"), ['call-argument'], 'not the options');
+  assert.deepEqual(findViolations("showToast('Saved', 'success');").map((violation) => violation.text), ['Saved'], 'the first argument is the message, not the second');
+  assert.deepEqual(rulesOf('class Failure extends Error {} const f = failure("Bad value");'), [], 'a call of something else is not an Error');
+});
+
+test('every way the code asks which language it is in is a language ternary', () => {
+  for (const condition of ["lang === 'vi'", "lang == 'vi'", "lang !== 'en'", "lang != 'en'", "'vi' === lang", "locale === 'vi'", "props.language === 'en'", "lang === 'en-US'", 'isEn', 'isVietnamese', 'isEnglish', 'vi', 'en', '!isVi', "(lang === 'vi')"]) {
+    assert.deepEqual(rulesOf(`const s = ${condition} ? 'Xin chào bạn' : 'Hello there';`), ['lang-ternary'], condition);
+  }
+  for (const condition of ["mode === 'vi'", "lang === 'fr'", "lang === other", 'ready', "lang.startsWith('vi')"]) assert.deepEqual(rulesOf(`const s = ${condition} ? 'Hello there' : 'Hello again';`), [], `${condition} does not ask which language it is`);
+});
+
+test('the words of a language ternary are one violation whose text is the whole ternary', () => {
+  assert.deepEqual(findViolations("const s = lang === 'vi' ? 'Đã lưu' : 'Saved';").map((violation) => violation.text), ["lang === 'vi' ? 'Đã lưu' : 'Saved'"]);
+  assert.deepEqual(rulesOf("const s = lang === 'vi' ? 'Đã lưu' : lang === 'en' ? 'Saved' : 'Gespeichert';"), ['lang-ternary', 'lang-ternary'], 'a ternary in the else branch has its own words');
+  assert.deepEqual(rulesOf("const s = lang === 'vi' ? vi : 'English only';"), ['lang-ternary'], 'one branch with words is enough');
+  assert.deepEqual(rulesOf("const s = lang === 'vi' ? 'vi-VN' : t('x');"), [], 'a locale tag beside a call is not words');
+});
+
+test('words can come from a default, a fallback, a cast or a parenthesis', () => {
+  assert.deepEqual(rulesOf("const A = () => <p>{name || 'Untitled thing'}</p>;"), ['jsx-text']);
+  assert.deepEqual(rulesOf("const A = () => <p>{name ?? 'Untitled thing'}</p>;"), ['jsx-text']);
+  assert.deepEqual(rulesOf("const A = () => <p>{('Hello world' as string)}</p>;"), ['jsx-text']);
+  assert.deepEqual(rulesOf("const A = () => <p>{'Hello world' satisfies string}</p>;"), ['jsx-text']);
+  assert.deepEqual(rulesOf("const A = () => <p>{<b>{'Hello world'}</b>}</p>;"), ['jsx-text'], 'once, through the inner element');
+  assert.deepEqual(rulesOf("const A = () => <>{'Hello world'}</>;"), ['jsx-text'], 'a fragment has children too');
+  assert.deepEqual(rulesOf("showToast(ok ? 'Saved it' : 'Lost it');"), ['call-argument', 'call-argument']);
+  assert.deepEqual(rulesOf("showToast(name ?? 'Nothing');"), ['call-argument']);
+  assert.deepEqual(rulesOf("showToast(name || 'Nothing');"), ['call-argument']);
+  assert.deepEqual(rulesOf("showToast(count > 1 && 'Many');"), ['call-argument']);
+});
+
+test('a value with a number or a call in it is not words just because it sits among words', () => {
+  assert.deepEqual(rulesOf('const A = () => <p>{count * 2}{count - 1}{a < b}</p>;'), []);
+  assert.deepEqual(rulesOf("const A = () => <p>{cond ? t('a') : t('b')}</p>;"), []);
+  assert.deepEqual(rulesOf("const A = () => <p>{items.map((item) => item.name)}</p>;"), []);
+});
+
+test('the words of an object are flagged when they are Vietnamese or a sentence, wherever the object is', () => {
+  assert.deepEqual(rulesOf("const f = () => ({ ready: ok ? 'Sẵn sàng' : 'Chưa sẵn sàng' });"), ['label-map', 'label-map']);
+  assert.deepEqual(rulesOf("call({ nested: { deeper: 'Nothing was changed in this run' } });"), ['label-map']);
+  assert.deepEqual(rulesOf("const f = { a: `Nothing was changed in ${where}` };"), ['label-map'], 'a template');
+  assert.deepEqual(rulesOf("const f = { a: 'Nothing was changed in this run' as const };"), ['label-map'], 'through a cast');
+});
+
+test('what a cast or a non-null mark wraps is still the words', () => {
+  assert.deepEqual(rulesOf("showToast('Saved it'!);"), ['call-argument']);
+  assert.deepEqual(rulesOf("showToast(<string>'Saved it');", 'a.ts'), ['call-argument'], 'an angle-bracket cast in a TS file');
+  assert.deepEqual(rulesOf("const f = { a: ' Nothing was changed in this run ' };"), ['label-map'], 'blanks around the sentence');
+});
+
+test('a language ternary needs words in a branch: digits, signs and locale tags are not words', () => {
+  assert.deepEqual(rulesOf("const s = lang === 'vi' ? '1,5' : '1.5';"), []);
+  assert.deepEqual(rulesOf("const s = lang === 'vi' ? 'vi-VN' : 'Hello there';"), ['lang-ternary'], 'a locale tag beside real words');
+  assert.deepEqual(rulesOf("const s = lang === 'vi' ? 'yes' : 'hello';"), ['lang-ternary'], 'a short word beside a longer one is words, not a locale tag');
+});
+
+test('a string that a rule has taken is not taken again by the catch-all', () => {
+  assert.deepEqual(rulesOf("showToast('Không tìm thấy');"), ['call-argument']);
+  assert.deepEqual(rulesOf('showToast(`Đã xóa ${n} tệp`);'), ['call-argument']);
+  assert.deepEqual(rulesOf("const A = () => <x title=\"Đóng lại\" />;"), ['jsx-attribute']);
+  assert.deepEqual(rulesOf("const A = () => <p>{'Đã xong'}</p>;"), ['jsx-text']);
+});
+
+test('a label of Title Case words is not taken for a sentence', () => {
+  assert.deepEqual(rulesOf("const f = { a: 'Save As', b: 'Open A B', c: 'Ctrl K', d: 'GitHub Actions', e: 'Hello', f: 'a sentence in lower case', g: 'Version 3.11.2' };"), []);
+  assert.deepEqual(rulesOf("const f = { a: 'Hello, my friend' };"), ['label-map'], 'a capital, a comma, then words');
+  assert.deepEqual(rulesOf("const f = { a: \"Don't stop now\" };"), ['label-map'], 'an apostrophe');
+});
+
 // ---- what it leaves alone -------------------------------------------------------------------------------------------------------------------------
 
 test('words that are looked up, not written, are not flagged', () => {
@@ -95,6 +178,19 @@ test('comments, types and imports are not flagged, whatever language they are in
   assert.deepEqual(rulesOf("// Đã xong: chuyển ngôn ngữ\n/* Không tìm thấy */\nconst a = 1;\n"), []);
   assert.deepEqual(rulesOf("type Label = 'Đã xong' | 'Chưa xong'; const x = y as 'Không';"), []);
   assert.deepEqual(rulesOf("import { a } from './Đã.ts'; export * from './Không.ts';"), []);
+  assert.deepEqual(rulesOf("import e = require('./Đây');", 'a.ts'), []);
+});
+
+test('things that have no message do not fail the lint: an attribute with no value, a throw with no argument, an empty expression', () => {
+  assert.deepEqual(rulesOf('const A = () => <x title alt aria-label />;'), []);
+  assert.deepEqual(rulesOf('throw new Error;'), []);
+  assert.deepEqual(rulesOf('showToast();'), []);
+  assert.deepEqual(rulesOf('const A = () => <p>{/* a comment */}{}</p>;'), []);
+  assert.deepEqual(rulesOf("const A = () => <x title={} />;"), []);
+});
+
+test('a string in an attribute that is not read by a person is not flagged, in quotes or in braces', () => {
+  assert.deepEqual(rulesOf("const A = () => <p data-label={'Hello world'} className={'Hello world'} />;"), []);
 });
 
 test('a language ternary that only chooses a locale, or chooses between two variables, is not a hard-coded string', () => {
@@ -131,6 +227,20 @@ test('the hash follows the words, not where they stand or how they are wrapped',
   assert.notDeepEqual(key('const A = () => <p>Nothing to show there</p>;'), original, 'other words');
   assert.notEqual(findViolations('const A = () => <p>Nothing to show here</p>;', 'b.tsx').map(fingerprint)[0], original[0], 'the same words in another file');
   assert.notEqual(findViolations("const A = () => <x title='Nothing to show here' />;", 'a.tsx').map(fingerprint)[0], original[0], 'the same words under another rule');
+});
+
+test('the hash is the first 16 hex digits of the SHA-256 of the words as the lint shows them', () => {
+  const [violation] = findViolations('const A = () => <p>Nothing to show here</p>;', 'a.tsx');
+  assert.equal(violation.hash, crypto.createHash('sha256').update('Nothing to show here', 'utf8').digest('hex').slice(0, 16));
+  const [vietnamese] = findViolations("const s = 'Đã lưu';", 'a.ts');
+  assert.equal(vietnamese.hash, crypto.createHash('sha256').update('Đã lưu', 'utf8').digest('hex').slice(0, 16), 'UTF-8, not a code page');
+});
+
+test('a template is judged by its written parts, with {} where a value goes', () => {
+  assert.deepEqual(findViolations("showToast(`Restored ${n} files`);").map((violation) => violation.text), ['Restored {} files']);
+  assert.deepEqual(findViolations("const s = `Đã xóa ${n} tệp`;").map((violation) => violation.text), ['Đã xóa {} tệp']);
+  assert.deepEqual(rulesOf('showToast(`${a}${b}`);'), [], 'nothing written, nothing to flag');
+  assert.deepEqual(rulesOf('const s = `${a} ${b}`;'), []);
 });
 
 test('the same words twice are two violations with one key', () => {
@@ -216,18 +326,59 @@ test('the baseline can be started once and can only shrink: it never takes in a 
   assert.equal(entries.length, 1, 'and the file is left as it was');
 });
 
+const hashOfWords = (words) => crypto.createHash('sha256').update(words, 'utf8').digest('hex').slice(0, 16);
+const keyOfEntry = (entry) => `${entry.file}|${entry.rule}|${entry.hash}`;
+const ascending = (a, b) => (keyOfEntry(a) < keyOfEntry(b) ? -1 : keyOfEntry(a) > keyOfEntry(b) ? 1 : 0);
+
 test('the baseline file lists one entry per violation, with the file, the rule and the hash and nothing of the text', () => {
-  const root = project({ 'src/components/Two.tsx': TWO });
+  // four sentences written into the file with the largest hash first, so that the order of the entries is the lint's doing and not the file's
+  const sentences = ['Nothing to show here', 'Try again later', 'Open the settings', 'Choose a folder'].sort((a, b) => (hashOfWords(a) < hashOfWords(b) ? 1 : -1));
+  const root = project({ 'src/components/Many.tsx': `${sentences.map((words, index) => `export const A${index} = () => <p>${words}</p>;`).join('\n')}\n` });
   initBaseline(root);
   const file = JSON.parse(fs.readFileSync(path.join(root, 'i18n-baseline.json'), 'utf8'));
-  assert.equal(file.entries.length, 2);
+  assert.equal(file.entries.length, 4);
   for (const entry of file.entries) {
     assert.deepEqual(Object.keys(entry).sort(), ['file', 'hash', 'rule']);
-    assert.equal(entry.file, 'src/components/Two.tsx');
+    assert.equal(entry.file, 'src/components/Many.tsx');
     assert.equal(entry.rule, 'jsx-text');
   }
-  const keyOf = (entry) => `${entry.file}|${entry.rule}|${entry.hash}`;
-  assert.deepEqual(file.entries, [...file.entries].sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0)), 'sorted, so that a change to it reads as a change');
+  assert.deepEqual(file.entries, [...file.entries].sort(ascending), 'sorted, so that a change to it reads as a change');
+  assert.equal(fs.readFileSync(path.join(root, 'i18n-baseline.json'), 'utf8').split('\n').filter((line) => line.includes('"hash"')).length, 4, 'one line per entry');
+});
+
+test('the entries that are stale are listed in order, once for each time the string was frozen', () => {
+  const root = project({ 'src/components/Clean.tsx': CLEAN });
+  const entries = [{ file: 'src/b.tsx', rule: 'jsx-text', hash: 'ffffffffffffffff' }, { file: 'src/a.tsx', rule: 'label-map', hash: '0000000000000001' }, { file: 'src/a.tsx', rule: 'jsx-text', hash: '0000000000000002' }, { file: 'src/a.tsx', rule: 'jsx-text', hash: '0000000000000002' }];
+  write(root, 'i18n-baseline.json', JSON.stringify({ version: 1, entries }));
+  const result = lintProject(root);
+  assert.equal(result.stale.length, 4, 'two entries for one string are two stale entries');
+  assert.deepEqual(result.stale, [...result.stale].sort(ascending), 'and they come sorted');
+  assert.deepEqual(result.stale.map(keyOfEntry), ['src/a.tsx|jsx-text|0000000000000002', 'src/a.tsx|jsx-text|0000000000000002', 'src/a.tsx|label-map|0000000000000001', 'src/b.tsx|jsx-text|ffffffffffffffff']);
+});
+
+test('a baseline that shrank to nothing is written as an empty list', () => {
+  const root = project({ 'src/components/One.tsx': ONE });
+  initBaseline(root);
+  write(root, 'src/components/One.tsx', CLEAN);
+  shrinkBaseline(root);
+  assert.equal(fs.readFileSync(path.join(root, 'i18n-baseline.json'), 'utf8').replace(/\r\n/g, '\n'), '{\n  "version": 1,\n  "entries": []\n}\n');
+});
+
+test('what the allowlist lets through is not written into the baseline, and shrinking keeps exactly the rest', () => {
+  const root = project({ 'src/components/Two.tsx': TWO });
+  write(root, 'i18n-allow.json', JSON.stringify({ version: 1, entries: [{ text: 'Try again later', reason: 'a made-up deliberate exception' }] }));
+  initBaseline(root);
+  const entries = JSON.parse(fs.readFileSync(path.join(root, 'i18n-baseline.json'), 'utf8')).entries;
+  assert.equal(entries.length, 1, 'only the string that is not allowed is frozen');
+  write(root, 'src/components/Two.tsx', `${CLEAN}export const Three = () => <p>Try again later</p>;\n`);
+  shrinkBaseline(root);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'i18n-baseline.json'), 'utf8')).entries, [], 'its string is gone: the entry goes');
+});
+
+test('the project can have no src and no files: nothing is found', () => {
+  const root = project({ 'readme.txt': 'x' });
+  const result = lintProject(root);
+  assert.deepEqual([result.files, result.found.length, result.fresh.length, result.stale.length], [0, 0, 0, 0]);
 });
 
 test('the dictionaries are the one place for words: exactly these three files are not scanned', () => {
@@ -250,6 +401,17 @@ test('an allowlist entry lets one deliberate string through, and says why', () =
   write(root, 'i18n-allow.json', JSON.stringify({ version: 1, entries: [{ text: 'Nothing to show here', reason: 'a made-up example of a deliberate exception' }] }));
   const result = lintProject(root);
   assert.deepEqual([result.found.length, result.allowlisted.length, result.baselined.length, result.fresh.length], [1, 1, 0, 0]);
+});
+
+test('an allowlist entry matches the words however they are spaced, and the baseline counts each of two equal strings', () => {
+  const root = project({ 'src/components/One.tsx': ONE });
+  write(root, 'i18n-allow.json', JSON.stringify({ version: 1, entries: [{ text: '  Nothing   to show\nhere ', reason: 'spaced out on purpose in this test' }] }));
+  assert.equal(lintProject(root).allowlisted.length, 1);
+  const twice = project({ 'src/components/Twice.tsx': 'export const A = () => <div><p>Try again</p><p>Try again</p></div>;\n' });
+  initBaseline(twice);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(twice, 'i18n-baseline.json'), 'utf8')).entries.length, 2, 'one entry per violation');
+  const result = lintProject(twice);
+  assert.deepEqual([result.baselined.length, result.fresh.length, result.stale.length], [2, 0, 0]);
 });
 
 test('an allowlist entry can be limited to a file and a rule, and then lets nothing else through', () => {
@@ -276,14 +438,41 @@ test('an allowlist entry without a reason is refused, and one that matches nothi
 
 test('a baseline or an allowlist that is not the shape the lint reads is refused, not read as empty', () => {
   const root = project({ 'src/components/Clean.tsx': CLEAN });
+  const entry = '{"file": "src/a.tsx", "rule": "jsx-text", "hash": "0123456789abcdef"}';
   write(root, 'i18n-baseline.json', '{"version": 1}');
   assert.throws(() => lintProject(root), /baseline/);
   write(root, 'i18n-baseline.json', '{"version": 1, "entries": [{"file": "a"}]}');
   assert.throws(() => lintProject(root), /baseline/);
   write(root, 'i18n-baseline.json', 'not json');
   assert.throws(() => lintProject(root), /baseline/);
+  write(root, 'i18n-baseline.json', `{"version": 2, "entries": [${entry}]}`);
+  assert.throws(() => lintProject(root), /baseline/, 'another version');
+  write(root, 'i18n-baseline.json', `{"entries": [${entry}]}`);
+  assert.throws(() => lintProject(root), /baseline/, 'no version');
+  write(root, 'i18n-baseline.json', '{"version": 1, "entries": [{"file": "src/a.tsx", "rule": "no-such-rule", "hash": "0123456789abcdef"}]}');
+  assert.throws(() => lintProject(root), /baseline/, 'a rule that does not exist');
+  write(root, 'i18n-baseline.json', '{"version": 1, "entries": [{"file": "src/a.tsx", "rule": "jsx-text", "hash": "xyz"}]}');
+  assert.throws(() => lintProject(root), /baseline/, 'a hash that is not 16 hex digits');
+  write(root, 'i18n-baseline.json', '{"version": 1, "entries": [{"file": 7, "rule": "jsx-text", "hash": "0123456789abcdef"}]}');
+  assert.throws(() => lintProject(root), /baseline/, 'a file that is not a name');
+  write(root, 'i18n-baseline.json', '{"version": 1, "entries": [null]}');
+  assert.throws(() => lintProject(root), /baseline/, 'an entry that is nothing');
   write(root, 'i18n-baseline.json', '{"version": 1, "entries": []}');
   write(root, 'i18n-allow.json', '{"version": 1}');
+  assert.throws(() => lintProject(root), /allowlist/);
+  write(root, 'i18n-allow.json', '{"entries": []}');
+  assert.throws(() => lintProject(root), /allowlist/, 'no version');
+  write(root, 'i18n-allow.json', '{"version": 3, "entries": []}');
+  assert.throws(() => lintProject(root), /allowlist/, 'another version');
+  write(root, 'i18n-allow.json', '{"version": 1, "entries": [{"reason": "a reason that is long enough"}]}');
+  assert.throws(() => lintProject(root), /allowlist entry/, 'an entry with no text');
+  write(root, 'i18n-allow.json', '{"version": 1, "entries": [{"text": "   ", "reason": "a reason that is long enough"}]}');
+  assert.throws(() => lintProject(root), /allowlist entry/, 'an entry with blank text');
+  write(root, 'i18n-allow.json', '{"version": 1, "entries": [{"text": "x y", "rule": "no-such-rule", "reason": "a reason that is long enough"}]}');
+  assert.throws(() => lintProject(root), /rule that does not exist/);
+  write(root, 'i18n-allow.json', '{"version": 1, "entries": [null]}');
+  assert.throws(() => lintProject(root), /allowlist entry/, 'an entry that is nothing');
+  write(root, 'i18n-allow.json', 'not json');
   assert.throws(() => lintProject(root), /allowlist/);
 });
 
@@ -303,6 +492,24 @@ test('the self-test can fail: a lint that finds nothing, or flags everything, do
   assert.ok(blind.cases.filter((c) => c.seeded).every((c) => !c.ok), 'every seeded shape is reported as missed');
   const noisy = selfTest((text, file) => findViolations(`${text}\nconst Extra = () => <p>Another hard-coded sentence</p>;`, file));
   assert.equal(noisy.ok, false, 'a violation that is found where none was seeded fails the clean fixtures');
+  assert.ok(noisy.cases.filter((c) => c.seeded).every((c) => !c.ok), 'and a seeded shape that is found together with another violation is not clean either');
+  const confused = selfTest((text, file) => findViolations(text, file).map((violation) => ({ ...violation, rule: 'jsx-text' })));
+  assert.equal(confused.ok, false, 'a detector that finds the violations under the wrong rule does not pass');
+  assert.deepEqual(confused.cases.filter((c) => c.ok && c.seeded).map((c) => c.rule), ['jsx-text'], 'only the fixture of the rule it names passes');
+});
+
+test('the self-test report names each fixture, and its exit code is 1 as soon as one is wrong', () => {
+  const good = selfTestReport();
+  assert.equal(good.code, 0);
+  for (const rule of RULES) assert.ok(good.lines.some((line) => new RegExp(`^caught +${rule} `).test(line)), `a line for ${rule}`);
+  assert.ok(good.lines.some((line) => /^clean +- /.test(line)), 'and for the clean fixtures');
+  assert.match(good.lines.at(-1), /every seeded shape is caught/);
+  const blind = selfTestReport(() => []);
+  assert.equal(blind.code, 1);
+  assert.ok(blind.lines.some((line) => /^WRONG +jsx-text .*\(found: nothing\)$/.test(line)), 'what a shape was found as, when it was not found');
+  const confused = selfTestReport((text, file) => findViolations(text, file).map((violation) => ({ ...violation, rule: 'label-map' })));
+  assert.ok(confused.lines.some((line) => /^WRONG +jsx-text .*\(found: label-map\)$/.test(line)), 'and what it was found as, when it was found as another');
+  assert.match(blind.lines.at(-1), /self-test: FAILED/);
 });
 
 test('the command runs the self-test and says what it caught', () => {
@@ -325,6 +532,58 @@ test('the command exits 0 on a project with no new violation and prints the numb
   const run = spawnSync(process.execPath, [path.join(ui, 'scripts', 'lint-i18n.mjs'), '--root', root], { cwd: ui, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.match(run.stdout, /1 found, 0 allowlisted, 1 in the baseline, 0 new/);
+});
+
+const lintCommand = (...args) => spawnSync(process.execPath, [path.join(ui, 'scripts', 'lint-i18n.mjs'), ...args], { cwd: ui, encoding: 'utf8' });
+
+test('the command starts the baseline once, and shrinks it, and says so', () => {
+  const root = project({ 'src/components/Two.tsx': TWO });
+  const started = lintCommand('--root', root, '--init-baseline');
+  assert.equal(started.status, 0, started.stdout + started.stderr);
+  assert.match(started.stdout, /wrote i18n-baseline\.json/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'i18n-baseline.json'), 'utf8')).entries.length, 2);
+  const again = lintCommand('--root', root, '--init-baseline');
+  assert.equal(again.status, 1);
+  assert.match(again.stderr, /already exists/);
+  write(root, 'src/components/Two.tsx', ONE);
+  const stale = lintCommand('--root', root);
+  assert.equal(stale.status, 1, 'a baseline entry whose string is gone fails');
+  assert.match(stale.stdout, /Baseline entries whose string is gone \(1\)/);
+  const shrunk = lintCommand('--root', root, '--shrink-baseline');
+  assert.equal(shrunk.status, 0, shrunk.stdout + shrunk.stderr);
+  assert.match(shrunk.stdout, /shrank i18n-baseline\.json/);
+  assert.equal(lintCommand('--root', root).status, 0);
+  write(root, 'src/components/Two.tsx', TWO);
+  const refused = lintCommand('--root', root, '--shrink-baseline');
+  assert.equal(refused.status, 1, 'with a new violation in the project the baseline is not shrunk');
+  assert.match(refused.stderr, /new violation/);
+});
+
+test('the command says which allowlist entries match nothing', () => {
+  const root = project({ 'src/components/Clean.tsx': CLEAN });
+  write(root, 'i18n-allow.json', JSON.stringify({ version: 1, entries: [{ text: 'Gone words', reason: 'a leftover from a string that was fixed' }] }));
+  const run = lintCommand('--root', root);
+  assert.equal(run.status, 1);
+  assert.match(run.stdout, /Allowlist entries that match nothing \(1\)/);
+  assert.match(run.stdout, /"Gone words"/);
+});
+
+test('the command prints the numbers per rule with --report', () => {
+  const root = project({ 'src/components/One.tsx': 'export const A = () => <p title="Close the panel">Nothing to show here</p>;\n' });
+  initBaseline(root);
+  const run = lintCommand('--root', root, '--report');
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  for (const rule of RULES) assert.match(run.stdout, new RegExp(`${rule} +found +\\d+ +allowlisted +\\d+ +baselined +\\d+ +new +\\d+`), rule);
+  assert.match(run.stdout, /jsx-text +found +1 +allowlisted +0 +baselined +1 +new +0/);
+  assert.match(run.stdout, /jsx-attribute +found +1 +allowlisted +0 +baselined +1 +new +0/);
+  assert.match(run.stdout, /call-argument +found +0 +allowlisted +0 +baselined +0 +new +0/);
+});
+
+test('the command exits 1 and says why when the baseline is not readable', () => {
+  const root = project({ 'src/components/Clean.tsx': CLEAN, 'i18n-baseline.json': 'not json' });
+  const run = lintCommand('--root', root);
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /baseline/);
 });
 
 // ---- this project ---------------------------------------------------------------------------------------------------------------------------------

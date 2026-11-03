@@ -279,6 +279,17 @@ export function selfTest(find = findViolations) {
 
 // ---- the command ----------------------------------------------------------------------------------------------------------------------------------
 
+/** What --self-test prints, line by line, and the exit code it ends with: 1 as soon as one fixture is wrong. */
+export function selfTestReport(find = findViolations) {
+  const result = selfTest(find);
+  const lines = result.cases.map((item) => {
+    const label = item.ok ? (item.seeded ? 'caught ' : 'clean  ') : 'WRONG  ';
+    return `${label} ${String(item.rule ?? '-').padEnd(18)} ${item.name}${item.ok ? '' : `  (found: ${item.rules.join(', ') || 'nothing'})`}`;
+  });
+  lines.push(result.ok ? 'self-test: every seeded shape is caught and the clean fixtures stay quiet' : 'self-test: FAILED');
+  return { code: result.ok ? 0 : 1, lines };
+}
+
 function main(args) {
   const rootAt = args.indexOf('--root');
   const root = rootAt >= 0 ? path.resolve(args[rootAt + 1]) : path.resolve(here, '..');
@@ -286,13 +297,9 @@ function main(args) {
   const where = (violation) => `${violation.file}:${violation.line}:${violation.column}  ${violation.rule}  ${JSON.stringify(violation.text)}`;
 
   if (args.includes('--self-test')) {
-    const result = selfTest();
-    for (const item of result.cases) {
-      const label = item.ok ? (item.seeded ? 'caught ' : 'clean  ') : 'WRONG  ';
-      say(`${label} ${String(item.rule ?? '-').padEnd(18)} ${item.name}${item.ok ? '' : `  (found: ${item.rules.join(', ') || 'nothing'})`}`);
-    }
-    say(result.ok ? 'self-test: every seeded shape is caught and the clean fixtures stay quiet' : 'self-test: FAILED');
-    process.exitCode = result.ok ? 0 : 1;
+    const report = selfTestReport();
+    for (const line of report.lines) say(line);
+    process.exitCode = report.code;
     return;
   }
   try {
