@@ -17,6 +17,7 @@ import { basenameTypeGlob, compareWalkOrder, patternNeedsPcre2 } from './ripgrep
 import { PRIVATE_DIRECTORIES, isProtectedPath } from './protected-paths.mjs';
 import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
+import { executePush, planPush, pushApprovalDetail, pushArgumentProblems, PUSH_LIMITS } from './git-push.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
@@ -134,7 +135,12 @@ function assertSafeRegex(pattern, { backreferences = false } = {}) {
   if (unbounded > 4) throw fault('bad_pattern', 'Regex có quá nhiều lặp không giới hạn (* hoặc +); giảm xuống tối đa 4.');
 }
 
+/** How long the head of a branch, as it was when the owner was asked about git_push, is held against the call that follows. */
+const PUSH_PLAN_TTL_MS = 30 * 60 * 1000;
+
 export class LocalTools {
+  #pushPlans = new Map();
+
   /**
    * @param {object} options
    * @param {object} options.workspace  StudioWorkspace (resolve(), plan())
@@ -199,7 +205,10 @@ export class LocalTools {
       }
     }
     const verdict = typeof tool.category === 'function' ? await tool.category(input) : { category: tool.category, reason: tool.reason };
-    return { category: verdict.category, reason: verdict.reason ?? tool.reason ?? '', summary: tool.summary(input), ...(verdict.risk ? { risk: verdict.risk } : {}), ...(verdict.command !== undefined ? { command: verdict.command } : {}) };
+    return {
+      category: verdict.category, reason: verdict.reason ?? tool.reason ?? '', summary: verdict.summary ?? tool.summary(input), ...(verdict.risk ? { risk: verdict.risk } : {}),
+      ...(verdict.command !== undefined ? { command: verdict.command } : {}), ...(verdict.detail ? { detail: verdict.detail } : {}), ...(verdict.code ? { code: verdict.code } : {}),
+    };
   }
 
   /** Checks arguments against the tool's schema without running anything, so an invalid call never asks for approval. */
@@ -637,6 +646,19 @@ export class LocalTools {
       schema: obj({ branch: str('Branch to merge.', { maxLength: 200 }), message: str('Merge commit message.', { maxLength: 2000 }) }, ['branch']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Merge nhánh Git',
       summary: (a) => `git merge ${a.branch}`, run: (a, ctx) => this.#gitMerge(a, ctx),
+    });
+    define('git_push', {
+      description: 'Publish ONE local branch to a remote that is already configured (remote defaults to origin, branch to the current one; the upstream is set when the branch has none). '
+        + 'It never forces: there is no force, +refspec, delete, mirror, --all or --tags, and it refuses main, master and the remote\'s default branch (work on a feature branch, then open a pull request). '
+        + 'Repository hooks are not run. It always asks the user first, in every mode and also in Full Access, showing the commits that would be sent; a range that holds a secret or a protected file is refused without asking.',
+      schema: obj({
+        remote: str('Name of a configured remote (default origin). A name only, never an address.', { maxLength: 64 }),
+        branch: str('Local branch to push (default: the current branch). A plain branch name: no refspec, no option.', { maxLength: 200 }),
+        set_upstream: bool('Make the remote branch the upstream of the local one (default: only when the branch has no upstream yet).'),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      category: (a) => this.#assessPush(a), check: (a) => pushArgumentProblems(a),
+      summary: (a) => `git push ${a.remote ?? 'origin'} ${a.branch ?? '(nhánh hiện tại)'}`, run: (a, ctx) => this.#gitPush(a, ctx),
     });
     define('worktrees_list', {
       description: 'List managed Git worktrees in the repository.',
@@ -1256,6 +1278,54 @@ export class LocalTools {
     const result = await this.git.text(args, { signal, writes: true });
     if (result.code !== 0) throw fault('git_error', `${result.stderr}${result.stdout}`.trim() || 'git switch thất bại.');
     return ok(`${action === 'create' ? 'Đã tạo và chuyển sang' : 'Đã chuyển sang'} nhánh ${name}.`, { branch: name, action });
+  }
+
+  // ------------------------------------------------------------------ git_push (the rules are in git-push.mjs)
+  #pushKey(args) { return `${args.remote ?? 'origin'}\0${args.branch ?? ''}`; }
+
+  /** Looks at the repository (no network) and remembers where the branch was, so that the call that follows the question is held to what was shown. */
+  async #planPush(args, signal) {
+    const planned = await planPush(this.git, { remote: args.remote ?? 'origin', branch: args.branch, setUpstream: args.set_upstream, signal });
+    if (planned.ok) {
+      const now = Date.now();
+      this.#pushPlans.set(this.#pushKey(args), { headSha: planned.plan.headSha, at: now });
+      for (const [key, memo] of this.#pushPlans) if (now - memo.at > PUSH_PLAN_TTL_MS) this.#pushPlans.delete(key);
+      while (this.#pushPlans.size > 20) this.#pushPlans.delete(this.#pushPlans.keys().next().value);
+    }
+    return planned;
+  }
+
+  /** What PermissionGate asks about: `dangerous` with the commits that would be sent, or `blocked` (no question) with the reason. */
+  async #assessPush(args) {
+    let planned;
+    try { planned = await this.#planPush(args); } catch (error) { planned = { ok: false, code: 'push_unavailable', message: describeError(error).message }; }
+    if (!planned.ok) return { category: 'blocked', code: planned.code, reason: planned.message };
+    const { plan } = planned;
+    return {
+      category: 'dangerous', reason: 'Đẩy commit lên remote: dữ liệu rời khỏi máy này và không thu hồi được',
+      summary: `git push ${plan.remote} ${plan.localBranch} (${plan.commitCount} commit)`, detail: pushApprovalDetail(plan),
+    };
+  }
+
+  async #gitPush(args, { signal }) {
+    const key = this.#pushKey(args);
+    const asked = this.#pushPlans.get(key);
+    this.#pushPlans.delete(key);
+    const planned = await this.#planPush(args, signal); // every refusal again: a call that did not come through the question is held to the same rules
+    if (!planned.ok) throw fault(planned.code, planned.message, 409);
+    const { plan } = planned;
+    if (asked && Date.now() - asked.at <= PUSH_PLAN_TTL_MS && asked.headSha !== plan.headSha) {
+      this.#pushPlans.delete(key);
+      throw fault('plan_changed', `Nhánh "${plan.localBranch}" đã thay đổi sau khi danh sách commit được chuẩn bị cho bạn duyệt nên không đẩy. Gọi lại git_push để có danh sách mới.`, 409);
+    }
+    const done = await executePush(this.git, plan, { signal, timeoutMs: PUSH_LIMITS.timeoutMs });
+    this.#pushPlans.delete(key);
+    if (!done.ok) throw fault(done.code, done.message, 409);
+    const span = done.range.from ? `${done.range.from.slice(0, 7)}..${done.range.to.slice(0, 7)}` : `nhánh mới, đến ${done.range.to.slice(0, 7)}`;
+    return ok(
+      `Đã đẩy ${done.commits} commit của nhánh ${done.branch} lên ${done.remote} (${span}).${done.setUpstream ? ` Đã đặt upstream ${done.upstream}.` : ''}\nĐịa chỉ: ${done.url}${done.output ? `\n${done.output}` : ''}`,
+      { pushed: true, remote: done.remote, branch: done.branch, ref: done.ref, range: done.range, commits: done.commits, setUpstream: done.setUpstream, upstream: done.upstream, url: done.url },
+    );
   }
 
   // ------------------------------------------------------------------ plan

@@ -29,7 +29,7 @@ assert.ok(selected.tools.length>10 && selected.tools.length<catalog.tools.length
 const direct=directToolsFor(selected);
 assert.equal(direct.functions.length,selected.tools.length);
 assert.equal(ROUTER_TOOLS.length,4);
-assert.equal(catalog.tools.length,99,'full catalog unchanged');
+assert.equal(catalog.tools.length,100,'full catalog unchanged');
 assert.throws(()=>selectTaskToolNames('x',{cap:0}),TypeError);
 
 // The hub's primary runner (the foreground chat) offered all 103 schemas, about 15.4k tokens, to every model. Whether that fits depends on the
@@ -106,7 +106,8 @@ const summary='recall '+(100*recall).toFixed(1)+'% ('+(100*decided).toFixed(1)+'
 // A tool the prompt needs but the selector did not offer is a detour; the file-changing tools below are the ones whose absence strands an
 // ordinary edit prompt ("Update the version in package.json", "Remove the unused helper", "Convert this file to TypeScript").
 const FLOOR={recall:1,decided:1,served:rows.length};
-const CEILING={median:5000,max:8000};
+// median 5000 -> 5010: the corpus gained two prompts that ask for a push (g11, g12); they cost more than the median prompt and moved it by 4 tokens.
+const CEILING={median:5010,max:8000};
 assert.ok(recall>=FLOOR.recall,'the selector offers the tools a solution calls: '+summary+'. Missed: '+misses(rows));
 assert.ok(decided>=FLOOR.decided,'and those it has to decide on: '+summary+'. Missed: '+misses(rows));
 assert.ok(served>=FLOOR.served,'prompts served in full: '+summary+'. Missed: '+misses(rows));
@@ -120,6 +121,13 @@ for(const prompt of ['Update the version in package.json','Add a --verbose flag 
   const names=selectTaskToolNames(prompt);
   for(const tool of ['edit_file','write_file','files_apply_patch','delete_path'])assert.ok(names.includes(tool),'"'+prompt+'" is offered '+tool);
 }
+// git_push is offered to a prompt that asks to push or publish a branch, and to no other prompt about Git: it is the one Git tool that sends commits out of the machine.
+for(const prompt of ['Push this branch to origin so I can open a pull request.','push my changes','Pushing the fix now please','Publish the branch for review','Đẩy nhánh hiện tại lên origin','Đưa nhánh này lên github đi']) {
+  const names=selectTaskToolNames(prompt);
+  for(const tool of ['git_push','git_log','git_branch'])assert.ok(names.includes(tool),'"'+prompt+'" is offered '+tool);
+}
+for(const prompt of ['Commit the staged changes with a clear message.','Create a branch called fix-login and switch to it.','Merge the release branch into main and resolve any conflicts.','Show me what changed in the last three commits.','Fix the typo in the README','Tạo nhánh mới tên feature/export-csv rồi chuyển sang nhánh đó.'])
+  assert.ok(!selectTaskToolNames(prompt).includes('git_push'),'"'+prompt+'" is not offered git_push');
 // Cost ceilings. The median prompt stays far inside the budget the dynamic selection exists for (the full list is 13.4k tokens, and the brief for
 // this selection was a median of 7k at most); the dearest corpus prompt is one that already matched three original groups and fills the cap.
 assert.ok(medianTokens<=CEILING.median,'median schema cost of the corpus: '+summary);
@@ -201,7 +209,7 @@ assert.ok(Date.now()-scanStarted<5000,'scanning a 390 kB prompt took '+(Date.now
 
 // The selection follows the conversation, not its first message. The preflight of every run used to select on task.prompt, which is set once,
 // when the task is created, so "Now update the version in package.json and commit it." was offered the tools that "Explain what calc.js does."
-// had selected. Here the real AgentRunner, the real 99-tool catalog and a scripted model: what each model request is offered.
+// had selected. Here the real AgentRunner, the real 100-tool catalog and a scripted model: what each model request is offered.
 const conversations=await fsp.mkdtemp(path.join(os.tmpdir(),'chatmcp-tool-selection-'));
 try{
   let workspaces=0;

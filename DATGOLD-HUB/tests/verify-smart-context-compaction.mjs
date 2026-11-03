@@ -337,7 +337,7 @@ try{
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The numbers of gate G1-7 through the REAL path: the hub's primary AgentRunner -> its context policy -> a GatewayProvider speaking OpenAI
-// Responses -> the request body. Only the network is replaced; the catalog is the real 99-tool LocalTools inventory and the prompt is a
+// Responses -> the request body. Only the network is replaced; the catalog is the real 100-tool LocalTools inventory and the prompt is a
 // coding task, so the numbers are what a person with an unconfigured Responses endpoint gets. (v3.9.0: 103 schemas = 15.4k tokens, 10.3k
 // tokens of history, max_output_tokens 5,898.)
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -389,7 +389,7 @@ try{
 
     const large=await runTask({window:200000,prompt:codingTask});
     assert.equal(large.task.contextPolicy.source,'provider_configuration');
-    assert.equal(large.requests[0].body.tools.length,103,'a known large window keeps the full list, as before');
+    assert.equal(large.requests[0].body.tools.length,104,'a known large window keeps the full list, as before');
     assert.equal(large.requests[0].body.max_output_tokens,16384);
     assert.ok(large.task.contextPolicy.maxHistoryTokens>100000);
 

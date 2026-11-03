@@ -38,6 +38,16 @@ await runScenario({
   const manyFiles = publicToolInput({ files: Array.from({ length: 50 }, (_, i) => ({ path: `f${i}` })) });
   t.equal([manyFiles.paths.length, manyFiles.truncated], [20, true], 'a batch of 50 lists 20 paths and says so');
   t.equal(JSON.stringify(publicToolInput({ path: 'ok', content: SECRET_BODY, edits: [{ old_string: SECRET_BODY }] })).includes(SECRET_BODY), false, 'nothing else of the arguments is copied');
+  // git_push is announced by its remote and branch, and by nothing else of its arguments; the other tools that have a `branch` are not given one
+  t.equal(publicToolInput({ remote: 'origin', branch: 'feature/x', set_upstream: true }, 'local.git_push'), { remote: 'origin', branch: 'feature/x' }, 'a push by its remote and branch only');
+  t.equal(publicToolInput({ branch: 'feature/x' }, 'git_push'), { branch: 'feature/x' }, 'the short name too, and only what was passed');
+  t.equal(publicToolInput({}, 'local.git_push'), {}, 'a push with no arguments has no input');
+  t.equal(publicToolInput({ remote: 5, branch: ['x'] }, 'local.git_push'), {}, 'only strings are taken');
+  t.equal(publicToolInput({ branch: 'side', remote: 'origin' }, 'local.git_merge'), {}, 'another tool with a branch is not given one');
+  t.equal(publicToolInput({ branch: 'side', remote: 'origin' }), {}, 'and a call without a tool name neither');
+  t.equal(publicToolInput({ remote: 'r'.repeat(300), branch: 'b'.repeat(500) }, 'local.git_push').remote.length, 64, 'a long remote is cut at 64');
+  const longBranch = publicToolInput({ branch: 'b'.repeat(500) }, 'local.git_push');
+  t.equal([longBranch.branch.length, longBranch.truncated], [200, true], 'a long branch is cut at 200 and says so');
 
   // ---- the Hub -----------------------------------------------------------------------------------------------------------------------
   const project = path.join(t.scratch, 'proj');

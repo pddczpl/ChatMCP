@@ -72,6 +72,9 @@ const GROUPS=[
   {re:/\b(git|branch|commit|merge|worktree|conflict|pull request|github|release)\b|nhánh|hợp nhất/i,
    more:words(/commits|branches|merges|worktrees|conflicts|prs?|pull requests|rebas(?:e|ing)|stash|cherry.?pick|revert|squash|amend|xung đột|hoàn tác|lịch sử/),
    names:['git_log','git_add','git_commit','git_branch','git_checkout','git_merge','git_conflict_inspect','worktrees_list','worktrees_create','github_workflow_runs','github_pr_review']},
+  // The one Git tool that sends commits out of the machine is offered only to a prompt that asks for it, with the two that a refused push sends the model to (the log, a feature branch).
+  {more:words(/push|pushes|pushed|pushing|publish(?:es|ed|ing)? (?:the |this |my )?branch|đẩy|đưa [^\s]+(?: [^\s]+){0,2} lên (?:remote|origin|github)/),
+   names:['git_push','git_log','git_branch']},
   {re:/\b(research|search web|documentation|docs|internet|dependency lookup)\b|tra cứu|tài liệu/i,
    names:['web_search','web_fetch','web_extract','docs_search','dependency_lookup','github_code_search']},
   // The GitHub CLI tools no group had: reading and opening pull requests and issues, and the run, status and failed-step logs of a CI run.
