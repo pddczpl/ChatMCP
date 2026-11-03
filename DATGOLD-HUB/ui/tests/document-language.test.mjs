@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { applyDocumentLanguage, languageOf } from '../src/lib/document-language.ts';
 
 // The language of the page: the screen speaks Vietnamese until the person chooses English (the desktop app runs in WebView2, and the language of Windows
@@ -29,7 +31,11 @@ test('with no page to declare it on (a server render, a test) nothing happens an
 
 test('the page is Vietnamese before any script runs, and the language is not taken from the browser', () => {
   assert.match(fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8'), /<html lang="vi"/);
-  for (const file of ['../src/store/useAppStore.ts', '../src/lib/document-language.ts', '../src/lib/i18n.ts', '../src/main.tsx', '../src/App.tsx']) {
-    assert.doesNotMatch(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), /navigator\.language/, `${file} must not choose the language from the browser`);
-  }
+  const sources = (directory) => fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(directory, entry.name);
+    return entry.isDirectory() ? sources(full) : /\.tsx?$/.test(entry.name) ? [full] : [];
+  });
+  const files = sources(fileURLToPath(new URL('../src', import.meta.url)));
+  assert.ok(files.length > 100, `read ${files.length} files of src`);
+  for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /navigator\.languages?\b/, `${file} must not choose the language from the browser`);
 });
