@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import http from 'node:http';
 import fs from 'node:fs/promises';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -78,23 +78,13 @@ const CSP_LOOPBACK = `${CSP_BASE}; frame-src http://127.0.0.1:* http://localhost
 const STATIC_FILES = Object.freeze({
   '/': 'web/dist/index.html',
   '/index.html': 'web/dist/index.html',
-  '/classic': 'web/index.html',
-  '/classic.html': 'web/index.html',
-  '/legacy': 'web/legacy.html',
-  '/legacy.html': 'web/legacy.html',
-  '/app.js': 'web/app.js',
-  '/style.css': 'web/style.css',
-  '/studio.css': 'web/studio.css',
-  '/studio.js': 'web/studio.js',
-  '/react-app.js': 'web/react-app.js',
-  '/ui-logic.js': 'web/ui-logic.js',
-  '/onboarding.js': 'web/onboarding.js',
-  '/react.css': 'web/react.css',
-  '/vendor/react.production.min.js': 'web/vendor/react.production.min.js',
-  '/vendor/react-dom.production.min.js': 'web/vendor/react-dom.production.min.js',
-  '/chat-route.js': 'extension/chat-route.js',
-  '/hub-session.js': 'web/hub-session.js'
+  '/favicon.ico': 'web/dist/favicon.ico',
+  '/chatmcp-logo.png': 'web/dist/chatmcp-logo.png',
+  '/chat-route.js': 'extension/chat-route.js'
 });
+// The dashboard is the Vite build in web/dist (npm run build --prefix DATGOLD-HUB/ui). There is no older page to fall back to.
+const UI_INDEX = 'web/dist/index.html';
+const UI_NOT_BUILT = Object.freeze({ error: 'The dashboard is not built. Run: npm run build --prefix DATGOLD-HUB/ui', code: 'ui_not_built' });
 function equalToken(a, b) {
   if (typeof a !== 'string' || a.length !== b.length) return false;
   const left = Buffer.from(a);
@@ -692,16 +682,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       try {
         data = await fs.readFile(fullPath);
       } catch {
-        if ((url.pathname === '/' || url.pathname === '/index.html') && filename === 'web/dist/index.html') {
-          try {
-            data = await fs.readFile(path.join(bundleRoot, 'web/index.html'));
-            filename = 'web/index.html';
-          } catch {
-            return json(404, { error: 'Không tìm thấy trang.' });
-          }
-        } else {
-          return json(404, { error: 'Không tìm thấy trang.' });
-        }
+        if (filename === UI_INDEX) return json(503, UI_NOT_BUILT);
+        return json(404, { error: 'Không tìm thấy trang.' });
       }
       res.setHeader('Content-Type', MIME[path.extname(filename)] || 'application/octet-stream');
       res.setHeader('Content-Length', data.length);
@@ -896,6 +878,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     await releaseInstance().catch(() => {});
     throw error;
   }
+  if (!existsSync(path.join(BUNDLE_ROOT, UI_INDEX))) manager.log(`${UI_NOT_BUILT.error} (the dashboard answers 503 until then).`);
   manager.log(`Dashboard: ${url}`);
   manager.log(`Local-only Hub: 127.0.0.1 · Data: ${manager.hubDirectory}`);
   if (options.open) await openDashboard(url, manager, dashboardUrl(url, server.issueBootstrapTicket()));

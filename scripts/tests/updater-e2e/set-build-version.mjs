@@ -27,8 +27,6 @@ const PLACES = Object.freeze([
   { file: 'DATGOLD-HUB/lib/manager.mjs', find: new RegExp(String.raw`(export const VERSION = ')${NUMBER}(')`, 'g'), count: 1, name: 'VERSION of the Hub' },
   { file: 'DATGOLD-HUB/hub.mjs', find: new RegExp(String.raw`(export const UI_BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'UI_BUILD of the Hub' },
   { file: 'DATGOLD-HUB/ui/src/lib/api.ts', find: new RegExp(String.raw`(const UI_BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'UI_BUILD the page sends' },
-  { file: 'DATGOLD-HUB/web/react-app.js', find: new RegExp(String.raw`(const BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'BUILD of the first page' },
-  { file: 'DATGOLD-HUB/web/react-app.js', find: new RegExp(String.raw`(const uiVersion = ')${NUMBER}(')`, 'g'), count: 1, name: 'uiVersion of the first page' },
   { file: 'desktop-shell/ChatMCP.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the desktop shell' },
   { file: 'installer/ChatMCP.Installer.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the setup' },
 ]);

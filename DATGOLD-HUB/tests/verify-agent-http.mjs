@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { createHubServer } from '../hub.mjs';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { createHubServer, UI_BUILD } from '../hub.mjs';
 import { VERSION } from '../lib/manager.mjs';
 
 async function freePort() { const server=net.createServer(); await new Promise(r=>server.listen(0,'127.0.0.1',r)); const port=server.address().port;await new Promise(r=>server.close(r));return port; }
@@ -60,12 +63,29 @@ try {
   check((await response.json()).ai.configured===false,'key cleared');
   check((await fetch(origin+'/api/health').then(r=>r.json())).version===VERSION,'health');
   const homepage = await fetch(origin+'/').then(r=>r.text());
-  check(homepage.includes('id="root"') && homepage.includes('react-app.js'), 'dual-mode dashboard settings rendered');
-  check(homepage.includes('React and ReactDOM are vendored'), 'agent progress + live timeline visible');
-  check(homepage.includes('/vendor/react.production.min.js'), 'persistent session sidebar and dialogue present');
-  const browserUi = await fetch(origin+'/react-app.js').then(r=>r.text());
+  // The dashboard is the Vite build in web/dist: the page loads one entry script (and the chunks it names), not the removed react-app.js.
+  const entry = homepage.match(/<script[^>]+src="\.\/(assets\/index-[^"]+\.js)"/)?.[1];
+  check(homepage.includes('id="root"') && Boolean(entry), 'the built dashboard page has a root and one hashed entry script');
+  check(!homepage.includes('react-app.js') && !homepage.includes('/vendor/react.production.min.js'), 'the page no longer names the removed legacy scripts');
+  const browserUi = await fetch(origin+'/'+entry).then(r=>r.text());
   check(browserUi.includes('/api/ai/config') && browserUi.includes('/api/agent/mode'), 'dashboard actions wired to API and mode endpoints');
   check(browserUi.includes('/api/tasks/continue') && browserUi.includes('/api/tasks/delete'), 'resume and explicit delete actions connected');
+  check(browserUi.includes(UI_BUILD), 'the built entry script carries the UI_BUILD that hub.mjs expects');
   check(!homepage.includes('mock-secret-token') && !browserUi.includes('mock-secret-token'), 'static assets contain no API secrets');
+  // Without a build there is no page to show and no older page to fall back to: '/' answers a clear 503 JSON, other paths 404.
+  const emptyRoot=await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(),'chatmcp-no-dist-')));
+  const emptyPort=await freePort();
+  const emptyServer=createHubServer(manager,{port:emptyPort,secret,bundleRoot:emptyRoot});
+  await new Promise(r=>emptyServer.listen(emptyPort,'127.0.0.1',r));
+  try {
+    for (const route of ['/','/index.html']) {
+      const missing=await fetch(`http://127.0.0.1:${emptyPort}${route}`);
+      check(missing.status===503 && /application\/json/.test(missing.headers.get('content-type')||''),`${route} without web/dist answers 503 JSON`);
+      const body=await missing.json();
+      check(body.code==='ui_not_built' && body.error.includes('npm run build --prefix DATGOLD-HUB/ui'),`${route} without web/dist names the build command`);
+    }
+    check((await fetch(`http://127.0.0.1:${emptyPort}/classic`)).status===404,'no legacy page is served in place of the missing build');
+    check((await fetch(`http://127.0.0.1:${emptyPort}/assets/missing.js`)).status===404,'a missing asset is 404, not 503');
+  } finally {emptyServer.closeAllConnections();await new Promise(r=>emptyServer.close(r));await fsp.rm(emptyRoot,{recursive:true,force:true});}
   console.log('PASS:',assertions,'HTTP integration checks: mode selection, key config, test model, routing, locking, CSRF, key redaction, task SSE streaming');
 } finally {server.closeAllConnections();await new Promise(r=>server.close(r));}

@@ -225,7 +225,7 @@ function Get-InstallerPayloadFiles {
             Assert-InstallerNoReparsePath -Path $item.FullName
             if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
             $relativeUi = $item.FullName.Substring($uiRoot.Length + 1).Replace('\', '/')
-            if ($relativeUi -ne 'index.html' -and $relativeUi -notmatch '^assets/[^/]+\.(js|css|woff2?|ttf|otf|png|jpe?g|svg|gif|webp|ico)$') {
+            if ($relativeUi -notin @('index.html', 'favicon.ico', 'chatmcp-logo.png') -and $relativeUi -notmatch '^assets/[^/]+\.(js|css|woff2?|ttf|otf|png|jpe?g|svg|gif|webp|ico)$') {
                 throw "Unexpected file in generated React output: $relativeUi"
             }
             $files.Add([pscustomobject]@{ RelativePath = 'DATGOLD-HUB/web/dist/' + $relativeUi; Source = $item.FullName })

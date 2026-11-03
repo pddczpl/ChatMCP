@@ -108,7 +108,11 @@ Check 'Preview validator' { $r=Invoke-RestMethod -Uri "$BaseUrl/api/studio/previ
 Check 'Browser assets served locally' {
   $build=$script:Health.uiBuild
   if(-not $build){throw 'No UI build to compare with (the health check failed)'}
-  $r=Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/react-app.js" -TimeoutSec 8
+  $page=Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/" -TimeoutSec 8
+  if($page.StatusCode -ne 200){throw "The dashboard page answered $($page.StatusCode); build it with: npm run build --prefix DATGOLD-HUB/ui"}
+  $entry=[regex]::Match([string]$page.Content,'src="\./(assets/index-[^"]+\.js)"')
+  if(-not $entry.Success){throw 'The dashboard page names no entry script (assets/index-*.js)'}
+  $r=Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/$($entry.Groups[1].Value)" -TimeoutSec 8
   if($r.StatusCode -ne 200 -or -not ([string]$r.Content).Contains($build)){throw "UI assets are not build $build"}
 }
 $results | Format-Table -AutoSize

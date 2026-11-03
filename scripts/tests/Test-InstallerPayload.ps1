@@ -111,6 +111,8 @@ try {
     Remove-Item -LiteralPath (Join-Path $fixture 'DATGOLD-HUB/web/dist/assets/old-hash.js')
     Write-Fixture 'DATGOLD-HUB/web/dist/index.html' '<script src="./assets/new-hash.js"></script>'
     Write-Fixture 'DATGOLD-HUB/web/dist/assets/new-hash.js' 'fresh UI'
+    Write-Fixture 'DATGOLD-HUB/web/dist/favicon.ico' 'icon'
+    Write-Fixture 'DATGOLD-HUB/web/dist/chatmcp-logo.png' 'logo'
     Copy-InstallerSourcePayload -RepositoryRoot $fixture -Destination $destination
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/hub.mjs')) 'tracked Hub entry ships'
     Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB'))) 'the payload has the name of the Hub folder of the repository and never the name that an installation had up to 3.11.0'
@@ -127,6 +129,7 @@ try {
     Invoke-FixtureGit @('add', 'THIRD-PARTY-NOTICES.md')
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/assets/new-hash.js')) 'new generated UI asset ships'
     Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/assets/old-hash.js'))) 'stale tracked UI asset is not resurrected'
+    Assert-Payload ((Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/favicon.ico')) -and (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/chatmcp-logo.png'))) 'the favicon and the logo that the build copies from ui/public ship'
     foreach ($excluded in @('DATGOLD-HUB/installed-plugins.json', 'DATGOLD-HUB/secrets.json', 'DATGOLD-HUB/test-results', 'DATGOLD-HUB/node_modules', 'DATGOLD-HUB/skills', 'DATGOLD-HUB/tests', 'DATGOLD-HUB/ui', 'DATGOLD-HUB/windows/sandbox/GuestSupervisor', 'scripts/tests', 'scripts/Build-Installer.ps1', 'scripts/local-personal.ps1', 'assets/private.png')) {
         Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination $excluded))) "excluded from payload: $excluded"
     }

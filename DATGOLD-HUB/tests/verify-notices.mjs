@@ -107,7 +107,6 @@ function requiredEntries(repo) {
   assert.ok(webview2, 'desktop-shell/ChatMCP.csproj: the WebView2 package version was not found');
   entries.push({ label: `Microsoft.Web.WebView2 ${webview2}`, name: /Microsoft\.Web\.WebView2/, needles: [webview2, 'BSD-3-Clause'], span: 2 });
   entries.push({ label: '.NET runtime', name: /\.NET 10 runtime/, needles: ['MIT'], span: 2 });
-  entries.push({ label: 'React 16 UMD', name: /React 16\.0\.0/, needles: ['MIT'], span: 2 });
   entries.push({ label: 'UI libraries', name: /UI libraries compiled into/, needles: [/MIT/], span: 2 });
   for (const grammar of GRAMMAR_NOTICES) {
     entries.push({ label: `${grammar.id} grammar notice`, name: word(grammar.id), needles: [grammar.range, 'MIT', noticeStaged(grammar)], span: 4 });
@@ -198,7 +197,7 @@ export async function checkNotices(repo) {
   const text = read(repo, 'DATGOLD-HUB', 'THIRD-PARTY-NOTICES.txt');
   if (/has not yet adopted a top-level/i.test(markdown)) fail('THIRD-PARTY-NOTICES.md still says that no top-level license exists');
   if (/ARCHIVED|NOT CURRENT/.test(text.split('\n').slice(0, 3).join('\n'))) fail('DATGOLD-HUB/THIRD-PARTY-NOTICES.txt is still the archived 1.x text');
-  if (!/Permission is hereby granted, free of charge/.test(text)) fail('DATGOLD-HUB/THIRD-PARTY-NOTICES.txt lost the MIT permission text of the React 16 files it ships');
+  if (!/Permission is hereby granted, free of charge/.test(text)) fail('DATGOLD-HUB/THIRD-PARTY-NOTICES.txt lost the MIT permission text (models.dev data)');
   if (existsSync(path.join(repo, 'THIRD_PARTY_NOTICES.md'))) fail('THIRD_PARTY_NOTICES.md is back: there is one canonical THIRD-PARTY-NOTICES.md (the list of UI packages is generated into it)');
   for (const entry of requiredEntries(repo)) {
     if (!entryHas(markdown, entry.name, entry.needles, entry.span)) fail(`THIRD-PARTY-NOTICES.md has no entry for ${entry.label} (needs ${entry.needles.map(String).join(', ')})`);

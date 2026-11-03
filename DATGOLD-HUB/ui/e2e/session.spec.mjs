@@ -68,18 +68,15 @@ test('after a Hub restart a tab with the old secret asks to reopen, and a new si
   await expect(welcome(fresh)).toBeVisible();
 });
 
-test('the older /classic dashboard signs in through hub-session.js: bearer on its requests, working EventSource', async ({ page, app }) => {
-  const stateRequest = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/state');
-  await page.goto((await app.signInUrl()).replace('/#', '/classic#'));
-  const request = await stateRequest;
-  expect(request.headers().authorization).toBe(`Bearer ${app.hub.secret}`);
-  await expect(page.locator('#root .loading-screen')).toHaveCount(0);
-  expect(page.url()).toBe(`${app.hub.origin}/classic`);
-  // The page's EventSource is a fetch-based replacement (a native one cannot send the header).
-  const opened = await page.evaluate(() => new Promise((resolve, reject) => {
-    const stream = new EventSource('/api/tasks/events');
-    stream.onopen = () => { stream.close(); resolve(true); };
-    stream.onerror = () => reject(new Error('the stream was refused'));
-  }));
-  expect(opened).toBe(true);
+test('the older dashboards are gone: their routes answer 404 and the page loads no script of them', async ({ page, app }) => {
+  for (const route of ['/classic', '/classic.html', '/legacy', '/legacy.html', '/react-app.js', '/ui-logic.js', '/hub-session.js', '/login.html']) {
+    const response = await fetch(`${app.hub.origin}${route}`);
+    expect(response.status, route).toBe(404);
+  }
+  const scripts = [];
+  page.on('request', (request) => { if (request.resourceType() === 'script') scripts.push(new URL(request.url()).pathname); });
+  await page.goto(await app.signInUrl());
+  await expect(welcome(page)).toBeVisible();
+  expect(scripts.length).toBeGreaterThan(0);
+  expect(scripts.every((pathname) => pathname.startsWith('/assets/')), scripts.join(' ')).toBe(true);
 });

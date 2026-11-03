@@ -59,8 +59,7 @@ The DatGold code is Apache-2.0. A component is marked compatible when it may be 
 | .NET 10 runtime and base libraries inside `ChatMCP.exe`, `DatGoldSetup.exe` / `Uninstall.exe` (self-contained single files) and `GuestSupervisor.exe` (Native AOT) | 10.0.x | MIT | Yes | The runtime's own third-party notice file is not shipped. |
 | UI bundle (`DATGOLD-HUB/web/dist/assets/*.js`, `*.css`) | see [UI production packages](#ui-production-packages-compiled-into-webdist) | MIT (161), OFL-1.1 (2), ISC (2), BSD-3-Clause (1), 0BSD (1) | Yes | Finding 4. The Tailwind CSS banner and the `@license` comments of React and lucide-react survive the build. |
 | Inter variable and JetBrains Mono 400 web fonts (`web/dist/assets/*.woff2`, `*.woff`) | 5.3.0 and 5.3.0 (Fontsource packages) | OFL-1.1 | Yes, as separate font files | Finding 3. Inter: Copyright 2016 The Inter Project Authors. JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors. |
-| React 16.0.0 and ReactDOM 16.0.1 UMD (`web/vendor/*.production.min.js`, legacy pages; ReactDOM includes Modernizr) | 16.0.x | MIT | Yes | Upstream headers are intact and the MIT text is in the archived notice file. Old releases: remove them together with the legacy dashboards. |
-| Icons and logo (`assets/icons`, `web/chatmcp-logo.png`, `web/favicon.ico`) | - | Apache-2.0 (own work) | - | Finding 7. |
+| Icons and logo (`assets/icons`, `DATGOLD-HUB/ui/public/chatmcp-logo.png`, `DATGOLD-HUB/ui/public/favicon.ico`) | - | Apache-2.0 (own work) | - | Finding 7. |
 
 ## Not redistributed
 
