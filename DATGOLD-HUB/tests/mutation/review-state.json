@@ -405,8 +405,8 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "if (context?.executionPolicy === 'sandbox-only') return 'sandbox';",
-          "new": "if (context?.executionPolicy === 'sandbox-never') return 'sandbox';"
+          "old": "if (context?.executionPolicy === 'sandbox-only') return 'policy';",
+          "new": "if (context?.executionPolicy === 'sandbox-never') return 'policy';"
         }
       ]
     },
@@ -515,7 +515,7 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "const canRecord = state !== 'sandbox' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
+          "old": "const canRecord = state !== 'policy' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
           "new": "const canRecord = Boolean(file.currentSha) && Boolean(file.checkpointId);"
         }
       ]
@@ -526,8 +526,8 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "const canRecord = state !== 'sandbox' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
-          "new": "const canRecord = state !== 'sandbox' && Boolean(file.checkpointId);"
+          "old": "const canRecord = state !== 'policy' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
+          "new": "const canRecord = state !== 'policy' && Boolean(file.checkpointId);"
         }
       ]
     },
@@ -537,8 +537,8 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "const canRecord = state !== 'sandbox' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
-          "new": "const canRecord = state !== 'sandbox' && Boolean(file.currentSha);"
+          "old": "const canRecord = state !== 'policy' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
+          "new": "const canRecord = state !== 'policy' && Boolean(file.currentSha);"
         }
       ]
     },
@@ -549,7 +549,7 @@
         {
           "file": "ui/src/lib/review-rules.ts",
           "old": "const canWrite = state === 'ok';",
-          "new": "const canWrite = state !== 'sandbox';"
+          "new": "const canWrite = state !== 'policy';"
         }
       ]
     },
@@ -812,7 +812,7 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "if (status === 403) return code === undefined ? 'sandbox' : 'other';",
+          "old": "if (status === 403) return code === undefined ? 'policy' : 'other';",
           "new": "if (status === 403) return 'other';"
         }
       ]
@@ -823,8 +823,8 @@
       "patches": [
         {
           "file": "ui/src/lib/review-rules.ts",
-          "old": "if (status === 403) return code === undefined ? 'sandbox' : 'other';",
-          "new": "if (status === 403) return 'sandbox';"
+          "old": "if (status === 403) return code === undefined ? 'policy' : 'other';",
+          "new": "if (status === 403) return 'policy';"
         }
       ]
     },

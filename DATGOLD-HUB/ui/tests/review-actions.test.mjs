@@ -77,7 +77,7 @@ test('a hunk that is not there, a source that cannot write, and a file with no s
 test('what the Hub answers is told by kind: a file that changed, a task that runs, sandbox-only, a locked file, a text too long, a file that is not text', async () => {
   const file = FILE();
   const diff = diffOf(file);
-  const cases = [[failure(409, 'stale_revision'), 'stale'], [failure(409), 'busy'], [failure(403), 'sandbox'], [failure(423, 'file_locked'), 'locked'], [failure(413, 'too_large'), 'too_large'], [failure(415, 'not_utf8'), 'unsupported'], [new Error('boom'), 'other']];
+  const cases = [[failure(409, 'stale_revision'), 'stale'], [failure(409), 'busy'], [failure(403), 'policy'], [failure(423, 'file_locked'), 'locked'], [failure(413, 'too_large'), 'too_large'], [failure(415, 'not_utf8'), 'unsupported'], [new Error('boom'), 'other']];
   for (const [thrown, kind] of cases) {
     const { source } = recorder({ async saveText() { throw thrown; } });
     assert.deepEqual(await rejectHunkOf(source, file, diff, 1), { ok: false, kind });
@@ -144,7 +144,7 @@ test('"put everything back" goes file by file, one at a time, and goes on past a
 
 test('"put everything back" does nothing at all when writing is not allowed, and never overlaps two writes', async () => {
   const items = [item(FILE({ path: 'a.js' })), item(FILE({ path: 'b.js' })), item(CREATED({ path: 'c.txt' }))];
-  for (const state of ['running', 'sandbox']) {
+  for (const state of ['running', 'policy']) {
     const { source, calls } = recorder();
     assert.deepEqual(await rejectAllOf(source, items, state), { done: [], failed: [], skipped: 3 }, state);
     assert.deepEqual(calls, []);
@@ -163,7 +163,7 @@ test('"accept everything" records every file the Hub can record that is not reco
   assert.deepEqual(result, { done: ['a.js', 'e.bin'], failed: [{ path: 'c.txt', kind: 'stale' }], skipped: 3 });
   assert.deepEqual(asked, ['a.js', 'c.txt', 'e.bin'], 'in order; the file that is accepted already, the deleted one and the one with no sha were not asked');
   const sandbox = recorder();
-  assert.deepEqual(await acceptAllOf(sandbox.source, items, 'sandbox'), { done: [], failed: [], skipped: 6 });
+  assert.deepEqual(await acceptAllOf(sandbox.source, items, 'policy'), { done: [], failed: [], skipped: 6 });
   assert.deepEqual(sandbox.calls, []);
   const running = recorder();
   assert.deepEqual((await acceptAllOf(running.source, items, 'running')).done, ['a.js', 'c.txt', 'e.bin'], 'accepting is not writing');

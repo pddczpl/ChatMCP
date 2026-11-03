@@ -123,7 +123,7 @@ test('while any task runs, or under sandbox-only, nothing that writes is offered
   assert.equal(button(running.root, 'Chấp nhận tệp notes.txt').disabled, false);
   assert.equal(button(running.root, 'Chấp nhận tất cả').disabled, false);
   const sandbox = await tab([FILE()], { hub: HUB({ studio: { permissions: { executionPolicy: 'sandbox-only' } } }) });
-  assert.equal(byTestId(sandbox.root, 'review-note')[0].attrs['data-note'], 'sandbox');
+  assert.equal(byTestId(sandbox.root, 'review-note')[0].attrs['data-note'], 'policy');
   assert.equal(button(sandbox.root, 'Từ chối đoạn 1/2 của notes.txt').disabled, true);
   assert.equal(button(sandbox.root, 'Chấp nhận tệp notes.txt').disabled, true, 'the Hub records nothing under sandbox-only');
   assert.equal(button(sandbox.root, 'Chấp nhận đoạn 1/2 của notes.txt').disabled, false, 'a mark on this page is still the page\'s');

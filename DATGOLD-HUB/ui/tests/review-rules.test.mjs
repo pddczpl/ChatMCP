@@ -19,8 +19,8 @@ const error = (status, code) => Object.assign(new Error('x'), { status, ...(code
 test('the Hub refuses to write while any task runs, and under sandbox-only it refuses to write at all', () => {
   assert.equal(writeState({ activeTaskId: null, executionPolicy: 'host-review' }), 'ok');
   assert.equal(writeState({ activeTaskId: 'abc', executionPolicy: 'host-review' }), 'running');
-  assert.equal(writeState({ activeTaskId: null, executionPolicy: 'sandbox-only' }), 'sandbox');
-  assert.equal(writeState({ activeTaskId: 'abc', executionPolicy: 'sandbox-only' }), 'sandbox', 'sandbox-only is the reason that does not pass');
+  assert.equal(writeState({ activeTaskId: null, executionPolicy: 'sandbox-only' }), 'policy');
+  assert.equal(writeState({ activeTaskId: 'abc', executionPolicy: 'sandbox-only' }), 'policy', 'sandbox-only is the reason that does not pass');
   assert.equal(writeState({ activeTaskId: '', executionPolicy: 'full-access' }), 'ok');
   assert.equal(writeState({}), 'ok');
   assert.equal(writeState(undefined), 'ok');
@@ -45,7 +45,7 @@ test('a file is reviewed as text, as a new file, as a deleted file, as a binary 
 test('a text file: hunks can be accepted at any time and put back when writing is allowed', () => {
   assert.deepEqual(fileActions(modified(), 'ok'), { mode: 'text', byHunk: true, acceptHunk: true, rejectHunk: true, acceptFile: true, rejectFile: true, note: null });
   assert.deepEqual(fileActions(modified(), 'running'), { mode: 'text', byHunk: true, acceptHunk: true, rejectHunk: false, acceptFile: true, rejectFile: false, note: 'running' });
-  assert.deepEqual(fileActions(modified(), 'sandbox'), { mode: 'text', byHunk: true, acceptHunk: true, rejectHunk: false, acceptFile: false, rejectFile: false, note: 'sandbox' });
+  assert.deepEqual(fileActions(modified(), 'policy'), { mode: 'text', byHunk: true, acceptHunk: true, rejectHunk: false, acceptFile: false, rejectFile: false, note: 'policy' });
 });
 
 test('a file can be accepted only when the Hub can tie the acceptance to a checkpoint and to the sha that was reviewed', () => {
@@ -59,12 +59,12 @@ test('a new file is put away as a whole; its lines are not undone one by one', (
   assert.deepEqual(fileActions(created(), 'ok'), { mode: 'created', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: true, rejectFile: true, note: null });
   assert.deepEqual(fileActions(created({ rejectable: false }), 'ok'), { mode: 'created', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: true, rejectFile: false, note: 'not_rejectable' });
   assert.deepEqual(fileActions(created(), 'running'), { mode: 'created', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: true, rejectFile: false, note: 'running' });
-  assert.deepEqual(fileActions(created(), 'sandbox'), { mode: 'created', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: false, note: 'sandbox' });
+  assert.deepEqual(fileActions(created(), 'policy'), { mode: 'created', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: false, note: 'policy' });
   assert.equal(fileActions(created({ rejectable: false }), 'running').note, 'running', 'the moment is told before the file');
 });
 
 test('a deleted file can only be read: the Hub cannot write a file that is not there', () => {
-  for (const state of ['ok', 'running', 'sandbox']) {
+  for (const state of ['ok', 'running', 'policy']) {
     assert.deepEqual(fileActions(deleted(), state), { mode: 'deleted', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: false, note: 'deleted' }, state);
   }
 });
@@ -72,8 +72,8 @@ test('a deleted file can only be read: the Hub cannot write a file that is not t
 test('a file with no text can be accepted but not undone, and says why it cannot be read', () => {
   assert.deepEqual(fileActions(binary(), 'ok'), { mode: 'binary', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: true, rejectFile: false, note: 'binary' });
   assert.equal(fileActions(binary({ textUnavailable: 'not_utf8' }), 'ok').note, 'not_utf8');
-  assert.equal(fileActions(binary(), 'sandbox').acceptFile, false);
-  assert.equal(fileActions(binary(), 'sandbox').note, 'binary');
+  assert.equal(fileActions(binary(), 'policy').acceptFile, false);
+  assert.equal(fileActions(binary(), 'policy').note, 'binary');
   for (const reason of ['too_large', 'checkpoint_corrupt', 'budget', 'baseline_unavailable']) {
     assert.deepEqual(fileActions(unavailable(reason), 'ok'), { mode: 'unavailable', byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: true, rejectFile: false, note: reason }, reason);
   }
@@ -84,7 +84,7 @@ test('an error of the Hub is told by what happened to the file, not by its words
   assert.equal(conflictKind(error(409)), 'busy', 'a save during a run is a 409 with no code');
   assert.equal(conflictKind(error(409, 'task_in_progress')), 'busy');
   assert.equal(conflictKind(error(409, 'not_rejectable')), 'other');
-  assert.equal(conflictKind(error(403)), 'sandbox', 'the refusal of sandbox-only has a status and no code');
+  assert.equal(conflictKind(error(403)), 'policy', 'the refusal of sandbox-only has a status and no code');
   assert.equal(conflictKind(error(403, 'file_type')), 'other', 'a 403 that has a code of its own (a symlink) is not that');
   assert.equal(conflictKind(error(423, 'file_locked')), 'locked');
   assert.equal(conflictKind(error(413, 'too_large')), 'too_large');
@@ -189,7 +189,7 @@ test('"put everything back" is planned from the review: files rewritten, hunks, 
     item(unavailable('too_large', { path: 'g.txt' })),
   ];
   assert.deepEqual(planReject(items, 'ok'), { rewrite: 2, hunks: 3, created: 1, left: 4 });
-  for (const state of ['running', 'sandbox']) assert.deepEqual(planReject(items, state), { rewrite: 0, hunks: 0, created: 0, left: 7 }, state);
+  for (const state of ['running', 'policy']) assert.deepEqual(planReject(items, state), { rewrite: 0, hunks: 0, created: 0, left: 7 }, state);
   assert.deepEqual(planReject([], 'ok'), { rewrite: 0, hunks: 0, created: 0, left: 0 });
   const same = modified({ baselineText: 'x\n', currentText: 'x\n' });
   assert.deepEqual(planReject([item(same)], 'ok'), { rewrite: 0, hunks: 0, created: 0, left: 1 }, 'a text file with no hunk has nothing to put back');
@@ -211,7 +211,7 @@ test('"accept everything" is planned from the review: the files the Hub can reco
   const oneMarked = [{ ...first, accepted: new Set([first.diff.hunks[0].fingerprint]) }, ...items.slice(1)];
   assert.deepEqual(planAccept(oneMarked, 'ok'), { files: 3, hunks: 3 }, 'a hunk that is accepted already is not counted again');
   assert.deepEqual(planAccept(items, 'running'), { files: 3, hunks: 4 }, 'accepting is not writing: it goes on while a task runs');
-  assert.deepEqual(planAccept(items, 'sandbox'), { files: 0, hunks: 4 }, 'under sandbox-only the Hub records nothing, but the marks are the page\'s');
+  assert.deepEqual(planAccept(items, 'policy'), { files: 0, hunks: 4 }, 'under sandbox-only the Hub records nothing, but the marks are the page\'s');
   assert.deepEqual(planAccept([], 'ok'), { files: 0, hunks: 0 });
 });
 

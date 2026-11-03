@@ -11,10 +11,10 @@ export const ROW_LIMIT = 200;
  * Whether the Hub will write to the workspace now. It refuses a save and moving a new file away while ANY task runs (not only the one on screen), and under sandbox-only it refuses to write,
  * to record an acceptance and to move a file at all.
  */
-export type WriteState = 'ok' | 'running' | 'sandbox';
+export type WriteState = 'ok' | 'running' | 'policy';
 
 export function writeState(context?: { activeTaskId?: string | null; executionPolicy?: string | null } | null): WriteState {
-  if (context?.executionPolicy === 'sandbox-only') return 'sandbox';
+  if (context?.executionPolicy === 'sandbox-only') return 'policy';
   return context?.activeTaskId ? 'running' : 'ok';
 }
 
@@ -31,7 +31,7 @@ export function fileMode(file: ReviewFile): FileMode {
 }
 
 /** Why something is off or limited; the tab asks for it as t(`review_note_${note}`). */
-export type FileNote = 'running' | 'sandbox' | 'deleted' | 'binary' | 'not_utf8' | 'too_large' | 'checkpoint_corrupt' | 'budget' | 'baseline_unavailable' | 'no_text' | 'not_rejectable';
+export type FileNote = 'running' | 'policy' | 'deleted' | 'binary' | 'not_utf8' | 'too_large' | 'checkpoint_corrupt' | 'budget' | 'baseline_unavailable' | 'no_text' | 'not_rejectable';
 
 export interface FileActions {
   mode: FileMode;
@@ -47,7 +47,7 @@ export interface FileActions {
 export function fileActions(file: ReviewFile, state: WriteState): FileActions {
   const mode = fileMode(file);
   // The Hub ties an acceptance to a checkpoint and to the sha that was reviewed; without either there is nothing to record.
-  const canRecord = state !== 'sandbox' && Boolean(file.currentSha) && Boolean(file.checkpointId);
+  const canRecord = state !== 'policy' && Boolean(file.currentSha) && Boolean(file.checkpointId);
   const canWrite = state === 'ok';
   const moment: FileNote | null = state === 'ok' ? null : state;
   if (mode === 'text') return { mode, byHunk: true, acceptHunk: true, rejectHunk: canWrite, acceptFile: canRecord, rejectFile: canWrite, note: moment };
@@ -63,14 +63,14 @@ export function fileActions(file: ReviewFile, state: WriteState): FileActions {
 }
 
 /** What happened to a write, by the status and code the Hub gave (api.request keeps both on the error). */
-export type ConflictKind = 'stale' | 'busy' | 'sandbox' | 'locked' | 'too_large' | 'unsupported' | 'other';
+export type ConflictKind = 'stale' | 'busy' | 'policy' | 'locked' | 'too_large' | 'unsupported' | 'other';
 
 const STALE_CODES = new Set(['stale_revision', 'stale_review', 'bad_revision', 'revision_required']);
 
 export function conflictKind(error: unknown): ConflictKind {
   const { status, code } = (error && typeof error === 'object' ? error : {}) as { status?: unknown; code?: unknown };
   // A save during a run is a 409 with no code; the refusal of sandbox-only is a 403 with no code (a 403 with a code, such as file_type, is something else).
-  if (status === 403) return code === undefined ? 'sandbox' : 'other';
+  if (status === 403) return code === undefined ? 'policy' : 'other';
   if (status === 409) {
     if (typeof code === 'string' && STALE_CODES.has(code)) return 'stale';
     return code === undefined || code === 'task_in_progress' ? 'busy' : 'other';
