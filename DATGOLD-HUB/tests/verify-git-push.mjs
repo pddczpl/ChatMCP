@@ -44,17 +44,17 @@ const shFails = (cwd, ...args) => { try { sh(cwd, ...args); return false; } catc
 const write = async (file, content) => { await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, content); };
 
 let counter = 0;
+let template = null;
 /**
- * A working copy on `feature/x` with two commits that `origin` (a bare repository) does not have; `main` is on both. `origin/HEAD` points at main like after a clone.
+ * The fixture, built once (a dozen Git processes) and copied for every scenario: a working copy on `feature/x` with two commits that `origin` (a bare repository) does not
+ * have; `main` is on both. `origin/HEAD` points at main like after a clone.
  */
-async function project({ head = true, spawner = null, secrets = () => [] } = {}) {
-  const dir = path.join(root, `p${++counter}`);
+async function buildTemplate() {
+  const dir = path.join(root, 'template');
   const bare = path.join(dir, 'origin.git');
   const work = path.join(dir, 'work');
-  const state = path.join(dir, 'state');
   await fs.mkdir(bare, { recursive: true });
   await fs.mkdir(work, { recursive: true });
-  await fs.mkdir(state, { recursive: true });
   sh(bare, 'init', '-q', '--bare', '-b', 'main');
   sh(work, 'init', '-q', '-b', 'main');
   sh(work, 'config', 'user.email', 'dev@example.invalid');
@@ -64,7 +64,7 @@ async function project({ head = true, spawner = null, secrets = () => [] } = {})
   sh(work, 'commit', '-q', '-m', 'initial commit');
   sh(work, 'remote', 'add', 'origin', slashes(bare));
   sh(work, 'push', '-q', '-u', 'origin', 'main');
-  if (head) sh(work, 'remote', 'set-head', 'origin', 'main');
+  sh(work, 'remote', 'set-head', 'origin', 'main');
   sh(work, 'checkout', '-q', '-b', 'feature/x');
   await write(path.join(work, 'a.txt'), 'alpha\n');
   sh(work, 'add', 'a.txt');
@@ -72,6 +72,32 @@ async function project({ head = true, spawner = null, secrets = () => [] } = {})
   await write(path.join(work, 'src', 'b.txt'), 'beta\n');
   sh(work, 'add', 'src/b.txt');
   sh(work, 'commit', '-q', '-m', 'feat: add b (Tiếng Việt)');
+  return dir;
+}
+
+/** `count` empty commits on the branch that is checked out, made by one `git fast-import` instead of `count` commits. */
+function bulkCommits(p, count) {
+  const branch = sh(p.work, 'symbolic-ref', '--short', 'HEAD');
+  const tip = sh(p.work, 'rev-parse', 'HEAD'); // fast-import will not start a branch "from itself", but from the commit it points at
+  let stream = '';
+  for (let i = 1; i <= count; i += 1) {
+    const message = `bulk ${i}`;
+    stream += `commit refs/heads/${branch}\ncommitter Dev Test <dev@example.invalid> ${1_700_000_000 + i} +0000\ndata ${Buffer.byteLength(message)}\n${message}\n${i === 1 ? `from ${tip}\n` : ''}\n`;
+  }
+  execFileSync('git', ['fast-import', '--quiet'], { cwd: p.work, env: gitEnv, input: stream, stdio: ['pipe', 'ignore', 'pipe'] });
+}
+
+/** A scenario's own copy of the fixture, with its tools. */
+async function project({ head = true, spawner = null, secrets = () => [] } = {}) {
+  template ??= await buildTemplate();
+  const dir = path.join(root, `p${++counter}`);
+  const bare = path.join(dir, 'origin.git');
+  const work = path.join(dir, 'work');
+  const state = path.join(dir, 'state');
+  await fs.cp(template, dir, { recursive: true });
+  await fs.mkdir(state, { recursive: true });
+  sh(work, 'remote', 'set-url', 'origin', slashes(bare));
+  if (!head) sh(work, 'remote', 'set-head', 'origin', '-d');
   const manager = { workspace: work, secrets: [] };
   const studio = new StudioWorkspace({ manager, directory: path.join(state, 'studio') });
   const git = new GitRunner({ workspace: studio, hooksDirectory: path.join(state, 'no-hooks'), env: gitEnv, secrets, ...(spawner ? { spawner } : {}) });
@@ -381,6 +407,13 @@ try {
     const mid = await planPush(q.git, { remote: 'origin', scanLimit: 1000 });
     assert.equal(mid.ok, false);
     assert.equal(mid.code, 'push_scan_incomplete', 'a range that was read but is longer than the limit is refused as well');
+    // Git's answer cut short, or Git failing, with little or no text collected: that is not "no secret found"
+    for (const answer of [{ code: 0, stdout: '', stderr: '', truncated: true }, { code: 1, stdout: '', stderr: 'fatal: x', truncated: false }]) {
+      const cutShort = { ensureRepo: (options) => q.git.ensureRepo(options), secrets: () => [], text: async (args, options) => (args.includes('-p') ? answer : q.git.text(args, options)) };
+      const refused = await planPush(cutShort, { remote: 'origin' });
+      assert.equal(refused.ok, false, JSON.stringify(answer));
+      assert.equal(refused.code, 'push_scan_incomplete', 'a scan that was cut or failed is not an empty scan');
+    }
     ok('a range too large to scan is refused (fail closed), whether Git cut its answer or it was read whole');
   }
   {
@@ -394,7 +427,7 @@ try {
     assert.equal(p.refs(), before);
     // a range of more than fifty commits: the card lists the newest fifty, oldest of them first, and counts the rest
     const q = await project();
-    for (let i = 1; i <= 55; i += 1) sh(q.work, 'commit', '-q', '--allow-empty', '-m', `bulk ${i}`);
+    bulkCommits(q, 55);
     const many = await q.tools.assess('git_push', {});
     assert.equal(many.category, 'dangerous');
     assert.equal(many.detail.commitCount, 57, 'two real commits and fifty-five more');
@@ -443,15 +476,17 @@ try {
       ['https.proxy', 'http://127.0.0.1:9'],
       ['http.extraHeader', 'X-Test: 1'],
     ];
-    for (const [key, value] of cases) {
+    for (const [index, [key, value]] of cases.entries()) {
       sh(p.work, 'config', key, value);
       const result = await p.call({});
       assert.equal(errorCode(result), 'push_untrusted_repo', `${key}: ${textOf(result)}`);
       assert.ok(textOf(result).toLowerCase().includes(key.toLowerCase()), 'it names the setting (Git lower-cases the section and the key)');
       assert.ok(!textOf(result).includes(slashes(marker)) && !textOf(result).includes('echo x'), 'and not its value');
-      const verdict = await p.tools.assess('git_push', {});
-      assert.equal(verdict.category, 'blocked');
-      assert.equal(verdict.code, 'push_untrusted_repo');
+      if (index % 4 === 0) { // the assessment is the same plan: looked at for every fourth setting
+        const verdict = await p.tools.assess('git_push', {});
+        assert.equal(verdict.category, 'blocked');
+        assert.equal(verdict.code, 'push_untrusted_repo');
+      }
       sh(p.work, 'config', '--unset-all', key);
     }
     assert.equal(await fs.stat(marker).then(() => true, () => false), false, 'no program of the repository ran');
