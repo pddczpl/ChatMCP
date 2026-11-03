@@ -227,13 +227,28 @@ export interface SkillLoadReceipt {
   forced?: boolean;
 }
 
+/** What the Hub says a tool call is about (`lib/tool-event-input.mjs`): strings taken from an allow-list of its arguments, never the text of a file, an edit or a patch. */
+export interface ToolEventInput {
+  path?: string;
+  paths?: string[];
+  source?: string;
+  destination?: string;
+  command?: string;
+  /** Something was cut: a path or a command over its limit, or more paths than the list holds. */
+  truncated?: boolean;
+}
+
 export interface TaskEvent {
   type: string;
   toolName?: string;
   message?: string;
   at: string;
   durationMs?: number;
-  input?: any;
+  /** tool_start, tool_result, tool_error: the id the model gave the call. Absent in a task saved before the Hub sent it, and in the events of the browser transport. */
+  callId?: string;
+  /** tool_result, tool_error: the checkpoint the Hub made for this very call before it ran (a read has none). */
+  checkpointId?: string;
+  input?: ToolEventInput;
   output?: any;
   status?: string;
   state?: string;
@@ -508,7 +523,12 @@ export interface Message {
 
 export interface ToolCall {
   id?: string;
+  /** The id the model gave the call: what ties a result to its start. Absent for a call from a task saved before the Hub sent ids, and for the browser transport. */
+  callId?: string;
+  /** The checkpoint the Hub made for this very call before it ran: what "undo this step" restores. Absent for a call that changes no file. */
+  checkpointId?: string;
   name: string;
+  /** What the call is about, as the start event announced it (`ToolEventInput`); the legacy keys `cmd`, `query`, `TargetFile` and `pattern` are still read by `toolTarget`. */
   args?: any;
   result?: any;
   status?: 'running' | 'success' | 'error' | 'unknown';

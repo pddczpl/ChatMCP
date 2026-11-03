@@ -29,7 +29,6 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
   const isRunning = tool.status === 'running';
   const isError = tool.status === 'error';
   const isSuccess = tool.status === 'success';
-  const summary = tool.args?.path || tool.args?.command || tool.args?.cmd || tool.args?.query || tool.summary || tool.args?.TargetFile || '';
   const output = formatToolOutput(tool.result ?? tool.args ?? tool.summary);
   const duration = formatDuration(tool.durationMs);
 
@@ -40,7 +39,7 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
-        aria-label={`${tool.name}: ${summary}`}
+        aria-label={`${tool.name}: ${target}`}
         title={tool.name}
         onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setExpanded(!expanded); } }}
         className="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-hover"
