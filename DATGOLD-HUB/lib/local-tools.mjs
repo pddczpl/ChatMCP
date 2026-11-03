@@ -1288,7 +1288,7 @@ export class LocalTools {
     const planned = await planPush(this.git, { remote: args.remote ?? 'origin', branch: args.branch, setUpstream: args.set_upstream, signal });
     if (planned.ok) {
       const now = Date.now();
-      this.#pushPlans.set(this.#pushKey(args), { headSha: planned.plan.headSha, at: now });
+      this.#pushPlans.set(this.#pushKey(args), { headSha: planned.plan.headSha, url: planned.plan.remoteUrl, at: now });
       for (const [key, memo] of this.#pushPlans) if (now - memo.at > PUSH_PLAN_TTL_MS) this.#pushPlans.delete(key);
       while (this.#pushPlans.size > 20) this.#pushPlans.delete(this.#pushPlans.keys().next().value);
     }
@@ -1314,9 +1314,9 @@ export class LocalTools {
     const planned = await this.#planPush(args, signal); // every refusal again: a call that did not come through the question is held to the same rules
     if (!planned.ok) throw fault(planned.code, planned.message, 409);
     const { plan } = planned;
-    if (asked && Date.now() - asked.at <= PUSH_PLAN_TTL_MS && asked.headSha !== plan.headSha) {
+    if (asked && Date.now() - asked.at <= PUSH_PLAN_TTL_MS && (asked.headSha !== plan.headSha || asked.url !== plan.remoteUrl)) {
       this.#pushPlans.delete(key);
-      throw fault('plan_changed', `Nhánh "${plan.localBranch}" đã thay đổi sau khi danh sách commit được chuẩn bị cho bạn duyệt nên không đẩy. Gọi lại git_push để có danh sách mới.`, 409);
+      throw fault('plan_changed', `Nhánh "${plan.localBranch}" hoặc địa chỉ của remote "${plan.remote}" đã thay đổi sau khi danh sách commit được chuẩn bị cho bạn duyệt nên không đẩy. Gọi lại git_push để có thẻ duyệt mới.`, 409);
     }
     const done = await executePush(this.git, plan, { signal, timeoutMs: PUSH_LIMITS.timeoutMs });
     this.#pushPlans.delete(key);

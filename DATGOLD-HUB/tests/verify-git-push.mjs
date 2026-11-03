@@ -429,6 +429,19 @@ try {
       ['remote.origin.uploadpack', `${slashes(marker)}`],
       ['remote.origin.proxy', `http://127.0.0.1:9`],
       ['remote.origin.vcs', 'pwn'],
+      // the HTTP transport: a proxy of the repository's own, or a certificate check that it switched off, would let the author of the folder read the push
+      ['http.proxy', 'http://127.0.0.1:9'],
+      ['http.https://example.com/.proxy', 'http://127.0.0.1:9'],
+      ['http.sslVerify', 'false'],
+      ['http.sslCAInfo', `${slashes(marker)}`],
+      ['http.sslCAPath', `${slashes(marker)}`],
+      ['http.sslCert', `${slashes(marker)}`],
+      ['http.sslKey', `${slashes(marker)}`],
+      ['http.pinnedPubKey', 'sha256//x'],
+      ['http.cookieFile', `${slashes(marker)}`],
+      ['http.proxyAuthMethod', 'basic'],
+      ['https.proxy', 'http://127.0.0.1:9'],
+      ['http.extraHeader', 'X-Test: 1'],
     ];
     for (const [key, value] of cases) {
       sh(p.work, 'config', key, value);
@@ -461,8 +474,19 @@ try {
       assert.equal(errorCode(result), 'push_bad_remote', url);
       assert.equal((await p.tools.assess('git_push', {})).category, 'blocked');
     }
-    assert.equal(p.refs(), before);
-    ok('a remote address that names a helper program (ext::, x::y) or an option is refused');
+    // a remote with two push addresses is pushed to at both, and the card shows one: only a single address is accepted
+    sh(p.work, 'config', 'remote.origin.url', slashes(p.bare));
+    sh(p.work, 'config', '--add', 'remote.origin.pushurl', slashes(p.bare));
+    sh(p.work, 'config', '--add', 'remote.origin.pushurl', `${slashes(p.bare)}-second`);
+    const several = await p.call({});
+    assert.equal(errorCode(several), 'push_bad_remote');
+    assert.match(textOf(several), /nhiều địa chỉ/, 'it says that the remote has several push addresses');
+    assert.equal((await p.tools.assess('git_push', {})).category, 'blocked');
+    sh(p.work, 'config', '--unset-all', 'remote.origin.pushurl');
+    sh(p.work, 'config', '--add', 'remote.origin.pushurl', slashes(p.bare));
+    assert.equal((await p.call({})).isError, false, 'one push address of its own (pushurl) is fine, and is the one that is pushed to');
+    assert.equal(p.refs().includes('feature/x'), true);
+    ok('a remote address that names a helper program (ext::, x::y) or an option is refused, and so is a remote with several push addresses');
   }
   {
     const empty = await fs.mkdtemp(path.join(root, 'norepo-'));
@@ -640,7 +664,17 @@ try {
     const done = await p.call({});
     assert.equal(done.isError, false, textOf(done));
     assert.equal(done.structuredContent.commits, 3);
-    ok('a branch that moved after the question was prepared is not pushed until the new list was shown');
+    // the address is held to what was shown as well: another task may change the configuration between the question and the call
+    const q = await project();
+    const asked = await q.tools.assess('git_push', {});
+    assert.equal(asked.category, 'dangerous');
+    sh(q.work, 'config', 'remote.origin.url', `${slashes(q.bare)}-elsewhere`);
+    const beforeRedirect = q.refs();
+    const redirected = await q.call({});
+    assert.equal(errorCode(redirected), 'plan_changed', 'the remote now points somewhere else than the card said');
+    assert.match(textOf(redirected), /địa chỉ/, 'and the message says it is the address');
+    assert.equal(q.refs(), beforeRedirect, 'nothing was pushed, there or here');
+    ok('a branch that moved, or a remote whose address changed, after the question was prepared is not pushed until the new card was shown');
   }
   {
     // stop in the middle of a push: the remote has a hook that takes its time

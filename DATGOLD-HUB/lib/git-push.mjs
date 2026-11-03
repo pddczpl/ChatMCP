@@ -274,6 +274,12 @@ const isRunnerFault = (error) => typeof error?.code === 'string' && /^[a-z][a-z0
 const secretsOf = (git, extra = []) => [...(typeof git?.secrets === 'function' ? git.secrets() ?? [] : []), ...extra];
 /** An address that Git hands to a program (`ext::sh -c ...`, `x::y`), or that reads as an option. */
 const isProgramAddress = (url) => /^[A-Za-z0-9+.-]+::/.test(url) || url.startsWith('-') || /[\0\r\n]/.test(url);
+/**
+ * Settings of the HTTP transport that the REPOSITORY could use to send a push through a proxy of its own or to weaken the check of the certificate (together they let the
+ * author of a folder read what is sent), to add a header or to name the certificates to trust. A regular expression over the names Git reports, `git config --local`
+ * (the person's own global configuration is theirs and is not looked at).
+ */
+const TRANSPORT_SETTINGS = '^https?\\.(.*\\.)?(proxy|proxyauthmethod|sslverify|sslcainfo|sslcapath|sslcert|sslkey|pinnedpubkey|extraheader|cookiefile)$';
 
 /**
  * Looks at the repository and decides whether this push may be put in front of the person. Local Git only: nothing is sent, nothing is asked of the remote.
@@ -297,8 +303,10 @@ async function plan(git, { remote, branch, setUpstream, signal, scanLimit }) {
   // the repository's own configuration must not name a program that Git would run to talk to the network
   const safety = await inspectGitSafety(root, { hooks: false });
   const programs = safety.risks.filter((risk) => risk.affects === 'network').map((risk) => risk.key); // (a configuration too large to read is refused by the runner already)
+  const transport = await run(['config', '--local', '--name-only', '--get-regexp', TRANSPORT_SETTINGS]);
+  if (transport.code === 0) programs.push(...transport.stdout.split('\n').map((line) => line.trim()).filter(Boolean));
   if (programs.length) {
-    return fault('push_untrusted_repo', `Cấu hình của kho này (.git/config) có mục chạy chương trình khi Git nói chuyện với remote: ${programs.slice(0, 6).join(', ')}. git_push không đẩy khi chưa kiểm tra để tránh chạy mã của kho. Xem và xóa các mục đó nếu bạn tin kho, hoặc tự đẩy bằng terminal.`);
+    return fault('push_untrusted_repo', `Cấu hình của kho này (.git/config) có mục chạy chương trình hoặc đổi đường đi của kết nối khi Git nói chuyện với remote: ${programs.slice(0, 6).join(', ')}. git_push không đẩy khi chưa kiểm tra để tránh chạy mã của kho hoặc để lộ dữ liệu qua proxy của kho. Xem và xóa các mục đó nếu bạn tin kho, hoặc tự đẩy bằng terminal.`);
   }
 
   const listed = await run(['remote']);
@@ -306,8 +314,13 @@ async function plan(git, { remote, branch, setUpstream, signal, scanLimit }) {
   if (listed.code !== 0 || !remotes.includes(remote)) {
     return fault('remote_not_found', `Remote "${remote}" chưa được cấu hình. Remote hiện có: ${remotes.join(', ') || '(không có)'}. git_push không thêm remote mới.`);
   }
-  const address = await run(['remote', 'get-url', '--push', remote]);
-  const url = address.stdout.trim();
+  // `--all`: a remote can have several push addresses, and `git push` goes to every one of them while the card would show one
+  const address = await run(['remote', 'get-url', '--push', '--all', remote]);
+  const urls = address.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (address.code === 0 && urls.length > 1) {
+    return fault('push_bad_remote', `Remote "${remote}" có nhiều địa chỉ đẩy (pushurl). git_push chỉ đẩy lên một nơi mỗi lần, nên từ chối; để lại một địa chỉ hoặc tự đẩy bằng terminal.`);
+  }
+  const url = urls[0] ?? '';
   if (address.code !== 0 || !url || isProgramAddress(url)) {
     return fault('push_bad_remote', `Địa chỉ của remote "${remote}" không dùng được để đẩy (rỗng, bắt đầu bằng "-" hoặc là kiểu giao cho một chương trình như "ext::"). Địa chỉ: ${redactPushOutput(url, secrets).slice(0, 120)}`);
   }
