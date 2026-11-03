@@ -269,6 +269,7 @@
     {"file":"src/lib/native-folder-picker.ts","rule":"call-argument","hash":"cddcf5edbff61f40"},
     {"file":"src/lib/outbound-review.ts","rule":"label-map","hash":"2e087fd8568f7f70"},
     {"file":"src/lib/outbound-review.ts","rule":"label-map","hash":"70165fae345af36c"},
+    {"file":"src/lib/outbound-review.ts","rule":"label-map","hash":"84a9810f58a90613"},
     {"file":"src/lib/outbound-review.ts","rule":"label-map","hash":"9a2eec15fd5dac53"},
     {"file":"src/lib/outbound-review.ts","rule":"vietnamese-literal","hash":"2044921aa860e5df"},
     {"file":"src/lib/outbound-review.ts","rule":"vietnamese-literal","hash":"aa5a67abd4bfaff2"},

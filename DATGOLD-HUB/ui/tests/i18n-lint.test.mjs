@@ -153,6 +153,9 @@ test('a label of Title Case words is not taken for a sentence', () => {
   assert.deepEqual(rulesOf("const f = { a: 'Save As', b: 'Open A B', c: 'Ctrl K', d: 'GitHub Actions', e: 'Hello', f: 'a sentence in lower case', g: 'Version 3.11.2' };"), []);
   assert.deepEqual(rulesOf("const f = { a: 'Hello, my friend' };"), ['label-map'], 'a capital, a comma, then words');
   assert.deepEqual(rulesOf("const f = { a: \"Don't stop now\" };"), ['label-map'], 'an apostrophe');
+  assert.deepEqual(rulesOf("const f = { a: 'ChatGPT Web: risks to know' };"), ['label-map'], 'a title with a colon, whose first word is not a plain capitalised word');
+  assert.deepEqual(rulesOf("const f = { a: 'A new session started' };"), ['label-map'], 'a one-letter first word');
+  assert.deepEqual(rulesOf("const f = { a: 'Context: the agent plans ahead' };"), ['label-map'], 'a colon after the first word');
 });
 
 // ---- what it leaves alone -------------------------------------------------------------------------------------------------------------------------
@@ -492,6 +495,7 @@ test('the self-test can fail: a lint that finds nothing, or flags everything, do
   assert.ok(blind.cases.filter((c) => c.seeded).every((c) => !c.ok), 'every seeded shape is reported as missed');
   const noisy = selfTest((text, file) => findViolations(`${text}\nconst Extra = () => <p>Another hard-coded sentence</p>;`, file));
   assert.equal(noisy.ok, false, 'a violation that is found where none was seeded fails the clean fixtures');
+  assert.ok(noisy.cases.filter((c) => !c.seeded).length >= 2 && noisy.cases.filter((c) => !c.seeded).every((c) => !c.ok), 'every clean fixture that is flagged fails');
   assert.ok(noisy.cases.filter((c) => c.seeded).every((c) => !c.ok), 'and a seeded shape that is found together with another violation is not clean either');
   const confused = selfTest((text, file) => findViolations(text, file).map((violation) => ({ ...violation, rule: 'jsx-text' })));
   assert.equal(confused.ok, false, 'a detector that finds the violations under the wrong rule does not pass');
@@ -577,6 +581,26 @@ test('the command prints the numbers per rule with --report', () => {
   assert.match(run.stdout, /jsx-text +found +1 +allowlisted +0 +baselined +1 +new +0/);
   assert.match(run.stdout, /jsx-attribute +found +1 +allowlisted +0 +baselined +1 +new +0/);
   assert.match(run.stdout, /call-argument +found +0 +allowlisted +0 +baselined +0 +new +0/);
+});
+
+test('the command lists every violation with where it is and what became of it, with --list', () => {
+  const root = project({ 'src/components/Many.tsx': 'export const A = () => <p title="Close the panel">Nothing to show here<b>Try again</b></p>;\n' });
+  write(root, 'i18n-allow.json', JSON.stringify({ version: 1, entries: [{ text: 'Try again', reason: 'a made-up deliberate exception' }] }));
+  initBaseline(root);
+  const source = 'export const A = () => <p title="Close the panel">Nothing to show here<b>Try again</b><i>Brand new words</i></p>;\n';
+  write(root, 'src/components/Many.tsx', source);
+  const run = lintCommand('--root', root, '--list');
+  assert.equal(run.status, 1, 'the new one still fails the command');
+  const at = (words) => `src/components/Many.tsx:1:${source.indexOf(words) + 1}`;
+  const rows = run.stdout.split('\n').filter((line) => /^(new|baselined|allowlisted) /.test(line)).map((line) => line.replace(/\s+/g, ' '));
+  assert.deepEqual(rows, [
+    `baselined ${at('"Close the panel"')} jsx-attribute "Close the panel"`,
+    `baselined ${at('Nothing to show here')} jsx-text "Nothing to show here"`,
+    `allowlisted ${at('Try again')} jsx-text "Try again"`,
+    `new ${at('Brand new words')} jsx-text "Brand new words"`,
+  ]);
+  const quiet = lintCommand('--root', root);
+  assert.equal(quiet.stdout.split('\n').filter((line) => /^(new|baselined|allowlisted) /.test(line)).length, 0, 'without --list only the new ones are named');
 });
 
 test('the command exits 1 and says why when the baseline is not readable', () => {

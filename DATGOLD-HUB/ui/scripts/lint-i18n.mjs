@@ -16,6 +16,7 @@
 //
 //   node scripts/lint-i18n.mjs                    check the project (exit 1 on a new violation, a stale entry or a stale exception)
 //   node scripts/lint-i18n.mjs --report           the numbers per rule
+//   node scripts/lint-i18n.mjs --list             every violation, where it is, and whether it is new, in the baseline or allowlisted
 //   node scripts/lint-i18n.mjs --self-test        seed one violation of each shape in fixtures and check that every one is caught
 //   node scripts/lint-i18n.mjs --init-baseline    write the baseline once, when there is none (refused if the file exists)
 //   node scripts/lint-i18n.mjs --shrink-baseline  drop the entries whose string is gone (refused if there is a new violation: it never takes one in)
@@ -57,10 +58,10 @@ const byKey = (a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0)
 /** Where a violation is told apart from another: the file, the rule and the hash of the string (not the line, which moves). */
 export const fingerprint = keyOf;
 
-/** An English sentence: a capital letter, then words, with at least two lower-case words side by side. A class list, an id or a one-word label never is. */
+/** An English sentence: a capital letter first, and at least two lower-case words side by side. A class list, an id or a one-word label never is. */
 function looksLikeSentence(text) {
   const clean = text.trim();
-  return /^[A-Z][a-z]+(?:[ ,.'’-]+[A-Za-z]+){1,}/.test(clean) && /[a-z]{2,} [a-z]{2,}/.test(clean);
+  return /^[A-Z]/.test(clean) && /[a-z]{2,} [a-z]{2,}/.test(clean);
 }
 
 const unwrap = (node) => {
@@ -311,6 +312,10 @@ function main(args) {
         const count = (list) => list.filter((violation) => violation.rule === rule).length;
         say(`${rule.padEnd(19)} found ${String(count(result.found)).padStart(4)}   allowlisted ${String(count(result.allowlisted)).padStart(3)}   baselined ${String(count(result.baselined)).padStart(4)}   new ${String(count(result.fresh)).padStart(3)}`);
       }
+    }
+    if (args.includes('--list')) {
+      const statusOf = (violation) => (result.fresh.includes(violation) ? 'new' : result.allowlisted.includes(violation) ? 'allowlisted' : 'baselined');
+      for (const violation of result.found) say(`${statusOf(violation).padEnd(11)} ${where(violation)}`);
     }
     if (result.fresh.length) {
       say(`New hard-coded strings (${result.fresh.length}):`);
