@@ -91,21 +91,25 @@ export function normalizeTask(input: TaskDetail | TaskSummary): Task {
   const toolCalls: ToolCall[] = [];
   for (const [index, event] of (raw.events || []).entries()) {
     if (!event.toolName || !['tool_start', 'tool_result', 'tool_error'].includes(event.type)) continue;
+    const callId = typeof event.callId === 'string' && event.callId !== '' ? event.callId : undefined;
     if (event.type === 'tool_start') {
       const currentRun = runAt(event.at) === Math.max(1, runs.length);
-      toolCalls.push({ id: `tool:${index}`, name: event.toolName, summary: event.message, args: event.input, timestamp: event.at, status: activeStates.has(status) && currentRun ? 'running' : 'unknown' });
+      toolCalls.push({ id: `tool:${index}`, ...(callId && { callId }), name: event.toolName, summary: event.message, args: event.input, timestamp: event.at, status: activeStates.has(status) && currentRun ? 'running' : 'unknown' });
     } else {
-      // The public event schema has no call IDs. Pair the last unmatched name in this run only.
-      // A continuation must never make an unresolved operation from an earlier run look replayed or settled.
-      const call = [...toolCalls].reverse().find(tool => tool.name === event.toolName && tool.result === undefined && runAt(tool.timestamp) === runAt(event.at));
+      // A result that carries the id of its call settles that call and no other: a model may make several calls to one tool in one turn, and the Hub refuses some
+      // calls before they start (that tool_error has an id and no start). A result without an id (a task saved before the Hub sent ids, the browser transport)
+      // is paired as it always was: the last call of that tool name that has no result yet.
+      // Either way only a call of this run is settled: a continuation must never make an unresolved operation from an earlier run look replayed or settled.
+      const call = [...toolCalls].reverse().find(tool => (callId ? tool.callId === callId : tool.name === event.toolName) && tool.result === undefined && runAt(tool.timestamp) === runAt(event.at));
       const result = event.output ?? event.message;
       const outcome = event.type === 'tool_error' || resultFailed(result) ? 'error' : 'success';
       if (call) {
         call.result = result;
         call.status = outcome;
         call.durationMs = event.durationMs ?? Math.max(0, time(event.at) - time(call.timestamp));
+        if (event.checkpointId) call.checkpointId = event.checkpointId;
       } else {
-        toolCalls.push({ id: `tool:${index}`, name: event.toolName, result, status: outcome, timestamp: event.at, durationMs: event.durationMs });
+        toolCalls.push({ id: `tool:${index}`, ...(callId && { callId }), ...(event.checkpointId && { checkpointId: event.checkpointId }), name: event.toolName, ...(event.input && { args: event.input }), result, status: outcome, timestamp: event.at, durationMs: event.durationMs });
       }
     }
   }

@@ -128,3 +128,17 @@ test('a run of tool calls: the state icon says Done, Running or Failed, and an o
   const list = await both(opened, 'ToolActivityGroup', { items: [call('success', { result: 'one' }), call('error', { id: 'b', result: 'two' })] }, { vi: ['Xong', 'Lỗi'], en: ['Done', 'Error'] }, 'group (opened)');
   assert.equal((list.en.match(/data-testid="tool-receipt"/g) || []).length, 2, 'an opened group lists each call');
 });
+
+test('a tool call is named by the input the Hub announced, never by the Vietnamese sentence of its event', async () => {
+  const sentence = 'Đang gọi local.move_path.\nTham số: {"source":"a.js","destination":"b.js"}';
+  const moved = { id: 'm', name: 'local.move_path', status: 'success', callId: 'call_m', checkpointId: 'cp-m', args: { source: 'a.js', destination: 'b.js' }, summary: sentence, result: 'moved' };
+  const { vi, en } = await both(plain, 'ToolReceipt', { tool: moved }, { vi: ['Sửa tệp', 'a.js → b.js'], en: ['Edit file', 'a.js → b.js'] }, 'receipt (move)');
+  for (const html of [vi, en]) {
+    assert.ok(html.includes('aria-label="local.move_path: a.js → b.js"'), 'the accessible label names both ends');
+    assert.ok(!text(html).includes('Tham số'), 'the sentence of the event is not shown when the call announced its input');
+  }
+  const batch = await markup(plain, 'ToolReceipt', { tool: { id: 'b', name: 'local.files_write_batch', status: 'success', args: { paths: ['a.js', 'b.js'], truncated: true }, summary: sentence } }, 'en');
+  assert.ok(batch.includes('aria-label="local.files_write_batch: a.js, b.js…"'), 'a cut list is marked as cut');
+  const older = await markup(plain, 'ToolReceipt', { tool: { id: 'o', name: 'browser.open_page', status: 'success', summary: sentence } }, 'vi');
+  assert.ok(text(older).includes('Tham số'), 'a call from a task saved before the Hub announced inputs still shows its sentence');
+});

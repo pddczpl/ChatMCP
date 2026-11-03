@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { normalizeTask, isTaskActive, taskTimeline, normalizeApproval } from '../src/lib/task-view.ts';
 
 const at = (second) => `2026-10-12T00:00:${String(second).padStart(2, '0')}Z`;
@@ -83,4 +84,118 @@ test('PermissionGate structured preview maps exactly and terminal decisions rema
   assert.equal(approval.risk, 'workspace_edit');
   assert.equal(approval.expiresAt, at(50));
   assert.equal(normalizeApproval({ id: 'a', toolName: 'local.run_command', category: 'execute', decision: 'cancelled', preview: '{"command":"npm test"}' }).decision, 'cancelled');
+});
+
+// ---- Tool calls are paired by the id the model gave them (docs/REVIEW-API.md, "Events of a tool call") ----
+
+const started = (second, toolName, callId, input, extra = {}) => ({ type: 'tool_start', toolName, callId, input, message: `Đang gọi ${toolName}.`, at: at(second), ...extra });
+const finished = (second, toolName, callId, message, extra = {}) => ({ type: 'tool_result', toolName, callId, message, at: at(second), ...extra });
+const errored = (second, toolName, callId, message, extra = {}) => ({ type: 'tool_error', toolName, callId, message, at: at(second), ...extra });
+const view = (events, extra = {}) => normalizeTask({ id: 'ids', status: 'completed', runs: [{ startedAt: at(0) }], events, ...extra }).toolCalls;
+const summary = (calls) => calls.map(call => [call.callId, call.status, call.result, call.checkpointId]);
+
+test('a result settles the call that has its id, not the last open call of the same tool', () => {
+  const calls = view([
+    started(1, 'local.edit_file', 'call_a', { path: 'a.js' }),
+    started(2, 'local.edit_file', 'call_b', { path: 'b.js' }),
+    finished(3, 'local.edit_file', 'call_a', 'edited a', { checkpointId: 'cp-a' }),
+    errored(4, 'local.edit_file', 'call_b', 'could not edit b', { checkpointId: 'cp-b' }),
+  ]);
+  assert.deepEqual(summary(calls), [['call_a', 'success', 'edited a', 'cp-a'], ['call_b', 'error', 'could not edit b', 'cp-b']]);
+  assert.deepEqual(calls.map(call => call.args.path), ['a.js', 'b.js'], 'each call keeps the input of its own start');
+  assert.deepEqual(calls.map(call => call.durationMs), [2000, 2000], 'the time of a call runs from its own start to its own result');
+});
+
+test('results that come in the other order still settle their own calls', () => {
+  const calls = view([
+    started(1, 'local.edit_file', 'call_a', { path: 'a.js' }),
+    started(2, 'local.edit_file', 'call_b', { path: 'b.js' }),
+    errored(3, 'local.edit_file', 'call_b', 'could not edit b', { checkpointId: 'cp-b' }),
+    finished(4, 'local.edit_file', 'call_a', 'edited a', { checkpointId: 'cp-a' }),
+  ]);
+  assert.deepEqual(summary(calls), [['call_a', 'success', 'edited a', 'cp-a'], ['call_b', 'error', 'could not edit b', 'cp-b']]);
+  assert.deepEqual(calls.map(call => call.durationMs), [3000, 1000]);
+});
+
+test('a call that made no checkpoint has none, whatever its neighbours have', () => {
+  const calls = view([
+    started(1, 'local.read_file', 'call_r', { path: 'a.js' }),
+    started(2, 'local.edit_file', 'call_e', { path: 'a.js' }),
+    finished(3, 'local.read_file', 'call_r', 'text'),
+    finished(4, 'local.edit_file', 'call_e', 'edited', { checkpointId: 'cp-e' }),
+  ]);
+  assert.deepEqual(calls.map(call => call.checkpointId), [undefined, 'cp-e']);
+});
+
+test('a result for a call the page never saw is an entry of its own and settles no other call', () => {
+  // The Hub refuses a call it cannot dispatch (an unknown function, bad arguments): that tool_error has an id and no start.
+  const calls = view([
+    started(1, 'local.write_file', 'call_w', { path: 'w.js' }),
+    errored(2, 'local.write_file', 'call_refused', 'invalid arguments'),
+    finished(3, 'local.write_file', 'call_w', 'written', { checkpointId: 'cp-w' }),
+  ]);
+  assert.deepEqual(summary(calls), [['call_w', 'success', 'written', 'cp-w'], ['call_refused', 'error', 'invalid arguments', undefined]]);
+});
+
+test('a result for an id that already has its result does not overwrite it', () => {
+  const calls = view([started(1, 'local.read_file', 'call_r', { path: 'a.js' }), finished(2, 'local.read_file', 'call_r', 'first'), finished(3, 'local.read_file', 'call_r', 'again')]);
+  assert.deepEqual(summary(calls), [['call_r', 'success', 'first', undefined], ['call_r', 'success', 'again', undefined]]);
+});
+
+test('the same id in a later run never settles a call that was left open in an earlier run', () => {
+  const runs = [{ startedAt: at(0), status: 'cancelled' }, { startedAt: at(10), status: 'completed' }];
+  const calls = view([started(1, 'local.write_file', 'call_1', { path: 'a.js' }), finished(11, 'local.write_file', 'call_1', 'late')], { runs });
+  assert.deepEqual(summary(calls), [['call_1', 'unknown', undefined, undefined], ['call_1', 'success', 'late', undefined]]);
+});
+
+test('a provider that numbers its calls again in every turn still pairs each result with its own start', () => {
+  const calls = view([
+    started(1, 'local.read_file', 'call_0', { path: 'a.js' }), finished(2, 'local.read_file', 'call_0', 'a text'),
+    started(3, 'local.edit_file', 'call_0', { path: 'a.js' }), finished(4, 'local.edit_file', 'call_0', 'a edited', { checkpointId: 'cp-1' }),
+    started(5, 'local.read_file', 'call_0', { path: 'b.js' }), finished(6, 'local.read_file', 'call_0', 'b text'),
+  ]);
+  assert.deepEqual(calls.map(call => [call.name, call.args.path, call.result, call.checkpointId]), [
+    ['local.read_file', 'a.js', 'a text', undefined], ['local.edit_file', 'a.js', 'a edited', 'cp-1'], ['local.read_file', 'b.js', 'b text', undefined],
+  ]);
+});
+
+test('a call without a result is running while its run is, and unknown once the task has stopped', () => {
+  const events = [started(1, 'local.run_command', 'call_c', { command: 'npm test' })];
+  assert.equal(view(events, { status: 'running' })[0].status, 'running');
+  assert.equal(view(events, { status: 'cancelled' })[0].status, 'unknown');
+});
+
+test('a result that comes before its start does not throw and loses neither event', () => {
+  const calls = view([finished(1, 'local.read_file', 'call_r', 'text'), started(2, 'local.read_file', 'call_r', { path: 'a.js' })]);
+  assert.deepEqual(summary(calls), [['call_r', 'success', 'text', undefined], ['call_r', 'unknown', undefined, undefined]]);
+});
+
+test('an id that is not text is no id: the result is paired by tool name, and an event without a tool name is skipped', () => {
+  const calls = view([
+    started(1, 'local.read_file', 'call_1', { path: 'a.js' }), finished(2, 'local.read_file', 42, 'a number'),
+    started(3, 'local.read_file', 'call_2', { path: 'b.js' }), finished(4, 'local.read_file', '', 'an empty string'),
+    started(5, 'local.read_file', 'call_3', { path: 'c.js' }), finished(6, 'local.read_file', null, 'null'),
+    { type: 'tool_result', message: 'no tool name', at: at(7) },
+  ]);
+  assert.deepEqual(summary(calls), [['call_1', 'success', 'a number', undefined], ['call_2', 'success', 'an empty string', undefined], ['call_3', 'success', 'null', undefined]]);
+});
+
+test('a result without an id is paired by tool name, even with a start that has one', () => {
+  const calls = view([started(1, 'local.read_file', 'call_r', { path: 'a.js' }), finished(2, 'local.read_file', undefined, 'text')]);
+  assert.deepEqual(summary(calls), [['call_r', 'success', 'text', undefined]]);
+});
+
+test('an orphan result keeps its own id, input and checkpoint', () => {
+  const [orphan] = view([finished(1, 'local.edit_file', 'call_x', 'edited', { input: { path: 'x.js' }, checkpointId: 'cp-x' })]);
+  assert.deepEqual([orphan.callId, orphan.args, orphan.checkpointId, orphan.status], ['call_x', { path: 'x.js' }, 'cp-x', 'success']);
+});
+
+test('a task saved before the Hub sent call ids renders exactly as it did with the name-based pairing', () => {
+  const fixture = JSON.parse(readFileSync(new URL('./support/task-before-call-ids.json', import.meta.url), 'utf8'));
+  for (const status of ['completed', 'running']) {
+    const task = normalizeTask({ ...fixture.task, status });
+    assert.deepEqual(JSON.parse(JSON.stringify(task.toolCalls)), fixture.expected[status].toolCalls, `tool calls (${status})`);
+    assert.deepEqual(taskTimeline(task).map(item => `${item.kind}:${item.value.id ?? ''}`), fixture.expected[status].timeline, `timeline (${status})`);
+    assert.ok(task.toolCalls.every(call => call.callId === undefined && call.checkpointId === undefined), 'no id is invented');
+  }
 });

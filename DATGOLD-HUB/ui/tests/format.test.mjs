@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatDateTime, formatDuration, formatNumber, formatRelative, formatTime, formatTokens } from '../src/lib/format.ts';
-import { describeTool, riskInfo, summarizeTools, toolKind } from '../src/lib/tool-labels.ts';
+import { describeTool, riskInfo, summarizeTools, toolKind, toolTarget } from '../src/lib/tool-labels.ts';
 
 const at = new Date(2026, 9, 20, 14, 47, 31); // local time: 20 Oct 2026 14:47:31
 
@@ -60,4 +60,29 @@ test('approval categories are worded and graded; an unknown category is high ris
   assert.equal(riskInfo('read', 'en').level, 'low');
   assert.equal(riskInfo('something-new', 'en').level, 'high');
   assert.equal(riskInfo('something-new', 'en').label, 'something-new');
+});
+
+test('a receipt names what the Hub put in the structured input of the call; the sentence of the event is the last resort', () => {
+  const sentence = 'Đang gọi local.move_path.\nTham số: {"source":"a.js","destination":"b.js"}';
+  assert.equal(toolTarget({ args: { path: 'src/a.js' }, summary: sentence }), 'src/a.js');
+  assert.equal(toolTarget({ args: { command: 'npm test' }, summary: sentence }), 'npm test');
+  assert.equal(toolTarget({ args: { source: 'a.js', destination: 'b.js' }, summary: sentence }), 'a.js → b.js', 'a move names both ends');
+  assert.equal(toolTarget({ args: { source: 'a.js' }, summary: sentence }), 'a.js');
+  assert.equal(toolTarget({ args: { destination: 'b.js' }, summary: sentence }), 'b.js');
+  assert.equal(toolTarget({ args: { paths: ['a.js', 'b.js', 'c.js'] }, summary: sentence }), 'a.js, b.js, c.js', 'a batch names its files');
+  assert.equal(toolTarget({ args: { path: 'a.js', command: 'node a.js', paths: ['b.js'] }, summary: sentence }), 'a.js', 'a path is named before a command, and a command before a list');
+  assert.equal(toolTarget({ args: { command: 'node a.js', source: 'a.js', destination: 'b.js' }, summary: sentence }), 'node a.js');
+  assert.equal(toolTarget({ args: { paths: ['a.js'], source: 'x.js', destination: 'y.js' }, summary: sentence }), 'x.js → y.js');
+  assert.equal(toolTarget({ args: { path: 'a.js', truncated: true }, summary: sentence }), 'a.js…', 'what the Hub cut is marked as cut');
+  assert.equal(toolTarget({ args: { paths: ['a.js', 'b.js'], truncated: true }, summary: sentence }), 'a.js, b.js…');
+  assert.equal(toolTarget({ args: { paths: [] }, summary: sentence }), sentence, 'an empty list names nothing');
+  assert.equal(toolTarget({ args: {}, summary: sentence }), sentence, 'a call with nothing to announce shows its sentence, as it always did');
+  assert.equal(toolTarget({ summary: sentence }), sentence);
+  assert.equal(toolTarget({ args: { path: 7 } }), '', 'a path that is not text is no target');
+  assert.equal(toolTarget({ args: { cmd: 'ls', query: 'x' }, summary: sentence }), 'ls', 'the keys of older records are still read');
+});
+
+test('describeTool puts the structured target next to the verb', () => {
+  assert.deepEqual(describeTool({ name: 'local.move_path', args: { source: 'a.js', destination: 'b.js' } }, 'en'), { kind: 'edit', verb: 'Edit file', target: 'a.js → b.js' });
+  assert.deepEqual(describeTool({ name: 'local.files_write_batch', args: { paths: ['a.js', 'b.js'] } }, 'vi'), { kind: 'edit', verb: 'Ghi tệp', target: 'a.js, b.js' });
 });
