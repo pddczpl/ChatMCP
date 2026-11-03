@@ -46,7 +46,7 @@ const TEXT_EXTENSIONS = /\.(?:txt|md|json|js|jsx|ts|tsx|mjs|cjs|py|cs|go|rs|java
 // ran out of stack on a picture of about 4 MB ("Maximum call stack size exceeded"); a class repeated costs no stack.
 const isBase64 = (text) => text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text);
 /** `{ input }` when a call has a path or a command to announce (lib/tool-event-input.mjs), else nothing: an empty object on every event would only be noise. */
-const toolEventInput = (args) => { const input = publicToolInput(args); return Object.keys(input).length > 0 ? { input } : {}; };
+const toolEventInput = (args, toolName) => { const input = publicToolInput(args, toolName); return Object.keys(input).length > 0 ? { input } : {}; };
 // What the person is told when a checkpoint took pictures out of the request (lib/context-compaction.mjs tells the model in the checkpoint itself): the budget is the model's window, and with one
 // the Hub does not know it plans on 32,768 tokens.
 export const pictureNotice = (count) => count > 0 ? ` ${count} ảnh đính kèm không còn trong yêu cầu gửi model vì vượt ngân sách ngữ cảnh: đặt đúng "Ngữ cảnh model" trong cấu hình, hoặc gửi ít ảnh hơn.` : '';
@@ -178,19 +178,19 @@ const PREFERRED_DIRECT_TOOLS = new Set([
   'read_file','list_directory','find_files','search_files','git_status','git_diff','git_log',
   'get_plan','update_plan','write_file','edit_file','make_directory','move_path','git_add',
   'git_commit','git_branch','delete_path','run_command','tasks_run','tasks_status',
-  'tasks_cancel','files_write_batch','files_apply_patch','git_checkout','git_merge',
+  'tasks_cancel','files_write_batch','files_apply_patch','git_checkout','git_merge','git_push',
   'worktrees_list','worktrees_create','knowledge_search','repo_map','code_symbols',
   'find_definition','find_references','dependency_graph','code_diagnostics',
   // The most time-saving new capabilities; the rest remain in the exact internal router catalog.
   'web_search','web_fetch','browser_launch','browser_navigate','browser_click',
   'browser_fill','browser_screenshot','test_run','github_workflow_runs','token_restore',
 ]);
-// 99 local tools + four internal routers = 103 function definitions today.
+// 100 local tools + four internal routers = 104 function definitions today.
 // The old <50 smoke-test threshold was never an API restriction.
 // Keep a conservative upper boundary of 128 advertised functions (4 routers +
 // at most 124 direct) while permitting the operator to lower schema cost for
 // providers with smaller tool limits via CHATMCP_DIRECT_TOOL_LIMIT.
-export const DEFAULT_DIRECT_TOOL_LIMIT = 99;
+export const DEFAULT_DIRECT_TOOL_LIMIT = 100;
 export const MAX_DIRECT_TOOL_LIMIT = 124;
 export function resolveDirectToolLimit(raw = process.env.CHATMCP_DIRECT_TOOL_LIMIT) {
   if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_DIRECT_TOOL_LIMIT;
@@ -330,7 +330,7 @@ export function createLocalAgentInstructions(catalog, workspace, environment = n
     { name: 'Code Intelligence (AST & Symbols)', tools: ['repo_map', 'code_symbols', 'find_definition', 'find_references', 'dependency_graph', 'code_diagnostics'] },
     { name: 'File Operations', tools: ['read_file', 'edit_file', 'write_file', 'list_directory', 'find_files', 'search_files', 'file_info', 'files_write_batch'] },
     { name: 'Terminal & Tasks', tools: ['run_command', 'tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list'] },
-    { name: 'Git & Worktrees', tools: ['git_status', 'git_diff', 'git_add', 'git_commit', 'git_branch', 'git_checkout', 'git_merge', 'worktrees_create', 'worktrees_list', 'worktrees_remove'] },
+    { name: 'Git & Worktrees', tools: ['git_status', 'git_diff', 'git_add', 'git_commit', 'git_branch', 'git_checkout', 'git_merge', 'git_push', 'worktrees_create', 'worktrees_list', 'worktrees_remove'] },
     { name: 'Plan & Knowledge', tools: ['update_plan', 'knowledge_create', 'knowledge_list', 'knowledge_search'] },
     { name: 'GitHub Integration', tools: ['github_read', 'github_action', 'github_workflow_runs'] },
     { name: 'Research', tools: ['web_search', 'web_fetch'] },
@@ -361,7 +361,7 @@ HOW TO WORK
 2. For work that spans several files, write a short plan with update_plan and keep its statuses honest (done only with evidence).
 3. Change files with small, targeted edits: edit_file replaces an exact old_string (it must be unique unless replace_all; pass edits instead to make several changes to one file in one call, in order, all or nothing) and write_file creates files. Pass the sha256 you got from read_file as expected_sha256 so you never overwrite a newer change by the user. files_write_batch writes several files at once under the same rules: an item for a file that already exists needs its own expected_sha256 (or overwrite:true), and if any item is refused none is written.
 4. Check your work with the project's real tooling through run_command (tests, linters, type checks, builds). Read the output. Fix the cause of a failure; never weaken a test or hide an error to get a pass.
-5. Use git_status and git_diff before and after you work so you can describe your changes exactly. Commit (git_add, git_commit, git_branch) only when the user asked for it. You cannot push; if a push is needed, tell the user the exact command.
+5. Use git_status and git_diff before and after you work so you can describe your changes exactly. Commit (git_add, git_commit, git_branch) only when the user asked for it. Push (git_push) only when the user asked you to publish the branch: it sends one feature branch to a configured remote, never main, master or the remote's default branch, never forces, always asks the user first and is refused when the commits hold a secret. If git_push is refused or not offered, tell the user the exact command.
 6. Prefer the dedicated file and Git tools over shell commands. A shell command may need the user's approval, so make each command do one clear thing and say what it is for in its description.
 
 PERMISSIONS
@@ -1728,7 +1728,7 @@ export class AgentRunner {
     task.pendingCall = { callId: call.call_id, toolName, startedAt: now(), outcome: 'pending_or_unknown', phase: 'executing' };
     // What the events of this call say about it besides their sentence: which call it is (a model may make several calls to one tool in one turn, so the name does not pair a start with
     // its result), and its path or command. Added to the events; the sentence and the fields that were there are as they were.
-    const identity = { callId: call.call_id, ...toolEventInput(args) };
+    const identity = { callId: call.call_id, ...toolEventInput(args, toolName) };
     // Commit the crash marker BEFORE invoking a possibly mutating operation.
     await this.#event(task, 'tool_start', `Đang gọi ${toolName}.\nTham số: ${JSON.stringify(this.#clean(args)).slice(0,900)}`, { toolName, status: 'running', ...identity }, { call_id: call.call_id, arguments: args });
     this.#check(context);

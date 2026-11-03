@@ -331,7 +331,7 @@ async function provider({ preset, apiBaseUrl, model, contextWindowTokens, catalo
   assert.equal(mini.task.contextPolicy.capacityTokens, 272000 + AGENT_OUTPUT_TOKENS);
   assert.ok(mini.task.contextPolicy.maxHistoryTokens > 200000 && mini.task.contextPolicy.maxHistoryTokens < 272000, `history ${mini.task.contextPolicy.maxHistoryTokens} stays under the 272,000 input limit`);
   assert.equal(mini.requests[0].body.max_output_tokens, 16384);
-  assert.equal(mini.requests[0].body.tools.length, 103, 'a window of this size keeps the full tool list');
+  assert.equal(mini.requests[0].body.tools.length, 104, 'a window of this size keeps the full tool list');
   const cost = mini.task.modelCost;
   assert.deepEqual([cost.estimatedResponses, cost.estimateSource, cost.approximate, cost.complete, cost.totalUsd], [1, label, true, true, 0.00501], '20,000 in and 5 out at 0.25 / 2 per million, as an estimate that names its snapshot');
   assert.equal(mini.task.contextPolicy.approximate, true);

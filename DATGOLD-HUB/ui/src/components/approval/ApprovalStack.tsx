@@ -8,6 +8,7 @@ import { formatTime } from '@/lib/format';
 import { riskInfo } from '@/lib/tool-labels';
 import { cn } from '@/lib/utils';
 import type { ApprovalView } from '@/lib/task-view';
+import { GitPushPreview } from './GitPushPreview';
 
 export type PendingApproval = ApprovalView;
 interface ApprovalStackProps {
@@ -82,6 +83,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
                 </div>
               )}
               {item.diff && <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 font-mono text-[12px] leading-5">{item.diff}</pre>}
+              <GitPushPreview detail={item.detail} />
               {item.detail && (
                 <details className="text-[13px]">
                   <summary className="cursor-pointer text-muted hover:text-fg">{t('agents_apr_details')}</summary>

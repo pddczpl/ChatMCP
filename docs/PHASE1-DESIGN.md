@@ -53,6 +53,7 @@ Máy chủ công cụ trong tiến trình. Mỗi công cụ có `inputSchema` th
 | `git_status`, `git_diff`, `git_log` | read | `git -C <workspace>`, không bao giờ nhắc/chuyển sang thư mục cha |
 | `write_file`, `edit_file`, `make_directory`, `move_path` | workspace_edit | ghi nguyên tử (tệp tạm + rename), từ chối symlink, từ chối ghi `.git/**` và file bí mật; `edit_file` thay chuỗi chính xác, bắt buộc duy nhất trừ khi `replace_all`, hiểu CRLF; `expected_sha256` chống ghi đè thay đổi mới |
 | `git_add`, `git_commit`, `git_branch` | workspace_edit | không có `push`/`reset --hard`/`clean` (đi qua `run_command`, luôn hỏi) |
+| `git_push` | dangerous | thêm sau: đẩy đúng một nhánh, không bao giờ ép; từ chối `main`/`master`/nhánh mặc định của remote, bí mật hoặc file được bảo vệ trong các commit sắp đẩy, kho có cấu hình chạy chương trình cho mạng; luôn hỏi (kể cả Full Access) với danh sách commit; `sandbox-only` từ chối — xem [GIT-PUSH.md](GIT-PUSH.md) |
 | `delete_path` | dangerous | luôn hỏi, kể cả Autonomous |
 | `run_command` | theo nội dung lệnh (mục 3.2) | `ShellRunner` |
 

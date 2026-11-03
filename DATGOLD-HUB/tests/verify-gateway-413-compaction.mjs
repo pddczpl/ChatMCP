@@ -77,7 +77,7 @@ for(const maxRequestBytes of [96,64,32].map(k=>k*1024)){
     /- Other Built-in Tools: /,'already-reworded direct listing must also be omitted');
   assert.ok(Buffer.byteLength(JSON.stringify(again),'utf8')<=maxRequestBytes);
 }
-results.push('text-only gateway advertises a bounded subset of 99 tools; omitted tools stay router-accessible');
+results.push('text-only gateway advertises a bounded subset of 100 tools; omitted tools stay router-accessible');
 
 results.push('provider-side UTF-8 byte compaction 96/64/32 KiB, local history intact, reply hint within budget');
 

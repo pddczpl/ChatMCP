@@ -10,12 +10,17 @@ const PATHS_LISTED = 20;
 
 const text = (value) => (typeof value === 'string' && value.length > 0 ? value : null);
 
+const REMOTE_CHARS = 64;
+const BRANCH_CHARS = 200;
+const GIT_PUSH = /(?:^|\.)git_push$/i;
+
 /**
  * @param {unknown} args  the arguments of the call, as the tool receives them
- * @returns {{path?: string, paths?: string[], source?: string, destination?: string, command?: string, truncated?: true}}
+ * @param {string} [toolName]  git_push is announced by its remote and branch (nothing else of its arguments)
+ * @returns {{path?: string, paths?: string[], source?: string, destination?: string, command?: string, remote?: string, branch?: string, truncated?: true}}
  *          `truncated` is set when something was cut: a path or a command that was longer than its limit, or more paths than are listed.
  */
-export function publicToolInput(args) {
+export function publicToolInput(args, toolName = '') {
   const input = {};
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return input;
   let truncated = false;
@@ -40,6 +45,12 @@ export function publicToolInput(args) {
   if (destination !== null) input.destination = clip(destination, PATH_CHARS);
   const command = text(args.command);
   if (command !== null) input.command = clip(command, COMMAND_CHARS);
+  if (GIT_PUSH.test(String(toolName))) {
+    const remote = text(args.remote);
+    const branch = text(args.branch);
+    if (remote !== null) input.remote = clip(remote, REMOTE_CHARS);
+    if (branch !== null) input.branch = clip(branch, BRANCH_CHARS);
+  }
   if (truncated) input.truncated = true;
   return input;
 }

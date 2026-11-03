@@ -77,7 +77,7 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
     'read_file', 'list_directory', 'find_files', 'search_files', 'git_status', 'git_diff', 'git_log', 'get_plan', 'update_plan', 'write_file', 'edit_file',
     'make_directory', 'move_path', 'git_add', 'git_commit', 'git_branch', 'delete_path', 'run_command',
     'symbols_search', 'symbols_references', 'tasks_run', 'tasks_list', 'tasks_status', 'tasks_cancel',
-    'files_write_batch', 'files_apply_patch', 'git_checkout', 'git_merge', 'worktrees_list', 'worktrees_create', 'worktrees_remove',
+    'files_write_batch', 'files_apply_patch', 'git_checkout', 'git_merge', 'git_push', 'worktrees_list', 'worktrees_create', 'worktrees_remove',
     'knowledge_create', 'knowledge_search', 'knowledge_list', 'github_read', 'github_action',
     'repo_map', 'code_symbols', 'find_definition', 'find_references', 'dependency_graph', 'code_diagnostics',
     'token_stats', 'token_restore', 'token_profile',
@@ -472,7 +472,7 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
   assert.deepEqual(edit.inputSchema.properties.edits.items.required, ['old_string', 'new_string']);
   assert.match(edit.description, /edits/);
   assert.match(edit.description, /nothing is written/i);
-  assert.equal(tools.definitions().length, 99, 'the tool count stays at 99');
+  assert.equal(tools.definitions().length, 100, 'the tool count is 100 (git_push is the 100th)');
   ok('edit_file edits[]: dependent edits in order with one receipt, all or nothing with the failing edit named, ambiguity judged at each step, CRLF/BOM kept, edits that cancel write nothing, the guards of one edit, the two forms never mixed');
 }
 
