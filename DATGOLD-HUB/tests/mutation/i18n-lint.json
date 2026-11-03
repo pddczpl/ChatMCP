@@ -1,6 +1,6 @@
 {
   "suite": "ui-i18n-for-mutation.mjs",
-  "description": "The i18n lint (ui/scripts/lint-i18n.mjs), the plural forms (ui/src/lib/plural.ts), the language of the page (ui/src/lib/document-language.ts) and the date helpers of ui/src/lib/format.ts, judged by ui/tests/i18n-lint.test.mjs, plural.test.mjs, document-language.test.mjs and format.test.mjs. tests/ui-i18n-for-mutation.mjs runs them in the copy of the Hub that the runner makes; the copy has no node_modules, so that file borrows the typescript package from the folder the copy was made from. translate() in ui/src/lib/i18n.ts and the app store are not mutated here: their tests bundle the components with esbuild, which needs the whole of node_modules.",
+  "description": "The i18n lint (ui/scripts/lint-i18n.mjs), the plural forms (ui/src/lib/plural.ts), the language of the page (ui/src/lib/document-language.ts) and the date helpers of ui/src/lib/format.ts, judged by ui/tests/i18n-lint.test.mjs, plural.test.mjs, document-language.test.mjs, format.test.mjs and format-date.test.mjs. tests/ui-i18n-for-mutation.mjs runs them in the copy of the Hub that the runner makes; the copy has no node_modules, so that file borrows the typescript package from the folder the copy was made from. translate() in ui/src/lib/i18n.ts and the app store are not mutated here: their tests bundle the components with esbuild, which needs the whole of node_modules.",
   "mutations": [
     {
       "name": "LI-capital-vietnamese",

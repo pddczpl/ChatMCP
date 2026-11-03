@@ -24,6 +24,6 @@ if (!existsSync(package_)) {
   cpSync(borrowed, package_, { recursive: true });
 }
 
-const files = ['tests/i18n-lint.test.mjs', 'tests/plural.test.mjs', 'tests/document-language.test.mjs', 'tests/format.test.mjs'];
+const files = ['tests/i18n-lint.test.mjs', 'tests/plural.test.mjs', 'tests/document-language.test.mjs', 'tests/format.test.mjs', 'tests/format-date.test.mjs'];
 const run = spawnSync(process.execPath, ['--experimental-strip-types', '--test', '--test-reporter=tap', ...files], { cwd: ui, stdio: 'inherit' });
 process.exit(run.status ?? 1);
