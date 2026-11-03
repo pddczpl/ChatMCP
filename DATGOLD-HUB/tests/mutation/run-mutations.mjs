@@ -150,8 +150,9 @@ async function main() {
     // the Hub to be walkable by those accounts, or they report "not applicable" and cannot kill a mutation of the separation.
     if (process.platform !== 'win32') await chmod(scratch, 0o755);
     await cp(options.hubRoot, copy, { recursive: true, filter: (source) => !/[\\/](node_modules|test-results|\.git|__pycache__|\.generated)([\\/]|$)/.test(source) });
+    // The suite is told where its copy came from: the copy has no node_modules, and a suite of the UI borrows the package it needs from that folder.
     // The FastAPI suite looks for its Python next to the repository, which a copy in the temp folder does not have.
-    const env = {};
+    const env = { CHATMCP_MUTATION_SOURCE: options.hubRoot };
     if (!process.env.CHATMCP_E2E_PYTHON) {
       const venv = path.resolve(options.hubRoot, '..', 'deploy', '.generated', 'venv-e2e');
       const python = path.join(venv, process.platform === 'win32' ? path.join('Scripts', 'python.exe') : path.join('bin', 'python'));

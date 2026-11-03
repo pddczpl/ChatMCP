@@ -1,0 +1,1870 @@
+{
+  "suite": "ui-i18n-for-mutation.mjs",
+  "description": "The i18n lint (ui/scripts/lint-i18n.mjs), the plural forms (ui/src/lib/plural.ts), the language of the page (ui/src/lib/document-language.ts) and the date helpers of ui/src/lib/format.ts, judged by ui/tests/i18n-lint.test.mjs, plural.test.mjs, document-language.test.mjs, format.test.mjs and format-date.test.mjs. tests/ui-i18n-for-mutation.mjs runs them in the copy of the Hub that the runner makes; the copy has no node_modules, so that file borrows the typescript package from the folder the copy was made from. translate() in ui/src/lib/i18n.ts and the app store are not mutated here: their tests bundle the components with esbuild, which needs the whole of node_modules.",
+  "mutations": [
+    {
+      "name": "LI-capital-vietnamese",
+      "what": "Vietnamese letters are matched in lower case only",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ỷỹỵ]/i;",
+          "new": "ỷỹỵ]/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-ascii-letters",
+      "what": "only ASCII letters count as letters",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LETTER = /\\p{L}/u;",
+          "new": "const LETTER = /[A-Za-z]/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-entity",
+      "what": "an entity such as &nbsp; is read as a word",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const ENTITY = /&(?:[A-Za-z][A-Za-z0-9]*|#\\d+|#x[0-9a-fA-F]+);/g;",
+          "new": "const ENTITY = /(?!)/g;"
+        }
+      ]
+    },
+    {
+      "name": "LI-locale-none",
+      "what": "no string is taken for a locale tag",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LOCALE_TAG = /^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/;",
+          "new": "const LOCALE_TAG = /(?!)/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-locale-any-word",
+      "what": "any lower-case word is taken for a locale tag",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LOCALE_TAG = /^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/;",
+          "new": "const LOCALE_TAG = /^[a-z]+(?:[-_][A-Za-z]{2,4})?$/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-attr-title",
+      "what": "the title attribute is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);",
+          "new": "const TEXT_ATTRIBUTES = new Set(['aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-attr-aria-label",
+      "what": "the aria-label attribute is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);",
+          "new": "const TEXT_ATTRIBUTES = new Set(['title', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-attr-placeholder",
+      "what": "the placeholder attribute is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);",
+          "new": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-attr-alt",
+      "what": "the alt attribute is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);",
+          "new": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-attr-label",
+      "what": "the label attribute is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);",
+          "new": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-attr-aria-description",
+      "what": "the aria-description attribute is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);",
+          "new": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-attr-aria-valuetext",
+      "what": "the aria-valuetext attribute is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription', 'aria-valuetext']);",
+          "new": "const TEXT_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt', 'label', 'aria-description', 'aria-placeholder', 'aria-roledescription']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-call-showToast",
+      "what": "showToast is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const MESSAGE_CALLS = new Set(['showToast', 'confirm', 'alert', 'prompt']);",
+          "new": "const MESSAGE_CALLS = new Set(['confirm', 'alert', 'prompt']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-call-confirm",
+      "what": "confirm is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const MESSAGE_CALLS = new Set(['showToast', 'confirm', 'alert', 'prompt']);",
+          "new": "const MESSAGE_CALLS = new Set(['showToast', 'alert', 'prompt']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-call-alert",
+      "what": "alert is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const MESSAGE_CALLS = new Set(['showToast', 'confirm', 'alert', 'prompt']);",
+          "new": "const MESSAGE_CALLS = new Set(['showToast', 'confirm', 'prompt']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-call-prompt",
+      "what": "prompt is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const MESSAGE_CALLS = new Set(['showToast', 'confirm', 'alert', 'prompt']);",
+          "new": "const MESSAGE_CALLS = new Set(['showToast', 'confirm', 'alert']);"
+        }
+      ]
+    },
+    {
+      "name": "LI-error-plain-call",
+      "what": "Error(...) called without new is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const ERROR_CALLS = /^(?:Type|Range|Syntax|Eval|URI)?Error$/;",
+          "new": "const ERROR_CALLS = /^(?:Type|Range|Syntax|Eval|URI)Error$/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-error-subclass-call",
+      "what": "TypeError(...) and its kind called without new are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const ERROR_CALLS = /^(?:Type|Range|Syntax|Eval|URI)?Error$/;",
+          "new": "const ERROR_CALLS = /^Error$/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-error-new",
+      "what": "new Error(...) is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isNewExpression(node) ? /Error$/.test(callee) : ",
+          "new": "ts.isNewExpression(node) ? false : "
+        }
+      ]
+    },
+    {
+      "name": "LI-error-new-exact",
+      "what": "only new Error itself is read, not new TypeError",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isNewExpression(node) ? /Error$/.test(callee) : ",
+          "new": "ts.isNewExpression(node) ? /^Error$/.test(callee) : "
+        }
+      ]
+    },
+    {
+      "name": "LI-call-no-arguments",
+      "what": "a call with no arguments (new Error;) is read as if it had one",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (isMessage && node.arguments?.length) addLeaves",
+          "new": "if (isMessage) addLeaves"
+        }
+      ]
+    },
+    {
+      "name": "LI-call-second-argument",
+      "what": "the second argument is read as the message instead of the first",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "stringLeaves(node.arguments[0])",
+          "new": "stringLeaves(node.arguments[1])"
+        }
+      ]
+    },
+    {
+      "name": "LI-name-locale",
+      "what": "locale is not a name for the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LANGUAGE_NAMES = /^(?:lang|language|locale|uiLang|appLang|currentLang)$/;",
+          "new": "const LANGUAGE_NAMES = /^(?:lang|language|uiLang|appLang|currentLang)$/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-name-language",
+      "what": "language is not a name for the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LANGUAGE_NAMES = /^(?:lang|language|locale|uiLang|appLang|currentLang)$/;",
+          "new": "const LANGUAGE_NAMES = /^(?:lang|locale|uiLang|appLang|currentLang)$/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-flag-bare",
+      "what": "a bare vi or en is not a flag for the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LANGUAGE_FLAGS = /^(?:isVi|isEn|isVietnamese|isEnglish|vi|en)$/;",
+          "new": "const LANGUAGE_FLAGS = /^(?:isVi|isEn|isVietnamese|isEnglish)$/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-flag-english",
+      "what": "isEnglish is not a flag for the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LANGUAGE_FLAGS = /^(?:isVi|isEn|isVietnamese|isEnglish|vi|en)$/;",
+          "new": "const LANGUAGE_FLAGS = /^(?:isVi|isEn|isVietnamese|vi|en)$/;"
+        }
+      ]
+    },
+    {
+      "name": "LI-value-english",
+      "what": "en is not a value of the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LANGUAGE_VALUES = /^(?:vi|en)(?:[-_][A-Za-z]{2})?$/i;",
+          "new": "const LANGUAGE_VALUES = /^vi(?:[-_][A-Za-z]{2})?$/i;"
+        }
+      ]
+    },
+    {
+      "name": "LI-value-region",
+      "what": "en-US and vi-VN are not values of the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const LANGUAGE_VALUES = /^(?:vi|en)(?:[-_][A-Za-z]{2})?$/i;",
+          "new": "const LANGUAGE_VALUES = /^(?:vi|en)$/i;"
+        }
+      ]
+    },
+    {
+      "name": "LI-test-flag",
+      "what": "a flag such as isVi is not a question about the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (ts.isIdentifier(node)) return LANGUAGE_FLAGS.test(node.text);",
+          "new": "if (ts.isIdentifier(node)) return false;"
+        }
+      ]
+    },
+    {
+      "name": "LI-test-not",
+      "what": "!isVi is not a question about the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "return isLanguageTest(node.operand);",
+          "new": "return false;"
+        }
+      ]
+    },
+    {
+      "name": "LI-test-eqeqeq",
+      "what": "=== is not a comparison that asks",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "operator === SK.EqualsEqualsEqualsToken || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-test-eqeq",
+      "what": "== is not a comparison that asks",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "operator === SK.EqualsEqualsToken || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-test-neqeq",
+      "what": "!== is not a comparison that asks",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "operator === SK.ExclamationEqualsEqualsToken || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-test-neq",
+      "what": "!= is not a comparison that asks",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": " || operator === SK.ExclamationEqualsToken) {",
+          "new": ") {"
+        }
+      ]
+    },
+    {
+      "name": "LI-test-reversed",
+      "what": "'vi' === lang is not a question about the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": " || (named(node.right) && value(node.left));",
+          "new": ";"
+        }
+      ]
+    },
+    {
+      "name": "LI-test-value-only",
+      "what": "any comparison with a language value asks, whatever is compared",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "return (named(node.left) && value(node.right)) || (named(node.right) && value(node.left));",
+          "new": "return value(node.right) || value(node.left);"
+        }
+      ]
+    },
+    {
+      "name": "LI-normalize-trim",
+      "what": "the words are not trimmed",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const normalize = (text) => text.replace(/\\s+/g, ' ').trim();",
+          "new": "const normalize = (text) => text.replace(/\\s+/g, ' ');"
+        }
+      ]
+    },
+    {
+      "name": "LI-normalize-collapse",
+      "what": "the blanks inside the words are not collapsed",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const normalize = (text) => text.replace(/\\s+/g, ' ').trim();",
+          "new": "const normalize = (text) => text.trim();"
+        }
+      ]
+    },
+    {
+      "name": "LI-hash-md5",
+      "what": "the hash is MD5",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": ".createHash('sha256')",
+          "new": ".createHash('md5')"
+        }
+      ]
+    },
+    {
+      "name": "LI-hash-length",
+      "what": "the hash is one digit short",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": ".digest('hex').slice(0, 16);",
+          "new": ".digest('hex').slice(0, 15);"
+        }
+      ]
+    },
+    {
+      "name": "LI-key-no-rule",
+      "what": "the rule is not part of what tells two violations apart",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const keyOf = (item) => `${item.file}|${item.rule}|${item.hash}`;",
+          "new": "const keyOf = (item) => `${item.file}|${item.hash}`;"
+        }
+      ]
+    },
+    {
+      "name": "LI-key-no-file",
+      "what": "the file is not part of what tells two violations apart",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const keyOf = (item) => `${item.file}|${item.rule}|${item.hash}`;",
+          "new": "const keyOf = (item) => `${item.rule}|${item.hash}`;"
+        }
+      ]
+    },
+    {
+      "name": "LI-sort-reversed",
+      "what": "entries are ordered from the largest key down",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const byKey = (a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0);",
+          "new": "const byKey = (a, b) => (keyOf(a) < keyOf(b) ? 1 : keyOf(a) > keyOf(b) ? -1 : 0);"
+        }
+      ]
+    },
+    {
+      "name": "LI-position-line",
+      "what": "the line of a violation is one too small",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "line: line + 1,",
+          "new": "line,"
+        }
+      ]
+    },
+    {
+      "name": "LI-position-column",
+      "what": "the column of a violation is one too small",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "column: character + 1,",
+          "new": "column: character,"
+        }
+      ]
+    },
+    {
+      "name": "LI-hash-raw",
+      "what": "the hash is taken of the words as they stand, not as they are shown",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "hash: hashOf(shown) });",
+          "new": "hash: hashOf(words) });"
+        }
+      ]
+    },
+    {
+      "name": "LI-claim",
+      "what": "a string that a rule reported is not remembered, so the next rule reports it again",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "for (const node of nodes) claimed.add(node);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-sentence-capital",
+      "what": "a sentence need not start with a capital",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "return /^[A-Z]/.test(clean) && /[a-z]{2,} [a-z]{2,}/.test(clean);",
+          "new": "return /^[A-Za-z]/.test(clean) && /[a-z]{2,} [a-z]{2,}/.test(clean);"
+        }
+      ]
+    },
+    {
+      "name": "LI-sentence-no-capital",
+      "what": "a sentence need not start with a capital letter at all",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "return /^[A-Z]/.test(clean) && /[a-z]{2,} [a-z]{2,}/.test(clean);",
+          "new": "return /[a-z]{2,} [a-z]{2,}/.test(clean);"
+        }
+      ]
+    },
+    {
+      "name": "LI-sentence-lowercase-words",
+      "what": "a sentence need not have two lower-case words side by side",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "return /^[A-Z]/.test(clean) && /[a-z]{2,} [a-z]{2,}/.test(clean);",
+          "new": "return /^[A-Z]/.test(clean);"
+        }
+      ]
+    },
+    {
+      "name": "LI-sentence-trim",
+      "what": "blanks around a sentence hide it",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const clean = text.trim();",
+          "new": "const clean = text;"
+        }
+      ]
+    },
+    {
+      "name": "LI-unwrap-parentheses",
+      "what": "words inside parentheses are not seen",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isParenthesizedExpression(node) || ",
+          "new": "false || "
+        }
+      ]
+    },
+    {
+      "name": "LI-unwrap-as",
+      "what": "words behind `as` are not seen",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isAsExpression(node) || ",
+          "new": "false || "
+        }
+      ]
+    },
+    {
+      "name": "LI-unwrap-non-null",
+      "what": "words behind a non-null mark are not seen",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isNonNullExpression(node) || ",
+          "new": "false || "
+        }
+      ]
+    },
+    {
+      "name": "LI-unwrap-assertion",
+      "what": "words behind an angle-bracket cast are not seen",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isTypeAssertionExpression(node) || ",
+          "new": "false || "
+        }
+      ]
+    },
+    {
+      "name": "LI-unwrap-satisfies",
+      "what": "words behind `satisfies` are not seen",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "|| ts.isSatisfiesExpression(node))) node",
+          "new": "|| false)) node"
+        }
+      ]
+    },
+    {
+      "name": "LI-name-identifier",
+      "what": "a bare name is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const nameOf = (node) => (ts.isIdentifier(node) ? node.text :",
+          "new": "const nameOf = (node) => (false ? node.text :"
+        }
+      ]
+    },
+    {
+      "name": "LI-name-property",
+      "what": "the name after a dot is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": ": ts.isPropertyAccessExpression(node) ? node.name.text :",
+          "new": ": false ? node.name.text :"
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-template",
+      "what": "a template is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (ts.isTemplateExpression(node)) return [{",
+          "new": "if (ts.isTemplateExpression(node)) return [].concat([{"
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-condition",
+      "what": "the branches of a condition are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (ts.isConditionalExpression(node)) return isLanguageTest(node.condition) ? [] : [...stringLeaves(node.whenTrue), ...stringLeaves(node.whenFalse)];",
+          "new": "if (ts.isConditionalExpression(node)) return [];"
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-language-ternary",
+      "what": "a language ternary is read as an ordinary condition, so its words are reported twice",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (ts.isConditionalExpression(node)) return isLanguageTest(node.condition) ? [] : [...stringLeaves(node.whenTrue), ...stringLeaves(node.whenFalse)];",
+          "new": "if (ts.isConditionalExpression(node)) return [...stringLeaves(node.whenTrue), ...stringLeaves(node.whenFalse)];"
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-plus",
+      "what": "the sides of + are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "operator === SK.PlusToken || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-coalesce",
+      "what": "the sides of ?? are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "operator === SK.QuestionQuestionToken || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-or",
+      "what": "the sides of || are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "operator === SK.BarBarToken || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-and",
+      "what": "the sides of && are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": " || operator === SK.AmpersandAmpersandToken) return",
+          "new": ") return"
+        }
+      ]
+    },
+    {
+      "name": "LI-skip-types",
+      "what": "strings inside types are read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (ts.isTypeNode(node) || ts.isImportDeclaration(node)",
+          "new": "if (ts.isImportDeclaration(node)"
+        }
+      ]
+    },
+    {
+      "name": "LI-skip-import",
+      "what": "the file named in an import is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isImportDeclaration(node) || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-skip-export-from",
+      "what": "the file named in an export ... from is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isExportDeclaration(node) || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-skip-import-equals",
+      "what": "the file named in import x = require() is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": " || ts.isImportEqualsDeclaration(node)) return;",
+          "new": ") return;"
+        }
+      ]
+    },
+    {
+      "name": "LI-jsx-text-whitespace",
+      "what": "a text of blanks only is looked at for letters",
+      "equivalent": "A text of blanks only has no letters, so the test that follows rejects it anyway: the check is a shortcut.",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "!node.containsOnlyTriviaWhiteSpaces && ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-jsx-expression-guard",
+      "what": "an empty {} among the children is looked at",
+      "equivalent": "stringLeaves(undefined) is an empty list, so the guard for an empty expression is a shortcut.",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (node.expression && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)))",
+          "new": "if ((ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)))"
+        }
+      ]
+    },
+    {
+      "name": "LI-jsx-expression-fragment",
+      "what": "the children of a fragment are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": " || ts.isJsxFragment(node.parent))) addLeaves",
+          "new": ")) addLeaves"
+        }
+      ]
+    },
+    {
+      "name": "LI-jsx-expression-element",
+      "what": "the children of an element are not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (node.expression && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)))",
+          "new": "if (node.expression && (ts.isJsxFragment(node.parent)))"
+        }
+      ]
+    },
+    {
+      "name": "LI-jsx-expression-anywhere",
+      "what": "every {...} in JSX is read as a child, attributes included",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (node.expression && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)))",
+          "new": "if (node.expression)"
+        }
+      ]
+    },
+    {
+      "name": "LI-attribute-no-value",
+      "what": "an attribute with no value is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (TEXT_ATTRIBUTES.has(name) && value) {",
+          "new": "if (TEXT_ATTRIBUTES.has(name)) {"
+        }
+      ]
+    },
+    {
+      "name": "LI-attribute-quoted",
+      "what": "a quoted attribute value is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isStringLiteral(value) ? [{ node: value, text: value.text }] : ts.isJsxExpression(value)",
+          "new": "false ? [{ node: value, text: value.text }] : ts.isJsxExpression(value)"
+        }
+      ]
+    },
+    {
+      "name": "LI-attribute-braces",
+      "what": "an attribute value in braces is not read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "ts.isJsxExpression(value) && value.expression ? stringLeaves(value.expression) : [];",
+          "new": "[];"
+        }
+      ]
+    },
+    {
+      "name": "LI-lang-letters",
+      "what": "a language ternary of digits and signs is reported",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (leaves.some((leaf) => hasLetters(leaf.text) && !LOCALE_TAG.test(leaf.text))) add(",
+          "new": "if (leaves.some((leaf) => !LOCALE_TAG.test(leaf.text))) add("
+        }
+      ]
+    },
+    {
+      "name": "LI-lang-locale",
+      "what": "a language ternary that only picks a locale is reported",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (leaves.some((leaf) => hasLetters(leaf.text) && !LOCALE_TAG.test(leaf.text))) add(",
+          "new": "if (leaves.some((leaf) => hasLetters(leaf.text))) add("
+        }
+      ]
+    },
+    {
+      "name": "LI-lang-every",
+      "what": "a language ternary is reported only when every string is words",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (leaves.some((leaf) => hasLetters(leaf.text) && !LOCALE_TAG.test(leaf.text))) add(",
+          "new": "if (leaves.every((leaf) => hasLetters(leaf.text) && !LOCALE_TAG.test(leaf.text))) add("
+        }
+      ]
+    },
+    {
+      "name": "LI-lang-claim",
+      "what": "the words of a language ternary are not claimed, so they are reported again",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "node.getText(source), leaves.map((leaf) => leaf.node));",
+          "new": "node.getText(source));"
+        }
+      ]
+    },
+    {
+      "name": "LI-lang-text",
+      "what": "the text of a language ternary is not the ternary",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "add('lang-ternary', node, node.getText(source),",
+          "new": "add('lang-ternary', node, 'ternary',"
+        }
+      ]
+    },
+    {
+      "name": "LI-lang-any-condition",
+      "what": "every condition is taken for a question about the language",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (isLanguageTest(node.condition)) {",
+          "new": "if (true) {"
+        }
+      ]
+    },
+    {
+      "name": "LI-label-and",
+      "what": "a label must be Vietnamese and a sentence",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "(words) => VIETNAMESE.test(words) || looksLikeSentence(words)",
+          "new": "(words) => VIETNAMESE.test(words) && looksLikeSentence(words)"
+        }
+      ]
+    },
+    {
+      "name": "LI-label-vietnamese-only",
+      "what": "a label that is an English sentence is not reported",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "(words) => VIETNAMESE.test(words) || looksLikeSentence(words)",
+          "new": "(words) => VIETNAMESE.test(words)"
+        }
+      ]
+    },
+    {
+      "name": "LI-label-sentence-only",
+      "what": "a label in Vietnamese is not reported",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "(words) => VIETNAMESE.test(words) || looksLikeSentence(words)",
+          "new": "(words) => looksLikeSentence(words)"
+        }
+      ]
+    },
+    {
+      "name": "LI-literal-claimed",
+      "what": "a string that a rule reported is reported again as a Vietnamese string",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!claimed.has(node) && VIETNAMESE.test(node.text)) add('vietnamese-literal', node, node.text, [node]);",
+          "new": "if (VIETNAMESE.test(node.text)) add('vietnamese-literal', node, node.text, [node]);"
+        }
+      ]
+    },
+    {
+      "name": "LI-literal-any",
+      "what": "every string that no rule reported is reported as Vietnamese",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!claimed.has(node) && VIETNAMESE.test(node.text)) add('vietnamese-literal', node, node.text, [node]);",
+          "new": "if (!claimed.has(node)) add('vietnamese-literal', node, node.text, [node]);"
+        }
+      ]
+    },
+    {
+      "name": "LI-template-claimed",
+      "what": "a template that a rule reported is reported again as a Vietnamese string",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!claimed.has(node) && VIETNAMESE.test(leaf.text)) add('vietnamese-literal', node, leaf.text, [node]);",
+          "new": "if (VIETNAMESE.test(leaf.text)) add('vietnamese-literal', node, leaf.text, [node]);"
+        }
+      ]
+    },
+    {
+      "name": "LI-template-any",
+      "what": "every template that no rule reported is reported as Vietnamese",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!claimed.has(node) && VIETNAMESE.test(leaf.text)) add('vietnamese-literal', node, leaf.text, [node]);",
+          "new": "if (!claimed.has(node)) add('vietnamese-literal', node, leaf.text, [node]);"
+        }
+      ]
+    },
+    {
+      "name": "LI-leaves-claimed",
+      "what": "a string that a rule reported is offered to the next rule once more",
+      "equivalent": "No two rules reach the same string today (a language ternary is left out of the strings of every other rule), so the check only guards against a rule added later.",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!claimed.has(leaf.node) && kept(leaf.text)) add(",
+          "new": "if (kept(leaf.text)) add("
+        }
+      ]
+    },
+    {
+      "name": "LI-files-declarations",
+      "what": "a declaration file (.d.ts) is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "&& !entry.name.endsWith('.d.ts'))",
+          "new": ")"
+        }
+      ]
+    },
+    {
+      "name": "LI-files-ts-only",
+      "what": "only .tsx files are read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "else if (/\\.tsx?$/.test(entry.name)",
+          "new": "else if (/\\.tsx$/.test(entry.name)"
+        }
+      ]
+    },
+    {
+      "name": "LI-files-folders",
+      "what": "the folders under src are not entered",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (entry.isDirectory()) walk(full);",
+          "new": "if (entry.isDirectory()) void 0;"
+        }
+      ]
+    },
+    {
+      "name": "LI-files-no-src",
+      "what": "a project with no src folder is an error",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (fs.existsSync(path.join(root, 'src'))) walk(path.join(root, 'src'));",
+          "new": "walk(path.join(root, 'src'));"
+        }
+      ]
+    },
+    {
+      "name": "LI-json-missing",
+      "what": "a missing baseline or allowlist is an error",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!fs.existsSync(file)) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "LI-baseline-version",
+      "what": "any version of the baseline is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (data.version !== 1 || !Array.isArray(data.entries) || !data.entries.every(valid)) throw new Error(`the baseline",
+          "new": "if (!Array.isArray(data.entries) || !data.entries.every(valid)) throw new Error(`the baseline"
+        }
+      ]
+    },
+    {
+      "name": "LI-baseline-array",
+      "what": "a baseline with no list of entries is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (data.version !== 1 || !Array.isArray(data.entries) || !data.entries.every(valid)) throw new Error(`the baseline",
+          "new": "if (data.version !== 1 || !data.entries.every(valid)) throw new Error(`the baseline"
+        }
+      ]
+    },
+    {
+      "name": "LI-baseline-entries",
+      "what": "entries of the baseline are not checked",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (data.version !== 1 || !Array.isArray(data.entries) || !data.entries.every(valid)) throw new Error(`the baseline",
+          "new": "if (data.version !== 1 || !Array.isArray(data.entries)) throw new Error(`the baseline"
+        }
+      ]
+    },
+    {
+      "name": "LI-baseline-entry-nothing",
+      "what": "an entry that is nothing is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const valid = (entry) => entry && typeof entry.file",
+          "new": "const valid = (entry) => typeof entry.file"
+        }
+      ]
+    },
+    {
+      "name": "LI-baseline-entry-file",
+      "what": "an entry whose file is not a name is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "typeof entry.file === 'string' && RULES.includes(entry.rule)",
+          "new": "RULES.includes(entry.rule)"
+        }
+      ]
+    },
+    {
+      "name": "LI-baseline-entry-rule",
+      "what": "an entry whose rule does not exist is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "typeof entry.file === 'string' && RULES.includes(entry.rule) &&",
+          "new": "typeof entry.file === 'string' &&"
+        }
+      ]
+    },
+    {
+      "name": "LI-baseline-entry-hash",
+      "what": "an entry whose hash is not 16 hex digits is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "RULES.includes(entry.rule) && /^[0-9a-f]{16}$/.test(entry.hash ?? '');",
+          "new": "RULES.includes(entry.rule);"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-version",
+      "what": "any version of the allowlist is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (data.version !== 1 || !Array.isArray(data.entries)) throw new Error(`the allowlist",
+          "new": "if (!Array.isArray(data.entries)) throw new Error(`the allowlist"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-array",
+      "what": "an allowlist with no list of entries is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (data.version !== 1 || !Array.isArray(data.entries)) throw new Error(`the allowlist",
+          "new": "if (data.version !== 1) throw new Error(`the allowlist"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-entry-nothing",
+      "what": "an allowlist entry that is nothing is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!entry || typeof entry.text !== 'string' || !entry.text.trim()) throw",
+          "new": "if (typeof entry.text !== 'string' || !entry.text.trim()) throw"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-no-text",
+      "what": "an allowlist entry without text is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!entry || typeof entry.text !== 'string' || !entry.text.trim()) throw",
+          "new": "if (!entry || !entry.text.trim()) throw"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-blank-text",
+      "what": "an allowlist entry whose text is blank is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (!entry || typeof entry.text !== 'string' || !entry.text.trim()) throw",
+          "new": "if (!entry || typeof entry.text !== 'string') throw"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-no-reason",
+      "what": "an allowlist entry without a reason is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (typeof entry.reason !== 'string' || entry.reason.trim().length < 8) throw",
+          "new": "if (entry.reason?.trim().length < 8) throw"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-short-reason",
+      "what": "an allowlist entry with a one-letter reason is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "entry.reason.trim().length < 8) throw",
+          "new": "entry.reason.trim().length < 1) throw"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-rule",
+      "what": "an allowlist entry for a rule that does not exist is read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (entry.rule !== undefined && !RULES.includes(entry.rule)) throw",
+          "new": "if (false) throw"
+        }
+      ]
+    },
+    {
+      "name": "LI-allow-rule-required",
+      "what": "an allowlist entry must name a rule",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (entry.rule !== undefined && !RULES.includes(entry.rule)) throw",
+          "new": "if (!RULES.includes(entry.rule)) throw"
+        }
+      ]
+    },
+    {
+      "name": "LI-allows-spaces",
+      "what": "the words of an allowlist entry must be spaced exactly as the lint shows them",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const allows = (entry, violation) => normalize(entry.text) === violation.text",
+          "new": "const allows = (entry, violation) => entry.text === violation.text"
+        }
+      ]
+    },
+    {
+      "name": "LI-allows-any-file",
+      "what": "an allowlist entry for one file lets the same words through in every file",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "(entry.file === undefined || entry.file === violation.file)",
+          "new": "true"
+        }
+      ]
+    },
+    {
+      "name": "LI-allows-any-rule",
+      "what": "an allowlist entry for one rule lets the same words through under every rule",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "(entry.rule === undefined || entry.rule === violation.rule)",
+          "new": "true"
+        }
+      ]
+    },
+    {
+      "name": "LI-project-dictionaries",
+      "what": "the dictionaries are read as source",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const files = sources.filter((file) => !DICTIONARY_FILES.includes(file));",
+          "new": "const files = sources;"
+        }
+      ]
+    },
+    {
+      "name": "LI-project-skipped",
+      "what": "the dictionaries that were left out are not listed",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const skipped = sources.filter((file) => DICTIONARY_FILES.includes(file)).sort();",
+          "new": "const skipped = [];"
+        }
+      ]
+    },
+    {
+      "name": "LI-project-used",
+      "what": "an allowlist entry that was used is reported as unused",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "allowlisted.push(violation); }",
+          "new": "allowlisted.push(violation); used.delete(index); }"
+        }
+      ]
+    },
+    {
+      "name": "LI-budget-count",
+      "what": "a string frozen twice counts once",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "left: (budget.get(keyOf(entry))?.left ?? 0) + 1 }",
+          "new": "left: 1 }"
+        }
+      ]
+    },
+    {
+      "name": "LI-budget-spend",
+      "what": "a frozen string can be used up any number of times",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "slot.left -= 1; baselined.push(violation);",
+          "new": "baselined.push(violation);"
+        }
+      ]
+    },
+    {
+      "name": "LI-budget-limit",
+      "what": "a frozen string is quiet however many times it appears",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (slot && slot.left > 0) {",
+          "new": "if (slot) {"
+        }
+      ]
+    },
+    {
+      "name": "LI-stale-count",
+      "what": "a string frozen twice is stale once",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "Array.from({ length: left }, ()",
+          "new": "Array.from({ length: Math.min(left, 1) }, ()"
+        }
+      ]
+    },
+    {
+      "name": "LI-stale-sorted",
+      "what": "stale entries come in the order of the baseline file",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "({ file: entry.file, rule: entry.rule, hash: entry.hash }))).sort(byKey);",
+          "new": "({ file: entry.file, rule: entry.rule, hash: entry.hash })));"
+        }
+      ]
+    },
+    {
+      "name": "LI-write-empty",
+      "what": "an empty baseline is written as a list with a blank line in it",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const body = lines.length ? `[\\n${lines.join(',\\n')}\\n  ]` : '[]';",
+          "new": "const body = `[\\n${lines.join(',\\n')}\\n  ]`;"
+        }
+      ]
+    },
+    {
+      "name": "LI-write-version",
+      "what": "the baseline is written with another version",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "\"version\": 1,\\n  \"entries\"",
+          "new": "\"version\": 2,\\n  \"entries\""
+        }
+      ]
+    },
+    {
+      "name": "LI-init-existing",
+      "what": "the baseline can be started again over the existing one",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (fs.existsSync(path.join(root, BASELINE_FILE))) throw new Error(",
+          "new": "if (false) throw new Error("
+        }
+      ]
+    },
+    {
+      "name": "LI-init-everything",
+      "what": "the baseline takes in what the allowlist lets through",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const { fresh } = lintProject(root);",
+          "new": "const { found: fresh } = lintProject(root);"
+        }
+      ]
+    },
+    {
+      "name": "LI-init-unsorted",
+      "what": "the baseline is written in the order the files were read",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "writeBaseline(root, fresh.map((violation) => ({ file: violation.file, rule: violation.rule, hash: violation.hash })).sort(byKey));",
+          "new": "writeBaseline(root, fresh.map((violation) => ({ file: violation.file, rule: violation.rule, hash: violation.hash })));"
+        }
+      ]
+    },
+    {
+      "name": "LI-shrink-fresh",
+      "what": "the baseline is shrunk while there is a new violation",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (result.fresh.length) throw new Error(",
+          "new": "if (false) throw new Error("
+        }
+      ]
+    },
+    {
+      "name": "LI-shrink-takes-in",
+      "what": "shrinking writes everything that is found, new violations included",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "writeBaseline(root, result.baselined.map(",
+          "new": "writeBaseline(root, result.found.map("
+        }
+      ]
+    },
+    {
+      "name": "LI-selftest-extra",
+      "what": "a seeded shape found together with another violation passes",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const ok = fixture.seeded ? rules.length === 1 && rules[0] === fixture.rule : rules.length === 0;",
+          "new": "const ok = fixture.seeded ? rules[0] === fixture.rule : rules.length === 0;"
+        }
+      ]
+    },
+    {
+      "name": "LI-selftest-rule",
+      "what": "a seeded shape found under another rule passes",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const ok = fixture.seeded ? rules.length === 1 && rules[0] === fixture.rule : rules.length === 0;",
+          "new": "const ok = fixture.seeded ? rules.length === 1 : rules.length === 0;"
+        }
+      ]
+    },
+    {
+      "name": "LI-selftest-clean",
+      "what": "a clean fixture that is flagged passes",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const ok = fixture.seeded ? rules.length === 1 && rules[0] === fixture.rule : rules.length === 0;",
+          "new": "const ok = fixture.seeded ? rules.length === 1 && rules[0] === fixture.rule : true;"
+        }
+      ]
+    },
+    {
+      "name": "LI-selftest-some",
+      "what": "one fixture that is right is enough for the self-test to pass",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "return { ok: cases.every((item) => item.ok), cases };",
+          "new": "return { ok: cases.some((item) => item.ok), cases };"
+        }
+      ]
+    },
+    {
+      "name": "LI-selftest-exit",
+      "what": "a failed self-test exits 0",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "return { code: result.ok ? 0 : 1, lines };",
+          "new": "return { code: 0, lines };"
+        }
+      ]
+    },
+    {
+      "name": "LI-selftest-nothing",
+      "what": "a fixture that was not found does not say what was found",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "item.rules.join(', ') || 'nothing'",
+          "new": "item.rules.join(', ')"
+        }
+      ]
+    },
+    {
+      "name": "LI-command-exit-stale",
+      "what": "a stale baseline entry does not fail the command",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "process.exitCode = result.fresh.length || result.stale.length || result.staleAllow.length ? 1 : 0;",
+          "new": "process.exitCode = result.fresh.length || result.staleAllow.length ? 1 : 0;"
+        }
+      ]
+    },
+    {
+      "name": "LI-command-exit-allow",
+      "what": "a stale allowlist entry does not fail the command",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "process.exitCode = result.fresh.length || result.stale.length || result.staleAllow.length ? 1 : 0;",
+          "new": "process.exitCode = result.fresh.length || result.stale.length ? 1 : 0;"
+        }
+      ]
+    },
+    {
+      "name": "LI-command-exit-new",
+      "what": "a new violation does not fail the command",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "process.exitCode = result.fresh.length || result.stale.length || result.staleAllow.length ? 1 : 0;",
+          "new": "process.exitCode = result.stale.length || result.staleAllow.length ? 1 : 0;"
+        }
+      ]
+    },
+    {
+      "name": "LI-list-flag",
+      "what": "every run lists every violation, not only with --list",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "if (args.includes('--list')) {",
+          "new": "if (true) {"
+        }
+      ]
+    },
+    {
+      "name": "LI-list-new",
+      "what": "a new violation is listed as baselined",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "(result.fresh.includes(violation) ? 'new' :",
+          "new": "(result.fresh.includes(violation) ? 'baselined' :"
+        }
+      ]
+    },
+    {
+      "name": "LI-list-allowlisted",
+      "what": "an allowlisted violation is listed as baselined",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "result.allowlisted.includes(violation) ? 'allowlisted' : 'baselined')",
+          "new": "result.allowlisted.includes(violation) ? 'baselined' : 'baselined')"
+        }
+      ]
+    },
+    {
+      "name": "LI-list-baselined",
+      "what": "a baselined violation is listed as new",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "result.allowlisted.includes(violation) ? 'allowlisted' : 'baselined')",
+          "new": "result.allowlisted.includes(violation) ? 'allowlisted' : 'new')"
+        }
+      ]
+    },
+    {
+      "name": "LI-command-root",
+      "what": "the folder given with --root is ignored",
+      "patches": [
+        {
+          "file": "ui/scripts/lint-i18n.mjs",
+          "old": "const root = rootAt >= 0 ? path.resolve(args[rootAt + 1]) : path.resolve(here, '..');",
+          "new": "const root = path.resolve(here, '..');"
+        }
+      ]
+    },
+    {
+      "name": "PL-english",
+      "what": "English has no singular",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "const locale = lang === 'en' ? 'en-US' : 'vi-VN';",
+          "new": "const locale = 'vi-VN';"
+        }
+      ]
+    },
+    {
+      "name": "PL-vietnamese",
+      "what": "Vietnamese has a singular",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "const locale = lang === 'en' ? 'en-US' : 'vi-VN';",
+          "new": "const locale = 'en-US';"
+        }
+      ]
+    },
+    {
+      "name": "PL-swapped",
+      "what": "the languages are the wrong way round",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "const locale = lang === 'en' ? 'en-US' : 'vi-VN';",
+          "new": "const locale = lang === 'en' ? 'vi-VN' : 'en-US';"
+        }
+      ]
+    },
+    {
+      "name": "PL-cache",
+      "what": "the plural rules are made again for each count",
+      "equivalent": "The cache only saves making the same Intl.PluralRules object again; the category it gives is the same.",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "return (rules[locale] ??= new Intl.PluralRules(locale)).select(count);",
+          "new": "return new Intl.PluralRules(locale).select(count);"
+        }
+      ]
+    },
+    {
+      "name": "PL-names-finite",
+      "what": "a count that is not a finite number chooses a form",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "typeof count === 'number' && Number.isFinite(count) ?",
+          "new": "typeof count === 'number' ?"
+        }
+      ]
+    },
+    {
+      "name": "PL-names-number",
+      "what": "a count that is not a number chooses a form",
+      "equivalent": "Number.isFinite is false for every value that is not a number, so the typeof test only tells the type checker that count is a number.",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "typeof count === 'number' && Number.isFinite(count) ?",
+          "new": "Number.isFinite(count) ?"
+        }
+      ]
+    },
+    {
+      "name": "PL-names-order",
+      "what": "the plural form of the language comes after _other",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "[`${key}_${pluralCategory(lang, count)}`, `${key}_other`, key]",
+          "new": "[`${key}_other`, `${key}_${pluralCategory(lang, count)}`, key]"
+        }
+      ]
+    },
+    {
+      "name": "PL-names-no-other",
+      "what": "a family has no _other to fall back to",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "[`${key}_${pluralCategory(lang, count)}`, `${key}_other`, key]",
+          "new": "[`${key}_${pluralCategory(lang, count)}`, key]"
+        }
+      ]
+    },
+    {
+      "name": "PL-names-no-key",
+      "what": "a plain key with a {count} placeholder is not looked up",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": "[`${key}_${pluralCategory(lang, count)}`, `${key}_other`, key]",
+          "new": "[`${key}_${pluralCategory(lang, count)}`, `${key}_other`]"
+        }
+      ]
+    },
+    {
+      "name": "PL-names-plain",
+      "what": "with no count there is no name to look up",
+      "patches": [
+        {
+          "file": "ui/src/lib/plural.ts",
+          "old": ": [key];",
+          "new": ": [];"
+        }
+      ]
+    },
+    {
+      "name": "DL-swapped",
+      "what": "the page is English unless Vietnamese was chosen",
+      "patches": [
+        {
+          "file": "ui/src/lib/document-language.ts",
+          "old": "(value === 'en' ? 'en' : 'vi')",
+          "new": "(value === 'vi' ? 'vi' : 'en')"
+        }
+      ]
+    },
+    {
+      "name": "DL-always-vietnamese",
+      "what": "English cannot be chosen",
+      "patches": [
+        {
+          "file": "ui/src/lib/document-language.ts",
+          "old": "(value === 'en' ? 'en' : 'vi')",
+          "new": "'vi'"
+        }
+      ]
+    },
+    {
+      "name": "DL-prefix",
+      "what": "anything that starts with en is English",
+      "patches": [
+        {
+          "file": "ui/src/lib/document-language.ts",
+          "old": "(value === 'en' ? 'en' : 'vi')",
+          "new": "(typeof value === 'string' && value.startsWith('en') ? 'en' : 'vi')"
+        }
+      ]
+    },
+    {
+      "name": "DL-raw-value",
+      "what": "the page declares whatever value it is given",
+      "patches": [
+        {
+          "file": "ui/src/lib/document-language.ts",
+          "old": "if (root) root.lang = languageOf(value);",
+          "new": "if (root) root.lang = String(value);"
+        }
+      ]
+    },
+    {
+      "name": "DL-no-root",
+      "what": "a page that does not exist is declared on anyway",
+      "patches": [
+        {
+          "file": "ui/src/lib/document-language.ts",
+          "old": "if (root) root.lang = languageOf(value);",
+          "new": "root.lang = languageOf(value);"
+        }
+      ]
+    },
+    {
+      "name": "FD-english-month",
+      "what": "an English date has the month in full",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": "? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })",
+          "new": "? date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })"
+        }
+      ]
+    },
+    {
+      "name": "FD-english-day",
+      "what": "an English date has the day in two digits",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": "? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })",
+          "new": "? date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })"
+        }
+      ]
+    },
+    {
+      "name": "FD-english-year",
+      "what": "an English date has no year",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": "? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })",
+          "new": "? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })"
+        }
+      ]
+    },
+    {
+      "name": "FD-vietnamese-day",
+      "what": "a Vietnamese date has the day in one digit",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": ": date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });",
+          "new": ": date.toLocaleDateString('vi-VN', { day: 'numeric', month: '2-digit', year: 'numeric' });"
+        }
+      ]
+    },
+    {
+      "name": "FD-vietnamese-month",
+      "what": "a Vietnamese date has the month in one digit",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": ": date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });",
+          "new": ": date.toLocaleDateString('vi-VN', { day: '2-digit', month: 'numeric', year: 'numeric' });"
+        }
+      ]
+    },
+    {
+      "name": "FD-vietnamese-locale",
+      "what": "a Vietnamese date is written the American way",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": ": date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });",
+          "new": ": date.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric' });"
+        }
+      ]
+    },
+    {
+      "name": "FD-language",
+      "what": "a date follows the opposite language",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": "  return lang === 'en'",
+          "new": "  return lang !== 'en'"
+        }
+      ]
+    },
+    {
+      "name": "FD-comma",
+      "what": "the comma between the date and the time is on the wrong side",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": "${lang === 'en' ? ',' : ''}",
+          "new": "${lang === 'en' ? '' : ','}"
+        }
+      ]
+    },
+    {
+      "name": "FD-relative-old-bug",
+      "what": "a time more than a week old is told as the first word of its date and time",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": "return formatDate(date, lang);",
+          "new": "return formatDateTime(date, lang).split(' ')[0];"
+        }
+      ]
+    },
+    {
+      "name": "FD-relative-week",
+      "what": "a time is told in days for eight days instead of seven",
+      "patches": [
+        {
+          "file": "ui/src/lib/format.ts",
+          "old": "if (abs < 86400 * 7) return",
+          "new": "if (abs < 86400 * 8) return"
+        }
+      ]
+    }
+  ]
+}
