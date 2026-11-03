@@ -36,6 +36,8 @@ const FILES = {
   'tests/verify-broken.mjs': "console.log('  not ok - this suite always fails');\nprocess.exit(1);\n",
   'tests/verify-condskip.mjs': "import { value } from '../lib/value.mjs';\nif (value === 3) { console.log('CHATMCP_TEST_SKIP: cannot judge this value'); process.exit(0); }\nif (value !== 1) { console.log('  not ok - value is 1'); process.exit(1); }\nconsole.log('PASS');\n",
   'tests/verify-hang.mjs': "import { value } from '../lib/value.mjs';\nif (value === 99) setInterval(() => {}, 1000); else console.log('PASS');\n",
+  // Passes only if the runner says which folder the copy was made from (a UI suite borrows a package from that folder's node_modules).
+  'tests/verify-source.mjs': "import fs from 'node:fs';\nimport path from 'node:path';\nconst source = process.env.CHATMCP_MUTATION_SOURCE;\nif (!source || !fs.existsSync(path.join(source, 'lib', 'value.mjs'))) { console.log('  not ok - the runner says where the copy came from'); process.exit(1); }\nconsole.log('PASS');\n",
 };
 // lib/value.mjs is written with CRLF, as Git does on Windows: the patterns (written with \n) must still match, and the line endings must survive.
 const onDisk = (name) => (name === 'lib/value.mjs' ? FILES[name].replace(/\n/g, '\r\n') : FILES[name]);
@@ -211,6 +213,14 @@ try {
     const noSuite = run(await list('verify-nothing.mjs', [{ name: 'x', what: 'x', patches: [patch('lib/value.mjs', 'value = 1', 'value = 2')] }]));
     assert.equal(noSuite.status, 2);
     ok('usage errors exit 2: no list, unknown option, unreadable or malformed list, a patch outside the Hub folder, a missing suite');
+  }
+
+  // ---- the suite is told where its copy came from -----------------------------------------------------------------------------------
+  {
+    const result = run(await list('verify-source.mjs', [{ name: 'label', what: 'a change nothing reads: the suite only checks where the copy came from', equivalent: 'The suite reads only the environment, never the label, so no mutation of the label can change it.', patches: [patch('lib/value.mjs', "'one'", "'uno'")] }]));
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /baseline +PASS/, 'the unmodified copy passes only if CHATMCP_MUTATION_SOURCE names the Hub the copy was made from');
+    ok('the suite finds the folder the copy was made from in CHATMCP_MUTATION_SOURCE (a UI suite borrows a package from its node_modules)');
   }
 
   // ---- the real files ---------------------------------------------------------------------------------------------------------------
