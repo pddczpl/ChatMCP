@@ -90,7 +90,7 @@ test('no English value holds Vietnamese, except the name of the Vietnamese langu
 // translation that was forgotten, so it fails here: translate it, or add its key below with the reason.
 const KEPT_IN_ENGLISH = [
   'welcome_title', 'perm_full_access', 'mode_full_access', 'mode_review', 'tab_terminal', 'terminal_title', 'backend_status', 'cat_devops', 'ai_base_url', 'ai_api_key',
-  'ai_model_status_alpha', 'ai_model_status_beta', 'agents_git_refs', 'agents_mp_gateway',
+  'ai_model_status_alpha', 'ai_model_status_beta', 'agents_git_refs', 'agents_mp_gateway', 'agents_apr_push_remote',
   'agents_bg_workspace_fallback', 'agents_bg_detail_workspace', 'agents_bg_tasks_one', 'agents_bg_subagents_one', 'agents_bg_subagents_other', 'agents_bg_tokens',
   'agents_wf_completed', 'agents_wf_cancelled', 'agents_wf_needs_review', 'agents_wf_paused', 'agents_wf_running', 'agents_wf_agents_other', 'agents_wf_progress', 'agents_wf_tokens', 'agents_wf_phases',
   'agents_conv_profile_title', 'agents_mp_label', 'agents_mp_select_label', 'agents_mp_roles', 'agents_mp_roles_field',
