@@ -487,6 +487,56 @@ test('two files that have nothing in common are one hunk of every line, and the 
   assert.equal(rejectAll(diff), middle.join(''));
 });
 
+test('the one hunk that is made when the search gives up has the right ends in both texts when the two do not have the same number of lines', () => {
+  const top = numbered(100, 'top ');
+  const end = numbered(100, 'end ');
+  const longer = [...top, ...numbered(3000, 'old '), ...end].join('');
+  const shorter = [...top, ...numbered(1700, 'new '), ...end].join('');
+  const cases = [
+    { name: 'a text that gets shorter', baseline: longer, current: shorter, expected: [100, 3100, 100, 1800, 3000, 1700] },
+    { name: 'a text that gets longer', baseline: shorter, current: longer, expected: [100, 1800, 100, 3100, 1700, 3000] },
+  ];
+  for (const { name, baseline, current, expected } of cases) {
+    const diff = diffFile(baseline, current);
+    assert.equal(diff.hunks.length, 1, name);
+    const [hunk] = diff.hunks;
+    assert.deepEqual([hunk.baselineStart, hunk.baselineEnd, hunk.currentStart, hunk.currentEnd, hunk.removed, hunk.added], expected, `${name}: where the one hunk starts and ends in each text`);
+    const rowsOf = (kind) => hunk.rows.filter((row) => row.kind === kind).length;
+    assert.deepEqual([rowsOf('context'), rowsOf('removed'), rowsOf('added')], [2 * CONTEXT_LINES, expected[4], expected[5]], `${name}: the rows are the lines taken away, the lines put in and the context`);
+    assert.equal(hunk.rows.length, 2 * CONTEXT_LINES + expected[4] + expected[5], name);
+    assert.equal(rejectAll(diff), baseline, `${name}: undone, the baseline's bytes`);
+    assert.equal(rejectHunks(diff, []), current, `${name}: not undone, the current bytes`);
+  }
+});
+
+test('the search looks at exactly 1,000 changed lines: 500 separate replacements are 500 hunks, and one line more makes them one hunk', () => {
+  const baseline = numbered(20000);
+  const gap = 39;
+  const first = 20;
+  // A replacement takes one line away and puts one in: two changed lines. They are 39 lines apart, so none of them touches another.
+  const replaced = (count) => baseline.map((line, at) => ((at - first) % gap === 0 && at >= first && (at - first) / gap < count ? `changed ${at}\n` : line));
+  const half = MAX_EDIT_LENGTH / 2;
+
+  const atLimit = diffFile(baseline.join(''), replaced(half).join(''));
+  assert.equal(atLimit.hunks.length, half, '500 replacements are exactly 1,000 changed lines, which the search still looks at');
+  assert.deepEqual([atLimit.hunks[0].baselineStart, atLimit.hunks[half - 1].baselineStart], [first, first + gap * (half - 1)]);
+  assert.equal(rejectAll(atLimit), baseline.join(''));
+
+  // One line put in far from the others makes 1,001 changed lines: the search gives up, and the changes are one hunk from the first to the last.
+  const lines = replaced(half);
+  const withOneMore = [...lines.slice(0, 19900), 'one more\n', ...lines.slice(19900)];
+  const past = diffFile(baseline.join(''), withOneMore.join(''));
+  assert.equal(past.hunks.length, 1, '1,001 changed lines are one more than the search looks at');
+  assert.deepEqual([past.hunks[0].baselineStart, past.hunks[0].baselineEnd, past.hunks[0].currentStart, past.hunks[0].currentEnd], [first, 19900, first, 19901]);
+  assert.equal(rejectAll(past), baseline.join(''));
+  assert.equal(rejectHunks(past, []), withOneMore.join(''));
+
+  // And 501 replacements, 1,002 changed lines, are one hunk as well.
+  const over = diffFile(baseline.join(''), replaced(half + 1).join(''));
+  assert.equal(over.hunks.length, 1);
+  assert.equal(rejectAll(over), baseline.join(''));
+});
+
 // ---- identity and accepting ------------------------------------------------------------------------------------------------------------------
 
 test('the hash of a text is FNV-1a over its UTF-16 units, 64 bits, in sixteen hex digits', () => {
@@ -519,6 +569,29 @@ test('a hunk is told from another by its content and its place, and stays the sa
   const other = diffFile(baseline.join(''), current.map((line, at) => (at === 3 ? 'OTHER\n' : line)).join(''));
   assert.notEqual(other.hunks[0].fingerprint, first.fingerprint, 'other words');
   assert.equal(other.hunks[1].fingerprint, second.fingerprint, 'the hunk that did not change is the same');
+});
+
+test('a hunk keeps its fingerprint, and its mark, when lines above it were put in and another hunk is undone: its place is the baseline\'s, not the current text\'s and not its number', () => {
+  const baseline = numbered(60);
+  // Three hunks far apart. The first puts in three lines where it took one away, so the two after it are two lines further down in the current text than in the baseline.
+  const current = [...baseline.slice(0, 5), 'one\n', 'one again\n', 'one more\n', ...baseline.slice(6, 30), 'two\n', ...baseline.slice(31, 50), 'three\n', ...baseline.slice(51)];
+  const before = diffFile(baseline.join(''), current.join(''));
+  assert.equal(before.hunks.length, 3);
+  const [first, second, third] = before.hunks;
+  assert.deepEqual([second.baselineStart, second.currentStart, third.baselineStart, third.currentStart], [30, 32, 50, 52], 'the setup: the later hunks are two lines further down in the current text');
+
+  // The person undoes the first hunk and the page compares the two texts again.
+  const after = diffFile(baseline.join(''), rejectHunk(before, first.index));
+  assert.equal(after.hunks.length, 2);
+  const said = (hunk) => ({ baselineStart: hunk.baselineStart, baselineEnd: hunk.baselineEnd, removed: hunk.removed, added: hunk.added, invisibleOnly: hunk.invisibleOnly, fingerprint: hunk.fingerprint });
+  assert.deepEqual(after.hunks.map(said), [second, third].map(said), 'what a hunk says about itself does not change because another one went');
+  assert.deepEqual(after.hunks.map((hunk) => hunk.currentStart), [30, 50], 'although it is now where the baseline has it');
+  assert.deepEqual(after.hunks.map((hunk) => hunk.index), [0, 1], 'and it has a new number');
+
+  // So a mark made before the undo still belongs to the same hunk, and a mark on the hunk that went belongs to none of the others.
+  assert.deepEqual(pendingHunks(after.hunks, acceptHunks(new Set(), [second])).map((hunk) => hunk.fingerprint), [third.fingerprint]);
+  assert.deepEqual(pendingHunks(after.hunks, acceptHunks(new Set(), [first])).map((hunk) => hunk.fingerprint), [second.fingerprint, third.fingerprint]);
+  assert.deepEqual(pendingHunks(after.hunks, acceptHunks(new Set(), [second, third])), []);
 });
 
 test('two changes whose lines run together when written out are still told apart', () => {
