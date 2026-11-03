@@ -1,0 +1,2595 @@
+{
+  "suite": "ui-review-state-for-mutation.mjs",
+  "description": "The logic of the Review tab that is not the hunk model: the marks a person makes on hunks (ui/src/lib/review-accepted.ts), what may be offered for a file and when, the keys, the errors of the Hub, the plans of \"accept all\" and \"reject all\" (review-rules.ts), what the tab does with a file against a source of review (review-actions.ts), the source of a conversation's checkpoints (review-source-task.ts) and the way in from a turn and from a receipt (review-offer.ts), judged by ui/tests/review-accepted.test.mjs, review-rules.test.mjs, review-actions.test.mjs, review-source-task.test.mjs and review-offer.test.mjs. tests/ui-review-state-for-mutation.mjs runs them in the copy of the Hub that the runner makes; the copy has no node_modules, so it borrows the diff package from the folder the copy was made from. The components are not mutated: their tests bundle them with esbuild, which needs the whole of node_modules.",
+  "mutations": [
+    {
+      "name": "RAC-key",
+      "what": "the marks are kept under another key, so those already kept are lost",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "export const ACCEPTED_STORAGE_KEY = 'chatmcp:review-accepted';",
+          "new": "export const ACCEPTED_STORAGE_KEY = 'chatmcp:review-accepted-2';"
+        }
+      ]
+    },
+    {
+      "name": "RAC-cap-199",
+      "what": "the list holds 199 entries",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "export const MAX_ENTRIES = 200;",
+          "new": "export const MAX_ENTRIES = 199;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-cap-201",
+      "what": "the list holds 201 entries",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "export const MAX_ENTRIES = 200;",
+          "new": "export const MAX_ENTRIES = 201;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-fp-15",
+      "what": "a fingerprint has 15 digits",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "const FINGERPRINT = /^[0-9a-f]{16}$/;",
+          "new": "const FINGERPRINT = /^[0-9a-f]{15}$/;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-fp-long",
+      "what": "a fingerprint may be longer than 16 digits",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "const FINGERPRINT = /^[0-9a-f]{16}$/;",
+          "new": "const FINGERPRINT = /^[0-9a-f]{16,}$/;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-fp-upper",
+      "what": "a fingerprint may be in capitals",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "const FINGERPRINT = /^[0-9a-f]{16}$/;",
+          "new": "const FINGERPRINT = /^[0-9a-fA-F]{16}$/;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-fp-open-start",
+      "what": "a fingerprint may be preceded by anything",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "const FINGERPRINT = /^[0-9a-f]{16}$/;",
+          "new": "const FINGERPRINT = /[0-9a-f]{16}$/;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-fp-open-end",
+      "what": "a fingerprint may be followed by anything",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "const FINGERPRINT = /^[0-9a-f]{16}$/;",
+          "new": "const FINGERPRINT = /^[0-9a-f]{16}/;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-version",
+      "what": "the version that is read is another from the one that is written",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "if (parsed?.v !== 1 || !Array.isArray(parsed.entries)) return [];",
+          "new": "if (parsed?.v !== 2 || !Array.isArray(parsed.entries)) return [];"
+        }
+      ]
+    },
+    {
+      "name": "RAC-entry-task-unchecked",
+      "what": "an entry whose conversation is not text is kept",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "entry && typeof entry.task === 'string' && ",
+          "new": "entry && "
+        }
+      ]
+    },
+    {
+      "name": "RAC-entry-path-unchecked",
+      "what": "an entry whose path is not text is kept",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "typeof entry.path === 'string' && ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RAC-entry-sha-unchecked",
+      "what": "an entry whose sha is not text is kept",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "typeof entry.sha === 'string' && ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RAC-entry-at-unchecked",
+      "what": "an entry with no time is kept",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "typeof entry.at === 'number' && ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RAC-entry-marks-unchecked",
+      "what": "an entry whose marks are not a list is kept, and breaks the reading of the others",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": " && Array.isArray(entry.marks))",
+          "new": ")"
+        }
+      ]
+    },
+    {
+      "name": "RAC-marks-unfiltered",
+      "what": "what is read back is not checked to be a fingerprint",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "marks: entry.marks.filter(isFingerprint) }));",
+          "new": "marks: entry.marks }));"
+        }
+      ]
+    },
+    {
+      "name": "RAC-find-task",
+      "what": "the marks of another conversation are read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "candidate.task === task && candidate.path === path && candidate.sha === sha",
+          "new": "candidate.path === path && candidate.sha === sha"
+        }
+      ]
+    },
+    {
+      "name": "RAC-find-path",
+      "what": "the marks of another file are read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "candidate.task === task && candidate.path === path && candidate.sha === sha",
+          "new": "candidate.task === task && candidate.sha === sha"
+        }
+      ]
+    },
+    {
+      "name": "RAC-find-sha",
+      "what": "the marks of another version of the file are read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "candidate.task === task && candidate.path === path && candidate.sha === sha",
+          "new": "candidate.task === task && candidate.path === path"
+        }
+      ]
+    },
+    {
+      "name": "RAC-write-no-sha",
+      "what": "marks are written for a file that has no sha",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "if (!store || !sha) return false;",
+          "new": "if (!store) return false;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-write-no-store",
+      "what": "a missing store is not checked first",
+      "equivalent": "with no store the write that follows throws, and the throw is caught: the answer is false either way",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "if (!store || !sha) return false;",
+          "new": "if (!sha) return false;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-prune-sha-only",
+      "what": "the old marks of a file are dropped only when they are for the same sha",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "!(entry.task === task && entry.path === path)",
+          "new": "!(entry.task === task && entry.path === path && entry.sha === sha)"
+        }
+      ]
+    },
+    {
+      "name": "RAC-prune-none",
+      "what": "nothing is dropped when marks are written again",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "!(entry.task === task && entry.path === path)",
+          "new": "true"
+        }
+      ]
+    },
+    {
+      "name": "RAC-prune-task-ignored",
+      "what": "the old marks of the same path in every conversation are dropped",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "!(entry.task === task && entry.path === path)",
+          "new": "!(entry.path === path)"
+        }
+      ]
+    },
+    {
+      "name": "RAC-valid-unfiltered",
+      "what": "what is written is not checked to be a fingerprint",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "const valid = [...marks].filter(isFingerprint).sort();",
+          "new": "const valid = [...marks].sort();"
+        }
+      ]
+    },
+    {
+      "name": "RAC-valid-unsorted",
+      "what": "the marks are written in the order they were made",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "const valid = [...marks].filter(isFingerprint).sort();",
+          "new": "const valid = [...marks].filter(isFingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RAC-empty-kept",
+      "what": "an entry with no marks is written",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "if (valid.length) kept.push(",
+          "new": "if (true) kept.push("
+        }
+      ]
+    },
+    {
+      "name": "RAC-entry-time",
+      "what": "an entry is written with another time",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "{ task, path, sha, at: now, marks: valid }",
+          "new": "{ task, path, sha, at: 0, marks: valid }"
+        }
+      ]
+    },
+    {
+      "name": "RAC-cap-newest-first",
+      "what": "when the list is too long the newest entries go",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "kept.sort((a, b) => a.at - b.at).slice(-MAX_ENTRIES)",
+          "new": "kept.sort((a, b) => b.at - a.at).slice(-MAX_ENTRIES)"
+        }
+      ]
+    },
+    {
+      "name": "RAC-cap-front",
+      "what": "when the list is too long the first entries are kept",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "kept.sort((a, b) => a.at - b.at).slice(-MAX_ENTRIES)",
+          "new": "kept.sort((a, b) => a.at - b.at).slice(0, MAX_ENTRIES)"
+        }
+      ]
+    },
+    {
+      "name": "RAC-cap-unsorted",
+      "what": "the list is cut without sorting it by time",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "kept.sort((a, b) => a.at - b.at).slice(-MAX_ENTRIES)",
+          "new": "kept.slice(-MAX_ENTRIES)"
+        }
+      ]
+    },
+    {
+      "name": "RAC-write-version",
+      "what": "the list is written with another version",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "JSON.stringify({ v: 1, entries })",
+          "new": "JSON.stringify({ v: 2, entries })"
+        }
+      ]
+    },
+    {
+      "name": "RAC-write-answer",
+      "what": "a write that went through says it did not",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "    return true;",
+          "new": "    return false;"
+        }
+      ]
+    },
+    {
+      "name": "RAC-carry-all",
+      "what": "every mark goes on to the new sha",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "hunks.some((hunk) => hunk.fingerprint === mark)",
+          "new": "true"
+        }
+      ]
+    },
+    {
+      "name": "RAC-carry-none",
+      "what": "no mark goes on to the new sha",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-accepted.ts",
+          "old": "hunks.some((hunk) => hunk.fingerprint === mark)",
+          "new": "false"
+        }
+      ]
+    },
+    {
+      "name": "RRU-row-limit-199",
+      "what": "a hunk shows 199 rows before it asks",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "export const ROW_LIMIT = 200;",
+          "new": "export const ROW_LIMIT = 199;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-row-limit-201",
+      "what": "a hunk shows 201 rows before it asks",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "export const ROW_LIMIT = 200;",
+          "new": "export const ROW_LIMIT = 201;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-sandbox",
+      "what": "sandbox-only is not noticed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (context?.executionPolicy === 'sandbox-only') return 'policy';",
+          "new": "if (context?.executionPolicy === 'sandbox-never') return 'policy';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-running",
+      "what": "a task that runs is not noticed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return context?.activeTaskId ? 'running' : 'ok';",
+          "new": "return 'ok';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-running-inverted",
+      "what": "a task that runs is told when none does",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return context?.activeTaskId ? 'running' : 'ok';",
+          "new": "return context?.activeTaskId ? 'ok' : 'running';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-mode-binary",
+      "what": "a binary file is reviewed as text",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (file.status === 'binary') return 'binary';",
+          "new": "if (file.status === 'binary-x') return 'binary';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-mode-unavailable",
+      "what": "a reason for having no text is ignored",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (file.textUnavailable) return 'unavailable';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-mode-created",
+      "what": "a new file with no text is reviewed as a new file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (file.change === 'created') return has(file.currentText) ? 'created' : 'unavailable';",
+          "new": "if (file.change === 'created') return 'created';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-mode-deleted",
+      "what": "a deleted file with no baseline is reviewed as a deleted file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (file.change === 'deleted') return has(file.baselineText) ? 'deleted' : 'unavailable';",
+          "new": "if (file.change === 'deleted') return 'deleted';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-mode-text-baseline",
+      "what": "a modified file with no baseline text is reviewed as text",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return has(file.baselineText) && has(file.currentText) ? 'text' : 'unavailable';",
+          "new": "return has(file.currentText) ? 'text' : 'unavailable';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-mode-text-current",
+      "what": "a modified file with no current text is reviewed as text",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return has(file.baselineText) && has(file.currentText) ? 'text' : 'unavailable';",
+          "new": "return has(file.baselineText) ? 'text' : 'unavailable';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-has-any",
+      "what": "anything counts as a text",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const has = (text: string | null | undefined) => typeof text === 'string';",
+          "new": "const has = (text: string | null | undefined) => text !== undefined;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-record-sandbox",
+      "what": "a file can be recorded under sandbox-only",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const canRecord = state !== 'policy' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
+          "new": "const canRecord = Boolean(file.currentSha) && Boolean(file.checkpointId);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-record-sha",
+      "what": "a file with no sha can be recorded",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const canRecord = state !== 'policy' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
+          "new": "const canRecord = state !== 'policy' && Boolean(file.checkpointId);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-record-checkpoint",
+      "what": "a file with no checkpoint can be recorded",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const canRecord = state !== 'policy' && Boolean(file.currentSha) && Boolean(file.checkpointId);",
+          "new": "const canRecord = state !== 'policy' && Boolean(file.currentSha);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-write-while-running",
+      "what": "a write is allowed while a task runs",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const canWrite = state === 'ok';",
+          "new": "const canWrite = state !== 'policy';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-write-never",
+      "what": "a write is never allowed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const canWrite = state === 'ok';",
+          "new": "const canWrite = false;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-moment",
+      "what": "the moment is not told",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const moment: FileNote | null = state === 'ok' ? null : state;",
+          "new": "const moment: FileNote | null = null;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-text-reject-hunk",
+      "what": "a hunk can be put back at any time",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "acceptHunk: true, rejectHunk: canWrite, acceptFile: canRecord, rejectFile: canWrite, note: moment };",
+          "new": "acceptHunk: true, rejectHunk: true, acceptFile: canRecord, rejectFile: canWrite, note: moment };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-text-reject-file",
+      "what": "a text file can be put back at any time",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "acceptHunk: true, rejectHunk: canWrite, acceptFile: canRecord, rejectFile: canWrite, note: moment };",
+          "new": "acceptHunk: true, rejectHunk: canWrite, acceptFile: canRecord, rejectFile: true, note: moment };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-text-accept-hunk",
+      "what": "a hunk cannot be accepted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "byHunk: true, acceptHunk: true, rejectHunk: canWrite,",
+          "new": "byHunk: true, acceptHunk: false, rejectHunk: canWrite,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-text-by-hunk",
+      "what": "a text file is not reviewed hunk by hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return { mode, byHunk: true, acceptHunk: true,",
+          "new": "return { mode, byHunk: false, acceptHunk: true,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-text-accept-file",
+      "what": "a text file can always be accepted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "rejectHunk: canWrite, acceptFile: canRecord, rejectFile: canWrite, note: moment };",
+          "new": "rejectHunk: canWrite, acceptFile: true, rejectFile: canWrite, note: moment };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-created-reject",
+      "what": "a new file can be moved away though the Hub did not record its creation",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "rejectFile: canWrite && file.rejectable === true,",
+          "new": "rejectFile: canWrite,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-created-accept",
+      "what": "a new file cannot be accepted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: canRecord, rejectFile: canWrite && file.rejectable === true,",
+          "new": "byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: canWrite && file.rejectable === true,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-created-by-hunk",
+      "what": "the lines of a new file are undone one by one",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: canRecord, rejectFile: canWrite && file.rejectable === true,",
+          "new": "return { mode, byHunk: true, acceptHunk: true, rejectHunk: true, acceptFile: canRecord, rejectFile: canWrite && file.rejectable === true,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-created-note",
+      "what": "the moment is not told before the file for a new file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "note: moment ?? (file.rejectable === true ? null : 'not_rejectable') };",
+          "new": "note: file.rejectable === true ? null : 'not_rejectable' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-created-not-rejectable-note",
+      "what": "a new file the Hub cannot move says nothing",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "note: moment ?? (file.rejectable === true ? null : 'not_rejectable') };",
+          "new": "note: moment };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-deleted-accept",
+      "what": "a deleted file can be accepted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (mode === 'deleted') return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: false, note: 'deleted' };",
+          "new": "if (mode === 'deleted') return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: canRecord, rejectFile: false, note: 'deleted' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-deleted-reject",
+      "what": "a deleted file can be put back",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (mode === 'deleted') return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: false, note: 'deleted' };",
+          "new": "if (mode === 'deleted') return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: canWrite, note: 'deleted' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-note-not-utf8",
+      "what": "a file that is not UTF-8 is told to be binary",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(reason === 'not_utf8' ? 'not_utf8' : 'binary')",
+          "new": "'binary'"
+        }
+      ]
+    },
+    {
+      "name": "RRU-note-reason",
+      "what": "a file with no text gives no reason",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(reason && reason !== 'binary' && reason !== 'not_utf8' ? reason : 'no_text')",
+          "new": "'no_text'"
+        }
+      ]
+    },
+    {
+      "name": "RRU-note-no-text",
+      "what": "a file with no text and no reason is told to have a reason",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(reason && reason !== 'binary' && reason !== 'not_utf8' ? reason : 'no_text')",
+          "new": "(reason ? reason : 'budget')"
+        }
+      ]
+    },
+    {
+      "name": "RRU-notext-accept",
+      "what": "a file with no text cannot be accepted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: canRecord, rejectFile: false, note };",
+          "new": "return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: false, rejectFile: false, note };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-notext-reject",
+      "what": "a file with no text can be put back",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: canRecord, rejectFile: false, note };",
+          "new": "return { mode, byHunk: false, acceptHunk: false, rejectHunk: false, acceptFile: canRecord, rejectFile: canWrite, note };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-stale-revision",
+      "what": "a changed revision is not a changed file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "'stale_revision', ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-stale-review",
+      "what": "a changed review is not a changed file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "'stale_review', ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-stale-bad",
+      "what": "a missing revision is not a changed file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "'bad_revision', ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-stale-required",
+      "what": "a required revision is not a changed file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": ", 'revision_required'",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-sandbox",
+      "what": "a 403 without a code is not the sandbox",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (status === 403) return code === undefined ? 'policy' : 'other';",
+          "new": "if (status === 403) return 'other';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-sandbox-code",
+      "what": "a 403 with a code is the sandbox",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (status === 403) return code === undefined ? 'policy' : 'other';",
+          "new": "if (status === 403) return 'policy';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-stale-type",
+      "what": "a code that is not text is looked up",
+      "equivalent": "a code that is not text is never one of the four, so the check of its type changes nothing",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (typeof code === 'string' && STALE_CODES.has(code)) return 'stale';",
+          "new": "if (STALE_CODES.has(code as string)) return 'stale';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-busy",
+      "what": "a 409 with no code is not a running task",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return code === undefined || code === 'task_in_progress' ? 'busy' : 'other';",
+          "new": "return code === 'task_in_progress' ? 'busy' : 'other';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-busy-code",
+      "what": "a 409 with task_in_progress is not a running task",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return code === undefined || code === 'task_in_progress' ? 'busy' : 'other';",
+          "new": "return code === undefined ? 'busy' : 'other';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-409-other",
+      "what": "every other 409 is a running task",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return code === undefined || code === 'task_in_progress' ? 'busy' : 'other';",
+          "new": "return 'busy';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-locked",
+      "what": "a locked file is not told",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (status === 423) return 'locked';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-too-large",
+      "what": "a text that is too long is not told",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (status === 413) return 'too_large';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-conflict-unsupported",
+      "what": "a file that is not text is not told",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (status === 415) return 'unsupported';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-j",
+      "what": "j goes to the previous hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'accept', r: 'reject' };",
+          "new": "const KEYS: Record<string, KeyAction> = { j: 'prev', k: 'prev', a: 'accept', r: 'reject' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-k",
+      "what": "k goes to the next hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'accept', r: 'reject' };",
+          "new": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'next', a: 'accept', r: 'reject' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-a",
+      "what": "a rejects",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'accept', r: 'reject' };",
+          "new": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'reject', r: 'reject' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-r",
+      "what": "r accepts",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'accept', r: 'reject' };",
+          "new": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'accept', r: 'accept' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-extra",
+      "what": "a fifth key does something",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'accept', r: 'reject' };",
+          "new": "const KEYS: Record<string, KeyAction> = { j: 'next', k: 'prev', a: 'accept', r: 'reject', x: 'reject' };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-ctrl",
+      "what": "Ctrl with a key is the tab's",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (event.ctrlKey || event.altKey || event.metaKey) return null;",
+          "new": "if (event.altKey || event.metaKey) return null;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-alt",
+      "what": "Alt with a key is the tab's",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (event.ctrlKey || event.altKey || event.metaKey) return null;",
+          "new": "if (event.ctrlKey || event.metaKey) return null;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-meta",
+      "what": "Meta with a key is the tab's",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (event.ctrlKey || event.altKey || event.metaKey) return null;",
+          "new": "if (event.ctrlKey || event.altKey) return null;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-key-inherited",
+      "what": "the name of an inherited property is a key",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return typeof event.key === 'string' && Object.hasOwn(KEYS, event.key) ? KEYS[event.key] : null;",
+          "new": "return typeof event.key === 'string' && event.key in KEYS ? KEYS[event.key] : null;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-move-empty",
+      "what": "a review with no hunk has a hunk to go to",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (count <= 0) return -1;",
+          "new": "if (count < 0) return -1;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-move-from-none-prev",
+      "what": "from no hunk, previous is the first",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (current < 0) return delta < 0 ? count - 1 : 0;",
+          "new": "if (current < 0) return 0;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-move-from-none-next",
+      "what": "from no hunk, next is the last",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (current < 0) return delta < 0 ? count - 1 : 0;",
+          "new": "if (current < 0) return count - 1;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-move-clamp-high",
+      "what": "the last hunk is not the end",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return Math.min(count - 1, Math.max(0, current + delta));",
+          "new": "return Math.max(0, current + delta);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-move-clamp-low",
+      "what": "the first hunk is not the start",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return Math.min(count - 1, Math.max(0, current + delta));",
+          "new": "return Math.min(count - 1, current + delta);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-move-wrap",
+      "what": "moving past the last goes to the first",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return Math.min(count - 1, Math.max(0, current + delta));",
+          "new": "return (current + delta + count) % count;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-rows-nan",
+      "what": "a count that is not a number shows nothing",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const limit = Number.isNaN(shown) ? ROW_LIMIT : Math.max(0, Math.floor(shown));",
+          "new": "const limit = Math.max(0, Math.floor(shown));"
+        }
+      ]
+    },
+    {
+      "name": "RRU-rows-negative",
+      "what": "a negative count shows rows from the end",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const limit = Number.isNaN(shown) ? ROW_LIMIT : Math.max(0, Math.floor(shown));",
+          "new": "const limit = Number.isNaN(shown) ? ROW_LIMIT : Math.floor(shown);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-rows-fraction",
+      "what": "a count with a fraction is not rounded down",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const limit = Number.isNaN(shown) ? ROW_LIMIT : Math.max(0, Math.floor(shown));",
+          "new": "const limit = Number.isNaN(shown) ? ROW_LIMIT : Math.max(0, shown);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-rows-hidden",
+      "what": "one row more is said to be hidden",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "hidden: Math.max(0, rows.length - limit) };",
+          "new": "hidden: Math.max(0, rows.length - limit + 1) };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-rows-hidden-negative",
+      "what": "the number hidden may be negative",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "hidden: Math.max(0, rows.length - limit) };",
+          "new": "hidden: rows.length - limit };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-rows-slice",
+      "what": "one row too many is shown",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return { rows: rows.slice(0, limit),",
+          "new": "return { rows: rows.slice(0, limit + 1),"
+        }
+      ]
+    },
+    {
+      "name": "RRU-eol-crlf",
+      "what": "CRLF is told to be LF",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (text.endsWith('\\r\\n')) return 'crlf';",
+          "new": "if (text.endsWith('\\r\\n')) return 'lf';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-eol-lf",
+      "what": "LF is told to be nothing",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return text.endsWith('\\n') ? 'lf' : 'none';",
+          "new": "return text.endsWith('\\n') ? 'none' : 'none';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-eol-none",
+      "what": "a line with no ending is told to have one",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return text.endsWith('\\n') ? 'lf' : 'none';",
+          "new": "return 'lf';"
+        }
+      ]
+    },
+    {
+      "name": "RRU-body-crlf",
+      "what": "only one character of CRLF is taken off",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(terminatorOf(text) === 'crlf' ? 2 : terminatorOf(text) === 'lf' ? 1 : 0)",
+          "new": "(terminatorOf(text) === 'crlf' ? 1 : terminatorOf(text) === 'lf' ? 1 : 0)"
+        }
+      ]
+    },
+    {
+      "name": "RRU-body-lf",
+      "what": "the character of LF is left",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(terminatorOf(text) === 'crlf' ? 2 : terminatorOf(text) === 'lf' ? 1 : 0)",
+          "new": "(terminatorOf(text) === 'crlf' ? 2 : 0)"
+        }
+      ]
+    },
+    {
+      "name": "RRU-body-none",
+      "what": "a character is taken off a line with no ending",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(terminatorOf(text) === 'crlf' ? 2 : terminatorOf(text) === 'lf' ? 1 : 0)",
+          "new": "(terminatorOf(text) === 'crlf' ? 2 : 1)"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-binary",
+      "what": "a file with no text is summed up from a diff",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (!diff || mode === 'binary' || mode === 'unavailable') return { hunks: 0, pending: 0, added: 0, removed: 0 };",
+          "new": "if (!diff) return { hunks: 0, pending: 0, added: 0, removed: 0 };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-no-diff",
+      "what": "a file with no diff is summed up",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (!diff || mode === 'binary' || mode === 'unavailable') return { hunks: 0, pending: 0, added: 0, removed: 0 };",
+          "new": "if (mode === 'binary' || mode === 'unavailable') return { hunks: 0, pending: 0, added: 0, removed: 0 };"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-hunks",
+      "what": "the hunks are counted twice",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "hunks: diff.hunks.length,",
+          "new": "hunks: diff.hunks.length * 2,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-pending",
+      "what": "every hunk is pending",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "pending: diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length,",
+          "new": "pending: diff.hunks.length,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-added",
+      "what": "the lines added are those taken away",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "added: diff.hunks.reduce((total, hunk) => total + hunk.added, 0),",
+          "new": "added: diff.hunks.reduce((total, hunk) => total + hunk.removed, 0),"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-removed",
+      "what": "the lines taken away are those added",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "removed: diff.hunks.reduce((total, hunk) => total + hunk.removed, 0),",
+          "new": "removed: diff.hunks.reduce((total, hunk) => total + hunk.added, 0),"
+        }
+      ]
+    },
+    {
+      "name": "RRU-pending-all-modes",
+      "what": "a new or a deleted file adds its block to the hunks to review",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(fileMode(file) === 'text' ? summarizeFile(file, diff, accepted).pending : 0)",
+          "new": "(summarizeFile(file, diff, accepted).pending)"
+        }
+      ]
+    },
+    {
+      "name": "RRU-pending-none",
+      "what": "no hunk is to be reviewed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "(fileMode(file) === 'text' ? summarizeFile(file, diff, accepted).pending : 0)",
+          "new": "0"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-text-writable",
+      "what": "a text file is rewritten when it cannot be written",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.rejectFile && actions.mode === 'text' && diff && diff.hunks.length > 0) {",
+          "new": "if (actions.mode === 'text' && diff && diff.hunks.length > 0) {"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-text-hunks",
+      "what": "a text file with no hunk is rewritten",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.rejectFile && actions.mode === 'text' && diff && diff.hunks.length > 0) {",
+          "new": "if (actions.rejectFile && actions.mode === 'text' && diff) {"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-text-diff",
+      "what": "a text file with no diff is rewritten",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.rejectFile && actions.mode === 'text' && diff && diff.hunks.length > 0) {",
+          "new": "if (actions.rejectFile && actions.mode === 'text' && diff!.hunks.length > 0) {"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-count-rewrite",
+      "what": "a file rewritten is not counted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "      plan.rewrite += 1;",
+          "new": "      plan.rewrite += 0;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-count-hunks",
+      "what": "the hunks put back are not counted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "      plan.hunks += diff.hunks.length;",
+          "new": "      plan.hunks += 1;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-created-writable",
+      "what": "a new file is moved away when it cannot be written",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "} else if (actions.rejectFile && actions.mode === 'created') plan.created += 1;",
+          "new": "} else if (actions.mode === 'created') plan.created += 1;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-created-mode",
+      "what": "any file is moved away",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "} else if (actions.rejectFile && actions.mode === 'created') plan.created += 1;",
+          "new": "} else if (actions.rejectFile) plan.created += 1;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-reject-left",
+      "what": "a file that stays is not counted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "    else plan.left += 1;",
+          "new": "    else plan.left += 0;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-accept-files-recorded",
+      "what": "a file recorded already is recorded again",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.acceptFile && !file.accepted) plan.files += 1;",
+          "new": "if (actions.acceptFile) plan.files += 1;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-accept-files-allowed",
+      "what": "a file is recorded when it cannot be",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.acceptFile && !file.accepted) plan.files += 1;",
+          "new": "if (!file.accepted) plan.files += 1;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-accept-hunks-mode",
+      "what": "the block of a new file is marked as a hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;",
+          "new": "if (diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-accept-hunks-pending",
+      "what": "hunks accepted already are marked again",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;",
+          "new": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.length;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-hunk-accepted-marks-only",
+      "what": "a hunk counts as accepted only by a mark made on this page: the Hub's record of the file is not looked at",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return file.accepted === true || accepted.has(hunk.fingerprint);",
+          "new": "return accepted.has(hunk.fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-hunk-accepted-file-only",
+      "what": "a hunk counts as accepted only by the Hub's record of the file: the marks of this page are not looked at",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return file.accepted === true || accepted.has(hunk.fingerprint);",
+          "new": "return file.accepted === true;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-hunk-accepted-both",
+      "what": "a hunk counts as accepted only when the Hub has the file and a mark was made as well",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return file.accepted === true || accepted.has(hunk.fingerprint);",
+          "new": "return file.accepted === true && accepted.has(hunk.fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-summary-hub-record",
+      "what": "the list does not look at the Hub's record of the file when it counts the hunks still to be reviewed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "pending: diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length,",
+          "new": "pending: diff.hunks.filter((hunk) => !accepted.has(hunk.fingerprint)).length,"
+        }
+      ]
+    },
+    {
+      "name": "RRU-accept-hunks-hub-record",
+      "what": "the hunks of a file the Hub has recorded as accepted are offered to be marked again",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !hunkAccepted(file, accepted, hunk)).length;",
+          "new": "if (actions.byHunk && actions.acceptHunk && diff) plan.hunks += diff.hunks.filter((hunk) => !accepted.has(hunk.fingerprint)).length;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-land-empty",
+      "what": "with no hunk left the person is sent to the first one",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return count <= 0 ? -1 : Math.min(Math.max(index, 0), count - 1);",
+          "new": "return count <= 0 ? 0 : Math.min(Math.max(index, 0), count - 1);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-land-no-floor",
+      "what": "a place before the first hunk is not brought back to the first",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return count <= 0 ? -1 : Math.min(Math.max(index, 0), count - 1);",
+          "new": "return count <= 0 ? -1 : Math.min(index, count - 1);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-land-past-last",
+      "what": "the person can land one place after the last hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return count <= 0 ? -1 : Math.min(Math.max(index, 0), count - 1);",
+          "new": "return count <= 0 ? -1 : Math.min(Math.max(index, 0), count);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-land-takes-the-larger",
+      "what": "the person lands on the last hunk whatever the place was",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return count <= 0 ? -1 : Math.min(Math.max(index, 0), count - 1);",
+          "new": "return count <= 0 ? -1 : Math.max(Math.max(index, 0), count - 1);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-land-always-first",
+      "what": "the person always lands on the first hunk",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return count <= 0 ? -1 : Math.min(Math.max(index, 0), count - 1);",
+          "new": "return count <= 0 ? -1 : Math.min(0, count - 1);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-unlisted-file",
+      "what": "a file that is not in the review is looked into",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (!file || fileMode(file) !== 'text') return true;",
+          "new": "if (fileMode(file) !== 'text') return true;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-not-text",
+      "what": "a file that is not text is judged by the hunks of an empty text",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "if (!file || fileMode(file) !== 'text') return true;",
+          "new": "if (!file) return true;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-fingerprint-differs",
+      "what": "a hunk is gone when some hunk of the file has another fingerprint",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);",
+          "new": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint !== fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-inverted",
+      "what": "a hunk is gone when it is still there",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);",
+          "new": "return diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-file-gone-inverted",
+      "what": "a file is gone when it is listed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !files.some((candidate) => candidate.path === path);",
+          "new": "return files.some((candidate) => candidate.path === path);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-file-gone-other-path",
+      "what": "a file is gone when some other file is listed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !files.some((candidate) => candidate.path === path);",
+          "new": "return !files.some((candidate) => candidate.path !== path);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-differs-equal",
+      "what": "the mark differs when both texts start with it or neither does",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return startsWithMark(file.baselineText) !== startsWithMark(file.currentText);",
+          "new": "return startsWithMark(file.baselineText) === startsWithMark(file.currentText);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-baseline-only",
+      "what": "only the baseline is asked whether it starts with a mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return startsWithMark(file.baselineText) !== startsWithMark(file.currentText);",
+          "new": "return startsWithMark(file.baselineText);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-no-type-check",
+      "what": "a text that is not there is asked for its first character",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const startsWithMark = (text: string | null | undefined): boolean => typeof text === 'string' && text.charCodeAt(0) === BYTE_ORDER_MARK;",
+          "new": "const startsWithMark = (text: string | null | undefined): boolean => (text as string).charCodeAt(0) === BYTE_ORDER_MARK;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-bom-other-char",
+      "what": "another character is taken for the mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "const startsWithMark = (text: string | null | undefined): boolean => typeof text === 'string' && text.charCodeAt(0) === BYTE_ORDER_MARK;",
+          "new": "const startsWithMark = (text: string | null | undefined): boolean => typeof text === 'string' && text.charCodeAt(0) === 0xfffe;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-touches-any-hunk",
+      "what": "every hunk of a file whose mark differs is the mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return hunk.baselineStart === 0 && byteOrderMarkDiffers(file);",
+          "new": "return byteOrderMarkDiffers(file);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-touches-not-top",
+      "what": "the hunk that is not at the top of the file is the mark",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return hunk.baselineStart === 0 && byteOrderMarkDiffers(file);",
+          "new": "return hunk.baselineStart !== 0 && byteOrderMarkDiffers(file);"
+        }
+      ]
+    },
+    {
+      "name": "RRU-touches-no-difference",
+      "what": "the hunk at the top of the file is the mark whether or not a mark differs",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return hunk.baselineStart === 0 && byteOrderMarkDiffers(file);",
+          "new": "return hunk.baselineStart === 0;"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-default-two",
+      "what": "two paths are named by default",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "export function listPaths(paths: readonly string[], limit = 3): string {",
+          "new": "export function listPaths(paths: readonly string[], limit = 2): string {"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-one-more",
+      "what": "one path more than the limit is named",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit + 1).join(', ') + (paths.length > limit ? ', …' : '');"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-more-at-limit",
+      "what": "a list exactly as long as the limit is said to have more",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit).join(', ') + (paths.length >= limit ? ', …' : '');"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-separator",
+      "what": "the paths are joined without a space",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit).join(',') + (paths.length > limit ? ', …' : '');"
+        }
+      ]
+    },
+    {
+      "name": "RRU-list-no-mark",
+      "what": "a list that has more is not said to",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return paths.slice(0, limit).join(', ') + (paths.length > limit ? ', …' : '');",
+          "new": "return paths.slice(0, limit).join(', ');"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-kept-always",
+      "what": "the line about files that are still different is always there",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (kept.length > 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(kept) } });",
+          "new": "if (kept.length >= 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(kept) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-failed-always",
+      "what": "the line that names the files that could not be done is always there",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (result.failed.length > 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.failed.map((failure) => failure.path)) } });",
+          "new": "if (result.failed.length >= 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.failed.map((failure) => failure.path)) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-kept-names",
+      "what": "the files that are still different are the files that were done",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (kept.length > 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(kept) } });",
+          "new": "if (kept.length > 0) lines.push({ key: 'review_result_all_kept', values: { kept: listPaths(result.done) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-failed-names",
+      "what": "the files that could not be done are the files that were done",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (result.failed.length > 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.failed.map((failure) => failure.path)) } });",
+          "new": "if (result.failed.length > 0) lines.push({ key: 'review_result_all_failed_files', values: { paths: listPaths(result.done) } });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-tone-kept",
+      "what": "files that are still different do not make the status a warning",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { tone: result.failed.length > 0 || kept.length > 0 ? 'warn' : 'ok', lines };",
+          "new": "return { tone: result.failed.length > 0 ? 'warn' : 'ok', lines };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-tone-failed",
+      "what": "files that could not be done do not make the status a warning",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { tone: result.failed.length > 0 || kept.length > 0 ? 'warn' : 'ok', lines };",
+          "new": "return { tone: kept.length > 0 ? 'warn' : 'ok', lines };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-tone-both",
+      "what": "the status is a warning only when files failed and are still different as well",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { tone: result.failed.length > 0 || kept.length > 0 ? 'warn' : 'ok', lines };",
+          "new": "return { tone: result.failed.length > 0 && kept.length > 0 ? 'warn' : 'ok', lines };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-skipped",
+      "what": "the files left alone are not counted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "const lines: BatchSummary['lines'] = [{ key: 'review_result_all', values: { done: result.done.length, failed: result.failed.length, skipped: result.skipped } }];",
+          "new": "const lines: BatchSummary['lines'] = [{ key: 'review_result_all', values: { done: result.done.length, failed: result.failed.length, skipped: 0 } }];"
+        }
+      ]
+    },
+    {
+      "name": "RRU-gone-first-hunk-only",
+      "what": "a hunk is looked for by the fingerprint of the first hunk of the file only",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-rules.ts",
+          "old": "return !diffFile(file.baselineText ?? '', file.currentText ?? '').hunks.some((hunk) => hunk.fingerprint === fingerprint);",
+          "new": "return diffFile(file.baselineText ?? '', file.currentText ?? '').hunks[0]?.fingerprint !== fingerprint;"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-kept-unlimited",
+      "what": "the files that are still different are joined without the limit of three",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "values: { kept: listPaths(kept) }",
+          "new": "values: { kept: kept.join(', ') }"
+        }
+      ]
+    },
+    {
+      "name": "RAX-hunk-missing",
+      "what": "a hunk that is not there is saved",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!hunk || fileMode(file) !== 'text') return refused();",
+          "new": "if (fileMode(file) !== 'text') return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-hunk-mode",
+      "what": "a hunk of a file that is not text is saved",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!hunk || fileMode(file) !== 'text') return refused();",
+          "new": "if (!hunk) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-hunk-index",
+      "what": "the first hunk is always the one that is put back",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return save(source, file, rejectHunk(diff, hunk.index));",
+          "new": "return save(source, file, rejectHunk(diff, 0));"
+        }
+      ]
+    },
+    {
+      "name": "RAX-hunk-all",
+      "what": "every hunk is put back when one is asked",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return save(source, file, rejectHunk(diff, hunk.index));",
+          "new": "return save(source, file, rejectAll(diff));"
+        }
+      ]
+    },
+    {
+      "name": "RAX-save-capability",
+      "what": "a source that cannot write is asked to",
+      "equivalent": "a source that cannot write has no function to call, so the call throws and the throw is caught as a failure of another kind",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!source.saveText || !file.currentSha) return refused();",
+          "new": "if (!file.currentSha) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-save-sha",
+      "what": "a file with no sha is saved",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!source.saveText || !file.currentSha) return refused();",
+          "new": "if (!source.saveText) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-save-guard",
+      "what": "the write is guarded by the sha of the baseline",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "const saved = await source.saveText(file.path, text, file.currentSha);",
+          "new": "const saved = await source.saveText(file.path, text, file.baselineSha ?? file.currentSha);"
+        }
+      ]
+    },
+    {
+      "name": "RAX-save-path",
+      "what": "the write goes to another file",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "const saved = await source.saveText(file.path, text, file.currentSha);",
+          "new": "const saved = await source.saveText(file.path + '.x', text, file.currentSha);"
+        }
+      ]
+    },
+    {
+      "name": "RAX-save-answer",
+      "what": "the sha that comes back is the sha before",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { ok: true, sha: saved.sha256, text };",
+          "new": "return { ok: true, sha: file.currentSha, text };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-save-text",
+      "what": "the text that comes back is not the text that was saved",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return { ok: true, sha: saved.sha256, text };",
+          "new": "return { ok: true, sha: saved.sha256, text: file.currentText };"
+        }
+      ]
+    },
+    {
+      "name": "RAX-failure-kind",
+      "what": "every failure is another kind",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "const failure = (error: unknown): ActionOutcome => ({ ok: false, kind: conflictKind(error) });",
+          "new": "const failure = (error: unknown): ActionOutcome => ({ ok: false, kind: 'other' });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-file-created",
+      "what": "a new file is moved away though the Hub did not record it",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!file.rejectable || !source.rejectCreated || !file.currentSha) return refused();",
+          "new": "if (!source.rejectCreated || !file.currentSha) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-file-created-sha",
+      "what": "a new file with no sha is moved away",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!file.rejectable || !source.rejectCreated || !file.currentSha) return refused();",
+          "new": "if (!file.rejectable || !source.rejectCreated) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-file-mode",
+      "what": "a file that is not text is put back",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (mode !== 'text' || !diff || diff.hunks.length === 0) return refused();",
+          "new": "if (!diff || diff.hunks.length === 0) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-file-diff",
+      "what": "a text file with no hunk is saved",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (mode !== 'text' || !diff || diff.hunks.length === 0) return refused();",
+          "new": "if (mode !== 'text' || !diff) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-file-text",
+      "what": "a file is put back to its current text",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "return save(source, file, rejectAll(diff));",
+          "new": "return save(source, file, file.currentText ?? '');"
+        }
+      ]
+    },
+    {
+      "name": "RAX-accept-capability",
+      "what": "a source that cannot record is asked to",
+      "equivalent": "a source that cannot record has no function to call, so the call throws and the throw is caught as a failure of another kind",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!source.accept || !file.currentSha || !file.checkpointId) return refused();",
+          "new": "if (!file.currentSha || !file.checkpointId) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-accept-sha",
+      "what": "a file with no sha is recorded",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!source.accept || !file.currentSha || !file.checkpointId) return refused();",
+          "new": "if (!source.accept || !file.checkpointId) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-accept-checkpoint",
+      "what": "a file with no checkpoint is recorded",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!source.accept || !file.currentSha || !file.checkpointId) return refused();",
+          "new": "if (!source.accept || !file.currentSha) return refused();"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-reject-allowed",
+      "what": "files are put back when writing is not allowed",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!actions.rejectFile || (actions.mode === 'text' && (!diff || diff.hunks.length === 0))) continue;",
+          "new": "if (actions.mode === 'text' && (!diff || diff.hunks.length === 0)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-reject-empty",
+      "what": "a text file with no hunk is saved",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!actions.rejectFile || (actions.mode === 'text' && (!diff || diff.hunks.length === 0))) continue;",
+          "new": "if (!actions.rejectFile) continue;"
+        }
+      ]
+    },
+    {
+      "name": "RAX-tally-skipped",
+      "what": "the files that were left alone are not counted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "skipped: total - done.length - failed.length",
+          "new": "skipped: 0"
+        }
+      ]
+    },
+    {
+      "name": "RAX-tally-done",
+      "what": "the files that were done are counted as left alone",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "skipped: total - done.length - failed.length",
+          "new": "skipped: total - failed.length"
+        }
+      ]
+    },
+    {
+      "name": "RAX-tally-failed",
+      "what": "the files that failed are counted as left alone",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "skipped: total - done.length - failed.length",
+          "new": "skipped: total - done.length"
+        }
+      ]
+    },
+    {
+      "name": "RAX-record-failed-as-done",
+      "what": "a file that failed is counted as done",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (outcome.ok) done.push(path);",
+          "new": "done.push(path);"
+        }
+      ]
+    },
+    {
+      "name": "RAX-record-kind",
+      "what": "a failure is told as another kind",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "else failed.push({ path, kind: outcome.kind });",
+          "new": "else failed.push({ path, kind: 'other' });"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-accept-recorded",
+      "what": "a file recorded already is recorded again",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!fileActions(file, state).acceptFile || file.accepted) continue;",
+          "new": "if (!fileActions(file, state).acceptFile) continue;"
+        }
+      ]
+    },
+    {
+      "name": "RAX-batch-accept-allowed",
+      "what": "files are recorded when they cannot be",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-actions.ts",
+          "old": "if (!fileActions(file, state).acceptFile || file.accepted) continue;",
+          "new": "if (file.accepted) continue;"
+        }
+      ]
+    },
+    {
+      "name": "RST-kind",
+      "what": "the source says it is another source",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "kind: 'task-checkpoint',",
+          "new": "kind: 'git-head',"
+        }
+      ]
+    },
+    {
+      "name": "RST-task",
+      "what": "the review of another conversation is asked for",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "const answer = await api.getTaskReview(taskId);",
+          "new": "const answer = await api.getTaskReview(taskId + 'x');"
+        }
+      ]
+    },
+    {
+      "name": "RST-task-id",
+      "what": "the answer without a conversation id is not given one",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "taskId: answer.taskId ?? taskId,",
+          "new": "taskId: answer.taskId,"
+        }
+      ]
+    },
+    {
+      "name": "RST-files",
+      "what": "files that are not a list are handed on",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "files: Array.isArray(answer.files) ? answer.files : [],",
+          "new": "files: answer.files as ReviewFile[],"
+        }
+      ]
+    },
+    {
+      "name": "RST-truncated",
+      "what": "the flag is handed on as it is",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "truncated: Boolean(answer.truncated),",
+          "new": "truncated: answer.truncated as boolean,"
+        }
+      ]
+    },
+    {
+      "name": "RST-omitted",
+      "what": "the count of protected files is handed on as it is",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "omitted: { protected: Number(answer.omitted?.protected) || 0 },",
+          "new": "omitted: { protected: answer.omitted?.protected as number },"
+        }
+      ]
+    },
+    {
+      "name": "RST-limitations",
+      "what": "limitations that are not a list are handed on",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "limitations: Array.isArray(answer.limitations) ? answer.limitations : [],",
+          "new": "limitations: answer.limitations as ReviewLimitation[],"
+        }
+      ]
+    },
+    {
+      "name": "RST-checkpoints",
+      "what": "the checkpoints are dropped",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "checkpoints: answer.checkpoints,",
+          "new": "checkpoints: undefined,"
+        }
+      ]
+    },
+    {
+      "name": "RST-save-args",
+      "what": "the save names the sha first",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "const saved = await api.saveFile(path, content, expectedSha);",
+          "new": "const saved = await api.saveFile(path, expectedSha, content);"
+        }
+      ]
+    },
+    {
+      "name": "RST-save-sha",
+      "what": "the sha that comes back is not read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "return { sha256: typeof saved?.sha256 === 'string' ? saved.sha256 : '' };",
+          "new": "return { sha256: expectedSha };"
+        }
+      ]
+    },
+    {
+      "name": "RST-save-missing",
+      "what": "a missing sha is made up",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "return { sha256: typeof saved?.sha256 === 'string' ? saved.sha256 : '' };",
+          "new": "return { sha256: saved?.sha256 as string };"
+        }
+      ]
+    },
+    {
+      "name": "RST-accept-guard-sha",
+      "what": "a file with no sha is accepted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "if (!file.currentSha || !file.checkpointId) throw new TypeError();",
+          "new": "if (!file.checkpointId) throw new TypeError();"
+        }
+      ]
+    },
+    {
+      "name": "RST-accept-guard-checkpoint",
+      "what": "a file with no checkpoint is accepted",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "if (!file.currentSha || !file.checkpointId) throw new TypeError();",
+          "new": "if (!file.currentSha) throw new TypeError();"
+        }
+      ]
+    },
+    {
+      "name": "RST-accept-args",
+      "what": "the acceptance names the file first",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "await api.acceptFile(file.checkpointId, file.path, file.currentSha);",
+          "new": "await api.acceptFile(file.path, file.checkpointId, file.currentSha);"
+        }
+      ]
+    },
+    {
+      "name": "RST-move-guard",
+      "what": "a file with no sha is moved away",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "if (!file.currentSha) throw new TypeError();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RST-move-args",
+      "what": "the move names the file before the conversation",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-source-task.ts",
+          "old": "await api.rejectCreated(taskId, file.path, file.currentSha);",
+          "new": "await api.rejectCreated(file.path, taskId, file.currentSha);"
+        }
+      ]
+    },
+    {
+      "name": "ROF-edited-status",
+      "what": "an edit that has not finished counts",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "if (call.status !== 'success' || toolKind(call.name) !== 'edit') continue;",
+          "new": "if (toolKind(call.name) !== 'edit') continue;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-edited-kind",
+      "what": "a read counts as an edit",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "if (call.status !== 'success' || toolKind(call.name) !== 'edit') continue;",
+          "new": "if (call.status !== 'success') continue;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-edited-path",
+      "what": "the path of the call is not read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "for (const path of [...named(args?.path), ...listed(args?.paths), ...named(args?.source), ...named(args?.destination)]) seen.add(path);",
+          "new": "for (const path of [...listed(args?.paths), ...named(args?.source), ...named(args?.destination)]) seen.add(path);"
+        }
+      ]
+    },
+    {
+      "name": "ROF-edited-paths",
+      "what": "the paths of a batch are not read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "for (const path of [...named(args?.path), ...listed(args?.paths), ...named(args?.source), ...named(args?.destination)]) seen.add(path);",
+          "new": "for (const path of [...named(args?.path), ...named(args?.source), ...named(args?.destination)]) seen.add(path);"
+        }
+      ]
+    },
+    {
+      "name": "ROF-edited-source",
+      "what": "the source of a move is not read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "for (const path of [...named(args?.path), ...listed(args?.paths), ...named(args?.source), ...named(args?.destination)]) seen.add(path);",
+          "new": "for (const path of [...named(args?.path), ...listed(args?.paths), ...named(args?.destination)]) seen.add(path);"
+        }
+      ]
+    },
+    {
+      "name": "ROF-edited-destination",
+      "what": "the destination of a move is not read",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "for (const path of [...named(args?.path), ...listed(args?.paths), ...named(args?.source), ...named(args?.destination)]) seen.add(path);",
+          "new": "for (const path of [...named(args?.path), ...listed(args?.paths), ...named(args?.source)]) seen.add(path);"
+        }
+      ]
+    },
+    {
+      "name": "ROF-edited-order",
+      "what": "the files come in alphabetical order",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "return [...seen];",
+          "new": "return [...seen].sort();"
+        }
+      ]
+    },
+    {
+      "name": "ROF-named-empty",
+      "what": "an empty path counts",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "(typeof value === 'string' && value !== '' ? [value] : [])",
+          "new": "(typeof value === 'string' ? [value] : [])"
+        }
+      ]
+    },
+    {
+      "name": "ROF-named-type",
+      "what": "a path that is not text counts",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "(typeof value === 'string' && value !== '' ? [value] : [])",
+          "new": "(value !== '' ? [value as string] : [])"
+        }
+      ]
+    },
+    {
+      "name": "ROF-listed-type",
+      "what": "a list that is not a list counts",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "const listed = (value: unknown): string[] => (Array.isArray(value) ? value.flatMap(named) : []);",
+          "new": "const listed = (value: unknown): string[] => named(value);"
+        }
+      ]
+    },
+    {
+      "name": "ROF-receipt-none",
+      "what": "a call that does not exist has a link",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "if (!call || call.status !== 'success' || !call.checkpointId || toolKind(call.name) !== 'edit') return null;",
+          "new": "if (call!.status !== 'success' || !call!.checkpointId || toolKind(call!.name) !== 'edit') return null;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-receipt-status",
+      "what": "an edit that failed has a link",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "if (!call || call.status !== 'success' || !call.checkpointId || toolKind(call.name) !== 'edit') return null;",
+          "new": "if (!call || !call.checkpointId || toolKind(call.name) !== 'edit') return null;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-receipt-checkpoint",
+      "what": "an edit with no checkpoint has a link",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "if (!call || call.status !== 'success' || !call.checkpointId || toolKind(call.name) !== 'edit') return null;",
+          "new": "if (!call || call.status !== 'success' || toolKind(call.name) !== 'edit') return null;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-receipt-kind",
+      "what": "a read has a link",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "if (!call || call.status !== 'success' || !call.checkpointId || toolKind(call.name) !== 'edit') return null;",
+          "new": "if (!call || call.status !== 'success' || !call.checkpointId) return null;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-receipt-destination",
+      "what": "a move leads to its source",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "const path = [...named(args?.path), ...named(args?.destination), ...listed(args?.paths)][0];",
+          "new": "const path = [...named(args?.path), ...named(args?.source), ...listed(args?.paths)][0];"
+        }
+      ]
+    },
+    {
+      "name": "ROF-receipt-order",
+      "what": "the paths of a batch come before the path of the call",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "const path = [...named(args?.path), ...named(args?.destination), ...listed(args?.paths)][0];",
+          "new": "const path = [...listed(args?.paths), ...named(args?.path), ...named(args?.destination)][0];"
+        }
+      ]
+    },
+    {
+      "name": "ROF-receipt-paths",
+      "what": "a batch has no link",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "const path = [...named(args?.path), ...named(args?.destination), ...listed(args?.paths)][0];",
+          "new": "const path = [...named(args?.path), ...named(args?.destination)][0];"
+        }
+      ]
+    },
+    {
+      "name": "ROF-find-slash",
+      "what": "the other slash is not turned",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "const slashes = (path: string) => path.replace(/\\\\/g, '/');",
+          "new": "const slashes = (path: string) => path;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-find-case-first",
+      "what": "the case is folded at once",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "for (const fold of [false, true]) {",
+          "new": "for (const fold of [true]) {"
+        }
+      ]
+    },
+    {
+      "name": "ROF-find-case",
+      "what": "the case is never folded",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "for (const fold of [false, true]) {",
+          "new": "for (const fold of [false]) {"
+        }
+      ]
+    },
+    {
+      "name": "ROF-find-end",
+      "what": "a path is found only as it is",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "const ending = files.filter((file) => wantedKey.endsWith(`/${key(file.path)}`)).sort((a, b) => b.path.length - a.path.length)[0];",
+          "new": "const ending = undefined;"
+        }
+      ]
+    },
+    {
+      "name": "ROF-find-end-slash",
+      "what": "a name that only ends the same way is found",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "wantedKey.endsWith(`/${key(file.path)}`)",
+          "new": "wantedKey.endsWith(key(file.path))"
+        }
+      ]
+    },
+    {
+      "name": "ROF-find-longest",
+      "what": "the shortest path that the wanted path ends with is found",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": ".sort((a, b) => b.path.length - a.path.length)[0];",
+          "new": ".sort((a, b) => a.path.length - b.path.length)[0];"
+        }
+      ]
+    },
+    {
+      "name": "ROF-find-exact",
+      "what": "a path that is the file is not found as it is",
+      "patches": [
+        {
+          "file": "ui/src/lib/review-offer.ts",
+          "old": "const exact = files.find((file) => key(file.path) === wantedKey);",
+          "new": "const exact = undefined;"
+        }
+      ]
+    }
+  ]
+}

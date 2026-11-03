@@ -1,3 +1,5 @@
+import type { ReviewFile, ReviewLimitation } from '../lib/review-source';
+
 /** A tool result held on this computer until the owner decides (ChatGPT Web "review before send"). */
 export interface OutboundReview {
   id: string;
@@ -773,6 +775,16 @@ export interface GitReview {
     diff: string;
     currentSha: string;
   }[];
+}
+
+/** What `GET /api/studio/task-review` answers for a conversation (docs/REVIEW-API.md): every file it changed, as full texts, and what the answer cannot see. */
+export interface TaskReviewAnswer {
+  taskId: string;
+  checkpoints: { total: number; targeted: number; broad: number };
+  files: ReviewFile[];
+  truncated: boolean;
+  omitted: { protected: number };
+  limitations: ReviewLimitation[];
 }
 
 export interface CodeMatch {

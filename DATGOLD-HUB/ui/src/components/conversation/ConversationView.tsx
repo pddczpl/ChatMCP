@@ -12,6 +12,7 @@ import { Composer } from './Composer';
 import { EmptyState } from './EmptyState';
 import { ModelProfilePicker, RoleOverridesField, TaskReasoningPicker } from './ModelProfilePicker';
 import { ProofStrip } from './ProofStrip';
+import { ReviewOffer } from './ReviewOffer';
 import { ProjectInstructionsNote } from './ProjectInstructionsNote';
 import { SkillSelectionNote } from './SkillSelectionNote';
 import { ContextPolicyNotice } from './ContextPolicyNotice';
@@ -332,6 +333,8 @@ export function ConversationView() {
 
               {/* What the Hub recorded, not what the model wrote. */}
               {task && !isWorking && <ProofStrip task={task} />}
+              {/* The way into the Review tab when this conversation changed files: the edits the Hub recorded, never the model's word for it. */}
+              {task && !isWorking && <ReviewOffer task={task} />}
               {/* What the Hub put into the instructions of this run (AGENTS.md, CLAUDE.md) and which skills the model read: a record, never a proof. */}
               {task && !isWorking && <ProjectInstructionsNote task={task} />}
               {/* Which skills the Hub took for this run and on what grounds, or why none: a record of its choice, never a proof. */}
