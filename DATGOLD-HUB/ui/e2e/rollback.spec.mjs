@@ -99,6 +99,7 @@ test('undo one step of a task and only that one; Escape says no, Enter says yes;
   await page.keyboard.press('Enter');
   await expect(dialog(page)).toBeHidden();
   await expect(page.getByText('Đã hoàn tác 1 file.')).toBeVisible();
+  await expect(first, 'the focus is back on the button that asked, not lost to the page').toBeFocused();
   expect([disk(app, 'one.txt'), disk(app, 'two.txt')]).toEqual([bytesOf(ONE), bytesOf(TWO_EDITED)]);
   const backups = (await checkpoints(app)).filter((checkpoint) => checkpoint.kind === 'undo');
   expect(backups, 'the Hub saved the file before it wrote').toHaveLength(1);
@@ -206,6 +207,8 @@ test('undo all the changes of a task: an edit, a new file and a deleted one go b
   // nothing is left to review, and the page agrees with itself
   await expect(page.getByTestId('review-file')).toHaveCount(0);
   await expect(page.getByTestId('review-undo-all')).toBeDisabled();
+  // the button that asked has nothing left to do and is disabled: the focus goes to the panel it was in, not to the page
+  await expect(page.getByTestId('review-tab')).toBeFocused();
   expect((await checkpoints(app)).filter((checkpoint) => checkpoint.kind === 'undo'), 'one backup for the three files').toHaveLength(1);
 
   // one click puts the three back

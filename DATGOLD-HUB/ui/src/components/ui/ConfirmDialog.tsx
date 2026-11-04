@@ -73,7 +73,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
 /**
  * The focus goes back to the control that asked, once the dialog is gone and the control can take it: a button that is disabled while its work is going on (and was while the question was open)
- * gets the focus when it is enabled again. If the person has put the focus somewhere else by then, it stays there.
+ * gets the focus when it is enabled again. If the person has put the focus somewhere else by then, it stays there. A control that stays disabled (the work took away what it was for: nothing
+ * is left to undo) hands the focus to the panel it is in, so that the focus is not lost to the page.
  */
 function returnFocus(target: HTMLElement | null) {
   if (!target) return;
@@ -84,6 +85,14 @@ function returnFocus(target: HTMLElement | null) {
     if (!dialogOpen && document.activeElement && document.activeElement !== document.body) return;
     if (!dialogOpen && !(target as HTMLButtonElement).disabled) { target.focus(); return; }
     tries += 1;
+    if (!dialogOpen && tries >= 30) {
+      const region = target.closest<HTMLElement>('[role="tabpanel"], section, main');
+      if (region) {
+        if (!region.hasAttribute('tabindex')) region.setAttribute('tabindex', '-1');
+        region.focus({ preventScroll: true });
+      }
+      return;
+    }
     if (tries < 120) requestAnimationFrame(attempt);
   };
   requestAnimationFrame(attempt);
