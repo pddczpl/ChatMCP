@@ -46,18 +46,75 @@ function clipRow(row) {
 }
 
 /**
+ * The frames of a private key, as the source of a regular expression. PGP arms its private keys as `-----BEGIN PGP PRIVATE KEY BLOCK-----`, which is why "PRIVATE KEY" may be followed by
+ * " BLOCK". A public key (`PUBLIC KEY`, `PGP PUBLIC KEY BLOCK`) is not one: it is not a secret.
+ */
+export const PRIVATE_KEY_BEGIN = String.raw`-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`;
+export const PRIVATE_KEY_END = String.raw`-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`;
+const BEGIN_FRAMES = new RegExp(PRIVATE_KEY_BEGIN, 'g');
+const END_FRAMES = new RegExp(PRIVATE_KEY_END, 'g');
+
+/** Where the last frame of this kind starts in the line, -1 when there is none. */
+function lastFrame(frames, line) {
+  let at = -1;
+  for (const match of line.matchAll(frames)) at = match.index;
+  return at;
+}
+
+/**
  * The 0-based numbers of the lines that are the body of a private key: between a `-----BEGIN ... PRIVATE KEY-----` line and the `-----END` line (or the end of the text, when the end is not
  * there). The frame lines are not secret and stay. A line of a body looks like any base64, so only its place tells what it is; the card cuts a file into rows, which keeps their place.
+ * A line that holds a frame is never a body line. What it leaves open is told by the frame that comes LAST in it: a key that begins and ends in one line (a service-account file keeps the
+ * whole key in one line, its line breaks written \n) leaves nothing open, and the lines after it are not its body.
  */
 export function privateKeyBodyLines(text) {
   const inside = new Set();
   let open = false;
   text.split('\n').forEach((line, index) => {
-    if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = true;
-    else if (/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = false;
-    else if (open) inside.add(index);
+    if (!line.includes('PRIVATE KEY')) {
+      if (open) inside.add(index);
+      return;
+    }
+    const begin = lastFrame(BEGIN_FRAMES, line);
+    const end = lastFrame(END_FRAMES, line);
+    if (begin < 0 && end < 0) {
+      if (open) inside.add(index);
+      return;
+    }
+    open = begin > end;
   });
   return inside;
+}
+
+/**
+ * The text of a row with every key that begins and ends in it hidden: the two frames stay, what is between them becomes [REDACTED], and the rest of the line is as it was. Done on the whole
+ * line, before the row is cut to its 400 characters: a key is longer than that, and a cut row has lost its END frame, so nothing could tell afterwards what the rest of it was.
+ */
+export function hideInlineKeys(text) {
+  if (!text.includes('PRIVATE KEY')) return text;
+  const begin = new RegExp(PRIVATE_KEY_BEGIN, 'g');
+  const end = new RegExp(PRIVATE_KEY_END, 'g');
+  let out = '';
+  let from = 0;
+  for (let opening = begin.exec(text); opening; opening = begin.exec(text)) {
+    const bodyStart = opening.index + opening[0].length;
+    end.lastIndex = bodyStart;
+    const closing = end.exec(text);
+    if (!closing) break; // no END frame to the right of this one: none to the right of the next ones either
+    out += text.slice(from, bodyStart) + '[REDACTED]';
+    from = closing.index;
+    begin.lastIndex = closing.index + closing[0].length;
+  }
+  return out + text.slice(from);
+}
+
+/** Whether a text holds private key material: a body between two frames, or a key that begins and ends in one line. */
+export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\n').some((line) => hideInlineKeys(line) !== line));
+
+/** A row whose key (one that begins and ends in the row) is hidden; the row itself when it holds none. */
+function withoutInlineKeys(row) {
+  const text = hideInlineKeys(row.text);
+  return text === row.text ? row : { kind: row.kind, text };
 }
 
 /** The rows of a hunk, with the rows that are a line of a private key's body replaced by a marker (the row keeps its kind and its line ending). */
@@ -89,7 +146,7 @@ function fileEntry(plan, budget) {
     const rows = [];
     for (const row of hideKeyBodies(hunk, oldLines, newLines)) {
       if (shown + rows.length >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;
-      const clipped = clipRow(row);
+      const clipped = clipRow(withoutInlineKeys(row));
       budget.chars -= clipped.text.length;
       rows.push(clipped);
     }
@@ -127,7 +184,7 @@ export function buildChangePreview(plans, failure = null) {
   const budget = { chars: PREVIEW_LIMITS.chars };
   const files = plans.slice(0, PREVIEW_LIMITS.files).map((plan) => fileEntry(plan, budget));
   // A call that touches private key material says so: the gate then leaves the words the model wrote out of the card, because they can hold a line of the body, which only its place gives away.
-  const keys = plans.some((plan) => [plan.oldText, plan.newText].some((text) => typeof text === 'string' && privateKeyBodyLines(text).size > 0));
+  const keys = plans.some((plan) => [plan.oldText, plan.newText].some((text) => typeof text === 'string' && holdsPrivateKey(text)));
   return { files, fileCount: plans.length, hiddenFiles: plans.length - files.length, truncated: plans.length > files.length || files.some((file) => file.truncated), ...(keys ? { privateKeys: true } : {}) };
 }
 

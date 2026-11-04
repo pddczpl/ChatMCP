@@ -1,5 +1,5 @@
 import { writeJson, readJson, redact as redactSecrets } from './runtime.mjs';
-import { FILE_CHANGE_TOOLS } from './approval-preview.mjs';
+import { FILE_CHANGE_TOOLS, PRIVATE_KEY_BEGIN, PRIVATE_KEY_END } from './approval-preview.mjs';
 import { isProtectedPath } from './protected-paths.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -30,8 +30,30 @@ const SECRET_KEYS=/authorization|secret|password|token|api.?key|private.?key/i;
 // and kept in the audit history). Registered secrets are always replaced exactly.
 // The name of a secret as code and configuration spell it: DB_PASSWORD, clientSecret, "access_token", x-api-key, aws_secret_access_key, app.config["SECRET_KEY"]. The word may carry a prefix and one
 // of a few endings (_key, token, value, hash, id, string), nothing else: tokenCount, passwordInput and tokenizer are names of code that talks about secrets, not secrets.
-const SECRET_WORD = String.raw`(?:api[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|pwd|passphrase|token|credentials?)`;
-const SECRET_NAME = String.raw`\b[A-Za-z0-9_.$-]{0,40}${SECRET_WORD}(?:[_-]?(?:key|token|value|hash|id|string))?["']?\]?`;
+const SECRET_WORD = String.raw`(?:api[_-]?key|access[_-]?key|private[_-]?key|ssh[_-]?key|secret|password|passwd|pwd|passphrase|token|credentials?)`;
+const SECRET_ENDING = String.raw`(?:[_-]?(?:key|token|value|hash|id|string))?`;
+const SECRET_NAME = String.raw`\b[A-Za-z0-9_.$-]{0,40}${SECRET_WORD}${SECRET_ENDING}["']?\]?`;
+// A value written bare after such a name that is no secret: the type of the name (`token: string;`), a read of the environment or of a variable (`process.env.API_KEY`, `os.environ[..]`, `$TOKEN`,
+// `%TOKEN%`), a word that says it is a placeholder (`changeme`), the plain name of a secret (`password=password`, `token: Token`: a variable or a type) and a member read that ends in one (`this.token`,
+// `config.dbPassword`). Each has to be the WHOLE value: a value that only starts like one (`string1Hunter`, `$ecret!9`, `changeme123`, `password123`) is masked, and so is a name with a prefix and no dot
+// (`MyPassword`, `supersecret`): a word of letters cannot be told from a weak password by its shape.
+// A quoted value is a literal and is masked, but for the three words of the `credentials` option of fetch (include, omit, same-origin).
+const VALUE_CHAR = String.raw`[^\s"'&,;(){}\[\]<>]`;
+const TYPE_WORDS = ['string', 'number', 'boolean', 'unknown', 'object', 'symbol', 'bigint', 'undefined', 'buffer', 'bytearray', 'uint8array', 'integer', 'double', 'decimal', 'varchar', 'optional', 'secretstr', 'securestring', 'requestcredentials'];
+const PLACEHOLDER_WORDS = ['changeme', 'change[-_]me', 'replace[-_]?me', 'placeholder', 'redacted', 'example', 'x+', String.raw`\*+`, 'your[-_][a-z_-]+'];
+const WHOLE_VALUES = String.raw`(?:${TYPE_WORDS.join('|')}|${PLACEHOLDER_WORDS.join('|')}|${SECRET_WORD}${SECRET_ENDING}|(?:[A-Za-z_]\w*\.)+\w{0,40}${SECRET_WORD}${SECRET_ENDING}|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)(?!${VALUE_CHAR})`;
+const READS_OF_THE_ENVIRONMENT = String.raw`(?:process\.env|import\.meta\.env|os\.environ|ENV)[.\[]|\$env:`;
+// A secret given to a command as the value of a flag. A flag counts when a space (or the start of the text) comes before it; the value is bare or in quotes; a read of a variable ($PASSWORD,
+// %PASSWORD%) is no secret, and neither is another flag. A flag whose name says that there is no password (--no-password, --ask-password) takes no value.
+const LONG_FLAG = String.raw`(?<!\S)--(?!(?:no|skip|ask|prompt|disable|enable|with|use|require|show|hide|ignore)-)(?:[a-z0-9]+-)*(?:password|passwd|passphrase|pass|pwd|token|secret|api-?key|access-?key|secret-?key)`;
+const USER_FLAG = String.raw`(?<!\S)(?:-u|--user|--proxy-user)[ \t=]+`;
+// The -p of the clients of MySQL has its password glued to it (-psecret); in sshpass and in the login of a container client it is a word of its own (-p secret).
+const MYSQL_P = String.raw`\b(?:mysql|mysqldump|mysqladmin|mysqlimport|mysqlcheck|mysqlshow|mysqlpump|mariadb)\b[^\r\n]{0,200}?(?<!\S)-p`;
+const SPACED_P = String.raw`(?:\bsshpass[ \t]+-p[ \t]*|\b(?:docker|podman|nerdctl|buildah|skopeo)[ \t]+login\b[^\r\n]{0,200}?(?<!\S)-p[ \t]+)`;
+const quotedValue = (head) => new RegExp(String.raw`(${head})(["'])(?![$%])(?:(?!\2)[^\r\n]){1,2000}\2`, 'gi');
+const bareValue = (head, least) => new RegExp(String.raw`(${head})(?![$%-])[^\s"'|;&<>()]{${least},}`, 'gi');
+// XML: <password>secret</password>, <db-password encrypted="false">secret</db-password>, <add key="ApiKey" value="secret" />, <property name="password" value="secret"/>.
+const XML_NAME = String.raw`[A-Za-z0-9_.:-]{0,40}${SECRET_WORD}${SECRET_ENDING}`;
 const TOKEN_PATTERNS = [
   [/\bsk-[A-Za-z0-9_-]{16,}/g, '[REDACTED]'],
   [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, '[REDACTED]'],
@@ -47,15 +69,29 @@ const TOKEN_PATTERNS = [
   [/\bpypi-[A-Za-z0-9_-]{30,}/g, '[REDACTED]'],
   [/\bya29\.[A-Za-z0-9_-]{20,}/g, '[REDACTED]'],
   [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}/g, '[REDACTED]'],
-  // The body of a private key (it starts with MII once decoded: DER), and the whole block when the text holds its two frames.
-  [/(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----)/g, '$1\n[REDACTED]\n$2'],
+  // The body of a private key (it starts with MII once decoded: DER), and the whole block when the text holds its two frames (PGP's included: "PRIVATE KEY BLOCK"). A block over several lines keeps
+  // its frames on lines of their own; a key that begins and ends in one line (a service-account file) stays in that line.
+  [new RegExp(String.raw`(${PRIVATE_KEY_BEGIN})([\s\S]*?)(${PRIVATE_KEY_END})`, 'g'), (_all, begin, body, end) => (body.includes('\n') ? `${begin}\n[REDACTED]\n${end}` : `${begin}[REDACTED]${end}`)],
   [/\bMII[A-Za-z0-9+/]{30,}={0,2}/g, '[REDACTED]'],
   [/(\bBearer\s+)[A-Za-z0-9._~+/=-]{12,}/gi, '$1[REDACTED]'],
   // Any other Authorization header (Basic, Token, Digest ...): everything after it, unless the Bearer rule has masked it already.
   [/(\bAuthorization["']?\s*[:=]\s*["']?)(?![^\r\n]*\[REDACTED\])[^\r\n"']{6,}/gi, '$1[REDACTED]'],
-  // A secret assigned to a name: in quotes (up to the closing quote, spaces included), or bare (not a number, not a regular expression, not a call, not a ${placeholder} or <placeholder>).
-  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(["'])(?:(?!\2)[^\r\n]){4,}\2`, 'gi'), '$1$2[REDACTED]$2'],
-  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(?!["'/]|[0-9]+(?![\w.@/+=-])|[^\s"'&,;(){}\[\]<>]*\()[^\s"'&,;(){}\[\]<>]{6,}`, 'gi'), '$1[REDACTED]'],
+  // A secret given to a command: --password secret, --github-token secret, curl -u user:secret, mysql -psecret, sshpass -p secret, docker login -p secret.
+  [quotedValue(`${LONG_FLAG}[ \\t]+`), '$1$2[REDACTED]$2'],
+  [bareValue(`${LONG_FLAG}[ \\t]+`, 4), '$1[REDACTED]'],
+  [new RegExp(String.raw`(${USER_FLAG}(["'])[^\r\n"':]{1,100}:)(?!//|[$%])(?:(?!\2)[^\r\n]){1,2000}\2`, 'gi'), '$1[REDACTED]$2'],
+  [new RegExp(String.raw`(${USER_FLAG}[^\s:"']{1,100}:)(?!//|[$%])[^\s"'|;&<>()]+`, 'gi'), '$1[REDACTED]'],
+  [quotedValue(MYSQL_P), '$1$2[REDACTED]$2'],
+  [bareValue(MYSQL_P, 1), '$1[REDACTED]'],
+  [quotedValue(SPACED_P), '$1$2[REDACTED]$2'],
+  [bareValue(SPACED_P, 1), '$1[REDACTED]'],
+  // A secret in XML: the text of an element named like a secret, and the value of an entry (<add key=".." value=".."/>) whose key is named like one. A read (${env.X}, %X%) and a placeholder are not.
+  [new RegExp(String.raw`(<(${XML_NAME})(?:[ \t][^<>\r\n]{0,200})?>)(?![ \t]*(?:[$%]|(?:${PLACEHOLDER_WORDS.join('|')})[ \t]*<))[^<\r\n]{4,}?(?=<\/\2[ \t]*>)`, 'gi'), '$1[REDACTED]'],
+  [new RegExp(String.raw`(\b(?:key|name)=(["'])[^"'\r\n]{0,60}${SECRET_WORD}[^"'\r\n]{0,20}\2\s+value=)(["'])(?![$%])(?:(?!\3)[^\r\n<>]){4,}\3`, 'gi'), '$1$3[REDACTED]$3'],
+  // A secret assigned to a name: in quotes (up to the closing quote, spaces included, but for the words of fetch's credentials option), or bare (not a number, not a regular expression, not a call, not a
+  // ${placeholder} or <placeholder>, and none of the values that are no secret: a type, a read of the environment or of a variable, a placeholder).
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(["'])(?!(?:include|omit|same-origin)\2)(?:(?!\2)[^\r\n]){4,}\2`, 'gi'), '$1$2[REDACTED]$2'],
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(?!["'/]|[0-9]+(?![\w.@/+=-])|${VALUE_CHAR}*\(|${WHOLE_VALUES}|${READS_OF_THE_ENVIRONMENT})${VALUE_CHAR}{6,}`, 'gi'), '$1[REDACTED]'],
   [/(\/\/[^\s/:@]+:)[^\s/@]{3,}(@)/g, '$1[REDACTED]$2'],
 ];
 export function maskSecrets(value, secrets = []) {

@@ -23,7 +23,7 @@ import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { PermissionGate } from '../lib/permissions.mjs';
 import { HookRunner } from '../lib/hooks.mjs';
-import { PREVIEW_LIMITS, argumentsDigest, buildChangePreview } from '../lib/approval-preview.mjs';
+import { PREVIEW_LIMITS, argumentsDigest, buildChangePreview, hideInlineKeys, holdsPrivateKey, privateKeyBodyLines } from '../lib/approval-preview.mjs';
 import { diffHunks, hunksDigest } from '../lib/line-diff.mjs';
 
 let checks = 0;
@@ -262,6 +262,108 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.deepEqual(rotated.map((row) => [row.kind, row.text]), [['context', `${FRAME[0]}\n`], ['removed', '[REDACTED]\n'], ['added', '[REDACTED]\n'], ['context', `${FRAME[1]}\n`]], 'a key that is replaced by another still shows that the line changed');
   assert.deepEqual(leaks(rotation.request).concat(BODY.filter((line) => JSON.stringify(rotation.request).includes(line))), []);
   ok('a private key: the frame stays, every line of the body is masked wherever the card shows it (context, taken away, put in), the counts are still those of the real change');
+
+  // Where a key is: a body is the lines between a BEGIN frame and an END frame. A key that begins and ends in ONE line has no body, and nothing opens after it.
+  const oneLine = (key) => `"private_key": "${key}",`;
+  assert.deepEqual([...privateKeyBodyLines(`a\n${oneLine('-----BEGIN PRIVATE KEY-----\\nMIIEvQ\\n-----END PRIVATE KEY-----\\n')}\nb\nc\n`)], [], 'a key in one line has no body lines: the lines after it are not hidden');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQdGBF\n=ab12\n-----END PGP PRIVATE KEY BLOCK-----\nafter\n')], [1, 2, 3], 'a PGP private key is a key: its blank line, its body and its checksum are its body');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PGP PUBLIC KEY BLOCK-----\nmQENBF\n-----END PGP PUBLIC KEY BLOCK-----\n')], [], 'a PGP public key is not');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PRIVATE KEY-----\nabc\ndef')], [1, 2], 'a key with no END frame is a body to the end of the text');
+  assert.deepEqual([...privateKeyBodyLines('x -----END PRIVATE KEY----- y -----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY-----\nafter\n')], [1], 'a line that ends one key and begins another opens the next');
+  assert.deepEqual([...privateKeyBodyLines('-----END PRIVATE KEY-----\nnot a body\n')], [], 'a stray END frame opens nothing');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY----- -----BEGIN PRIVATE KEY-----\nsecond\n-----END PRIVATE KEY-----\nafter\n')], [1, 3], 'two keys, one frame line between them');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PRIVATE KEY-----x-----END PRIVATE KEY-----y-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY-----\n')], [1], 'with several frames in a line the last BEGIN is the one that counts');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY----- -----BEGIN PRIVATE KEY----- -----END PRIVATE KEY-----\nafter\n')], [1], 'and the last END');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PGP PRIVATE KEY BLOCK-----\nComment: PRIVATE KEY backup\n\nlQdGBF\n-----END PGP PRIVATE KEY BLOCK-----\n')], [1, 2, 3], 'a line of the body that says "PRIVATE KEY" in words is a line of the body');
+
+  // hideInlineKeys: the key goes, the frames and the rest of the line stay
+  const FRAMES = ['-----BEGIN PRIVATE KEY-----', '-----END PRIVATE KEY-----'];
+  assert.equal(hideInlineKeys(`a ${FRAMES[0]}xyz${FRAMES[1]} b\n`), `a ${FRAMES[0]}[REDACTED]${FRAMES[1]} b\n`, 'one key in a row');
+  assert.equal(hideInlineKeys(`${FRAMES[0]}one${FRAMES[1]} and ${FRAMES[0]}two${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} and ${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'two keys in a row');
+  assert.equal(hideInlineKeys(`${FRAMES[0]}one${FRAMES[0]}two${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'a BEGIN frame inside a key is a part of it');
+  assert.equal(hideInlineKeys(`${FRAMES[0]}one${FRAMES[1]} then ${FRAMES[0]} and no end`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} then ${FRAMES[0]} and no end`, 'a BEGIN with no END after it hides nothing (the lines that follow are its body, by place)');
+  assert.equal(hideInlineKeys(`${FRAMES[1]}${FRAMES[0]}`), `${FRAMES[1]}${FRAMES[0]}`);
+  assert.equal(hideInlineKeys('a row with no key'), 'a row with no key');
+  assert.equal(hideInlineKeys('-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY-----'), '-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY-----', 'a public key is shown');
+  assert.equal(hideInlineKeys('-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY----- (not a PRIVATE KEY)'), '-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY----- (not a PRIVATE KEY)', 'also in a row that says the words PRIVATE KEY elsewhere');
+  assert.deepEqual([...privateKeyBodyLines('-----BEGIN PUBLIC KEY----- (not a PRIVATE KEY)\nabc\n-----END PUBLIC KEY-----\n')], [], 'a public key is no body, also in a line that says the words PRIVATE KEY elsewhere');
+  assert.equal(hideInlineKeys('-----BEGIN PGP PRIVATE KEY BLOCK-----abc-----END PGP PRIVATE KEY BLOCK-----'), '-----BEGIN PGP PRIVATE KEY BLOCK-----[REDACTED]-----END PGP PRIVATE KEY BLOCK-----', 'a PGP block as well');
+  assert.equal(hideInlineKeys(`${FRAMES[0]}${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'also a key with nothing in it: the row is not told apart by what is inside');
+  assert.equal(holdsPrivateKey(`x\n"k": "${FRAMES[0]}\\nabc\\n${FRAMES[1]}",\ny`), true, 'a key in one line is key material');
+  assert.equal(holdsPrivateKey(`${FRAMES[0]}\nabc\n${FRAMES[1]}\n`), true, 'so is a block');
+  assert.equal(holdsPrivateKey(`${FRAMES[0]}\n${FRAMES[1]}\n`), false, 'frames with nothing between them are not');
+  assert.equal(holdsPrivateKey('-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n'), false, 'a public key is not');
+  assert.equal(holdsPrivateKey('nothing of the kind'), false);
+  {
+    // the time: a line of 12,000 BEGIN frames and no END is read once, not once for each frame
+    const started = performance.now();
+    hideInlineKeys(FRAMES[0].repeat(12_000));
+    privateKeyBodyLines(FRAMES[0].repeat(12_000));
+    holdsPrivateKey(FRAMES[0].repeat(12_000));
+    assert.ok(performance.now() - started < 800, `${(performance.now() - started).toFixed(0)} ms for 12,000 BEGIN frames in a line`);
+  }
+
+  // A PGP private key block: the frame says "PRIVATE KEY BLOCK". Its blank line, its body and its checksum are hidden by their place; the armour of a public key is not.
+  const PGP_BODY = ['lQdGBF2xYZkBEADl3Kx9mP0qTz7RvW2nB8cD4eF6gH1jK3lM5nP7qR9sT1uV3wX5'];
+  const PGP_HEADER = 'Comment: PRIVATE KEY backup of the build machine'; // an armour header that says the words: it is a line of the body all the same
+  const PGP_FRAME = ['-----BEGIN PGP PRIVATE KEY BLOCK-----', '-----END PGP PRIVATE KEY BLOCK-----'];
+  await put('keys/pgp.asc', `intro\n${PGP_FRAME[0]}\n${PGP_HEADER}\n\n${PGP_BODY.join('\n')}\n=ab12\n${PGP_FRAME[1]}\noutro\n`);
+  const pgp = await ask(newGate(), 'local.edit_file', { path: 'keys/pgp.asc', edits: [{ old_string: 'intro', new_string: 'INTRO' }, { old_string: 'outro', new_string: 'OUTRO' }] });
+  const pgpRows = rowsOf(pgp.request.detail.preview.files[0]);
+  assert.deepEqual(pgpRows.slice(2, 8).map((row) => row.text), [`${PGP_FRAME[0]}\n`, '[REDACTED]\n', '[REDACTED]\n', '[REDACTED]\n', '[REDACTED]\n', `${PGP_FRAME[1]}\n`], 'the frame stays; the armour header, the blank line, the body and the checksum are hidden');
+  assert.equal(pgp.request.detail.preview.privateKeys, true, 'the card says that the call touches private key material');
+  assert.deepEqual(PGP_BODY.concat([PGP_HEADER]).filter((line) => JSON.stringify(pgp.request).includes(line) || JSON.stringify(pgp.events).includes(line)), [], 'no line of the PGP body is anywhere');
+  const pgpPublic = await ask(newGate(), 'local.write_file', { path: 'keys/pgp-public.asc', content: '-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmQENBF2xYZkBCADl3Kx9mP0qTz7RvW2nB8cD4eF6gH1jK3lM5nP7qR9sT1uV3wX5\n-----END PGP PUBLIC KEY BLOCK-----\n' });
+  assert.equal(pgpPublic.request.detail.preview.privateKeys, undefined, 'a PGP public key is not key material');
+  assert.ok(rowsOf(pgpPublic.request.detail.preview.files[0]).some((row) => row.text.includes('mQENBF2xYZkBCADl3Kx9mP0qTz7RvW2nB8cD4eF6gH1jK3lM5nP7qR9sT1uV3wX5')), 'and its armour is shown');
+  ok('a PGP private key block: its frame stays, its blank line, body and checksum are hidden by their place; a PGP public key is shown');
+
+  // A service-account file keeps the whole key in ONE line (its line breaks are the two characters \n). The key is more than 400 characters, so the row is cut: the key has to be hidden
+  // inside its line BEFORE the cut. The fields after it are still readable, and the line stays one row.
+  const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let seed = 20261104;
+  const pseudoBase64 = (length) => Array.from({ length }, () => { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return BASE64[(seed >>> 8) % 64]; }).join('');
+  // 52 + 1400 + 60 characters that never repeat, so that a part of the key occurs once in the file
+  const KEY_PARTS = ['MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7', pseudoBase64(1400), pseudoBase64(60)];
+  const account = (email) => [
+    '{', '  "type": "service_account",', '  "project_id": "demo-project",',
+    `  "private_key": "-----BEGIN PRIVATE KEY-----\\n${KEY_PARTS.join('\\n')}\\n-----END PRIVATE KEY-----\\n",`,
+    `  "client_email": "${email}",`, '  "client_id": "1234567890",', '  "token_uri": "https://oauth2.example.test/token"', '}', '',
+  ].join('\n');
+  const keyLeaks = (value) => KEY_PARTS.flatMap((part) => [part.slice(0, 40), part.slice(-40)]).filter((piece) => JSON.stringify(value).includes(piece));
+  await put('keys/account.json', account('old@demo-project.example.test'));
+  const accountGate = newGate();
+  const accountEdit = await ask(accountGate, 'local.edit_file', { path: 'keys/account.json', old_string: 'old@demo-project.example.test', new_string: 'new@demo-project.example.test' });
+  const accountRows = rowsOf(accountEdit.request.detail.preview.files[0]);
+  const accountText = accountRows.map((row) => row.text);
+  assert.ok(accountText.every((line) => line !== '[REDACTED]\n'), 'no whole row is hidden: the lines after the key are not its body');
+  assert.deepEqual(accountRows.filter((row) => row.kind !== 'context').map((row) => [row.kind, row.text]), [['removed', '  "client_email": "old@demo-project.example.test",\n'], ['added', '  "client_email": "new@demo-project.example.test",\n']], 'the changed lines are readable');
+  assert.ok(accountText.includes('  "client_id": "1234567890",\n'), 'a field after the key is readable');
+  assert.ok(accountText.includes('  "token_uri": "https://oauth2.example.test/token"\n'), 'so is the last one');
+  const keyRow = accountText.find((line) => line.includes('"private_key"'));
+  assert.ok(keyRow && keyRow.includes('[REDACTED]'), 'the line of the key is there, with the key hidden');
+  assert.equal(keyRow.slice(0, -1).includes('\n'), false, 'and it is one line: the number of rows is the number of lines');
+  assert.deepEqual(keyLeaks(accountEdit.request), [], 'no part of the key is in the request');
+  assert.deepEqual(keyLeaks(accountEdit.events), [], 'nor in an event');
+  assert.deepEqual(keyLeaks(accountGate.state()), [], 'nor in the pending state or the history');
+  assert.equal(accountEdit.request.detail.preview.privateKeys, true, 'the card says that the call touches private key material');
+  assert.equal(accountEdit.request.detail.old_string, undefined, 'and the words the model wrote are left out, as they could quote the key');
+  assert.deepEqual(accountEdit.request.detail.preview.files[0].additions + accountEdit.request.detail.preview.files[0].deletions, 2, 'the counts are those of the real change');
+  // a model that quotes a part of the key in its own words
+  const quoting = await ask(newGate(), 'local.edit_file', { path: 'keys/account.json', old_string: KEY_PARTS[1].slice(0, 72), new_string: 'x' });
+  assert.deepEqual(keyLeaks(quoting.request).concat(keyLeaks(quoting.events)), [], 'a part of the key that the model typed is nowhere');
+  assert.ok(rowsOf(quoting.request.detail.preview.files[0]).every((row) => !row.text.includes(KEY_PARTS[1].slice(0, 40))), 'the rows that change the key do not show it');
+  // a new file, and a key that goes away
+  const accountNew = await ask(newGate(), 'local.write_file', { path: 'keys/account-new.json', content: account('new@demo-project.example.test') });
+  const newRows = rowsOf(accountNew.request.detail.preview.files[0]);
+  assert.deepEqual(keyLeaks(accountNew.request).concat(keyLeaks(accountNew.events)), [], 'the key of a new file is nowhere');
+  assert.ok(newRows.some((row) => row.text === '  "client_id": "1234567890",\n') && newRows.every((row) => row.text !== '[REDACTED]\n'), 'and the fields after it are shown');
+  const accountGone = await ask(newGate(), 'local.write_file', { path: 'keys/account.json', content: '{\n}\n', overwrite: true });
+  const goneRows = rowsOf(accountGone.request.detail.preview.files[0]);
+  assert.deepEqual(keyLeaks(accountGone.request).concat(keyLeaks(accountGone.events)), [], 'the key that is overwritten is nowhere');
+  assert.ok(goneRows.some((row) => row.kind === 'removed' && row.text.includes('"private_key"')), 'the card shows that the line goes away');
+  assert.equal(accountGone.request.detail.preview.privateKeys, true, 'it is still key material');
+  ok('a service-account key in one line: hidden inside its line before the row is cut, one row, the fields after it readable, the call says it touches a key');
 
   // a protected file: asked with nothing to show, and the content is nowhere
   const gate1 = newGate();
