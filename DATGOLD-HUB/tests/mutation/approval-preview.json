@@ -1,6 +1,6 @@
 {
   "suite": "verify-approval-preview.mjs",
-  "description": "The card of a file change (lib/approval-preview.mjs): the bounds (20 files, 200 rows, 400 characters, 120,000 characters, 500 characters of a refusal), a line cut at a character and not inside one, the guard of every file of the call and the digest of the arguments, and the body of a private key hidden by its place in the old and the new text, judged by tests/verify-approval-preview.mjs. After the audit of PR #103: the key in one line, PGP's frames, the rows' keys hidden before they are cut.",
+  "description": "The card of a file change (lib/approval-preview.mjs): the bounds (20 files, 200 rows, 400 characters, 120,000 characters, 500 characters of a refusal), a line cut at a character and not inside one, the guard of every file of the call and the digest of the arguments, and the body of a private key hidden by its place in the old and the new text, judged by tests/verify-approval-preview.mjs. After the audit of PR #103: the key in one line, PGP's frames, the rows' keys hidden before they are cut. Second round of PR #103: the key machinery is one state machine (frames, parts, lines), shared by the masker, the card and the answer of edit_file.",
   "mutations": [
     {
       "name": "AP-files-more",
@@ -129,7 +129,7 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    open = begin > end;",
+          "old": "    open = frames[frames.length - 1].begin;",
           "new": "    open = false;"
         }
       ]
@@ -140,8 +140,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    open = begin > end;",
-          "new": "    open = begin >= 0;"
+          "old": "    open = frames[frames.length - 1].begin;",
+          "new": "    open = frames.some((frame) => frame.begin);"
         }
       ]
     },
@@ -151,8 +151,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "if (!line.includes('PRIVATE KEY')) {\n      if (open) inside.add(index);",
-          "new": "if (!line.includes('PRIVATE KEY')) {\n      if (false) inside.add(index);"
+          "old": "      if (open) body.add(index);",
+          "new": "      if (false) body.add(index);"
         }
       ]
     },
@@ -207,23 +207,23 @@
     },
     {
       "name": "AP-keys-removed",
-      "what": "a removed row is looked up in the new text",
+      "what": "a removed row is looked up in the keys of the new text",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const secret = row.kind === 'removed' ? oldLines.has(old) : newLines.has(current);",
-          "new": "const secret = newLines.has(current);"
+          "old": "    const keys = row.kind === 'removed' ? oldKeys : newKeys;",
+          "new": "    const keys = newKeys;"
         }
       ]
     },
     {
       "name": "AP-keys-added",
-      "what": "an added row is looked up in the old text",
+      "what": "an added row is looked up in the keys of the old text",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const secret = row.kind === 'removed' ? oldLines.has(old) : newLines.has(current);",
-          "new": "const secret = oldLines.has(old);"
+          "old": "    const keys = row.kind === 'removed' ? oldKeys : newKeys;",
+          "new": "    const keys = oldKeys;"
         }
       ]
     },
@@ -277,8 +277,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const oldLines = typeof plan.oldText === 'string' ? privateKeyBodyLines(plan.oldText) : new Set();",
-          "new": "const oldLines = new Set();"
+          "old": "  const oldKeys = typeof plan.oldText === 'string' ? keyLines(plan.oldText) : NO_KEYS;",
+          "new": "  const oldKeys = NO_KEYS;"
         }
       ]
     },
@@ -288,8 +288,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const newLines = typeof plan.newText === 'string' ? privateKeyBodyLines(plan.newText) : new Set();",
-          "new": "const newLines = new Set();"
+          "old": "  const newKeys = typeof plan.newText === 'string' ? keyLines(plan.newText) : NO_KEYS;",
+          "new": "  const newKeys = NO_KEYS;"
         }
       ]
     },
@@ -416,12 +416,12 @@
     },
     {
       "name": "AP-keys-body-words",
-      "what": "a line of a body that says \"PRIVATE KEY\" in words is not hidden",
+      "what": "a line of a body that says \"PRIVATE KEY\" in words is a line with a frame (it opens or closes nothing, and it is not hidden)",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "if (begin < 0 && end < 0) {\n      if (open) inside.add(index);",
-          "new": "if (begin < 0 && end < 0) {\n      if (false) inside.add(index);"
+          "old": "    if (frames.length === 0) {\n      if (open) body.add(index);\n      return;\n    }",
+          "new": "    if (frames.length === 0 && !line.includes('PRIVATE KEY')) {\n      if (open) body.add(index);\n      return;\n    }"
         }
       ]
     },
@@ -431,8 +431,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    open = begin > end;",
-          "new": "    open = begin > end || (open && begin < 0);"
+          "old": "    open = frames[frames.length - 1].begin;",
+          "new": "    open = open || frames[frames.length - 1].begin;"
         }
       ]
     },
@@ -442,8 +442,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "  for (const match of line.matchAll(frames)) at = match.index;",
-          "new": "  for (const match of line.matchAll(frames)) { at = match.index; break; }"
+          "old": "    open = frames[frames.length - 1].begin;",
+          "new": "    open = frames[0].begin;"
         }
       ]
     },
@@ -476,8 +476,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    if (!line.includes('PRIVATE KEY')) {",
-          "new": "    if (false) {"
+          "old": "    const frames = line.includes('PRIVATE KEY') ? framesOf(line) : [];",
+          "new": "    const frames = framesOf(line);"
         }
       ]
     },
@@ -487,8 +487,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    out += text.slice(from, bodyStart) + '[REDACTED]';",
-          "new": "    out += text.slice(from, bodyStart) + '';"
+          "old": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\\n') ? '\\n[REDACTED]\\n' : '[REDACTED]');",
+          "new": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\\n') ? '\\n[REDACTED]\\n' : '');"
         }
       ]
     },
@@ -498,52 +498,52 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    from = closing.index;",
-          "new": "    from = closing.index + closing[0].length;"
+          "old": "      from = end;\n      continue;",
+          "new": "      from = end + 1;\n      continue;"
         }
       ]
     },
     {
       "name": "AP-inline-nested",
-      "what": "a BEGIN frame inside a key in a row starts another key",
+      "what": "a BEGIN frame inside a key starts another key",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    begin.lastIndex = closing.index + closing[0].length;",
-          "new": "    "
+          "old": "    if (!open && frame.begin) {",
+          "new": "    if (frame.begin) {"
         }
       ]
     },
     {
       "name": "AP-inline-no-break",
-      "what": "a BEGIN frame with no END after it makes every later one read the line again (a megabyte of frames takes minutes)",
+      "what": "every frame makes the text be read again from it (a megabyte of frames takes seconds)",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    if (!closing) break; // no END frame to the right of this one: none to the right of the next ones either",
-          "new": "    if (!closing) continue; // no END frame to the right of this one: none to the right of the next ones either"
+          "old": "  for (const frame of framesOf(text)) {",
+          "new": "  for (const frame of framesOf(text)) { text.indexOf('-----END', frame.end);"
         }
       ]
     },
     {
       "name": "AP-inline-not-applied",
-      "what": "the rows are cut to 400 characters before a key in them is hidden",
+      "what": "the rows are cut to 400 characters before the key in them is hidden",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "      const clipped = clipRow(withoutInlineKeys(row));",
-          "new": "      const clipped = clipRow(row);"
+          "old": "    for (const row of hideKeyBodies(hunk, oldKeys, newKeys)) {",
+          "new": "    for (const row of hideKeyBodies({ ...hunk, rows: hunk.rows.map(clipRow) }, oldKeys, newKeys)) {"
         }
       ]
     },
     {
       "name": "AP-inline-row-kind",
-      "what": "a row whose key is hidden loses its kind",
+      "what": "a row whose key material is hidden loses its kind",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "  return text === row.text ? row : { kind: row.kind, text };",
-          "new": "  return text === row.text ? row : { kind: 'context', text };"
+          "old": "      if (text !== row.text) return { kind: row.kind, text };",
+          "new": "      if (text !== row.text) return { kind: 'context', text };"
         }
       ]
     },
@@ -553,19 +553,19 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));",
-          "new": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (text.split('\\n').some((line) => hideInlineKeys(line) !== line));"
+          "old": "  if (body.size > 0) return true;",
+          "new": ""
         }
       ]
     },
     {
       "name": "AP-holds-inline",
-      "what": "a call is not told to touch a key when the key is in one line",
+      "what": "a call is not told to touch a key when the key is in one line, or in a line that holds a frame",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));",
-          "new": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0);"
+          "old": "  for (const [index, open] of framed) if (hideKeyMaterial(lines[index], open) !== lines[index]) return true;",
+          "new": ""
         }
       ]
     },
@@ -576,8 +576,584 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));",
-          "new": "export const holdsPrivateKey = (text) => true && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));"
+          "old": "  if (!text.includes('PRIVATE KEY')) return false;",
+          "new": "  if (false) return false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-frames-begin",
+      "what": "the BEGIN frames of a text are not looked for",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const match of text.matchAll(BEGIN_FRAMES)) found.push({ begin: true, start: match.index, end: match.index + match[0].length });",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-frames-end",
+      "what": "the END frames of a text are not looked for",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const match of text.matchAll(END_FRAMES)) found.push({ begin: false, start: match.index, end: match.index + match[0].length });",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-frames-order",
+      "what": "the frames are not put in the order they come in the text (the BEGIN frames, then the END frames)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return found.sort((a, b) => a.start - b.start);",
+          "new": "  return found;"
+        }
+      ]
+    },
+    {
+      "name": "AP-frames-kind-begin",
+      "what": "a BEGIN frame is told to be an END frame",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const match of text.matchAll(BEGIN_FRAMES)) found.push({ begin: true, start: match.index, end: match.index + match[0].length });",
+          "new": "  for (const match of text.matchAll(BEGIN_FRAMES)) found.push({ begin: false, start: match.index, end: match.index + match[0].length });"
+        }
+      ]
+    },
+    {
+      "name": "AP-frames-kind-end",
+      "what": "an END frame is told to be a BEGIN frame",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const match of text.matchAll(END_FRAMES)) found.push({ begin: false, start: match.index, end: match.index + match[0].length });",
+          "new": "  for (const match of text.matchAll(END_FRAMES)) found.push({ begin: true, start: match.index, end: match.index + match[0].length });"
+        }
+      ]
+    },
+    {
+      "name": "AP-frames-end-position",
+      "what": "the end of a frame is where it starts",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const match of text.matchAll(BEGIN_FRAMES)) found.push({ begin: true, start: match.index, end: match.index + match[0].length });",
+          "new": "  for (const match of text.matchAll(BEGIN_FRAMES)) found.push({ begin: true, start: match.index, end: match.index });"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-body-start",
+      "what": "the body of a key starts at its BEGIN frame (the frame is hidden with it)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      from = frame.end;",
+          "new": "      from = frame.start;"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-closed",
+      "what": "a key that begins and ends in the text is taken for the end of a key that began before",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      parts.push({ kind: began ? 'closed' : 'head', start: from, end: Math.max(frame.start, from) });",
+          "new": "      parts.push({ kind: false ? 'closed' : 'head', start: from, end: Math.max(frame.start, from) });"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-began",
+      "what": "a key that begins in the text is not told so",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      began = true;",
+          "new": "      began = false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-stray-end",
+      "what": "an END frame with no key open closes one",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    } else if (open && !frame.begin) {",
+          "new": "    } else if (!frame.begin) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-no-close",
+      "what": "an END frame does not close a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      open = false;",
+          "new": "      open = open;"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-clamp",
+      "what": "an END frame that shares its dashes with the BEGIN before it ends the key before it began (the text is written twice)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      parts.push({ kind: began ? 'closed' : 'head', start: from, end: Math.max(frame.start, from) });",
+          "new": "      parts.push({ kind: began ? 'closed' : 'head', start: from, end: frame.start });"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-tail",
+      "what": "a key with no END frame is not a part of the text",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (open) parts.push({ kind: 'tail', start: from, end: text.length });",
+          "new": "  if (false) parts.push({ kind: 'tail', start: from, end: text.length });"
+        }
+      ]
+    },
+    {
+      "name": "AP-parts-tail-end",
+      "what": "the tail of a key with no END frame is empty",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (open) parts.push({ kind: 'tail', start: from, end: text.length });",
+          "new": "  if (open) parts.push({ kind: 'tail', start: from, end: from });"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-fast-path",
+      "what": "a text without the words PRIVATE KEY is not returned at once",
+      "equivalent": "a speed-up: a text without the words has no frame, and with no body open the parts of it are none, so the text comes back all the same",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!open && !text.includes('PRIVATE KEY')) return text;",
+          "new": "  if (false) return text;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-fast-path-open",
+      "what": "a text without the words PRIVATE KEY is returned at once also when a body is open (the line of a body is hidden)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!open && !text.includes('PRIVATE KEY')) return text;",
+          "new": "  if (!text.includes('PRIVATE KEY')) return text;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-closed-kind",
+      "what": "a key that begins and ends in the text is not hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (part.kind === 'closed') {",
+          "new": "    if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-closed-from",
+      "what": "the text before a key is lost",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      out += text.slice(from, part.start) + (text.slice(part.start, end)",
+          "new": "      out += text.slice(part.start, part.start) + (text.slice(part.start, end)"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-closed-resume",
+      "what": "the text after a key is read again from the start of the key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      from = end;\n      continue;",
+          "new": "      from = part.start;\n      continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-closed-block",
+      "what": "a key over several lines is hidden as if it were in one line (its frames are not on lines of their own)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\\n') ? '\\n[REDACTED]\\n' : '[REDACTED]');",
+          "new": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes(\"\\u0000\") ? '\\n[REDACTED]\\n' : '[REDACTED]');"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-edges",
+      "what": "the head and the tail of a text are hidden also when the text is not read by lines (the masker hides the start of a key that goes on)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!edges) continue;",
+          "new": "    if (false) continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-trailing-cr",
+      "what": "the carriage return of a Windows line ending is a part of the tail",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\\n' || text[end - 1] === '\\r')) end -= 1;",
+          "new": "    if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\\n')) end -= 1;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-trailing-lf",
+      "what": "the line feed at the end of the tail is a part of it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\\n' || text[end - 1] === '\\r')) end -= 1;",
+          "new": "    if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\\r')) end -= 1;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-trailing-all",
+      "what": "the line ending is a part of the tail",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\\n' || text[end - 1] === '\\r')) end -= 1;",
+          "new": "    if (false) while (end > part.start && (text[end - 1] === '\\n' || text[end - 1] === '\\r')) end -= 1;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-trailing-guard",
+      "what": "the line ending is taken off the tail up to the start of the text (not up to the start of the tail)",
+      "equivalent": "a guard that cannot be reached: a tail starts after the dash of its BEGIN frame, or at the start of the text, and never behind a line ending",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\\n' || text[end - 1] === '\\r')) end -= 1;",
+          "new": "    if (part.kind === 'tail') while (end > 0 && (text[end - 1] === '\\n' || text[end - 1] === '\\r')) end -= 1;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-no-head",
+      "what": "a head that holds something (the end of a key that began on an earlier line) is not hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!edges) continue;",
+          "new": "    if (!edges || part.kind === 'head') continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-no-tail",
+      "what": "a tail that holds something (the start of a key that goes on in the next line) is not hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!edges) continue;",
+          "new": "    if (!edges || part.kind === 'tail') continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-blank",
+      "what": "a part with only spaces in it is hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (text.slice(part.start, end).trim() === '') continue;",
+          "new": "    if (false) continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-blank-trim",
+      "what": "a part with only spaces in it is not blank",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (text.slice(part.start, end).trim() === '') continue;",
+          "new": "    if (text.slice(part.start, end) === '') continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-edge-before",
+      "what": "the text before a head or a tail is lost",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    out += `${text.slice(from, part.start)}[REDACTED]`;",
+          "new": "    out += `${text.slice(part.start, part.start)}[REDACTED]`;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-edge-resume",
+      "what": "the text after a head is read again from the start of the head",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    out += `${text.slice(from, part.start)}[REDACTED]`;\n    from = end;",
+          "new": "    out += `${text.slice(from, part.start)}[REDACTED]`;\n    from = part.start;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-edge-marker",
+      "what": "the head and the tail are cut out and nothing is put in their place",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    out += `${text.slice(from, part.start)}[REDACTED]`;",
+          "new": "    out += `${text.slice(from, part.start)}`;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-rest",
+      "what": "the text after the last part is lost",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return out + text.slice(from);",
+          "new": "  return out;"
+        }
+      ]
+    },
+    {
+      "name": "AP-export-blocks",
+      "what": "hideKeyBlocks hides the edges too",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const hideKeyBlocks = (text) => hideKeyParts(text, false, false);",
+          "new": "export const hideKeyBlocks = (text) => hideKeyParts(text, false, true);"
+        }
+      ]
+    },
+    {
+      "name": "AP-export-blocks-open",
+      "what": "hideKeyBlocks starts with a body open",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const hideKeyBlocks = (text) => hideKeyParts(text, false, false);",
+          "new": "export const hideKeyBlocks = (text) => hideKeyParts(text, true, false);"
+        }
+      ]
+    },
+    {
+      "name": "AP-export-material",
+      "what": "hideKeyMaterial hides only the keys that begin and end in the line",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const hideKeyMaterial = (line, open) => hideKeyParts(line, open, true);",
+          "new": "export const hideKeyMaterial = (line, open) => hideKeyParts(line, open, false);"
+        }
+      ]
+    },
+    {
+      "name": "AP-export-material-open",
+      "what": "hideKeyMaterial does not know that a body was open",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const hideKeyMaterial = (line, open) => hideKeyParts(line, open, true);",
+          "new": "export const hideKeyMaterial = (line, open) => hideKeyParts(line, false, true);"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-framed-open",
+      "what": "the lines with a frame do not say whether a body was open where they began",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    framed.set(index, open);",
+          "new": "    framed.set(index, false);"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-framed-off",
+      "what": "the lines with a frame are not told apart from the others",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    framed.set(index, open);",
+          "new": "    "
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-frame-in-body",
+      "what": "a line with a frame is a line of a body when a body is open",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    framed.set(index, open);\n",
+          "new": "    framed.set(index, open);\n    if (open) body.add(index);\n"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-lines",
+      "what": "keyLines does not return the lines",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return { body, framed, lines };",
+          "new": "  return { body, framed };"
+        }
+      ]
+    },
+    {
+      "name": "AP-holds-open",
+      "what": "holdsPrivateKey does not know that a body was open where a line began",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const [index, open] of framed) if (hideKeyMaterial(lines[index], open) !== lines[index]) return true;",
+          "new": "  for (const [index, open] of framed) if (hideKeyMaterial(lines[index], false) !== lines[index]) return true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-holds-changed",
+      "what": "holdsPrivateKey takes a line with a frame for key material whether or not there is any in it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const [index, open] of framed) if (hideKeyMaterial(lines[index], open) !== lines[index]) return true;",
+          "new": "  for (const [index, open] of framed) if (hideKeyMaterial(lines[index], open) === lines[index]) return true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-framed",
+      "what": "the rows that hold a frame are not looked at",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (keys.framed.has(place)) {",
+          "new": "    if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-framed-open",
+      "what": "a row that holds a frame is cut without knowing that a body was open",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      const text = hideKeyMaterial(row.text, keys.framed.get(place));",
+          "new": "      const text = hideKeyMaterial(row.text, false);"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-body",
+      "what": "the rows that are a line of a body are not looked at",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (keys.body.has(place)) return { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` };",
+          "new": "    if (false) return { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` };"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-place-removed",
+      "what": "a removed row is placed by the number of the new text",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    const place = row.kind === 'removed' ? old : current;",
+          "new": "    const place = current;"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-place-added",
+      "what": "an added row is placed by the number of the old text",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    const place = row.kind === 'removed' ? old : current;",
+          "new": "    const place = old;"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-unchanged",
+      "what": "a row with a frame that has no key material in it is copied (the same row)",
+      "equivalent": "the copy has the same kind and the same text as the row it was made from",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      if (text !== row.text) return { kind: row.kind, text };",
+          "new": "      return { kind: row.kind, text };"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-early-old",
+      "what": "the rows are not looked at when the new text has no keys, whatever the old one has",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!oldKeys.framed.size && !newKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key",
+          "new": "  if (!newKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-early-new",
+      "what": "the rows are not looked at when the old text has no keys, whatever the new one has",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!oldKeys.framed.size && !newKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key",
+          "new": "  if (!oldKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-early-return",
+      "what": "the rows are copied one by one when the texts hold no key",
+      "equivalent": "a speed-up: with no key in either text no row is a line of a body or holds a frame, and every row comes back as it is",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!oldKeys.framed.size && !newKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key",
+          "new": "  if (false) return hunk.rows; // a body starts at a line with a frame: no such line, no key"
         }
       ]
     }
