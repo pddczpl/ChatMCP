@@ -101,6 +101,14 @@ test('the words for a plan: one line for each file, and a note for everything th
   assert.equal(many.notes.find((note) => note.key === 'rollback_note_conflicts').values.count, 12, 'and the note counts all of them');
 });
 
+test('a list of names is cut after eight: eight are all shown, nine say how many more', () => {
+  const names = Array.from({ length: 8 }, (_, index) => `f${index}.txt`);
+  const conflicts = (count) => describePlan(planStepUndo(preview(Array.from({ length: count }, (_, index) => file(`f${index}.txt`, 'overwrite', { changedSinceStep: true }))))).notes[0].values;
+  assert.deepEqual(conflicts(1), { paths: 'f0.txt', count: 1 });
+  assert.deepEqual(conflicts(8), { paths: names.join(', '), count: 8 });
+  assert.deepEqual(conflicts(9), { paths: `${names.join(', ')}, +1`, count: 9 });
+});
+
 test('what happened: the count, the files that were left alone, and the tone', () => {
   const done = (extra) => ({ restoredCount: 2, restored: [], unchanged: [], conflicts: [], undoCheckpointId: 'u1', targeted: true, ...extra });
   assert.deepEqual(describeResult(done({})), { tone: 'ok', lines: [{ key: 'rollback_done_other', values: { count: 2 } }] });
@@ -132,6 +140,11 @@ test('undo the last restore: what the restore left is remembered, and asked for 
   assert.deepEqual(last, { undoCheckpointId: '11111111-1111-1111-1111-111111111111', files: 2, shas: { 'a.txt': SHA('a'), 'c.txt': null }, source: 'step', at: '2026-11-04T10:00:00.000Z' });
   assert.deepEqual(undoRequestOf(last), { checkpointId: '11111111-1111-1111-1111-111111111111', expectedShas: { 'a.txt': SHA('a'), 'c.txt': null } });
   assert.equal(lastRestoreOf({ ...result, undoCheckpointId: null, restoredCount: 0, restored: [] }, 'step', 'now'), null, 'a restore that changed nothing has nothing to undo');
+  assert.equal(lastRestoreOf({ ...result, restoredCount: 0, restored: [] }, 'step', 'now'), null, 'a backup of nothing is not a way back');
+  assert.equal(lastRestoreOf({ ...result, undoCheckpointId: null }, 'step', 'now'), null, 'and without a backup there is no way back');
+  const request = undoRequestOf(last);
+  request.expectedShas['a.txt'] = 'changed by the caller';
+  assert.equal(last.shas['a.txt'], SHA('a'), 'the request is a copy: the record of the last restore is not changed through it');
 });
 
 test('the last restore survives a reload of the page, for the workspace it was made in, and only if it is well formed', () => {
@@ -141,8 +154,18 @@ test('the last restore survives a reload of the page, for the workspace it was m
   writeLastRestore(storage, 'F:/work/one', last);
   assert.deepEqual(readLastRestore(storage, 'F:/work/one'), last);
   assert.equal(readLastRestore(storage, 'F:/work/two'), null, 'another workspace has its own');
+  writeLastRestore(storage, 'F:/work/two', null);
+  assert.deepEqual(readLastRestore(storage, 'F:/work/one'), last, 'forgetting the restore of another workspace keeps this one');
   writeLastRestore(storage, 'F:/work/one', null);
   assert.equal(readLastRestore(storage, 'F:/work/one'), null, 'and it can be forgotten');
+  assert.equal(memory.has('datgold:last-restore'), false, 'by removing the record');
+  const removed = { ...last, shas: { 'a.txt': SHA('a'), 'c.txt': null } };
+  writeLastRestore(storage, 'F:/work/one', removed);
+  assert.deepEqual(readLastRestore(storage, 'F:/work/one'), removed, 'a file the restore removed has no sha, and that is a well formed record');
+  for (const damaged of [JSON.stringify({ workspace: 'w', last: { ...last, at: 5 } }), JSON.stringify({ workspace: 'w', last: { ...last, files: 0 } }), JSON.stringify({ workspace: 'w', last: { ...last, files: 1.5 } }), JSON.stringify({ workspace: 'w', last: { ...last, shas: null } }), JSON.stringify({ workspace: 'w', last: null }), 'null']) {
+    memory.set('datgold:last-restore', damaged);
+    assert.equal(readLastRestore(storage, 'w'), null, `a damaged record is not believed: ${damaged.slice(0, 50)}`);
+  }
   for (const damaged of ['not json', '{}', JSON.stringify({ workspace: 'w', last: { ...last, undoCheckpointId: 'x' } }), JSON.stringify({ workspace: 'w', last: { ...last, shas: { 'a.txt': 'not a sha' } } }), JSON.stringify({ workspace: 'w', last: { ...last, files: -1 } }), JSON.stringify({ workspace: 'w', last: { ...last, source: 'sideways' } })]) {
     memory.set('datgold:last-restore', damaged);
     assert.equal(readLastRestore(storage, 'w'), null, `a damaged record is not believed: ${damaged.slice(0, 40)}`);
@@ -162,6 +185,8 @@ test('which receipts can be undone: an edit that went through, a command that ra
   assert.deepEqual(undoTarget(call('local.run_command', 'error')), { checkpointId: 'cp1' }, 'a command that failed may have changed files before it did');
   assert.equal(undoTarget(call('local.edit_file', 'error')), null, 'an edit that failed changed nothing');
   assert.equal(undoTarget(call('local.edit_file', 'running')), null);
+  assert.equal(undoTarget(call('local.run_command', 'running')), null, 'a command that is still running has not left anything yet');
+  assert.equal(undoTarget(call('local.run_command', 'unknown')), null);
   assert.equal(undoTarget(call('local.edit_file', 'success', null)), null, 'no checkpoint, nothing to go back to');
   assert.equal(undoTarget(call('local.edit_file', 'success', '')), null);
   assert.equal(undoTarget(call('local.read_file', 'success')), null);
