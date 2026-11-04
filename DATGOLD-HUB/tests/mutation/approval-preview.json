@@ -1,6 +1,6 @@
 {
   "suite": "verify-approval-preview.mjs",
-  "description": "The card of a file change (lib/approval-preview.mjs): the bounds (20 files, 200 rows, 400 characters, 120,000 characters, 500 characters of a refusal), a line cut at a character and not inside one, the guard of every file of the call and the digest of the arguments, and the body of a private key hidden by its place in the old and the new text, judged by tests/verify-approval-preview.mjs.",
+  "description": "The card of a file change (lib/approval-preview.mjs): the bounds (20 files, 200 rows, 400 characters, 120,000 characters, 500 characters of a refusal), a line cut at a character and not inside one, the guard of every file of the call and the digest of the arguments, and the body of a private key hidden by its place in the old and the new text, judged by tests/verify-approval-preview.mjs. After the audit of PR #103: the key in one line, PGP's frames, the rows' keys hidden before they are cut.",
   "mutations": [
     {
       "name": "AP-files-more",
@@ -125,23 +125,23 @@
     },
     {
       "name": "AP-keys-begin",
-      "what": "the start of a private key is not recognised",
+      "what": "a BEGIN frame never opens a key",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = true;",
-          "new": "if (false) open = true;"
+          "old": "    open = begin > end;",
+          "new": "    open = false;"
         }
       ]
     },
     {
       "name": "AP-keys-end",
-      "what": "the end of a private key is not recognised",
+      "what": "the END frame of a line that has both frames is ignored (a key in one line stays open)",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "else if (/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) open = false;",
-          "new": "else if (false) open = false;"
+          "old": "    open = begin > end;",
+          "new": "    open = begin >= 0;"
         }
       ]
     },
@@ -151,8 +151,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "else if (open) inside.add(index);",
-          "new": "else if (false) inside.add(index);"
+          "old": "if (!line.includes('PRIVATE KEY')) {\n      if (open) inside.add(index);",
+          "new": "if (!line.includes('PRIVATE KEY')) {\n      if (false) inside.add(index);"
         }
       ]
     },
@@ -162,8 +162,13 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line)",
-          "new": "/-----BEGIN [A-Z0-9 ]*KEY-----/.test(line)"
+          "old": "export const PRIVATE_KEY_BEGIN = String.raw`-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`;",
+          "new": "export const PRIVATE_KEY_BEGIN = String.raw`-----BEGIN [A-Z0-9 ]*KEY(?: BLOCK)?-----`;"
+        },
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const PRIVATE_KEY_END = String.raw`-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`;",
+          "new": "export const PRIVATE_KEY_END = String.raw`-----END [A-Z0-9 ]*KEY(?: BLOCK)?-----`;"
         }
       ]
     },
@@ -406,6 +411,173 @@
           "file": "lib/approval-preview.mjs",
           "old": "code: String(failure.code ?? 'local_error')",
           "new": "code: String(failure.code ?? '')"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-body-words",
+      "what": "a line of a body that says \"PRIVATE KEY\" in words is not hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "if (begin < 0 && end < 0) {\n      if (open) inside.add(index);",
+          "new": "if (begin < 0 && end < 0) {\n      if (false) inside.add(index);"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-stray-end",
+      "what": "an END frame does not close a key that is open",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    open = begin > end;",
+          "new": "    open = begin > end || (open && begin < 0);"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-first-frame",
+      "what": "the first frame of a line counts, not the last",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const match of line.matchAll(frames)) at = match.index;",
+          "new": "  for (const match of line.matchAll(frames)) { at = match.index; break; }"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-pgp-begin",
+      "what": "the BEGIN frame of a PGP private key is not recognised",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const PRIVATE_KEY_BEGIN = String.raw`-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`;",
+          "new": "export const PRIVATE_KEY_BEGIN = String.raw`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`;"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-pgp-end",
+      "what": "the END frame of a PGP private key is not recognised",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const PRIVATE_KEY_END = String.raw`-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`;",
+          "new": "export const PRIVATE_KEY_END = String.raw`-----END [A-Z0-9 ]*PRIVATE KEY-----`;"
+        }
+      ]
+    },
+    {
+      "name": "AP-keys-fast-path",
+      "what": "the line without the words PRIVATE KEY is not skipped at once",
+      "equivalent": "a speed-up: a line without the words has no frame, and the check after it gives the same answer",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!line.includes('PRIVATE KEY')) {",
+          "new": "    if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-inline-marker",
+      "what": "the key in a row is cut out and nothing is put in its place",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    out += text.slice(from, bodyStart) + '[REDACTED]';",
+          "new": "    out += text.slice(from, bodyStart) + '';"
+        }
+      ]
+    },
+    {
+      "name": "AP-inline-end-frame",
+      "what": "the END frame of a key in a row is cut out with the key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    from = closing.index;",
+          "new": "    from = closing.index + closing[0].length;"
+        }
+      ]
+    },
+    {
+      "name": "AP-inline-nested",
+      "what": "a BEGIN frame inside a key in a row starts another key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    begin.lastIndex = closing.index + closing[0].length;",
+          "new": "    "
+        }
+      ]
+    },
+    {
+      "name": "AP-inline-no-break",
+      "what": "a BEGIN frame with no END after it makes every later one read the line again (a megabyte of frames takes minutes)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!closing) break; // no END frame to the right of this one: none to the right of the next ones either",
+          "new": "    if (!closing) continue; // no END frame to the right of this one: none to the right of the next ones either"
+        }
+      ]
+    },
+    {
+      "name": "AP-inline-not-applied",
+      "what": "the rows are cut to 400 characters before a key in them is hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      const clipped = clipRow(withoutInlineKeys(row));",
+          "new": "      const clipped = clipRow(row);"
+        }
+      ]
+    },
+    {
+      "name": "AP-inline-row-kind",
+      "what": "a row whose key is hidden loses its kind",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return text === row.text ? row : { kind: row.kind, text };",
+          "new": "  return text === row.text ? row : { kind: 'context', text };"
+        }
+      ]
+    },
+    {
+      "name": "AP-holds-body",
+      "what": "a call is not told to touch a key when the key is over several lines",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));",
+          "new": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (text.split('\\n').some((line) => hideInlineKeys(line) !== line));"
+        }
+      ]
+    },
+    {
+      "name": "AP-holds-inline",
+      "what": "a call is not told to touch a key when the key is in one line",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));",
+          "new": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0);"
+        }
+      ]
+    },
+    {
+      "name": "AP-holds-guard",
+      "what": "holdsPrivateKey reads the lines of a text that does not say PRIVATE KEY",
+      "equivalent": "a speed-up: a text without the words has no frame, and the two checks after it give the same answer",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));",
+          "new": "export const holdsPrivateKey = (text) => true && (privateKeyBodyLines(text).size > 0 || text.split('\\n').some((line) => hideInlineKeys(line) !== line));"
         }
       ]
     }
