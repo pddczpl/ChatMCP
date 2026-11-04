@@ -66,7 +66,7 @@ export function ChangePreview({ preview }: { preview: ChangePreviewView }) {
       <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-medium text-fg">
         <FileDiff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span data-testid="change-title">{t('agents_apr_changes_title')}</span>
-        {preview.fileCount > 0 && <span data-testid="change-count" className="font-normal text-muted">{t('agents_apr_changes_count', { count: preview.fileCount })}</span>}
+        {preview.fileCount > 0 && <span data-testid="change-count" className="font-normal text-muted">{t(preview.fileCount === 1 ? 'agents_apr_changes_count_one' : 'agents_apr_changes_count_other', { n: preview.fileCount })}</span>}
         {complete && preview.files.length > 0 && <span data-testid="change-total" className="font-mono text-[12px] font-normal text-muted">{`+${added} -${removed}`}</span>}
       </p>
       {refusal && (

@@ -65,7 +65,7 @@ test('the card of an edit says what it does to the file, with the hunk as the Re
 test('the same card in English', async () => {
   const html = await render(detailOf([editPlan()]), 'en');
   assert.equal(inner(html, 'change-title'), 'Changes that will be written');
-  assert.equal(inner(html, 'change-count'), '1 file(s)');
+  assert.equal(inner(html, 'change-count'), '1 file', 'one file is "1 file", not "1 file(s)"');
   assert.equal(inner(html, 'change-file-action'), 'Edit');
   assert.match(html, /aria-label="Edit src\/app\.js, 1 added, 1 removed"/);
   assert.match(inner(html, 'change-hunk-title'), /From line 2/);
@@ -91,6 +91,7 @@ test('a new file, a file that is replaced, and a call with several files', async
   assert.equal(inner(both, 'change-total'), '+3 -1');
   const english = await render(detailOf([created, replaced], { kind: 'batch' }), 'en', { tool: 'local.files_write_batch' });
   assert.deepEqual(fileBlocks(english).map((item) => inner(item, 'change-file-action')), ['New file', 'Overwrite']);
+  assert.equal(inner(english, 'change-count'), '2 files', 'several files are "2 files"');
 });
 
 test('the old crude diff is gone when the real change is there, and stays for a request from an older Hub', async () => {
