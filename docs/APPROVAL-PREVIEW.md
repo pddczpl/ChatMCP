@@ -33,7 +33,7 @@ still exact), lines that keep their terminator, three lines of context, hunks me
 | `hunks[]` | `baselineStart`, `baselineEnd`, `currentStart`, `currentEnd`, `removed`, `added`, `invisibleOnly` (only line endings or a byte order mark differ), `rows[]` of `{kind: context | removed | added, text, omitted?}`, `cut` when rows were left out |
 | `fileCount`, `hiddenFiles`, `truncated` | how many files the call has, how many are not on the card |
 | `error` | `{code, message}` when the call would be refused when it runs (not found, ambiguous, a stale sha, file exists, a protected file in a batch ...): the card says why and shows no file |
-| `privateKeys` | the call touches private key material; the words the model wrote are then left out of the card |
+| `privateKeys` | the call touches private key material (a body between two frames, or a key that begins and ends in one line); the words the model wrote are then left out of the card |
 
 Bounds: 20 files, 200 rows of a file, a line cut at 400 characters (with `omitted`, never inside a character), 120,000 characters of rows for the whole card. What is left out is counted, never dropped silently.
 
@@ -41,11 +41,27 @@ Bounds: 20 files, 200 rows of a file, a line cut at 400 characters (with `omitte
 
 - A protected file (`.env`, private keys, `.git` ...) never has content on the card, as in `git_diff`. A single-file call on one is refused before anyone is asked; a batch that names one gets a card with
   `error.code = protected_path` and nothing else, and the request of a batch lists paths and sizes, never content.
-- Everything on the card is masked by `maskSecrets` like every other word of the request. It knows the spellings that code uses (`DB_PASSWORD=`, `"password": "..."`, `clientSecret = '...'`,
-  `Authorization: Basic ...`, JWTs, the tokens of the common providers, URLs with a password) and leaves lines that only mention secrets alone (`tokenCount`, `passwordInput`, `SECRET_KEYS = /.../`);
-  `tests/verify-mask-secrets.mjs` is the table.
-- A line of a private key's body looks like any base64, so only its place tells. The card masks the rows by their place in the old and in the new text, wherever it shows them (kept, taken away, put in), and keeps the
-  frame lines, the row kinds and the real counts. The history keeps the request without the rows.
+- Everything on the card is masked by `maskSecrets` like every other word of the request. What it covers, spelling by spelling (`tests/verify-mask-secrets.mjs` is the table: the 49 spellings of a secret and the
+  47 lines of ordinary code that the audit of PR #103 probed, and a line for every word of every list below):
+  - **Names.** `DB_PASSWORD=...`, `"password": "..."`, `clientSecret = '...'`, and the words `api_key`, `access_key`, `private_key`, `ssh_key` (also `sshKey`), `secret`, `passwd`, `pwd`, `passphrase`, `token` and
+    `credentials`, with a prefix and one of the endings `_key`, `token`, `value`, `hash`, `id`, `string`: `tokenCount`, `passwordInput` and `tokenizer` talk about secrets and are not one. A value in quotes is masked
+    whatever it says; a bare value is masked from six characters.
+  - **A bare value that stays readable.** The type of the name (`token: string;`, `password: Optional[str]`, `secret: SecretStr`, `private_key: Uint8Array`), a read of the environment or of a variable
+    (`process.env.X`, `import.meta.env.X`, `os.environ["X"]`, `$_ENV[..]`, `$_SERVER[..]`, `ENV[..]`, `$env:X`, `$X`, `%X%`), a placeholder (`changeme`, `replace-me`, `your-api-key`, `xxxxxxxx`, `********`), the
+    plain name of a secret (`password=password`, `this.password = password;`, `token: Token`, `secret = secretKey`) and a member read that ends in one (`this.token`, `config.password`, `settings.db_password`);
+    and, in quotes, the three words of fetch's `credentials` option (`include`, `omit`, `same-origin`). Each has to be the WHOLE value: `string1Hunter`, `changeme123`, `password123` and
+    `process.environment.X` are masked.
+  - **Tokens by their shape.** The common providers' (OpenAI and Anthropic `sk-`, GitHub, AWS, Google, Slack, Stripe, npm, GitLab, Hugging Face, SendGrid, PyPI), JWTs, `Authorization:` and `Bearer`, URLs with a password.
+  - **Commands.** The value of `--password`, `--passwd`, `--passphrase`, `--pass`, `--pwd`, `--token`, `--secret`, `--api-key`, `--access-key`, `--secret-key` and of the same with a prefix (`--github-token`) given after a
+    space, bare or in quotes, from four characters (the flags that say there is none, `--no-password`, `--ask-password` ..., take no value); `curl -u user:secret` (also `--user`, `--proxy-user`); `mysql -psecret` (and
+    mysqldump, mysqladmin, mysqlimport, mysqlcheck, mysqlshow, mysqlpump, mariadb); `sshpass -p secret`; `docker login -p secret` (also podman, nerdctl, buildah, skopeo). A value read from a variable (`"$PASSWORD"`,
+    `%PASSWORD%`) stays.
+  - **XML.** `<password>secret</password>` (an element named like a secret, with attributes or with a prefix: `<db-password encrypted="false">`), `<add key="ApiKey" value="secret"/>` and
+    `<property name="password" value="secret"/>`.
+- A private key: PEM (`BEGIN ... PRIVATE KEY`), OpenSSH and PGP (`BEGIN PGP PRIVATE KEY BLOCK`). A line of a key's body looks like any base64, so only its place tells. The card masks the rows between the frames by their
+  place in the old and in the new text, wherever it shows them (kept, taken away, put in; a PGP armour header and its checksum line too), and keeps the frame lines, the row kinds and the real counts. A key that begins
+  and ends in ONE line (a service-account file keeps the whole key in one line, its line breaks written `\n`) has no body lines: it is hidden inside its line, before the row is cut to 400 characters (the key is longer
+  than that, and a cut row has lost its END frame), the fields after it stay readable, and the row stays one row. The history keeps the request without the rows.
 - The answer of `edit_file` and `files_apply_patch` to the model shows the lines around the edit (the model gets them back so that it can check its work). A secret in them is hidden in that answer in the same two
   ways (by spelling, with the registered secrets of the Hub, and the body of a private key by its place), the answer says that something was hidden, and the file keeps it: `tests/verify-edit-plans.mjs` (section 5) and
   `ui/e2e/approval-changes.spec.mjs` (the model's requests are watched for the secret after an approval).
@@ -66,7 +82,13 @@ is. A "no" is `permission_denied` as before. A call that came without a card (Au
 ## What this does not cover
 
 - Shell commands, `move_path` and `delete_path`: no preview.
-- It is a pattern mask. A secret in a spelling nobody listed shows on the card; a protected file never does.
+- It is a pattern mask. A secret in a spelling nobody listed shows on the card; a protected file never does. The edges of what is listed above, so that nobody is surprised by them:
+  - the card masks a file line by line: a flag on a continuation line away from its command (`mysql \` and, on the next line, `-psecret`) is not seen, while `curl -u user:secret` and `--password secret` are seen
+    wherever they stand; the program of a `-p` is looked for within 200 characters before it on the same line (for `sshpass`, the `-p` has to follow it directly);
+  - a value of fewer than four characters after a flag or in an XML element, and an XML entry whose `value` does not directly follow its `key` (or `name`), are not masked;
+  - a bare value that is the name of another variable with a prefix and no dot (`password = MyPassword`, `jwt_secret = supersecret`) or a member read that does not end in a secret word
+    (`password = form.password.data`) is masked: a word of letters cannot be told from a weak password by its shape;
+  - `ssh_key = "~/.ssh/id_ed25519"` (a path) is masked too: the name says key, not which.
 - `read_file`, `search_files` and the other tools that show the model the content of an ordinary (not protected) file are as they were: a secret in such a file reaches the model when the model reads that file.
   Only the card and the answer of an edit were changed here.
 - A registered secret that spans several lines is masked line by line, so it is not masked as one.
@@ -76,4 +98,5 @@ Tests: `tests/verify-line-diff.mjs`, `tests/verify-edit-plans.mjs`, `tests/verif
 `ui/tests/approval-changes.test.mjs` (the real components), `ui/tests/change-preview-vs-review.test.mjs` (the hunks of the card are those of the Review tab) and `ui/e2e/approval-changes.spec.mjs`.
 
 Mutation lists (`node tests/mutation/run-mutations.mjs tests/mutation/<list>.json`): `line-diff.json`, `edit-plans.json` (the planners), `approval-guard.json` (the guard, the gate, the manager), `approval-preview.json`
-(the card: bounds, a cut line, key material), `mask-secrets.json` and `change-preview.json` (the page's reader): 262 mutations, 254 killed, 8 equivalent with the reason written in the list, 0 survived.
+(the card: bounds, a cut line, key material, a key in one line), `mask-secrets.json` (every rule, every word of every list) and `change-preview.json` (the page's reader): 424 mutations, 414 killed,
+10 equivalent with the reason written in the list, 0 survived.
