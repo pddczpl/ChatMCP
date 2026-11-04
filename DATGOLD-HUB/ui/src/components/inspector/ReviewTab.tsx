@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCheck, FileSearch, RefreshCw, Undo2 } from 'lucide-react';
+import { CheckCheck, FileSearch, RefreshCw, RotateCcw, Undo2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { hasTranslation, useTranslation } from '@/lib/i18n';
@@ -11,6 +11,9 @@ import type { MarkStore } from '@/lib/review-accepted';
 import { acceptAllOf, acceptFileOf, rejectAllOf, rejectFileOf, rejectHunkOf, summarizeBatch } from '@/lib/review-actions';
 import type { BatchResult } from '@/lib/review-actions';
 import { findReviewFile } from '@/lib/review-offer';
+import { planTaskUndo } from '@/lib/rollback';
+import { useRestoreFlow } from '@/lib/use-restore-flow';
+import type { RestoreOutcome } from '@/lib/use-restore-flow';
 import { byteOrderMarkDiffers, fileActions, fileGone, fileMode, hunkGone, keyAction, landAfterReject, moveHunk, pendingTotal, planAccept, planReject, touchesByteOrderMark, writeState } from '@/lib/review-rules';
 import type { ConflictKind, ReviewItem } from '@/lib/review-rules';
 import { taskCheckpointSource } from '@/lib/review-source-task';
@@ -21,8 +24,16 @@ import { ReviewConfirm } from './ReviewConfirm';
 import type { ConfirmKind } from './ReviewConfirm';
 import { ReviewFileList } from './ReviewFileList';
 import { ReviewFileView } from './ReviewFileView';
+import { LastRestoreBar } from './LastRestoreBar';
 
 type Status = { tone: 'ok' | 'warn'; text: string } | null;
+
+/** The line under the buttons for what a restore did; cancelling says nothing. */
+const statusOf = (outcome: RestoreOutcome, nothing: string): Status => {
+  if (outcome.kind === 'done') return { tone: outcome.tone, text: outcome.text };
+  if (outcome.kind === 'error') return { tone: 'warn', text: outcome.text };
+  return outcome.kind === 'nothing' ? { tone: 'warn', text: nothing } : null;
+};
 
 const NO_FILES: ReviewFile[] = [];
 
@@ -68,6 +79,7 @@ export function ReviewTab() {
   const memoryMarks = useRef(new Map<string, ReadonlySet<string>>());
 
   const state = writeState({ activeTaskId: hub?.agent?.activeTaskId, executionPolicy: hub?.studio?.permissions?.executionPolicy });
+  const flow = useRestoreFlow();
   const diffs = useMemo(() => files.map((file) => {
     const mode = fileMode(file);
     return mode === 'text' || mode === 'created' || mode === 'deleted' ? diffFile(file.baselineText ?? '', file.currentText ?? '') : null;
@@ -190,6 +202,23 @@ export function ReviewTab() {
     return summary(result);
   });
 
+  // Undo all the changes of the task: every file goes back to the baseline of the task in one restore (also a file the task deleted, which the hunks cannot bring back), each expected to be
+  // what this review shows. The Hub saves the files first, so the undo can be undone from the bar below the buttons.
+  const undoAll = () => settle(async () => {
+    try {
+      const preview = await api.previewTaskRestore(selectedTaskId);
+      const plan = planTaskUndo(preview, Object.fromEntries(files.map((file) => [file.path, file.currentSha ?? null])));
+      const outcome = await flow.run({
+        plan, tone: 'danger', source: 'task', title: t('rollback_task_title'), body: t('rollback_task_body'), confirmLabel: t('rollback_task_confirm'),
+        execute: ({ files: wanted, expectedShas }) => api.revertTask(selectedTaskId, expectedShas, { files: wanted, onConflict: 'skip' }),
+      });
+      await reload();
+      return statusOf(outcome, plan.conflicts.length > 0 ? t('rollback_nothing_conflicts', { paths: plan.conflicts.join(', ') }) : t('rollback_task_nothing'));
+    } catch (error) {
+      return { tone: 'warn', text: flow.sayError(error) };
+    }
+  });
+
   // Single keys, only while the focus is inside the hunks: j and k move, a accepts, r puts the hunk back. Never with Ctrl, Alt or Meta, never in a field, never while the dialog is open.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (confirm !== null || working.current || !selected?.diff) return;
@@ -234,11 +263,13 @@ export function ReviewTab() {
                 <Button size="sm" variant="quiet" disabled={busy || reviewQuery.isFetching} onClick={() => void reload()}><RefreshCw className="h-3.5 w-3.5" />{t('review_reload')}</Button>
                 <Button size="sm" variant="secondary" disabled={busy || acceptPlan.files + acceptPlan.hunks === 0} onClick={() => setConfirm('accept')}><CheckCheck className="h-3.5 w-3.5" />{t('review_accept_all')}</Button>
                 <Button size="sm" variant="danger" disabled={busy || rejectPlan.rewrite + rejectPlan.created === 0} onClick={() => setConfirm('reject')}><Undo2 className="h-3.5 w-3.5" />{t('review_reject_all')}</Button>
+                <Button size="sm" variant="danger" disabled={busy || flow.running || state === 'policy' || items.length === 0} title={flow.running ? t('rollback_undo_blocked') : undefined} onClick={() => void undoAll()} data-testid="review-undo-all"><RotateCcw className="h-3.5 w-3.5" />{t('rollback_undo_task')}</Button>
               </div>
             </div>
 
             {status && <p role="status" aria-live="polite" data-testid="review-status" data-tone={status.tone}
               className={status.tone === 'warn' ? 'rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-warning' : 'rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-success'}>{status.text}</p>}
+            <LastRestoreBar onOutcome={(outcome) => { setStatus(statusOf(outcome, t('rollback_task_nothing'))); void reload(); }} />
             {snapshot.limitations.map((limit) => <p key={limit.code} role="note" data-testid="review-limitation" data-code={limit.code} className="rounded-lg border border-line bg-surface px-3 py-2 text-[12px] leading-5 text-muted">{limitText(limit)}</p>)}
             {snapshot.omitted.protected > 0 && <p role="note" data-testid="review-protected" className="text-[12px] text-faint">{t('review_protected', { count: snapshot.omitted.protected })}</p>}
 

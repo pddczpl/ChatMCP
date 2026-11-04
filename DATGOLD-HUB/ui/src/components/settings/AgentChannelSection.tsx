@@ -7,6 +7,7 @@ import { formatTime } from '@/lib/format';
 import { useTranslation } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { Select } from '@/components/ui/Input';
 import { ChatGptWebRiskNote } from '@/components/approval/ChatGptWebRiskNote';
 import { SettingsCard } from './SettingsCard';
@@ -21,6 +22,7 @@ export function AgentChannelSection() {
   const { showToast, selectedWorkspacePath } = useAppStore();
   const queryClient = useQueryClient();
   const { t, lang } = useTranslation();
+  const ask = useConfirm();
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
 
   const currentWs = (hub?.workspaces?.items?.some(w => w.path === selectedWorkspacePath) ? selectedWorkspacePath :
@@ -68,7 +70,7 @@ export function AgentChannelSection() {
     finally { setPairingBusy(false); }
   };
   const disconnectCompanion = async () => {
-    if (!window.confirm(t('chan_unpair_confirm'))) return;
+    if (!(await ask({ title: t('chan_unpair_confirm'), tone: 'danger', confirmLabel: t('chan_unpair') }))) return;
     setPairingBusy(true);
     try {
       await api.unpairBrowser();
