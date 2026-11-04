@@ -19,7 +19,7 @@ import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
 import { executePush, planPush, pushApprovalDetail, pushArgumentProblems, PUSH_LIMITS } from './git-push.mjs';
 import { diffHunks } from './line-diff.mjs';
-import { FILE_CHANGE_TOOLS, buildApprovalGuard, buildChangePreview, guardMatches, privateKeyBodyLines } from './approval-preview.mjs';
+import { FILE_CHANGE_TOOLS, buildApprovalGuard, buildChangePreview, guardMatches, hideKeyMaterial, keyLines } from './approval-preview.mjs';
 import { maskSecrets } from './permissions.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
@@ -1279,13 +1279,14 @@ export class LocalTools {
     const outLines = plan.lfText.split('\n');
     const from = Math.max(1, firstLine - 3);
     const to = Math.min(outLines.length, firstLine + replacedLines - 1 + 3);
-    // The lines the model gets back are the ones around its edit. A secret in them is hidden in this answer (the file keeps it), as it is on the owner's card: by its spelling, and a line of
-    // the body of a private key by its place.
-    const keyBodies = privateKeyBodyLines(plan.lfText);
+    // The lines the model gets back are the ones around its edit. A secret in them is hidden in this answer (the file keeps it), as it is on the owner's card: by its spelling, a line of the body
+    // of a private key by its place, and the key material in a line that holds a frame (text after the BEGIN frame, text before the END frame) the way the card hides it.
+    const keys = keyLines(plan.lfText);
     const registered = this.secrets?.() ?? [];
     let masked = false;
     const snippet = outLines.slice(from - 1, to).map((line, i) => {
-      const shown = keyBodies.has(from - 1 + i) ? '[REDACTED]' : maskSecrets(line, registered);
+      const place = from - 1 + i;
+      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);
       if (shown !== line) masked = true;
       return renderLine(shown, from + i);
     }).join('\n') + (masked ? '\n[Giá trị giống bí mật trong các dòng trên đã được che trong câu trả lời này; file vẫn giữ nguyên chúng.]' : '');

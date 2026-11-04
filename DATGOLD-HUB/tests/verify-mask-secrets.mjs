@@ -153,6 +153,8 @@ const COMMAND_AND_XML_BENIGN = [
   'psql --no-password mydb', 'tool --token', 'tool --password -x', 'sshpass -f /run/secrets/pw ssh host', 'mysql -u root -p"$DB_PASS"', 'docker login -u me -p "$REGISTRY_PASSWORD" registry.example.test',
   '<password>${env.DB_PASSWORD}</password>', '<password></password>', '<password>changeme</password>', '<passwordField>text</passwordField>', '<add key="Mode" value="production" />', '<add key="ApiKey" value="${API_KEY}" />',
   '<property name="timeout" value="30000"/>', 'password: Optional[str] = None', 'secret: SecretStr', 'private_key: Uint8Array;', 'export const credentials: RequestCredentials = "include";',
+  // user:group and uid:gid are not user:password; -P is the port of mysql, -p its password
+  'docker run -u 1000:1000 --rm nginx', 'docker run --user node:node --rm app', 'docker exec -u root:root web sh', 'podman run --user 1000:1000 img', 'mysql -h h -P3306 -uroot db', 'sshpass -P assword ssh host',
 ];
 for (const line of COMMAND_AND_XML_BENIGN) assert.equal(maskSecrets(line, []), line, `a line that holds no secret was changed: ${line}`);
 ok(`${COMMAND_AND_XML_BENIGN.length} more lines (flags that are not a password, XML that holds none, types) come back unchanged`);
@@ -186,7 +188,6 @@ const SHAPES = [
   ['curl --user', `curl --user admin:${V} https://example.com`, 'curl --user admin:[REDACTED] https://example.com'],
   ['curl --user=, a value in quotes', `curl --user="admin:${V} x" https://example.com`, 'curl --user="admin:[REDACTED]" https://example.com'],
   ['curl -u in quotes', `curl -u "admin:${V}" https://example.com`, 'curl -u "admin:[REDACTED]" https://example.com'],
-  ['curl -u on a line of its own', `  -u admin:${V} \\`, '  -u admin:[REDACTED] \\'],
   ['--password and a space', `deploy --password ${V} --env prod`, 'deploy --password [REDACTED] --env prod'],
   ['--password and a value in quotes', `deploy --password 'correct horse battery staple' --env prod`, "deploy --password '[REDACTED]' --env prod"],
   ['a flag with a prefix', `gh-tool --github-token ${V} run`, 'gh-tool --github-token [REDACTED] run'],
@@ -258,6 +259,32 @@ const COMMAND_LINES = [
   ['sshpass with its password glued to -p', `sshpass -p${V} ssh host`, 'sshpass -p[REDACTED] ssh host'],
   ['a flag within 200 characters of its command', `mysql${' x'.repeat(75)} -p${V} db`, `mysql${' x'.repeat(75)} -p[REDACTED] db`],
   ['a flag beyond 200 characters of its command (the limit)', `mysql${' x'.repeat(150)} -p${V} db`, `mysql${' x'.repeat(150)} -p${V} db`],
+  ['-u with no curl in front of it: nothing says that what follows is a password', `  -u admin:${V} \\`, `  -u admin:${V} \\`],
+  ['curl over several lines, -u on a line of its own (backslash)', `curl -sS \\\n  -u "svc:${V}" \\\n  https://example.com`, 'curl -sS \\\n  -u "svc:[REDACTED]" \\\n  https://example.com'],
+  ['the same with a bare value and Windows line endings', `curl -sS \\\r\n  -u svc:${V} \\\r\n  https://example.com`, 'curl -sS \\\r\n  -u svc:[REDACTED] \\\r\n  https://example.com'],
+  ['a caret, as cmd continues a line', `curl.exe ^\n  --user svc:${V} ^\n  https://example.com`, 'curl.exe ^\n  --user svc:[REDACTED] ^\n  https://example.com'],
+  ['a backtick, as PowerShell continues a line', `curl.exe \`\n  --proxy-user svc:${V} \`\n  https://example.com`, 'curl.exe `\n  --proxy-user svc:[REDACTED] `\n  https://example.com'],
+  ['spaces after the backslash still continue the line', `curl -sS \\ \t \n  -u svc:${V} url`, 'curl -sS \\ \t \n  -u svc:[REDACTED] url'],
+  ['a continuation after a continuation', `curl \\\n  -H 'Accept: x' \\\n  --user svc:${V} url`, "curl \\\n  -H 'Accept: x' \\\n  --user svc:[REDACTED] url"],
+  ['a line that is not continued ends the curl: the docker below it keeps its user and group', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u 1000:1000 img', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u 1000:1000 img'],
+  ['a blank line after the backslash ends it too', `curl url \\\n\n  -u svc:${V}`, `curl url \\\n\n  -u svc:${V}`],
+  ['no backslash at the end: the next line is another command', `curl url\n  -u svc:${V}`, `curl url\n  -u svc:${V}`],
+  ['a backslash that is not at the end of its line continues nothing', `curl url \\ x\n  -u svc:${V}`, `curl url \\ x\n  -u svc:${V}`],
+  ['-u of docker is a user and a group, --user too', 'docker run -u 1000:1000 --user node:node img', 'docker run -u 1000:1000 --user node:node img'],
+  ['two flags of one curl: both are masked', `curl --proxy-user proxy:${V} -u admin:${V} https://example.com`, 'curl --proxy-user proxy:[REDACTED] -u admin:[REDACTED] https://example.com'],
+  ['curl.exe, as Windows spells it', `curl.exe -u admin:${V} https://example.com`, 'curl.exe -u admin:[REDACTED] https://example.com'],
+  ['a curl within 200 characters of its -u', `curl${' x'.repeat(75)} -u admin:${V} url`, `curl${' x'.repeat(75)} -u admin:[REDACTED] url`],
+  ['a curl beyond 200 characters of its -u (the limit)', `curl${' x'.repeat(150)} -u admin:${V} url`, `curl${' x'.repeat(150)} -u admin:${V} url`],
+  ['the name of the program is whole: notcurl and curly are no curl', `notcurl -u admin:${V} x; curly -u admin:${V} y`, `notcurl -u admin:${V} x; curly -u admin:${V} y`],
+  ['-p is the password of mysql and -P is its port', `mysql -h h -P3306 -u root -p${V} db`, 'mysql -h h -P3306 -u root -p[REDACTED] db'],
+  ['-P of mysql in quotes is a port too', 'mysql -h h -P"3306" db', 'mysql -h h -P"3306" db'],
+  ['-P after sshpass is the prompt it waits for, in quotes as well', "sshpass -P 'assword' ssh host", "sshpass -P 'assword' ssh host"],
+  ['-P after docker login is no password', 'docker login -P 5000 registry.example.test', 'docker login -P 5000 registry.example.test'],
+  ['and in quotes', "docker login -P '5000' registry.example.test", "docker login -P '5000' registry.example.test"],
+  ['a long flag in capitals is a flag', `tool --PASSWORD ${V} run`, 'tool --PASSWORD [REDACTED] run'],
+  ['and with its value in quotes', `tool --Token "${V}" run`, 'tool --Token "[REDACTED]" run'],
+  ['of two -p of mysql the first is the one that is masked (the gap is lazy)', 'mysql -psecret1 db -e x -pfoo', 'mysql -p[REDACTED] db -e x -pfoo'],
+  ['and of docker login', `docker login -p ${V} registry.example.test -p foo`, 'docker login -p [REDACTED] registry.example.test -p foo'],
   ['a -p within 200 characters of docker login', `docker login${' x'.repeat(75)} -p ${V} registry.example.test`, `docker login${' x'.repeat(75)} -p [REDACTED] registry.example.test`],
   ['a -p beyond 200 characters of docker login (the limit)', `docker login${' x'.repeat(150)} -p ${V} registry.example.test`, `docker login${' x'.repeat(150)} -p ${V} registry.example.test`],
   ['an empty value in quotes', 'tool --password "" run', 'tool --password "" run'],
@@ -265,6 +292,7 @@ const COMMAND_LINES = [
   ['another one in the middle of a word', 'mysqldump --set-gtid-purged=OFF mydb', 'mysqldump --set-gtid-purged=OFF mydb'],
   ['an option of docker login that ends in -p', 'docker login --dry-p value registry.example.test', 'docker login --dry-p value registry.example.test'],
   ['a -u glued to a word is no flag', 'foo-u bar:bazqux', 'foo-u bar:bazqux'],
+  ['and neither is one after curl', `curl x-u admin:${V} url`, `curl x-u admin:${V} url`],
   ['a long flag glued to a word is no flag', 'a--password Hunter2Only', 'a--password Hunter2Only'],
   ['a password read from the environment, in quotes', 'sshpass -p "$SSHPASS" ssh host', 'sshpass -p "$SSHPASS" ssh host'],
   ['a user and a password read from the environment', 'curl -u $USER:$PASS https://example.com', 'curl -u $USER:$PASS https://example.com'],
@@ -313,6 +341,7 @@ ok('what was pinned before is unchanged');
   assert.ok(!masked.includes(PEM_BODY) && !masked.includes('Zm9vYmFyYmF6cXV4'), 'the body of a private key is masked, every line of it');
   assert.match(masked, /^-----BEGIN RSA PRIVATE KEY-----\n\[REDACTED\]\n-----END RSA PRIVATE KEY-----\nafter$/, 'the frame of the block and the text after it stay');
   assert.equal(maskSecrets('-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----'), '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----', 'a public key is not a secret');
+  assert.equal(maskSecrets('# not a PRIVATE KEY\n-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----'), '# not a PRIVATE KEY\n-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----', 'nor is one in a text that says the words PRIVATE KEY');
   // a PGP private key is armoured with "PRIVATE KEY BLOCK" in its frame; a public one is not a secret either
   const pgp = `-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQdGBF2xYZkBEADl3Kx9mP0qTz7RvW2nB8cD4eF6gH1jK3lM5nP7qR9sT1uV3wX5\n=ab12\n-----END PGP PRIVATE KEY BLOCK-----\nafter`;
   assert.equal(maskSecrets(pgp), '-----BEGIN PGP PRIVATE KEY BLOCK-----\n[REDACTED]\n-----END PGP PRIVATE KEY BLOCK-----\nafter', 'a PGP private key block is masked like any private key');
@@ -328,6 +357,44 @@ ok('what was pinned before is unchanged');
   assert.equal(out.split('\n').length, file.split('\n').length, 'the lines of a text are still its lines');
   assert.ok(!out.includes(SECRET('a')) && !out.includes(TOKEN));
   ok('a private key block over several lines, a public key left alone, the number of lines of a text unchanged');
+}
+
+// The rule of the private keys reads a text once. The answer of edit_file masks a whole line of a file (a file may be 4 MB and have one line), so a megabyte of BEGIN frames with no END
+// must not be a search from every frame to the end of the text; and the blocks are found as before.
+{
+  const FRAMES = ['-----BEGIN PRIVATE KEY-----', '-----END PRIVATE KEY-----'];
+  const frames = FRAMES[0].repeat(38_000);
+  const timed = (text) => { const started = performance.now(); const masked = maskSecrets(text); return { masked, ms: performance.now() - started }; };
+  const alone = timed(frames);
+  assert.equal(alone.masked, frames, 'frames with no END frame are left alone');
+  assert.ok(alone.ms < 1000, `${alone.ms.toFixed(0)} ms for a megabyte of BEGIN frames`);
+  const closed = timed(`${frames}\n${FRAMES[0]}\nabc\n${FRAMES[1]}\ntail`);
+  assert.equal(closed.masked, `${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a megabyte of frames and then one END: the first BEGIN is closed by it and the frames in between are a part of the key');
+  assert.ok(closed.ms < 1000, `${closed.ms.toFixed(0)} ms when an END comes at last`);
+  const backwards = timed(FRAMES[1].repeat(38_000));
+  assert.equal(backwards.masked, FRAMES[1].repeat(38_000), 'END frames alone are no key');
+  assert.ok(backwards.ms < 1000);
+  assert.equal(maskSecrets(`${FRAMES[0]}\nabc\n${FRAMES[0]}\ndef\n${FRAMES[1]}\ntail`), `${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a BEGIN frame inside a key is a part of it');
+  assert.equal(maskSecrets(`A\n${FRAMES[0]}\none\n${FRAMES[1]}\nB\n-----BEGIN EC PRIVATE KEY-----\ntwo\n-----END EC PRIVATE KEY-----\nC`),
+    `A\n${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\nB\n-----BEGIN EC PRIVATE KEY-----\n[REDACTED]\n-----END EC PRIVATE KEY-----\nC`, 'two blocks, each by itself');
+  assert.equal(maskSecrets(`${FRAMES[1]} ${FRAMES[0]}`), `${FRAMES[1]} ${FRAMES[0]}`, 'an END before a BEGIN is no key');
+  assert.equal(maskSecrets(`x ${FRAMES[0]}one${FRAMES[1]} y ${FRAMES[0]}two${FRAMES[1]} z`), `x ${FRAMES[0]}[REDACTED]${FRAMES[1]} y ${FRAMES[0]}[REDACTED]${FRAMES[1]} z`, 'two keys in one line');
+  // the keys are hidden before the other rules run: a token glued to the BEGIN frame ("sk-" and 16 letters) takes five dashes of the frame, and no frame is left for the rule to find
+  const BASE64_LINE = 'Zm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e';
+  assert.ok(!maskSecrets(`sk-0123456789abcdef0123${FRAMES[0]}\n${BASE64_LINE}\n${FRAMES[1]}`).includes(BASE64_LINE), 'a token glued to the BEGIN frame does not leave the key behind');
+  ok('the rule of the private keys reads a text once: a megabyte of BEGIN frames takes well under a second, with an END at last or none; blocks and keys in one line are found as before; a token glued to a frame does not hide the key from the rule');
+}
+
+// The look back of the flags of curl (-u, --user, --proxy-user) runs where a flag is, not at every word: a megabyte of words with no flag, and a megabyte of flags with no curl in front of them.
+{
+  for (const [label, text] of Object.entries({ 'a megabyte of words': 'word '.repeat(200_000), 'a megabyte of -u with no curl in front of it': '-u '.repeat(350_000) })) {
+    const started = performance.now();
+    const masked = maskSecrets(text, []);
+    const elapsed = performance.now() - started;
+    assert.equal(masked, text, `${label}: there is nothing to mask`);
+    assert.ok(elapsed < 1000, `${label}: ${elapsed.toFixed(0)} ms`);
+  }
+  ok('the look back of the flags of curl: a megabyte of words and a megabyte of -u with no curl are read in well under a second');
 }
 
 // the time does not depend on the layout of the text

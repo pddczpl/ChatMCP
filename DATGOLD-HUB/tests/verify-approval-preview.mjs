@@ -23,7 +23,7 @@ import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { PermissionGate } from '../lib/permissions.mjs';
 import { HookRunner } from '../lib/hooks.mjs';
-import { PREVIEW_LIMITS, argumentsDigest, buildChangePreview, hideInlineKeys, holdsPrivateKey, privateKeyBodyLines } from '../lib/approval-preview.mjs';
+import { PREVIEW_LIMITS, argumentsDigest, buildChangePreview, hideKeyBlocks, hideKeyMaterial, holdsPrivateKey, keyLines, privateKeyBodyLines } from '../lib/approval-preview.mjs';
 import { diffHunks, hunksDigest } from '../lib/line-diff.mjs';
 
 let checks = 0;
@@ -276,31 +276,63 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.deepEqual([...privateKeyBodyLines('-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY----- -----BEGIN PRIVATE KEY----- -----END PRIVATE KEY-----\nafter\n')], [1], 'and the last END');
   assert.deepEqual([...privateKeyBodyLines('-----BEGIN PGP PRIVATE KEY BLOCK-----\nComment: PRIVATE KEY backup\n\nlQdGBF\n-----END PGP PRIVATE KEY BLOCK-----\n')], [1, 2, 3], 'a line of the body that says "PRIVATE KEY" in words is a line of the body');
 
-  // hideInlineKeys: the key goes, the frames and the rest of the line stay
+  // hideKeyBlocks: the key goes, the frames and the rest of the line stay
   const FRAMES = ['-----BEGIN PRIVATE KEY-----', '-----END PRIVATE KEY-----'];
-  assert.equal(hideInlineKeys(`a ${FRAMES[0]}xyz${FRAMES[1]} b\n`), `a ${FRAMES[0]}[REDACTED]${FRAMES[1]} b\n`, 'one key in a row');
-  assert.equal(hideInlineKeys(`${FRAMES[0]}one${FRAMES[1]} and ${FRAMES[0]}two${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} and ${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'two keys in a row');
-  assert.equal(hideInlineKeys(`${FRAMES[0]}one${FRAMES[0]}two${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'a BEGIN frame inside a key is a part of it');
-  assert.equal(hideInlineKeys(`${FRAMES[0]}one${FRAMES[1]} then ${FRAMES[0]} and no end`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} then ${FRAMES[0]} and no end`, 'a BEGIN with no END after it hides nothing (the lines that follow are its body, by place)');
-  assert.equal(hideInlineKeys(`${FRAMES[1]}${FRAMES[0]}`), `${FRAMES[1]}${FRAMES[0]}`);
-  assert.equal(hideInlineKeys('a row with no key'), 'a row with no key');
-  assert.equal(hideInlineKeys('-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY-----'), '-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY-----', 'a public key is shown');
-  assert.equal(hideInlineKeys('-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY----- (not a PRIVATE KEY)'), '-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY----- (not a PRIVATE KEY)', 'also in a row that says the words PRIVATE KEY elsewhere');
+  assert.equal(hideKeyBlocks(`a ${FRAMES[0]}xyz${FRAMES[1]} b\n`), `a ${FRAMES[0]}[REDACTED]${FRAMES[1]} b\n`, 'one key in a row');
+  assert.equal(hideKeyBlocks(`${FRAMES[0]}one${FRAMES[1]} and ${FRAMES[0]}two${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} and ${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'two keys in a row');
+  assert.equal(hideKeyBlocks(`${FRAMES[0]}one${FRAMES[0]}two${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'a BEGIN frame inside a key is a part of it');
+  assert.equal(hideKeyBlocks(`${FRAMES[0]}one${FRAMES[1]} then ${FRAMES[0]} and no end`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} then ${FRAMES[0]} and no end`, 'a BEGIN with no END after it hides nothing (the lines that follow are its body, by place)');
+  assert.equal(hideKeyBlocks(`${FRAMES[1]}${FRAMES[0]}`), `${FRAMES[1]}${FRAMES[0]}`);
+  assert.equal(hideKeyBlocks('a row with no key'), 'a row with no key');
+  assert.equal(hideKeyBlocks('-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY-----'), '-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY-----', 'a public key is shown');
+  assert.equal(hideKeyBlocks('-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY----- (not a PRIVATE KEY)'), '-----BEGIN PUBLIC KEY-----abc-----END PUBLIC KEY----- (not a PRIVATE KEY)', 'also in a row that says the words PRIVATE KEY elsewhere');
   assert.deepEqual([...privateKeyBodyLines('-----BEGIN PUBLIC KEY----- (not a PRIVATE KEY)\nabc\n-----END PUBLIC KEY-----\n')], [], 'a public key is no body, also in a line that says the words PRIVATE KEY elsewhere');
-  assert.equal(hideInlineKeys('-----BEGIN PGP PRIVATE KEY BLOCK-----abc-----END PGP PRIVATE KEY BLOCK-----'), '-----BEGIN PGP PRIVATE KEY BLOCK-----[REDACTED]-----END PGP PRIVATE KEY BLOCK-----', 'a PGP block as well');
-  assert.equal(hideInlineKeys(`${FRAMES[0]}${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'also a key with nothing in it: the row is not told apart by what is inside');
+  assert.equal(hideKeyBlocks('-----BEGIN PGP PRIVATE KEY BLOCK-----abc-----END PGP PRIVATE KEY BLOCK-----'), '-----BEGIN PGP PRIVATE KEY BLOCK-----[REDACTED]-----END PGP PRIVATE KEY BLOCK-----', 'a PGP block as well');
+  assert.equal(hideKeyBlocks(`${FRAMES[0]}${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'also a key with nothing in it: the row is not told apart by what is inside');
   assert.equal(holdsPrivateKey(`x\n"k": "${FRAMES[0]}\\nabc\\n${FRAMES[1]}",\ny`), true, 'a key in one line is key material');
   assert.equal(holdsPrivateKey(`${FRAMES[0]}\nabc\n${FRAMES[1]}\n`), true, 'so is a block');
   assert.equal(holdsPrivateKey(`${FRAMES[0]}\n${FRAMES[1]}\n`), false, 'frames with nothing between them are not');
   assert.equal(holdsPrivateKey('-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n'), false, 'a public key is not');
   assert.equal(holdsPrivateKey('nothing of the kind'), false);
+  // a block over several lines keeps its frames on lines of their own, whether the masker or the card reads it
+  assert.equal(hideKeyBlocks(`${FRAMES[0]}\nabc\ndef\n${FRAMES[1]}\ntail`), `${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a block over several lines');
+  assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${FRAMES[1]}`), `${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}`, 'also an empty one');
+  assert.equal(hideKeyBlocks('-----BEGIN PRIVATE KEY-----END PRIVATE KEY-----'), '-----BEGIN PRIVATE KEY-----[REDACTED]END PRIVATE KEY-----', 'frames that share their five dashes hold nothing between them, and no text is written twice');
+
+  // A frame line can carry text of the body: the start of it after the BEGIN frame, the end of it before the END frame, or both (a one-line key that an editor wrapped). That text is the key.
+  assert.equal(hideKeyMaterial(`key: "${FRAMES[0]}AAAA1111\n`, false), `key: "${FRAMES[0]}[REDACTED]\n`, 'what follows the BEGIN frame, up to the end of the line');
+  assert.equal(hideKeyMaterial(`BBBB2222${FRAMES[1]}"\n`, true), `[REDACTED]${FRAMES[1]}"\n`, 'what comes before the END frame of a body that was open, and what comes after it stays');
+  assert.equal(hideKeyMaterial(`${FRAMES[1]}"\n`, true), `${FRAMES[1]}"\n`, 'an END frame at the start of its line has nothing before it');
+  assert.equal(hideKeyMaterial(`${FRAMES[0]}\n`, false), `${FRAMES[0]}\n`, 'a BEGIN frame alone on its line has nothing after it');
+  assert.equal(hideKeyMaterial(`${FRAMES[0]}  \r\n`, false), `${FRAMES[0]}  \r\n`, 'nor does one with only spaces and a line ending after it');
+  assert.equal(hideKeyMaterial(`${FRAMES[0]}AAAA\r\n`, false), `${FRAMES[0]}[REDACTED]\r\n`, 'the line ending of a Windows file stays');
+  assert.equal(hideKeyMaterial(`BBBB${FRAMES[1]}\r\n`, true), `[REDACTED]${FRAMES[1]}\r\n`);
+  assert.equal(hideKeyMaterial(`xx${FRAMES[1]} and ${FRAMES[0]}zz\n`, true), `[REDACTED]${FRAMES[1]} and ${FRAMES[0]}[REDACTED]\n`, 'a line that ends one key and begins another');
+  assert.equal(hideKeyMaterial(`${FRAMES[0]}one${FRAMES[1]}\n`, false), `${FRAMES[0]}[REDACTED]${FRAMES[1]}\n`, 'a key that begins and ends in the line');
+  assert.equal(hideKeyMaterial(`aa ${FRAMES[0]} bb ${FRAMES[0]} cc\n`, false), `aa ${FRAMES[0]}[REDACTED]\n`, 'with two BEGIN frames and no END the body starts at the FIRST: a BEGIN frame inside a body is a part of it');
+  assert.equal(hideKeyMaterial(`aa ${FRAMES[1]} bb ${FRAMES[1]} cc\n`, true), `[REDACTED]${FRAMES[1]} bb ${FRAMES[1]} cc\n`, 'a body that is open ends at the FIRST END frame');
+  assert.equal(hideKeyMaterial('a line with no frame', false), 'a line with no frame');
+  assert.equal(hideKeyMaterial(`before ${FRAMES[1]} after\n`, false), `before ${FRAMES[1]} after\n`, 'an END frame with no body open: the text before it is not a body');
+  assert.equal(hideKeyMaterial('QUJDREVGR0g=\n', true), '[REDACTED]\n', 'a line with no frame in it, when a body is open, is all key (its line ending stays)');
+  assert.equal(hideKeyMaterial('-----BEGIN PUBLIC KEY-----AAAA\n', false), '-----BEGIN PUBLIC KEY-----AAAA\n', 'a public key is shown');
+  assert.equal(hideKeyMaterial(`${FRAMES[0]}[REDACTED]\n`, false), `${FRAMES[0]}[REDACTED]\n`, 'hiding it again changes nothing');
   {
-    // the time: a line of 12,000 BEGIN frames and no END is read once, not once for each frame
+    const lines = keyLines([`k: "${FRAMES[0]}AAAA`, 'BBBB', `CCCC${FRAMES[1]}"`, `x ${FRAMES[0]}one${FRAMES[1]} y`, 'plain', `${FRAMES[0]}`, 'body', `${FRAMES[1]}`, ''].join('\n'));
+    assert.deepEqual([...lines.body], [1, 6], 'the whole lines of a body');
+    assert.deepEqual([...lines.framed], [[0, false], [2, true], [3, false], [5, false], [7, true]], 'the lines with a frame, and whether a body was open where each began');
+    assert.deepEqual([...privateKeyBodyLines(`${FRAMES[0]}\nabc\n${FRAMES[1]}\n`)], [1]);
+  }
+  assert.equal(holdsPrivateKey(`k: "${FRAMES[0]}AAAA\n${FRAMES[1]}\n`), true, 'a BEGIN line with text after it is key material even when no whole line is a body');
+  assert.equal(holdsPrivateKey(`${FRAMES[0]}\nBBBB${FRAMES[1]}\n`), true, 'and so is a body whose end is on the END line');
+  {
+    // the time: a line of a megabyte of BEGIN frames (38,000) and no END is read once, not once for each frame
     const started = performance.now();
-    hideInlineKeys(FRAMES[0].repeat(12_000));
-    privateKeyBodyLines(FRAMES[0].repeat(12_000));
-    holdsPrivateKey(FRAMES[0].repeat(12_000));
-    assert.ok(performance.now() - started < 800, `${(performance.now() - started).toFixed(0)} ms for 12,000 BEGIN frames in a line`);
+    hideKeyBlocks(FRAMES[0].repeat(38_000));
+    privateKeyBodyLines(FRAMES[0].repeat(38_000));
+    holdsPrivateKey(FRAMES[0].repeat(38_000));
+    hideKeyMaterial(FRAMES[0].repeat(38_000), false);
+    hideKeyMaterial(FRAMES[1].repeat(38_000), true);
+    assert.ok(performance.now() - started < 800, `${(performance.now() - started).toFixed(0)} ms for 38,000 BEGIN frames in a line`);
   }
 
   // A PGP private key block: the frame says "PRIVATE KEY BLOCK". Its blank line, its body and its checksum are hidden by their place; the armour of a public key is not.
@@ -364,6 +396,45 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.ok(goneRows.some((row) => row.kind === 'removed' && row.text.includes('"private_key"')), 'the card shows that the line goes away');
   assert.equal(accountGone.request.detail.preview.privateKeys, true, 'it is still key material');
   ok('a service-account key in one line: hidden inside its line before the row is cut, one row, the fields after it readable, the call says it touches a key');
+
+  // A frame line that carries text of the body: the start of it after the BEGIN frame, the end of it before the END frame, or both (a one-line key that an editor wrapped). The text is the
+  // key, the frames and the words around it are not: `key: "` and `"` stay. Lines with Unix and with Windows line endings.
+  {
+    const WRAPPED = pseudoBase64(1200);
+    const slice = (from, to) => WRAPPED.slice(from, to);
+    const layouts = {
+      'the start of the body on the BEGIN line': {
+        lines: ['owner: svc@example.test', `key: "${FRAMES[0]}${slice(0, 300)}`, slice(300, 700), `${FRAMES[1]}"`, 'next: 1'],
+        begin: `key: "${FRAMES[0]}[REDACTED]`, end: `${FRAMES[1]}"`,
+      },
+      'the end of the body on the END line': {
+        lines: ['owner: svc@example.test', `key: "${FRAMES[0]}`, slice(0, 400), `${slice(400, 700)}${FRAMES[1]}"`, 'next: 1'],
+        begin: `key: "${FRAMES[0]}`, end: `[REDACTED]${FRAMES[1]}"`,
+      },
+      'both: a one-line key that an editor wrapped': {
+        lines: ['owner: svc@example.test', `key: "${FRAMES[0]}${slice(0, 120)}`, slice(120, 600), `${slice(600, 700)}${FRAMES[1]}"`, 'next: 1'],
+        begin: `key: "${FRAMES[0]}[REDACTED]`, end: `[REDACTED]${FRAMES[1]}"`,
+      },
+    };
+    // pieces that lie inside one line in every layout (the lines break at 120, 300, 400 and 600)
+    const pieces = [slice(10, 50), slice(160, 200), slice(330, 370), slice(420, 460), slice(560, 600), slice(640, 680)];
+    for (const [label, layout] of Object.entries(layouts)) {
+      for (const eol of ['\n', '\r\n']) {
+        await put('keys/wrapped.txt', `${layout.lines.join(eol)}${eol}`);
+        const gateW = newGate();
+        const wrapped = await ask(gateW, 'local.edit_file', { path: 'keys/wrapped.txt', old_string: 'svc@example.test', new_string: 'new@example.test' });
+        const texts = rowsOf(wrapped.request.detail.preview.files[0]).map((row) => row.text);
+        const where = `${label}${eol === '\n' ? '' : ' (Windows line endings)'}`;
+        assert.deepEqual(pieces.filter((piece) => JSON.stringify(wrapped.request).includes(piece) || JSON.stringify(wrapped.events).includes(piece) || JSON.stringify(gateW.state()).includes(piece)), [], `${where}: no part of the key is anywhere`);
+        assert.ok(texts.includes(`${layout.begin}${eol}`), `${where}: the BEGIN line is there with the key cut out of it: ${JSON.stringify(texts)}`);
+        assert.ok(texts.includes(`${layout.end}${eol}`), `${where}: the END line is there with the key cut out of it: ${JSON.stringify(texts)}`);
+        assert.ok(texts.includes(`owner: new@example.test${eol}`) && texts.includes(`owner: svc@example.test${eol}`), `${where}: the line that changed is readable`);
+        assert.equal(wrapped.request.detail.preview.privateKeys, true, `${where}: the call says that it touches a key`);
+        assert.equal(wrapped.request.detail.old_string, undefined, `${where}: and the words the model wrote are left out`);
+      }
+    }
+  }
+  ok('a frame line that carries text of the key (after BEGIN, before END, or both): the text is hidden on the card, the frames and the words around them stay, with Unix and Windows line endings, and nothing of the key is in the request, the events or the state');
 
   // a protected file: asked with nothing to show, and the content is nowhere
   const gate1 = newGate();

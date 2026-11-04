@@ -511,5 +511,49 @@ function oracleWrite(existing, content) {
   ok('what the model reads back after an edit: a password, a key, a registered secret and the body of a private key are hidden in the answer by spelling or by place, the frame and the rest of the line stay, the answer says so, the file keeps them, files_apply_patch does the same, and an answer with no secret is as it was');
 }
 
+// ------------------------------------------------------------------ 6. a key whose frames carry text of it, and a line that is a megabyte of frames
+// The answer of edit_file shows the lines around the edit, and a line of a file can be as long as the file (4 MB). Two things were wrong with a private key there: a frame line that carries text of
+// the key (the start of the body after BEGIN, the end of it before END, or both, when an editor wrapped a one-line key) showed that text, and masking a line that is made of BEGIN frames with no
+// END was a search from every frame to the end of the line, which froze the Hub for seconds (16 s for a megabyte).
+{
+  const FR = ['-----BEGIN PRIVATE KEY-----', '-----END PRIVATE KEY-----'];
+  const tools = new LocalTools({ workspace: studio, stateDirectory: state });
+  const target = path.join(work, 'wrapped-echo.txt');
+  const readBack = (result) => result.content.map((part) => part.text).join('\n');
+  const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let seed = 4242;
+  const KEY = Array.from({ length: 1200 }, () => { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return BASE64[(seed >>> 8) % 64]; }).join('');
+  const part = (from, to) => KEY.slice(from, to);
+  const pieces = [part(10, 50), part(160, 200), part(330, 370), part(420, 460), part(560, 600), part(640, 680)];
+  const layouts = {
+    'the start of the body on the BEGIN line': ['owner: svc@example.test', `key: "${FR[0]}${part(0, 300)}`, part(300, 700), `${FR[1]}"`, 'next: 1'],
+    'the end of the body on the END line': ['owner: svc@example.test', `key: "${FR[0]}`, part(0, 400), `${part(400, 700)}${FR[1]}"`, 'next: 1'],
+    'both: a one-line key that an editor wrapped': ['owner: svc@example.test', `key: "${FR[0]}${part(0, 120)}`, part(120, 600), `${part(600, 700)}${FR[1]}"`, 'next: 1'],
+  };
+  for (const [label, lines] of Object.entries(layouts)) {
+    await fs.writeFile(target, `${lines.join('\n')}\n`);
+    const answer = readBack(await tools.call('edit_file', { path: 'wrapped-echo.txt', old_string: 'svc@example.test', new_string: 'new@example.test' }));
+    assert.deepEqual(pieces.filter((piece) => answer.includes(piece)), [], `${label}: no part of the key is in the answer`);
+    assert.ok(answer.includes(`key: "${FR[0]}`) && answer.includes(`${FR[1]}"`), `${label}: the frames and the words around them stay in the answer`);
+    assert.match(answer, /owner: new@example\.test/, `${label}: the edited line is there`);
+    assert.match(answer, /đã được che trong câu trả lời này/, `${label}: and the answer says that something was hidden`);
+    assert.ok((await fs.readFile(target, 'utf8')).includes(part(10, 50)), `${label}: the file keeps its key`);
+  }
+  ok('a frame line that carries text of the key (after BEGIN, before END, or both) shows none of it in the answer of an edit; the frames and the words around them stay');
+
+  // a megabyte of BEGIN frames in one line, with the edit on the next line: the answer comes at once, whatever it says
+  const hostileTarget = path.join(work, 'hostile.txt');
+  for (const [label, unit] of [['BEGIN frames with no END', FR[0]], ['END frames', FR[1]]]) {
+    await fs.writeFile(hostileTarget, `${unit.repeat(Math.floor(1_048_576 / unit.length))}\ntarget line\n`);
+    const started = performance.now();
+    const result = await tools.call('edit_file', { path: 'hostile.txt', old_string: 'target line', new_string: 'changed line' });
+    const elapsed = performance.now() - started;
+    assert.equal(result.isError, false, readBack(result).slice(0, 300));
+    assert.ok((await fs.readFile(hostileTarget, 'utf8')).includes('changed line'), `${label}: the edit was made`);
+    assert.ok(elapsed < 1500, `${label}: edit_file next to a megabyte line took ${elapsed.toFixed(0)} ms`);
+  }
+  ok('edit_file next to a line of a megabyte of BEGIN frames (and of END frames) answers in well under 1.5 s (it took 16 s)');
+}
+
 await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
 console.log(`PASS: ${checks} edit plan checks`);

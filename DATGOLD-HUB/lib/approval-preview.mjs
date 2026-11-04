@@ -54,82 +54,137 @@ export const PRIVATE_KEY_END = String.raw`-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOC
 const BEGIN_FRAMES = new RegExp(PRIVATE_KEY_BEGIN, 'g');
 const END_FRAMES = new RegExp(PRIVATE_KEY_END, 'g');
 
-/** Where the last frame of this kind starts in the line, -1 when there is none. */
-function lastFrame(frames, line) {
-  let at = -1;
-  for (const match of line.matchAll(frames)) at = match.index;
-  return at;
+/** The frames of a text in the order they come: `{ begin, start, end }`. Two scans of the text, each of them linear. */
+function framesOf(text) {
+  const found = [];
+  for (const match of text.matchAll(BEGIN_FRAMES)) found.push({ begin: true, start: match.index, end: match.index + match[0].length });
+  for (const match of text.matchAll(END_FRAMES)) found.push({ begin: false, start: match.index, end: match.index + match[0].length });
+  return found.sort((a, b) => a.start - b.start);
 }
 
 /**
- * The 0-based numbers of the lines that are the body of a private key: between a `-----BEGIN ... PRIVATE KEY-----` line and the `-----END` line (or the end of the text, when the end is not
- * there). The frame lines are not secret and stay. A line of a body looks like any base64, so only its place tells what it is; the card cuts a file into rows, which keeps their place.
- * A line that holds a frame is never a body line. What it leaves open is told by the frame that comes LAST in it: a key that begins and ends in one line (a service-account file keeps the
- * whole key in one line, its line breaks written \n) leaves nothing open, and the lines after it are not its body.
+ * The parts of a text that are key material, given whether the body of a key is open where the text starts. A BEGIN frame opens a body (one that is open already takes it for a part of itself) and
+ * the first END frame after it closes it; an END frame with nothing open is stray.
+ *   - `closed`: between a BEGIN frame and the END frame that closes it, both in the text
+ *   - `head`: from the start of the text to the first END frame, when a body was open at the start (the end of a key that began on an earlier line)
+ *   - `tail`: from the BEGIN frame that opened a body to the end of the text, when no END frame closes it (the start of a key that goes on in the next line)
  */
-export function privateKeyBodyLines(text) {
-  const inside = new Set();
-  let open = false;
-  text.split('\n').forEach((line, index) => {
-    if (!line.includes('PRIVATE KEY')) {
-      if (open) inside.add(index);
-      return;
+function keyParts(text, open) {
+  const parts = [];
+  let from = 0;
+  let began = false;
+  for (const frame of framesOf(text)) {
+    if (!open && frame.begin) {
+      open = true;
+      began = true;
+      from = frame.end;
+    } else if (open && !frame.begin) {
+      // an END frame that shares its dashes with the BEGIN frame before it closes a key with nothing in it
+      parts.push({ kind: began ? 'closed' : 'head', start: from, end: Math.max(frame.start, from) });
+      open = false;
     }
-    const begin = lastFrame(BEGIN_FRAMES, line);
-    const end = lastFrame(END_FRAMES, line);
-    if (begin < 0 && end < 0) {
-      if (open) inside.add(index);
-      return;
-    }
-    open = begin > end;
-  });
-  return inside;
+  }
+  if (open) parts.push({ kind: 'tail', start: from, end: text.length });
+  return parts;
 }
 
 /**
- * The text of a row with every key that begins and ends in it hidden: the two frames stay, what is between them becomes [REDACTED], and the rest of the line is as it was. Done on the whole
- * line, before the row is cut to its 400 characters: a key is longer than that, and a cut row has lost its END frame, so nothing could tell afterwards what the rest of it was.
+ * The text with its key material replaced by [REDACTED]; the frames and the words around them stay. A key that begins and ends in the text is always replaced (also an empty one), and a block over
+ * several lines keeps its frames on lines of their own. With `edges`, the head and the tail are replaced too when they hold something (a line ending is not a part of them): that is what the card
+ * does with a row, where the key goes on in the lines before or after. Without it they are left alone, as they are for a text that is not read line by line.
+ * It reads the text once, whatever it holds: a line of a megabyte of BEGIN frames is not a search from every frame to the end of the line.
  */
-export function hideInlineKeys(text) {
-  if (!text.includes('PRIVATE KEY')) return text;
-  const begin = new RegExp(PRIVATE_KEY_BEGIN, 'g');
-  const end = new RegExp(PRIVATE_KEY_END, 'g');
+function hideKeyParts(text, open, edges) {
+  if (!open && !text.includes('PRIVATE KEY')) return text;
   let out = '';
   let from = 0;
-  for (let opening = begin.exec(text); opening; opening = begin.exec(text)) {
-    const bodyStart = opening.index + opening[0].length;
-    end.lastIndex = bodyStart;
-    const closing = end.exec(text);
-    if (!closing) break; // no END frame to the right of this one: none to the right of the next ones either
-    out += text.slice(from, bodyStart) + '[REDACTED]';
-    from = closing.index;
-    begin.lastIndex = closing.index + closing[0].length;
+  for (const part of keyParts(text, open)) {
+    let { end } = part;
+    if (part.kind === 'closed') {
+      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\n') ? '\n[REDACTED]\n' : '[REDACTED]');
+      from = end;
+      continue;
+    }
+    if (!edges) continue;
+    if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\n' || text[end - 1] === '\r')) end -= 1;
+    if (text.slice(part.start, end).trim() === '') continue;
+    out += `${text.slice(from, part.start)}[REDACTED]`;
+    from = end;
   }
   return out + text.slice(from);
 }
 
-/** Whether a text holds private key material: a body between two frames, or a key that begins and ends in one line. */
-export const holdsPrivateKey = (text) => text.includes('PRIVATE KEY') && (privateKeyBodyLines(text).size > 0 || text.split('\n').some((line) => hideInlineKeys(line) !== line));
+/** A text with every key that begins and ends in it hidden (the masker uses this); a body that goes on beyond the text is not touched. */
+export const hideKeyBlocks = (text) => hideKeyParts(text, false, false);
 
-/** A row whose key (one that begins and ends in the row) is hidden; the row itself when it holds none. */
-function withoutInlineKeys(row) {
-  const text = hideInlineKeys(row.text);
-  return text === row.text ? row : { kind: row.kind, text };
+/**
+ * A line (or a row of the card: its line ending stays) that holds a frame, with the key material in it hidden: a key that begins and ends in it, the text that comes after a BEGIN frame when the
+ * body goes on in the next line, and the text that comes before the END frame of a body that was open when the line began (`open`).
+ */
+export const hideKeyMaterial = (line, open) => hideKeyParts(line, open, true);
+
+/**
+ * What a text says about the private keys in it, line by line (0-based):
+ *   - `body`: the lines that are wholly the body of a key, between the line of a BEGIN frame and the line of the END frame, or to the end of the text when the end is not there. A line of a
+ *     body looks like any base64, so only its place tells what it is; the card cuts a file into rows, which keeps their place.
+ *   - `framed`: the lines that hold a frame, with whether a body was open where each of them began. They are not body lines: the frames stay, and `hideKeyMaterial` hides the key material in them.
+ *   - `lines`: the lines.
+ * What a line leaves open is told by the frame that comes LAST in it: a key that begins and ends in one line (a service-account file keeps the whole key in one line, its line breaks written \n)
+ * leaves nothing open, and the lines after it are not its body.
+ */
+export function keyLines(text) {
+  const body = new Set();
+  const framed = new Map();
+  const lines = text.split('\n');
+  let open = false;
+  lines.forEach((line, index) => {
+    const frames = line.includes('PRIVATE KEY') ? framesOf(line) : [];
+    if (frames.length === 0) {
+      if (open) body.add(index);
+      return;
+    }
+    framed.set(index, open);
+    open = frames[frames.length - 1].begin;
+  });
+  return { body, framed, lines };
 }
 
-/** The rows of a hunk, with the rows that are a line of a private key's body replaced by a marker (the row keeps its kind and its line ending). */
-function hideKeyBodies(hunk, oldLines, newLines) {
-  if (!oldLines.size && !newLines.size) return hunk.rows;
+/** The 0-based numbers of the lines that are wholly the body of a private key (see keyLines). */
+export const privateKeyBodyLines = (text) => keyLines(text).body;
+
+/** Whether a text holds private key material: a line of a body, key material in a line that holds a frame, or a key that begins and ends in one line. */
+export function holdsPrivateKey(text) {
+  if (!text.includes('PRIVATE KEY')) return false;
+  const { body, framed, lines } = keyLines(text);
+  if (body.size > 0) return true;
+  for (const [index, open] of framed) if (hideKeyMaterial(lines[index], open) !== lines[index]) return true;
+  return false;
+}
+
+const NO_KEYS = Object.freeze({ body: new Set(), framed: new Map(), lines: [] });
+
+/**
+ * The rows of a hunk with the key material hidden: a row that is a line of a private key's body becomes a marker (the row keeps its kind and its line ending), and a row that holds a frame has
+ * the key material in it cut out (the frames, the words around them and the line ending stay).
+ */
+function hideKeyBodies(hunk, oldKeys, newKeys) {
+  if (!oldKeys.framed.size && !newKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key
   let lead = 0;
   while (lead < hunk.rows.length && hunk.rows[lead].kind === 'context') lead += 1;
   // The context before the first change is lines of both texts; from there each row moves the place in the old text (not an added row) and in the new text (not a removed row).
   let old = hunk.baselineStart - lead;
   let current = hunk.currentStart - lead;
   return hunk.rows.map((row) => {
-    const secret = row.kind === 'removed' ? oldLines.has(old) : newLines.has(current);
+    const keys = row.kind === 'removed' ? oldKeys : newKeys;
+    const place = row.kind === 'removed' ? old : current;
     if (row.kind !== 'added') old += 1;
     if (row.kind !== 'removed') current += 1;
-    return secret ? { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` } : row;
+    if (keys.body.has(place)) return { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` };
+    if (keys.framed.has(place)) {
+      const text = hideKeyMaterial(row.text, keys.framed.get(place));
+      if (text !== row.text) return { kind: row.kind, text };
+    }
+    return row;
   });
 }
 
@@ -139,14 +194,14 @@ function fileEntry(plan, budget) {
   let shown = 0;
   let total = 0;
   for (const hunk of plan.hunks) total += hunk.rows.length;
-  const oldLines = typeof plan.oldText === 'string' ? privateKeyBodyLines(plan.oldText) : new Set();
-  const newLines = typeof plan.newText === 'string' ? privateKeyBodyLines(plan.newText) : new Set();
+  const oldKeys = typeof plan.oldText === 'string' ? keyLines(plan.oldText) : NO_KEYS;
+  const newKeys = typeof plan.newText === 'string' ? keyLines(plan.newText) : NO_KEYS;
   for (const hunk of plan.hunks) {
     if (shown >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;
     const rows = [];
-    for (const row of hideKeyBodies(hunk, oldLines, newLines)) {
+    for (const row of hideKeyBodies(hunk, oldKeys, newKeys)) {
       if (shown + rows.length >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;
-      const clipped = clipRow(withoutInlineKeys(row));
+      const clipped = clipRow(row);
       budget.chars -= clipped.text.length;
       rows.push(clipped);
     }
