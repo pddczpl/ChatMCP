@@ -143,6 +143,16 @@ jobs:
         working-directory: DATGOLD-HUB/ui
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # About once in sixty runs of this job the system answers a bind(0) of the browser with "all the available addresses are in use" (WSAENOBUFS,
+      # net::ERR_NO_BUFFER_SPACE) although about 300 of the 16,384 dynamic ports are in use. This step is a hedge, not a cure: a probe that fails on the default IPv4
+      # range did not fail on this one (the IPv6 range is left as it is). docs/CI-HEALTH.md, "A port the machine would not give", says what is and is not shown, and when
+      # to take the step out.
+      - name: Widen the dynamic TCP port range (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          netsh int ipv4 set dynamicport tcp start=10000 num=55535
+          netsh int ipv4 show dynamicport tcp
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
