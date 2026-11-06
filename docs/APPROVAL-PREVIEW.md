@@ -56,27 +56,35 @@ Bounds: 20 files, 200 rows of a file, a line cut at 400 characters (with `omitte
     space, bare or in quotes, from four characters (the flags that say there is none, `--no-password`, `--ask-password` ..., take no value); `curl -u user:secret` (also `--user`, `--proxy-user`, and `curl.exe`);
     `mysql -psecret` (and mysqldump, mysqladmin, mysqlimport, mysqlcheck, mysqlshow, mysqlpump, mariadb); `sshpass -p secret`; `docker login -p secret` (also podman, nerdctl, buildah, skopeo). A value read from a
     variable (`"$PASSWORD"`, `%PASSWORD%`) stays. `-u`, `--user` and `--proxy-user` are a user and a password wherever they stand (curl, any other client that takes `user:password`, a script, a file of notes), but for two things that
-    are a user and a group: a numeric pair (`-u 1000:1000`, `--user=1000:1000`), and the flags of a container client (docker, podman, nerdctl, buildah, skopeo, kubectl, oc, crictl, ctr, lxc, incus)
-    in the same command: `docker run -u node:node`, `--user app:app` and `docker exec -u root:root` stay as they are, while `docker exec web curl -u admin:secret` (the flag is curl's) and `docker pull x; tool -u
-    admin:secret` (another command) are masked. A secret fails safe: what is not known to be a container is masked. The `-p` of the clients above is the lower-case one: `mysql -P3306` (a port) and
-    `sshpass -P assword` (a prompt) stay.
+    are a user and a group: a numeric pair (`-u 1000:1000`, `--user=1000:1000`), and the flags of a command that STARTS with a container client (docker, podman, nerdctl, buildah): `docker run -u node:node`,
+    `sudo docker exec -u root:root web sh` and `--user app:app` stay as they are. Both are decided on the whole COMMAND that holds the flag (the text from the last `;`, `&`, `|` or line ending to the flag), which
+    must hold no `curl` and no `://` before the flag: `docker exec web curl -u admin:secret` (the flag is curl's), `docker pull x; tool -u admin:secret` (another command), `tool -u admin:secret` (no client) and
+    `curl -u 5551234567:123456` (a pair of numbers, but curl's) are masked. A secret fails safe: what is not known to be a user and a group is masked, and so is every client that is not on the list (`ctr` takes
+    `-u user:password` as the credentials of a registry, and skopeo, kubectl, oc, crictl, lxc and incus are not exempted either). A drive path is no user and password (`diff -u C:\a\old.txt C:\a\new.txt` stays) unless the command holds `curl` or `://` (`curl -u c:/secret` is masked).
+    The `-p` of the clients above is the lower-case one: `mysql -P3306` (a port) and `sshpass -P assword` (a prompt) stay.
   - **XML.** `<password>secret</password>` (an element named like a secret, with attributes or with a prefix: `<db-password encrypted="false">`), `<add key="ApiKey" value="secret"/>` and
     `<property name="password" value="secret"/>`.
-- A private key: PEM (`BEGIN ... PRIVATE KEY`), OpenSSH and PGP (`BEGIN PGP PRIVATE KEY BLOCK`). A line of a key's body looks like any base64, so its place tells where to look, and its shape tells whether it is a
-  key. **The frames tell where; they do not tell what.** A model can write a BEGIN frame in front of anything, and a card that hid whatever follows a frame would let it hide its code from the owner. So a row (or the
-  text after a BEGIN frame, before an END frame, or between them) is hidden only when it LOOKS LIKE KEY MATERIAL (`looksLikeKey`): characters of base64 (`A-Z a-z 0-9 + / =`, and `_ -` for base64url) in tokens of 16
-  characters or more, wrapped as a key is wrapped in code (quotes, commas, a `#` or `//` comment sign, a list dash, a `+` or a backslash at the end of the line, the `\n` and `\u000a` of a one-line key), or the
-  checksum line of PGP (`=ab12`), or the short last line of a body (four characters or more with a capital, a digit or a sign; after other tokens, a digit or a sign). A row of a body is ONE token; the text after a
-  BEGIN frame may be several (a key written on one line). Code, commands, URLs, words, the armour headers of PGP (`Comment: ...`, `Version: ...`, `Proc-Type: ...`) and blank lines are not key material: they stay on
-  the card, between the frames or not (`-----BEGIN PRIVATE KEY-----`, `rm -rf /var/lib/app`, `-----END PRIVATE KEY-----` shows all three).
-  The card masks the rows between the frames by their place in the old and in the new text, wherever it shows them (kept, taken away, put in; a PGP checksum line too), when they look like key material, and keeps
+- A private key: PEM (`BEGIN ... PRIVATE KEY`), OpenSSH and PGP (`BEGIN PGP PRIVATE KEY BLOCK`). A line of a key's body looks like any base64, so its place tells where to look, and its shape tells what to hide.
+  **The frames tell where; the shape tells what.** A model can write a BEGIN frame in front of anything, and a card that hid whatever follows a frame would let it hide its code from the owner. So what is hidden
+  between the frames (the rows, the rest of the line of a frame, the text of a key written on one line) is base64, and only that:
+  - every RUN of 16 characters or more of base64 (`A-Z a-z 0-9 + /`, and `_ -` for base64url, with up to two `=` after it) is replaced by `[REDACTED]` where it stands, and every other character of the row
+    stays. The decoration of a key is not what is hidden: a comment sign (`-- `, `REM `, `::`, `#`), quotes, `echo "..." >> key`, `printf`, `Add-Content`, `b"...\n"`, a dot or an ampersand that joins strings, a
+    table bar, XML tags, and the `\n`, the PowerShell backtick-n, the `%0A`, the `\x0a` and the `&#10;` of a one-line key. A list of decorations is never complete, so it must not be what decides secrecy (the
+    fourth audit of PR #103 found the whole body of a real key on the card in 23 of 31 shapes when it did);
+  - a row of a body that is ONE short token (the last line of a key: four characters or more with a capital, a digit or a sign), or the checksum line of PGP (`=ab12`), is hidden whole, and so is a part of a row
+    (the rest of the line of a frame, a key in one line) that is nothing but tokens of base64 (`looksLikeKey`).
+
+  Code, commands, URLs, words, the armour headers of PGP (`Comment: ...`, `Version: ...`, `Proc-Type: ...`) and blank lines have no run of 16 characters: they stay on the card, between the frames or not
+  (`-----BEGIN PRIVATE KEY-----`, `rm -rf /var/lib/app`, `-----END PRIVATE KEY-----` shows all three). A long word in the middle of a command IS a run: `rm -rf /usr/local/share/very-long-directory-name` shows as
+  `rm -rf [REDACTED]` between two frames, and the card counts the row.
+  The card masks the rows between the frames by their place in the old and in the new text, wherever it shows them (kept, taken away, put in; a PGP checksum line too), what is base64 in them, and keeps
   the frame lines, the row kinds and the real counts. **It says how many it hid**: a file of the card has `hiddenKeyRows`, and the page writes "N rows hidden as private key material" next to the path, so a file
   that hides rows it should not is seen, not trusted. A key that begins and ends in ONE line (a service-account file keeps the whole key in one line, its line breaks written `\n`) has no body lines: it is hidden
   inside its line, before the row is cut to 400 characters (the key is longer than that, and a cut row has lost its END frame), the fields after it stay readable, and the row stays one row.
   The history keeps the request without the rows.
   A frame line can carry text of the key as well: the start of the body after the BEGIN frame (`key: "-----BEGIN PRIVATE KEY-----MIIE...`), the end of it before the END frame (`...Zm9v-----END PRIVATE KEY-----"`),
-  or both (a one-line key that an editor wrapped). That text is hidden too when it looks like a key, the frames and the words around it (`key: "`, `"`) stay, the line ending (Unix or Windows) stays, and the call says
-  it touches a key.
+  or both (a one-line key that an editor wrapped). That text is hidden too (the runs of base64 in it, or all of it when it is nothing else), the frames and the words around it (`key: "`, `"`) stay, the line
+  ending (Unix or Windows) stays, and the call says it touches a key.
   One reading of the text finds all of it (`lib/approval-preview.mjs`: the frames in the order they come, the parts of the text that are key material, then the lines): the masker, the rows of the card and the
   answer of `edit_file` use the same functions, and a line of a megabyte of BEGIN frames is read once, not once from every frame (that took 16 seconds in the answer of `edit_file`). A text is read by itself: the
   masker (`hideKeyBlocks`) hides the keys that begin and end in the text, and leaves the start of a body that goes on beyond it and the end of one that began before it to the card, which knows them by their place
@@ -104,14 +112,29 @@ is. A "no" is `permission_denied` as before. A call that came without a card (Au
 - It is a pattern mask. A secret in a spelling nobody listed shows on the card; a protected file never does. The edges of what is listed above, so that nobody is surprised by them:
   - the card masks a file line by line: a flag on a continuation line away from its command (`mysql \` and, on the next line, `-psecret`) is not seen, while `--password secret` is seen wherever it stands; the
     program of a `-p` is looked for within 200 characters before it on the same line (for `sshpass`, the `-p` has to follow it directly);
-  - `-u`, `--user` and `--proxy-user` are masked everywhere but for a numeric pair and the flags of a container client. The client has to be within 200 characters before the flag (a continuation of the line, a
-    backslash, a caret or a backtick at the end of the line and then the line ending, counts as one character, and the line it leads to is the same command), with no `curl`, no `;`, `&` or `|` and no other line
-    ending in between: a `;` inside quotes counts too (`docker run -e 'A=b;c' -u node:node img` is masked, a limit), and so is `-u user:password` of any client that is not in the list (a user and a group after
-    `-u` of a client that is not a container client is masked: it fails safe). A user and a password that are both numbers up to ten digits long (`-u 1234:5678`) are taken for a user id and a group id;
+  - `-u`, `--user` and `--proxy-user` are masked everywhere but for a numeric pair and the flags of a command that starts with docker, podman, nerdctl or buildah. The COMMAND is the text from the last `;`, `&`,
+    `|`, carriage return or line ending to the flag; a backslash, a caret or a backtick at the end of a line, then the line ending, joins two lines (and counts as one character). Only 200 characters of it are
+    looked at, and when its start is not found within them the flag is masked. The flag is a user and a group when (1) the FIRST word of the command is the client (a path and `.exe` are fine: `/usr/bin/docker`,
+    `docker.exe`; so are `sudo`, `doas`, `env`, `time`, `nohup`, their flags and `VAR=x` before it; any other prefix is a first word that is none, so `- docker run -u node:node` of a YAML list, `$ docker …`,
+    `RUN docker …` and `# docker …` are masked: it fails safe) and (2) the text before the flag holds no `curl` (any case, `curl.exe`) and no `://`. The edges of that: a `;`
+    inside quotes ends the command too (`docker run -e 'A=b;c' -u node:node img` is masked, a limit); a URL before the flag (`docker -H tcp://127.0.0.1:2375 run -u node:node img`) or a word `curl` anywhere
+    before it (`docker run curlimages/curl -u a:b`) masks it; `docker run -v /data:/data -u node:node img` holds no URL and stays. A user and a password that are both numbers up to ten digits long
+    (`-u 1234:5678`) are a user id and a group id, unless the command holds `curl` or `://` before the flag (`curl -u 5551234567:123456` is masked on purpose, though it is numbers); a user of ONE letter with
+    a password that starts with a slash (`-u c:/x`) is read as a drive path and stays, in a command with no `curl` and no `://`. The flag is seen as a word of its own only: `curl -uadmin:secret` (the user
+    glued to the flag), a flag inside a quoted string (`CURL_OPTS='-u admin:secret'`, `echo "-u admin:secret"`) and a flag after the program of a container (`docker run img tool -u admin:secret https://…`)
+    are not masked;
   - a private key pasted WITHOUT its frames is not recognised (a line of base64 looks like any other, and only the place between two frames tells); the body of a DER key (it starts with `MII`) is masked by its shape;
-  - a line that has to look like a key to be hidden: a long word of letters, digits and dashes (16 characters or more, `deploy-all-the-things`) between two frames is hidden too (the card counts what it hides); the
-    last line of a body that is shorter than four characters (the end of an OpenSSH key can be one or two characters: `==`) and a short last line of letters only are shown; and the armour headers of PGP and
-    blank lines between the frames are shown on purpose;
+  - what is hidden between two frames is a run of 16 characters or more of base64, and a row that is ONE short token. The edges of that, so that nobody is surprised by them:
+    - a last line of a key that is decorated AND shorter than 16 characters shows (`echo "t2R23QrNfeo=" >> key`, `-- t2R23QrNfeo=`): the last line of a key can be one to 64 characters, there is no run in a
+      short one, and the decoration keeps it from being a row of one token. A last line of a body that is shorter than four characters (the end of an OpenSSH key can be one or two characters: `==`) and a
+      short last line of letters only are shown as well;
+    - a key cut into pieces of fewer than 16 characters (a space or another character every eight: `MIIEvQIB ADANBgkq hkiG9w0B ...`) has no run and shows: the mask looks for the runs of a real key and
+      cannot tell a cut one from words. A model that has a key can write it in any form: the mask stops the common ways of writing one, not a model that works at getting round it;
+    - a line of ONE token behind a BEGIN frame is hidden whole when it looks like the last line of a key (four characters or more with a capital, a digit or a sign: `Stop-Computer`, `Restart-Computer`,
+      `/sbin/reboot`, `SHUTDOWN`), and the card counts the row. A command with arguments (`Stop-Service nginx`, `rm -rf /var/lib/app`) and a word in lower case (`reboot`) stay;
+    - a long word in a command (`rm -rf /usr/local/share/very-long-directory-name`, `deploy-all-the-things`) is a run: it is hidden by itself, the command around it stays, and the card counts the row;
+    - a BEGIN frame inside a key is a part of that key: the outer frames stay, the base64 on both sides of the inner one is hidden where it stands, and the dashes of the inner frame that touch it go with it;
+    - the armour headers of PGP and blank lines between the frames are shown on purpose;
   - a value of fewer than four characters after a flag or in an XML element, and an XML entry whose `value` does not directly follow its `key` (or `name`), are not masked;
   - a bare value that is the name of another variable with a prefix and no dot (`password = MyPassword`, `jwt_secret = supersecret`) or a member read that does not end in a secret word
     (`password = form.password.data`) is masked: a word of letters cannot be told from a weak password by its shape;
@@ -121,9 +144,10 @@ is. A "no" is `permission_denied` as before. A call that came without a card (Au
 - A registered secret that spans several lines is masked line by line, so it is not masked as one.
 - A file that changes between the check and the rename is caught by the re-hash in `writeFileAtomic` (`stale_revision`), not by the guard.
 
-Tests: `tests/verify-line-diff.mjs`, `tests/verify-edit-plans.mjs`, `tests/verify-approval-preview.mjs`, `tests/verify-mask-secrets.mjs`, `ui/tests/change-preview.test.mjs` (how the page reads the request),
+Tests: `tests/verify-line-diff.mjs`, `tests/verify-edit-plans.mjs`, `tests/verify-approval-preview.mjs`, `tests/verify-mask-secrets.mjs` (the last three share the 31 shapes of a key and the edges of a run in
+`tests/support/key-shapes.mjs`), `ui/tests/change-preview.test.mjs` (how the page reads the request),
 `ui/tests/approval-changes.test.mjs` (the real components), `ui/tests/change-preview-vs-review.test.mjs` (the hunks of the card are those of the Review tab) and `ui/e2e/approval-changes.spec.mjs`.
 
 Mutation lists (`node tests/mutation/run-mutations.mjs tests/mutation/<list>.json`): `line-diff.json`, `edit-plans.json` (the planners), `approval-guard.json` (the guard, the gate, the manager), `approval-preview.json`
-(the card: bounds, a cut line, what looks like a key, the state machine that finds it, the count of hidden rows), `mask-secrets.json` (every rule, every word of every list, the flags of the user and the
-window of the container clients) and `change-preview.json` (the page's reader): 716 mutations, 697 killed, 19 equivalent with the reason written in the list, 0 survived.
+(the card: bounds, a cut line, the runs of base64 and where they are hidden, the state machine that finds the frames, the count of hidden rows), `mask-secrets.json` (every rule, every word of every list,
+the command that holds a flag of the user, the runs of base64 of a key) and `change-preview.json` (the page's reader): 797 mutations, 781 killed, 16 equivalent with the reason written in the list, 0 survived.
