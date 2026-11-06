@@ -9,6 +9,7 @@ import { isProtectedPath } from './protected-paths.mjs';
 import { GitRunner } from './git-runner.mjs';
 import { scrubEnv } from './shell-runner.mjs';
 import { discoverProjectChecks } from './project-check-discovery.mjs';
+import { applyRestore, chooseEntries, classify, planOutcome } from './checkpoint-restore.mjs';
 
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', '.next', 'dist', 'build', 'coverage', '.pytest_cache', '.mypy_cache', '.idea', '.vs', '.gradle', '.terraform']);
 const EXTENSIONS = new Set(['.py','.js','.mjs','.cjs','.jsx','.ts','.tsx','.json','.md','.yaml','.yml','.toml','.sh','.ps1','.bat','.cmd','.c','.cc','.cpp','.h','.hpp','.java','.go','.rs','.rb','.php','.sql','.r','.ipynb','.css','.html','.xml']);
@@ -17,6 +18,8 @@ const sha = (buffer) => createHash('sha256').update(buffer).digest('hex');
 const fail = (code, message, statusCode = 400) => Object.assign(new Error(message),{code,statusCode});
 const contained = (root,target) => { const relative=path.relative(root,target); return relative === '' || (!relative.startsWith('..'+path.sep) && relative !== '..' && !path.isAbsolute(relative)); };
 const capped = (value,length=120000) => String(value).slice(0,length);
+/** Up to eight names for a message, then how many more. */
+const listOf = (names,limit=8) => (names.length<=limit?names.join(', '):`${names.slice(0,limit).join(', ')} và ${names.length-limit} file khác`);
 const TARGETED_FILE_BYTES = 8 * 1024 * 1024;
 /** The most text the editor can open and save: 300,000 bytes of UTF-8 (not characters). The route that serves the file and save() both use this number. */
 export const EDITABLE_FILE_BYTES = 300_000;
@@ -65,6 +68,8 @@ export class StudioWorkspace {
     this.manager=manager; this.directory=path.resolve(directory); this.now=now;
     this.indexCache=new Map(); this.indexRoot=null; this.planCache=new Map();
     this.lastCheckpoint=null;
+    // The file system a restore writes with (fs/promises when it is undefined). A test hands in one that fails, to see what a restore does when a write does.
+    this.restoreIo=undefined;
     // A repository can make plain `git status` run a program (core.fsmonitor, hooks, diff drivers).
     // Every Git call of the workspace therefore goes through the hardened runner.
     this.gitRunner=new GitRunner({workspace:this,hooksDirectory:path.join(this.directory,'no-hooks'),secrets:()=>this.manager?.secrets??[],...gitOptions});
@@ -210,7 +215,7 @@ export class StudioWorkspace {
     // checkpoint() stores the canonical (realpath) root, so compare against the same form;
     // a Windows 8.3 short path or a symlinked workspace path would otherwise never match.
     const root=this.root;const canonicalRoot=root?await fs.realpath(root).catch(()=>root):null;
-    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(canonicalRoot&&data?.workspace===canonicalRoot)result.push({id:data.id,at:data.at,seq:data.seq??0,label:data.label,fileCount:data.files.length,absentCount:(data.absent??[]).length,taskId:data.taskId??null,partial:data.partial,targeted:data.targeted===true,limitations:data.limitations??[]});}
+    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(canonicalRoot&&data?.workspace===canonicalRoot)result.push({id:data.id,at:data.at,seq:data.seq??0,label:data.label,fileCount:data.files.length,absentCount:(data.absent??[]).length,taskId:data.taskId??null,partial:data.partial,targeted:data.targeted===true,kind:data.kind??null,of:data.of??null,limitations:data.limitations??[]});}
     // Newest first. Of two made in the same millisecond the later one (its number is higher) comes first. This list is capped: a task with more checkpoints than that is read with taskReview().
     return result.sort((a,b)=>b.at.localeCompare(a.at)||b.seq-a.seq).slice(0,Math.max(1,Math.min(limit,100)));
   }
@@ -224,9 +229,10 @@ export class StudioWorkspace {
    *    another spelling of the case, is the same file);
    *  - `reuseIfUnchanged`: when no file changed since the previous bounded snapshot of the same task, that snapshot is returned;
    *  - `taskId`: the task the checkpoint was made for (only the Hub's own guard says so; a request over HTTP never does), so that
-   *    taskReview() finds all of them, however many there are.
+   *    taskReview() finds all of them, however many there are;
+   *  - `kind` (`undo`) and `of`: a checkpoint made as the backup of a restore says so, and which checkpoint or task it was made for.
    */
-  async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024,files=null,reuseIfUnchanged=false,taskId=null}={}){
+  async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024,files=null,reuseIfUnchanged=false,taskId=null,kind=null,of=null}={}){
     const root=await fs.realpath(this.requireRoot());
     const targeted=Array.isArray(files);
     const owner=typeof taskId==='string'&&UUID.test(taskId)?taskId:null;
@@ -279,7 +285,7 @@ export class StudioWorkspace {
     }
     if(exhausted)limitations.push('Workspace vượt giới hạn quét 5000 file nguồn.');
     if(!targeted)limitations.push('Chỉ lưu file nguồn văn bản được hỗ trợ; không bao gồm binary, .env hoặc các thư mục bỏ qua.');
-    const meta={id,at:this.now(),seq:++this.#checkpointSeq,label:capped(label,160),workspace:root,taskId:owner,files:stored,absent,partial:true,targeted,skipped,limitations,totalBytes:total};
+    const meta={id,at:this.now(),seq:++this.#checkpointSeq,label:capped(label,160),workspace:root,taskId:owner,files:stored,absent,partial:true,targeted,skipped,limitations,totalBytes:total,...(kind?{kind,of:typeof of==='string'?of:null}:{})};
     await writeJson(path.join(dir,'meta.json'),meta);
     this.#owners.set(id,{taskId:owner,workspace:root});
     const result={id:meta.id,at:meta.at,label:meta.label,fileCount:stored.length,partial:meta.partial,targeted,skipped,absent,limitations,totalBytes:total,taskId:owner,reused:false};
@@ -585,202 +591,242 @@ export class StudioWorkspace {
     try {await fs.writeFile(tmp,original,{flag:'wx',mode:0o600});await fs.rename(tmp,target.absolute);} finally {await fs.unlink(tmp).catch(()=>{});}
     return {ok:true,path:target.relative,restoredSha:item.sha256,previousSha:expectedSha,undoBackup:undo};
   }
+  /** What restoring a checkpoint would do, file by file. Nothing is changed. */
   async previewCheckpoint({ checkpointId } = {}) {
     return this.restoreCheckpoint({ checkpointId, dryRun: true });
   }
 
-  async restoreCheckpoint({ checkpointId, force = false, expectedShas = null, dryRun = false } = {}) {
+  /**
+   * Notes the sha each file of a checkpoint has just after the call that made the checkpoint, beside it (after.json; meta.json is written once and never changes). It is what lets
+   * a restore tell a file that is still what the step left from one that was changed afterwards. Only a checkpoint of exactly the files a call named has one: after a command, a snapshot
+   * of the workspace says nothing about what the command left. Returns the shas, or null for a checkpoint that is not of that kind.
+   */
+  async recordAfterState(checkpointId) {
+    const directory = this.#checkpointDirectory(checkpointId);
+    const meta = await readJson(path.join(directory, 'meta.json'));
+    if (!meta || meta.workspace !== await fs.realpath(this.requireRoot())) throw fail('checkpoint_missing', 'Checkpoint không tồn tại cho workspace này.', 404);
+    if (meta.targeted !== true) return null;
+    const files = {};
+    for (const relative of [...(meta.files ?? []).map((item) => item.path), ...(meta.absent ?? [])]) {
+      const target = await this.resolve(relative).catch(() => null);
+      files[relative] = target ? await this.#fileSha(target.absolute) : null;
+    }
+    await writeJson(path.join(directory, 'after.json'), { checkpointId, at: this.now(), files });
+    return files;
+  }
+  /** The shas noted after the call of a checkpoint (path -> sha, null for a file that was not there), or null when nothing was noted. */
+  async #afterState(checkpointId) {
+    const data = await readJson(path.join(this.#checkpointDirectory(checkpointId), 'after.json')).catch(() => null);
+    return data?.checkpointId === checkpointId && data.files && typeof data.files === 'object' ? data.files : null;
+  }
+  /** The sha-256 of a file, read as a stream; null when there is no such file (or it is not one). */
+  async #fileSha(absolute) {
+    try {
+      const hash = createHash('sha256');
+      for await (const chunk of createReadStream(absolute)) hash.update(chunk);
+      return hash.digest('hex');
+    } catch {
+      return null;
+    }
+  }
+
+  /** What a checkpoint holds, as the entries of a restore. */
+  async #checkpointRestoreSource(checkpointId, root) {
+    const meta = await readJson(path.join(this.#checkpointDirectory(checkpointId), 'meta.json'));
+    if (!meta || meta.workspace !== root) throw fail('checkpoint_missing', 'Checkpoint không tồn tại cho workspace này.', 404);
+    const held = [
+      ...(meta.files ?? []).map((item) => ({ kind: 'copy', path: item.path, sha256: item.sha256, bytes: item.bytes, checkpointId })),
+      ...(meta.absent ?? []).map((relative) => ({ kind: 'absent', path: relative, checkpointId })),
+    ];
+    return { held, partial: Boolean(meta.partial), targeted: meta.targeted === true, limitations: meta.limitations ?? [], unsupported: [], label: `checkpoint ${checkpointId}`, of: checkpointId, afterState: await this.#afterState(checkpointId) };
+  }
+  /**
+   * What the baseline of a task holds, as the entries of a restore: for each file of the task's review, the earliest checkpoint that knows it. A file that was created and that the
+   * checkpoint of the call recorded as absent goes away; a file with a copy comes back; any other file (the last commit is its only baseline, or a command made it) is named in
+   * `unsupported` with the reason, and is not touched.
+   */
+  async #taskRestoreSource(taskId) {
+    const review = await this.taskReview({ taskId });
+    const held = [];
+    const unsupported = [];
+    for (const file of review.files) {
+      if (file.rejectable === true) held.push({ kind: 'absent', path: file.path, checkpointId: file.checkpointId });
+      else if (file.baselineSource === 'checkpoint' && file.baselineSha && file.change !== 'created' && file.textUnavailable !== 'checkpoint_corrupt') held.push({ kind: 'copy', path: file.path, sha256: file.baselineSha, checkpointId: file.checkpointId });
+      else unsupported.push({ path: file.path, reason: file.textUnavailable === 'checkpoint_corrupt' ? 'checkpoint_corrupt' : file.change === 'created' ? 'created_not_recorded' : file.baselineSource === 'git_head' ? 'baseline_from_git' : 'baseline_unavailable' });
+    }
+    const targeted = review.checkpoints.broad === 0;
+    return { held, partial: !targeted || unsupported.length > 0, targeted, limitations: review.limitations.map((note) => note.message), unsupported, label: `task ${taskId}`, of: taskId, afterState: null };
+  }
+  /** A copy of what the files are now, as a checkpoint of its own (kind `undo`, no task), made before a restore changes them. Complete or refused: nothing has been changed yet. */
+  async #undoBackup(rows, source) {
+    const snapshot = await this.checkpoint({ label: `Undo backup before restoring ${source.label}`, files: rows.map((row) => row.path), maxFiles: rows.length, maxTotalBytes: 256 * 1024 * 1024, taskId: null, kind: 'undo', of: source.of });
+    const meta = await readJson(path.join(this.#checkpointDirectory(snapshot.id), 'meta.json'));
+    const stored = new Map((meta?.files ?? []).map((item) => [item.path, item.sha256]));
+    const absent = new Set(meta?.absent ?? []);
+    const exact = rows.every((row) => (row.currentSha === null ? absent.has(row.path) : stored.get(row.path) === row.currentSha));
+    if (!meta || !exact) { // a file that was skipped (too large, protected, unreadable) has no stored copy, so it is not exact either
+      await this.#discardCheckpoint(snapshot.id);
+      const skipped = (meta?.skipped ?? []).map((entry) => entry.path);
+      throw fail('undo_backup_incomplete', `Không sao lưu đầy đủ các file sắp bị thay đổi${skipped.length ? ` (${listOf(skipped)})` : ''}, nên chưa khôi phục gì.`, 500);
+    }
+    return snapshot.id;
+  }
+  async #discardCheckpoint(id) {
+    this.#owners.delete(id);
+    await fs.rm(this.#checkpointDirectory(id), { recursive: true, force: true }).catch(() => {});
+  }
+
+  /**
+   * Brings files back to what a checkpoint (`checkpointId`) or the baseline of a task (`taskId`: for each file, the earliest checkpoint of the task that knows it) holds: the copy of
+   * a file, or its absence (a file the step created is removed).
+   *  - `files`: only these (each must be held, or the request is refused). Without it, everything that is held.
+   *  - `expectedShas`: path -> the sha the file must have now (null: it must not be there). A file that differs and has to change is a conflict. A preview (`dryRun`) needs none.
+   *  - `onConflict`: `abort` (the default) refuses the whole request, naming the conflicts, and changes nothing; `skip` leaves the conflicts alone, lists them in `conflicts`, and
+   *    restores the rest. A file that already is what the checkpoint holds is never a conflict (it is listed as `unchanged`).
+   * Before anything changes, the files that will change are saved as a checkpoint of their own, and its id is `undoCheckpointId`: restoring that checkpoint puts everything back
+   * (a removed file comes back, a recreated file goes). The write is all or nothing and is read back (lib/checkpoint-restore.mjs). Nothing is restored while an agent is running.
+   */
+  async restoreCheckpoint({ checkpointId, taskId, files, expectedShas = null, dryRun = false, onConflict = 'abort' } = {}) {
     if (!dryRun && this._restoreBusy) throw fail('restore_busy', 'Checkpoint restoration already running.', 409);
     if (!dryRun) this._restoreBusy = true;
     try {
-    if (!checkpointId || typeof checkpointId !== 'string') throw fail('bad_checkpoint_id', 'Cần ID checkpoint hợp lệ.');
-    const activeTaskId = this.manager?.taskId
-      || this.manager?.taskEngine?.state?.()?.activeTaskId
-      || this.manager?.agent?.state?.()?.activeTaskId
-      || (typeof this.manager?.state === 'function' ? this.manager.state()?.agent?.activeTaskId : null);
-    if (activeTaskId) {
-      throw fail('task_in_progress', 'Không thể khôi phục checkpoint khi agent đang thực thi tác vụ trên workspace.', 409);
-    }
-    const meta = await readJson(path.join(this.#checkpointDirectory(checkpointId), 'meta.json'));
-    if (!meta || meta.workspace !== await fs.realpath(this.requireRoot())) {
-      throw fail('checkpoint_missing', 'Checkpoint không tồn tại cho workspace này.', 404);
-    }
-    if (!Array.isArray(meta.files) || !meta.files.length) {
-      throw fail('empty_checkpoint', 'Bản checkpoint không chứa file nào để khôi phục.', 400);
-    }
-
-    if (!dryRun) {
-      if (!expectedShas || typeof expectedShas !== 'object') {
-        throw fail('missing_expected_shas', 'Tham số expectedShas là bắt buộc cho tất cả các file bị ảnh hưởng khi khôi phục checkpoint.', 400);
+      const hasTask = taskId !== undefined && taskId !== null;
+      const hasCheckpoint = checkpointId !== undefined && checkpointId !== null;
+      if (hasTask && hasCheckpoint) throw fail('bad_source', 'Chỉ nêu một trong hai: checkpointId hoặc taskId.');
+      if (hasTask ? typeof taskId !== 'string' || !UUID.test(taskId) : typeof checkpointId !== 'string' || !checkpointId) {
+        throw hasTask ? fail('bad_task_id', 'Cần ID nhiệm vụ hợp lệ.') : fail('bad_checkpoint_id', 'Cần ID checkpoint hợp lệ.');
       }
-    }
-
-    // Phase 1: Complete preflight validation across all files
-    const preflight = [];
-    const root = await fs.realpath(this.requireRoot());
-    for (const item of meta.files) {
-      const target = await this.resolve(item.path);
-      // Path traversal & workspace containment check
-      if (!contained(root, target.absolute) || !target.relative || isProtectedPath(target.relative)) {
-        throw fail('path_escape', `Đường dẫn file "${item.path}" vượt ra ngoài thư mục workspace.`, 403);
+      if (files !== undefined && files !== null && (!Array.isArray(files) || files.some((file) => typeof file !== 'string'))) throw fail('bad_files', 'files phải là danh sách đường dẫn.');
+      if (Array.isArray(files) && files.length === 0) throw fail('empty_selection', 'Chưa chọn file nào để khôi phục.');
+      if (onConflict !== 'abort' && onConflict !== 'skip') throw fail('bad_on_conflict', 'onConflict phải là "abort" hoặc "skip".');
+      const activeTaskId = this.manager?.taskId
+        || this.manager?.taskEngine?.state?.()?.activeTaskId
+        || this.manager?.agent?.state?.()?.activeTaskId
+        || (typeof this.manager?.state === 'function' ? this.manager.state()?.agent?.activeTaskId : null);
+      if (activeTaskId) {
+        throw fail('task_in_progress', 'Không thể khôi phục checkpoint khi agent đang thực thi tác vụ trên workspace.', 409);
       }
-      // Symlink verification: neither target nor its realpath should escape
-      const lstat = await fs.lstat(target.absolute).catch(() => null);
-      if (lstat?.isSymbolicLink()) throw fail('symlink_escape', 'Checkpoint restore cannot follow symlinks.', 403);
-      if (lstat && !lstat.isFile()) throw fail('file_type', 'Checkpoint target is not a regular file.', 403);
+      const root = await fs.realpath(this.requireRoot());
+      const source = hasTask ? await this.#taskRestoreSource(taskId) : await this.#checkpointRestoreSource(checkpointId, root);
+      const fold = process.platform === 'win32' ? (value) => value.toLowerCase() : (value) => value;
+      const wanted = Array.isArray(files) ? (await Promise.all(files.map((file) => this.resolve(file)))).map((target) => target.relative) : null;
+      const { entries, unknown } = chooseEntries(source.held, wanted, fold);
+      if (unknown.length) throw fail('not_in_checkpoint', `Không thể khôi phục file không có trong ${hasTask ? 'baseline của nhiệm vụ' : 'bản checkpoint'}: ${listOf(unknown)}.`, 409);
+      if (!entries.length) throw fail('empty_checkpoint', 'Bản checkpoint không chứa file nào để khôi phục.', 400);
 
-      // Checkpoint backup integrity verification
-      const backupPath = path.join(this.#checkpointDirectory(checkpointId), 'files', item.path);
-      const backupBytes = await fs.readFile(backupPath).catch(() => null);
-      if (!backupBytes || sha(backupBytes) !== item.sha256) {
-        throw fail('checkpoint_corrupt', `File "${item.path}" trong bản sao lưu checkpoint bị thiếu hoặc sai checksum SHA-256.`, 500);
+      // Phase 1: everything is checked before anything is touched.
+      const targets = new Map();
+      const backups = new Map();
+      const present = new Map();
+      const observed = new Map();
+      for (const entry of entries) {
+        const target = await this.resolve(entry.path);
+        // Path traversal & workspace containment check
+        if (!contained(root, target.absolute) || !target.relative || isProtectedPath(target.relative)) {
+          throw fail('path_escape', `Đường dẫn file "${entry.path}" vượt ra ngoài thư mục workspace.`, 403);
+        }
+        // Symlink verification: neither target nor its realpath should escape
+        const lstat = await fs.lstat(target.absolute).catch(() => null);
+        if (lstat?.isSymbolicLink()) throw fail('symlink_escape', 'Checkpoint restore cannot follow symlinks.', 403);
+        if (lstat && !lstat.isFile()) throw fail('file_type', 'Checkpoint target is not a regular file.', 403);
+        if (entry.kind === 'copy') {
+          // Checkpoint backup integrity verification
+          const backup = await fs.readFile(path.join(this.#checkpointDirectory(entry.checkpointId), 'files', entry.path)).catch(() => null);
+          if (!backup || sha(backup) !== entry.sha256) throw fail('checkpoint_corrupt', `File "${entry.path}" trong bản sao lưu checkpoint bị thiếu hoặc sai checksum SHA-256.`, 500);
+          backups.set(entry.path, backup);
+        }
+        const current = await fs.readFile(target.absolute).catch((error) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
+        targets.set(entry.path, target);
+        present.set(entry.path, current);
+        observed.set(entry.path, current === null ? null : sha(current));
       }
-
-      // Read current disk content
-      const currentBytes = await fs.readFile(target.absolute).catch((e) => {
-        if (e.code === 'ENOENT') return null;
-        throw e;
-      });
-      const currentSha = currentBytes ? sha(currentBytes) : null;
-
-      // Current content SHA verification / stale state rejection
       if (!dryRun) {
-        if (!Object.hasOwn(expectedShas, item.path)) {
-          throw fail('missing_expected_shas', `Thiếu expected_sha cho file "${item.path}". Hãy gọi previewCheckpoint trước khi khôi phục.`, 400);
+        if (!expectedShas || typeof expectedShas !== 'object') {
+          throw fail('missing_expected_shas', 'Tham số expectedShas là bắt buộc cho tất cả các file bị ảnh hưởng khi khôi phục checkpoint.', 400);
         }
-        if (currentSha !== expectedShas[item.path]) {
-          throw fail('stale_state', `File "${item.path}" đã thay đổi kể từ lần xem preview (SHA hiện tại ${currentSha?.slice(0, 8) || 'deleted'} khác với SHA mong đợi ${expectedShas[item.path]?.slice(0, 8) || 'none'}). Hãy tải lại review trước khi khôi phục.`, 409);
+        for (const entry of entries) {
+          if (!Object.hasOwn(expectedShas, entry.path)) throw fail('missing_expected_shas', `Thiếu expected_sha cho file "${entry.path}". Hãy gọi previewCheckpoint trước khi khôi phục.`, 400);
+          const given = expectedShas[entry.path];
+          if (given !== null && !(typeof given === 'string' && /^[0-9a-f]{64}$/i.test(given))) throw fail('bad_expected_sha', `expected_sha của file "${entry.path}" phải là SHA-256 hoặc null.`, 400);
         }
       }
+      const rows = classify(entries, observed, dryRun ? null : expectedShas);
 
-      preflight.push({
-        item,
-        target,
-        backupBytes,
-        currentBytes,
-        currentSha,
-        isModified: currentSha !== item.sha256,
-        willOverwriteNewer: currentBytes !== null && currentSha !== item.sha256,
-        willRestoreDeleted: currentBytes === null,
-      });
-    }
+      // Dry Run / Preview Mode
+      if (dryRun) {
+        return {
+          ok: true,
+          checkpointId: hasTask ? null : checkpointId,
+          taskId: hasTask ? taskId : null,
+          dryRun: true,
+          partial: source.partial,
+          targeted: source.targeted,
+          limitations: source.limitations,
+          totalFiles: rows.length,
+          modifiedFilesCount: rows.filter((row) => row.action !== 'unchanged').length,
+          files: rows.map((row) => {
+            const afterSha = source.afterState && Object.hasOwn(source.afterState, row.path) ? source.afterState[row.path] : undefined;
+            return {
+              path: row.path,
+              kind: row.kind,
+              action: row.action,
+              checkpointId: row.checkpointId,
+              baselineSha: row.targetSha,
+              currentSha: row.currentSha,
+              afterSha,
+              changedSinceStep: afterSha === undefined ? null : afterSha !== row.currentSha,
+              status: row.currentSha === row.targetSha ? 'unmodified' : (row.currentSha === null ? 'deleted_on_disk' : 'modified'),
+              willOverwriteNewer: row.action === 'overwrite' || row.action === 'remove',
+            };
+          }),
+          unsupported: source.unsupported,
+        };
+      }
 
-    // Dry Run / Preview Mode
-    if (dryRun) {
-      return {
+      // Phase 2: the conflicts. By default one of them stops everything; with `skip` it is left alone and listed.
+      const outcome = planOutcome(rows, onConflict);
+      if (outcome.abort) {
+        throw fail('stale_state', `Có file đã thay đổi so với bản đã xem: ${listOf(outcome.conflicts.map((row) => row.path))}. Chưa khôi phục gì; hãy tải lại và xem lại trước khi khôi phục.`, 409);
+      }
+      const result = {
         ok: true,
-        checkpointId,
-        dryRun: true,
-        partial: Boolean(meta.partial),
-        limitations: meta.limitations || [],
-        totalFiles: preflight.length,
-        modifiedFilesCount: preflight.filter((p) => p.isModified).length,
-        files: preflight.map((p) => ({
-          path: p.item.path,
-          baselineSha: p.item.sha256,
-          currentSha: p.currentSha,
-          status: p.currentBytes === null ? 'deleted_on_disk' : (p.currentSha === p.item.sha256 ? 'unmodified' : 'modified'),
-          willOverwriteNewer: p.willOverwriteNewer,
-        })),
+        checkpointId: hasTask ? null : checkpointId,
+        taskId: hasTask ? taskId : null,
+        restoredCount: 0,
+        filesModified: 0,
+        files: [],
+        restored: [],
+        unchanged: outcome.unchanged.map((row) => row.path),
+        conflicts: outcome.conflicts.map((row) => ({ path: row.path, expectedSha: row.expectedSha, currentSha: row.currentSha })),
+        undoCheckpointId: null,
+        partial: source.partial,
+        targeted: source.targeted,
+        limitations: source.limitations,
+        warnings: source.targeted ? [] : ['Bản checkpoint này là ảnh chụp một phần của workspace (chỉ file nguồn văn bản). Hãy kiểm tra kỹ sau khi khôi phục.'],
+        unsupported: source.unsupported,
       };
-    }
+      if (!outcome.apply.length) return result;
 
-    // Phase 2: Create undo backup before mutation
-    const undoId = randomUUID();
-    const undoDir = path.join(this.directory, 'undo', undoId);
-    await fs.mkdir(path.join(undoDir, 'files'), { recursive: true, mode: 0o700 });
-    const undoFiles = [];
-    for (const p of preflight) {
-      if (p.currentBytes) {
-        const undoDest = path.join(undoDir, 'files', p.item.path);
-        await fs.mkdir(path.dirname(undoDest), { recursive: true });
-        await fs.writeFile(undoDest, p.currentBytes, { mode: 0o600 });
-        undoFiles.push({ path: p.item.path, sha256: p.currentSha, bytes: p.currentBytes.length });
+      // Phase 3: a real checkpoint of the files that are about to change, so that this restore can itself be undone.
+      const undoCheckpointId = await this.#undoBackup(outcome.apply, source);
+      try {
+        const restored = await applyRestore(outcome.apply.map((row) => ({
+          path: row.path,
+          absolute: targets.get(row.path).absolute,
+          action: row.action,
+          previous: present.get(row.path),
+          next: row.kind === 'copy' ? backups.get(row.path) : null,
+        })), this.restoreIo);
+        return { ...result, restoredCount: restored.length, filesModified: restored.length, files: restored.map((entry) => entry.path), restored, undoCheckpointId };
+      } catch (error) {
+        // Everything was put back: the backup would only say "undo" for a restore that did not happen. When something could not be put back, the backup is the way to recover.
+        if (!['restore_partial_failure', 'restore_verify_failed'].includes(error.code)) await this.#discardCheckpoint(undoCheckpointId);
+        else error.undoCheckpointId = undoCheckpointId;
+        throw error;
       }
-    }
-    await writeJson(path.join(undoDir, 'meta.json'), {
-      id: undoId,
-      at: this.now(),
-      label: `Undo backup before restoring checkpoint ${checkpointId}`,
-      checkpointId,
-      workspace: meta.workspace,
-      files: undoFiles,
-    });
-
-    // Phase 3: Transactional atomic restoration with safe rollback
-    const written = [];
-    try {
-      for (const p of preflight) {
-        if (p.currentSha === p.item.sha256) {
-          // File already exactly matches checkpoint
-          continue;
-        }
-        const fresh = await fs.readFile(p.target.absolute).catch((e) => {
-          if (e.code === 'ENOENT') return null;
-          throw e;
-        });
-        if ((fresh === null ? null : sha(fresh)) !== p.currentSha) {
-          throw fail('stale_state', 'Checkpoint target changed after preflight.', 409);
-        }
-        await fs.mkdir(path.dirname(p.target.absolute), { recursive: true });
-        const tmp = `${p.target.absolute}.${randomUUID()}.tmp`;
-        try {
-          await fs.writeFile(tmp, p.backupBytes, { flag: 'w', mode: 0o600 });
-          await fs.rename(tmp, p.target.absolute);
-          written.push(p);
-        } finally {
-          await fs.unlink(tmp).catch(() => {});
-        }
-      }
-    } catch (writeErr) {
-      // Transaction rollback
-      const rolledBack = [];
-      const failedRollback = [];
-      for (const w of written) {
-        try {
-          const current = await fs.readFile(w.target.absolute).catch((e) => {
-            if (e.code === 'ENOENT') return null;
-            throw e;
-          });
-          if (!current || sha(current) !== w.item.sha256) {
-            throw fail('rollback_conflict', 'Restored file was modified concurrently; refusing to overwrite.', 409);
-          }
-          if (w.currentBytes !== null) {
-            const backupTemp = `${w.target.absolute}.${randomUUID()}.rollback`;
-            try {
-              await fs.writeFile(backupTemp, w.currentBytes, { flag: 'wx', mode: 0o600 });
-              await fs.rename(backupTemp, w.target.absolute);
-            } finally { await fs.unlink(backupTemp).catch(() => {}); }
-          } else {
-            await fs.unlink(w.target.absolute);
-          }
-          rolledBack.push(w.item.path);
-        } catch (rbErr) {
-          failedRollback.push({ path: w.item.path, error: rbErr.message });
-        }
-      }
-      if (failedRollback.length === 0) {
-        throw fail('restore_failed_rolled_back', `Khôi phục checkpoint thất bại tại file: ${writeErr.message}. Toàn bộ ${rolledBack.length} file đã được hoàn tác về trạng thái ban đầu an toàn.`, 500);
-      } else {
-        throw Object.assign(fail('restore_partial_failure', `Khôi phục checkpoint thất bại: ${writeErr.message}. CẢNH BÁO: ${failedRollback.length} file không thể hoàn tác: ${failedRollback.map((f) => f.path).join(', ')}. Đã hoàn tác: ${rolledBack.join(', ') || 'không có'}.`, 500), {
-          rolledBack,
-          failedRollback,
-          undoCheckpointId: undoId,
-        });
-      }
-    }
-
-    return {
-      ok: true,
-      checkpointId,
-      restoredCount: preflight.length,
-      filesModified: written.length,
-      files: preflight.map((p) => p.item.path),
-      undoCheckpointId: undoId,
-      partial: Boolean(meta.partial),
-      limitations: meta.limitations || [],
-      warnings: meta.partial ? ['Bản checkpoint này là partial (chỉ chứa một phần file của workspace). Hãy kiểm tra kỹ sau khi khôi phục.'] : [],
-    };
     } finally { if (!dryRun) this._restoreBusy = false; }
   }
   async plan({taskId,operation='get',items=[],title=''}={}){

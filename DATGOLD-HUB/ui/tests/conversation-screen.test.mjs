@@ -21,11 +21,14 @@ const REWRITES = [
   { file: 'src/components/conversation/ConversationView.tsx', from: 'const [recoveringChatUrl,setRecoveringChatUrl] = useState(false)', to: 'const [recoveringChatUrl,setRecoveringChatUrl] = useState(true)' },
   { file: 'src/components/conversation/ConversationView.tsx', from: "const [selectedProfileId, setSelectedProfileId] = useState('')", to: "const [selectedProfileId, setSelectedProfileId] = useState('missing-profile')" },
 ];
+// The sidebar asks its questions through the page's confirm dialog (useConfirm): the test answers them itself, through the context the dialog's provider fills (see fire()).
 const ENTRY = `
   ${renderPrelude}
   import { ConversationView } from './src/components/conversation/ConversationView';
-  import { SessionSidebar } from './src/components/sessions/SessionSidebar';
+  import { SessionSidebar as RealSessionSidebar } from './src/components/sessions/SessionSidebar';
+  import { ConfirmContext } from './src/components/ui/ConfirmDialog';
   import { translations } from './src/lib/i18n';
+  const SessionSidebar = (props) => <ConfirmContext.Provider value={(request) => globalThis.__ask(request)}><RealSessionSidebar {...props} /></ConfirmContext.Provider>;
   export { ConversationView, SessionSidebar, translations };
 `;
 const plain = await bundleTsx(ENTRY, 'chatmcp-screen-', { recordJsx: true });
@@ -92,19 +95,19 @@ const handlerOf = (shot, match, prop = 'onClick') => {
   return found.props[prop];
 };
 /**
- * Click it, as a browser would: window.confirm answers `confirmAnswer` and says what it was asked, localStorage exists (the store writes the
+ * Click it, as a browser would: the page's confirm dialog answers `confirmAnswer` and says what it was asked (the question under the title), localStorage exists (the store writes the
  * selection there), and every step the handler started (a request, a toast) is let finish. It gives back what the handler returned.
  */
 async function fire(handler, args = [], { confirmAnswer = true } = {}) {
   const asked = [];
-  globalThis.window = { confirm: (message) => { asked.push(message); return confirmAnswer; } };
+  globalThis.__ask = (request) => { asked.push(request.body); return Promise.resolve(confirmAnswer); };
   globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
   let result;
   try {
     result = await handler(...args);
     // a handler that does not hand back its promise (onClick={() => void remove()}) goes on after it returned: the browser's globals stay until it is done
     for (let turn = 0; turn < 40; turn++) await new Promise((resolve) => setImmediate(resolve));
-  } finally { delete globalThis.window; delete globalThis.localStorage; }
+  } finally { delete globalThis.__ask; delete globalThis.localStorage; }
   return { asked, result };
 }
 const testId = (root, id) => all(root).filter((node) => node.attrs['data-testid'] === id);

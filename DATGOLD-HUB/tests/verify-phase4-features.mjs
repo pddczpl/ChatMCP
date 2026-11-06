@@ -559,6 +559,32 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   assert.ok(restRes.body.undoCheckpointId, 'undo backup created');
   ok('Safe checkpoint restoration: preview, dryRun, stale-state rejection, and verified undo backup');
 
+  // The undo backup is a real checkpoint: restoring it over the same route puts the file back as the restore found it.
+  const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
+  const undoRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: restRes.body.undoCheckpointId,
+    expectedShas: { 'test-phase4-doc.txt': sha256('version 1 content\n') },
+  });
+  assert.equal(undoRes.status, 200);
+  assert.equal(await fs.readFile(path.join(work, 'test-phase4-doc.txt'), 'utf8'), 'version 2 modified\n');
+  // A file changed since it was seen is listed as a conflict and left alone when the request says `skip`; `files` selects what to restore.
+  await fs.writeFile(path.join(work, 'test-phase4-doc.txt'), 'version 3 changed again\n', 'utf8');
+  const skipRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: cp.id,
+    files: ['test-phase4-doc.txt'],
+    expectedShas: { 'test-phase4-doc.txt': sha256('version 2 modified\n') },
+    onConflict: 'skip',
+  });
+  assert.equal(skipRes.status, 200);
+  assert.deepEqual(skipRes.body.conflicts.map((entry) => entry.path), ['test-phase4-doc.txt']);
+  assert.equal(skipRes.body.restoredCount, 0);
+  assert.equal(skipRes.body.undoCheckpointId, null);
+  assert.equal(await fs.readFile(path.join(work, 'test-phase4-doc.txt'), 'utf8'), 'version 3 changed again\n');
+  const emptyRes = await hubRequest('POST', '/api/studio/restore-checkpoint', { checkpointId: cp.id, files: [], expectedShas: {} });
+  assert.equal(emptyRes.status, 400);
+  assert.equal(emptyRes.body.code, 'empty_selection');
+  ok('A restore over HTTP: the undo backup restores, a subset and a listed conflict, an empty selection is refused');
+
   hubServer.closeAllConnections();
   await new Promise((resolve) => hubServer.close(resolve));
 }

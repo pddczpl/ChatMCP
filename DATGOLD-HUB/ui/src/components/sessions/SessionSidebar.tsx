@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { FolderGit2, Plus, Search, Trash2, Loader2, MessageSquare, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { useTranslation } from '@/lib/i18n';
 import { isTaskActive } from '@/lib/task-view';
 import { formatRelative } from '@/lib/format';
@@ -14,6 +15,7 @@ export function SessionSidebar() {
     showToast,
   }=useAppStore();
   const {t,lang}=useTranslation();
+  const ask=useConfirm();
   const queryClient=useQueryClient();
   const [search,setSearch]=useState('');
   const [collapsed,setCollapsed]=useState<Record<string,boolean>>({});
@@ -109,7 +111,7 @@ export function SessionSidebar() {
   const removeWorkspace=async(folder:string,name:string)=>{
     if(removingWorkspace)return;
     const count=perWorkspace(folder).length;
-    if(!window.confirm(t(count===1?'agents_side_remove_confirm_one':'agents_side_remove_confirm_other',{name,n:count})))return;
+    if(!(await ask({title:t('agents_side_remove_label',{name}),body:t(count===1?'agents_side_remove_confirm_one':'agents_side_remove_confirm_other',{name,n:count}),tone:'danger',confirmLabel:t('agents_side_remove_action')})))return;
     setRemovingWorkspace(folder);
     try{
       const result=await api.removeWorkspace(folder);
@@ -128,7 +130,7 @@ export function SessionSidebar() {
   const removeConversation=async(id:string,title:string)=>{
     if(removingConversation)return;
     const related=allTasks.filter(task=>task.id!==id&&task.conversationId===id).length;
-    if(!window.confirm(t(!related?'agents_side_delete_confirm':related===1?'agents_side_delete_confirm_one':'agents_side_delete_confirm_other',{title,n:related})))return;
+    if(!(await ask({title:t('agents_side_delete_label',{title}),body:t(!related?'agents_side_delete_confirm':related===1?'agents_side_delete_confirm_one':'agents_side_delete_confirm_other',{title,n:related}),tone:'danger',confirmLabel:t('agents_side_delete_action')})))return;
     setRemovingConversation(id);
     try{
       await api.deleteTask(id);

@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
 
 type Skill = {
@@ -20,6 +21,7 @@ export function SkillsTab() {
   const showToast = useAppStore((state) => state.showToast);
   const { t, lang } = useTranslation();
   const copy = (vi: string, en: string) => lang === 'vi' ? vi : en;
+  const ask = useConfirm();
   const client = useQueryClient();
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'discover' | 'installed'>('discover');
@@ -215,7 +217,7 @@ export function SkillsTab() {
         <div className="mt-3 space-y-3">
           <p>{copy('Các nguồn GitHub được phép. Nguồn bên ngoài cần được bạn tin cậy trước khi thêm.', 'Allowed GitHub sources. Only add third-party sources you trust.')}</p>
           <ul className="space-y-2">{(registryQuery.data?.sources || []).map((source: any) => <li key={source.id} className="flex flex-wrap items-center justify-between gap-2"><span className="break-all">{source.repo}</span>{!source.official && <Button size="sm" disabled={registryBusy} onClick={async () => {
-            if (prompt(copy(`Nhập REMOVE GITHUB SOURCE để gỡ nguồn ${source.repo}`, `Type REMOVE GITHUB SOURCE to remove ${source.repo}`)) !== 'REMOVE GITHUB SOURCE') return;
+            if (!(await ask({ title: t('skills_source_remove_title'), body: source.repo, phrase: 'REMOVE GITHUB SOURCE', tone: 'danger', confirmLabel: t('skills_source_remove_confirm') }))) return;
             setRegistryBusy(true);
             try { await api.removeRegistrySource(source.id); await client.invalidateQueries({ queryKey: ['skillsRegistry'] }); showToast(copy('Đã gỡ nguồn.', 'Source removed.'), 'info'); }
             catch (error: any) { showToast(error.message, 'error'); }
@@ -223,7 +225,7 @@ export function SkillsTab() {
           }} className="text-[13px]">{copy('Gỡ nguồn', 'Remove source')}</Button>}</li>)}</ul>
           <form className="space-y-2" onSubmit={async (event) => {
             event.preventDefault();
-            if (prompt(copy('Chỉ thêm kho mã bạn tin cậy. Nhập TRUST GITHUB SOURCE để xác nhận.', 'Only add a repository you trust. Type TRUST GITHUB SOURCE to confirm.')) !== 'TRUST GITHUB SOURCE') return;
+            if (!(await ask({ title: t('skills_source_add_title'), body: t('skills_source_add_body'), phrase: 'TRUST GITHUB SOURCE', tone: 'danger', confirmLabel: t('skills_source_add_confirm') }))) return;
             setRegistryBusy(true);
             try { await api.addRegistrySource(sourceId.trim(), sourceRepo.trim(), sourcePrefix.trim()); await client.invalidateQueries({ queryKey: ['skillsRegistry'] }); showToast(copy('Đã thêm nguồn. Nhấn Làm mới để tải kỹ năng.', 'Source added. Select Refresh to load its skills.'), 'success'); setSourceId(''); setSourceRepo(''); }
             catch (error: any) { showToast(error.message, 'error'); }

@@ -155,10 +155,15 @@ test('in English, and in the light theme, the Agents tab and the screens around 
   await expect(sidebar.getByRole('button', { name: `Delete conversation: ${prompt}`, exact: true })).toHaveAttribute('title', 'Delete the conversation and its task history (files are not deleted)');
   const removeFolder = sidebar.getByRole('button', { name: `Remove workspace ${folder}`, exact: true });
   await expect(removeFolder).toHaveAttribute('title', 'Remove from DatGold — the folder on disk is not deleted');
+  // the question is the page's own dialog now: its text is read, and Escape answers no
   const question = async (target) => {
-    const seen = new Promise((resolve) => page.once('dialog', (dialog) => { resolve(dialog.message()); void dialog.dismiss(); }));
     await target.click();
-    return seen;
+    const asked = page.getByRole('alertdialog');
+    await expect(asked).toBeVisible();
+    const text = await asked.locator('p').first().innerText();
+    await page.keyboard.press('Escape');
+    await expect(asked).toBeHidden();
+    return text;
   };
   const conversations = await sidebar.getByRole('button', { name: /^Delete conversation: / }).count();
   expect(await question(removeFolder)).toBe(`Remove the workspace "${folder}" from DatGold?\n\n${conversations} conversation${conversations === 1 ? '' : 's'} and the workspace’s background tasks will be hidden from the interface. The history stays saved and comes back when you add the same folder again.\n\nThis does NOT delete the folder, files, Git branches or worktrees on this computer.`);

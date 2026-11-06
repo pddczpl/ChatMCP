@@ -624,7 +624,7 @@ test('this project has no hard-coded string that is not in the frozen baseline o
 // The baseline is frozen: the tool never takes a violation in (--init-baseline is refused when the file exists, --shrink-baseline is refused while a violation is new). But the
 // file is plain JSON, so a person, or an agent, can add an entry by hand next to a string they want to hide (the hash is the first 16 hex digits of the SHA-256 of the words),
 // and nothing else would fail. This number is the freeze written where a review sees it: it is checked with equality, so every change of the baseline is also a change of this line.
-const FROZEN_ENTRIES = 410;
+const FROZEN_ENTRIES = 396;
 
 test('the baseline has exactly the frozen number of entries: one added by hand, or one taken away, is seen', () => {
   const { entries } = JSON.parse(fs.readFileSync(path.join(ui, 'i18n-baseline.json'), 'utf8'));

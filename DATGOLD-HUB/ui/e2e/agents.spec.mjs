@@ -87,8 +87,8 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
 
   // Workspace removal archives its association. No host directory, source file
   // or conversation record is removed; re-adding restores the task links.
-  page.once('dialog',dialog=>void dialog.accept());
   await page.getByRole('button',{name:'Gỡ workspace second-workspace'}).click();
+  await page.getByRole('alertdialog').getByRole('button',{name:'Gỡ workspace',exact:true}).click();
   await expect(page.getByRole('button',{name:'second-workspace',exact:true})).toHaveCount(0);
   await expect(page.getByTestId('background-task')).toHaveCount(2);
   expect((await fs.stat(path.join(other,'README.md'))).isFile()).toBe(true);
@@ -107,8 +107,8 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
 
   // Each workspace shows an always-visible conversation delete control. Its
   // target and all its subagent records are removed from ChatMCP only.
-  page.once('dialog',dialog=>void dialog.accept());
   await page.getByRole('button',{name:'Xóa hội thoại: '+prompt1}).click();
+  await page.getByRole('alertdialog').getByRole('button',{name:'Xóa hội thoại',exact:true}).click();
   await expect(page.getByRole('button',{name:'Xóa hội thoại: '+prompt1})).toHaveCount(0);
   await expect(page.getByTestId('background-task')).toHaveCount(2);
   expect((await app.hub.get('/api/tasks/'+encodeURIComponent(first.id))).status).toBe(404);

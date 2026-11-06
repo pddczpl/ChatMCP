@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAppStore } from '@/store/useAppStore';
 import { SessionRequired } from '@/components/layout/SessionRequired';
+import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 import { isHubSessionLost, onHubSessionLost } from '@/lib/session';
 import { installOpenInAppTabBridge } from '@/lib/native-open-link';
 
@@ -45,7 +46,9 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AppShell />
+      <ConfirmProvider>
+        <AppShell />
+      </ConfirmProvider>
     </QueryClientProvider>
   );
 }

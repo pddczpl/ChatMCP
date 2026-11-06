@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { applyDocumentLanguage, languageOf } from '@/lib/document-language';
+import type { LastRestore } from '@/lib/rollback';
 
 export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'vi' | 'en';
@@ -40,6 +41,9 @@ interface AppStore {
   reviewFocus: { path: string; at: number } | null;
   focusReview: (path: string) => void;
   clearReviewFocus: () => void;
+  /** The last restore made in each workspace (by the path the Hub reports), so that it can be undone; the record is also kept in the browser's storage (lib/useLastRestore.ts). */
+  lastRestores: Record<string, LastRestore | null>;
+  setLastRestore: (workspace: string, last: LastRestore | null) => void;
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
   fullAccessModalOpen: boolean;
@@ -110,6 +114,8 @@ export const useAppStore = create<AppStore>((set) => ({
   reviewFocus: null,
   focusReview: (path) => set({ activeTab: 'review', inspectorOpen: true, reviewFocus: { path, at: Date.now() } }),
   clearReviewFocus: () => set({ reviewFocus: null }),
+  lastRestores: {},
+  setLastRestore: (workspace, last) => set((state) => ({ lastRestores: { ...state.lastRestores, [workspace]: last } })),
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   fullAccessModalOpen: false,

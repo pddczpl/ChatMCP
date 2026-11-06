@@ -1,5 +1,6 @@
 import { browseNativeWorkspace } from './native-folder-picker.ts';
 import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TaskReviewAnswer, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo, AccountModel, CatalogModels, CatalogStatus, UpdateInfo, UpdateCheckAnswer, UpdateDownloadAnswer, UpdateCancelAnswer } from '@/types';
+import type { RestorePreview, RestoreResult, Shas } from './rollback.ts';
 import { normalizeTask } from './task-view.ts';
 import { getHubSecret, hubSessionReady, reportHubSessionLost } from './session.ts';
 
@@ -188,7 +189,9 @@ export const api = {
   getGitDiff: (staged = false) => request<{ diff: string; staged?: boolean; truncated?: boolean }>(`/api/studio/git/diff?staged=${staged}`),
   createCheckpoint: (label: string) => request<Checkpoint>('/api/studio/checkpoint', { method: 'POST', body: JSON.stringify({ label }) }),
   getCheckpoints: () => request<Checkpoint[]>('/api/studio/checkpoints'),
-  getReview: (checkpointId: string) => request<GitReview>(`/api/studio/review?checkpointId=${encodeURIComponent(checkpointId)}`),
+  /** What changed in the files of a checkpoint since it was made; `file` limits it to one (its unified diff against the copy the checkpoint holds). */
+  getReview: (checkpointId: string, file = '') =>
+    request<GitReview>(`/api/studio/review?checkpointId=${encodeURIComponent(checkpointId)}${file ? `&file=${encodeURIComponent(file)}` : ''}`),
   /** The files a conversation changed, as full texts (docs/REVIEW-API.md). */
   getTaskReview: (taskId: string) => request<TaskReviewAnswer>(`/api/studio/task-review?taskId=${encodeURIComponent(taskId)}`),
   /** Moves a file the conversation created to the Hub's undo folder, if it still has the sha that was reviewed. */
@@ -311,20 +314,18 @@ export const api = {
   denyAction: (id: string, reason?: string) => api.decidePermission(id, false),
   testConnection: (opts?: any) => api.testAi(),
   updateAiConfig: (config: any) => api.saveAiConfig(config),
-  revertCheckpoint: (id: string, expectedShas?: Record<string, string | null>) =>
-    request<{ ok: boolean; checkpointId: string; restoredCount: number; files: string[]; undoCheckpointId?: string; warnings?: string[] }>(
-      '/api/studio/restore-checkpoint',
-      { method: 'POST', body: JSON.stringify({ checkpointId: id, expectedShas }) }
-    ),
-  previewCheckpoint: (id: string) =>
-    request<{
-      ok: boolean;
-      checkpointId: string;
-      dryRun: boolean;
-      partial?: boolean;
-      limitations?: string[];
-      totalFiles: number;
-      modifiedFilesCount: number;
-      files: { path: string; baselineSha: string; currentSha: string | null; status: string; willOverwriteNewer: boolean }[];
-    }>('/api/studio/preview-checkpoint?checkpointId=' + encodeURIComponent(id)),
+  /**
+   * Restores a checkpoint (docs/REVIEW-API.md, "Restoring"): `files` limits it to some of its files, `onConflict: 'skip'` leaves a file that is not what was expected alone and lists
+   * it instead of refusing the whole request. The answer has the backup (`undoCheckpointId`) that restoring puts everything back.
+   */
+  revertCheckpoint: (id: string, expectedShas: Shas, options: { files?: string[]; onConflict?: 'abort' | 'skip' } = {}) =>
+    request<RestoreResult>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ checkpointId: id, expectedShas, ...options }) }),
+  /** Restores the baseline of a task (for each file, the earliest checkpoint of the task that knows it) in one restore. */
+  revertTask: (taskId: string, expectedShas: Shas, options: { files?: string[]; onConflict?: 'abort' | 'skip' } = {}) =>
+    request<RestoreResult>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ taskId, expectedShas, ...options }) }),
+  /** What restoring a checkpoint would do to each file; nothing is changed. */
+  previewCheckpoint: (id: string) => request<RestorePreview>('/api/studio/preview-checkpoint?checkpointId=' + encodeURIComponent(id)),
+  /** The same for the baseline of a task. */
+  previewTaskRestore: (taskId: string) =>
+    request<RestorePreview>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ taskId, dryRun: true }) }),
 };

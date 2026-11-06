@@ -363,7 +363,8 @@ export class HubManager {
         return refused('hook_denied', `Blocked by a PreToolUse hook (${refusal}). The operation was NOT executed.`);
       }
       if (!decision.allowed) return refused('permission_denied', 'Permission denied: ' + decision.reason);
-      try { await this.#checkpointBefore(name, args, decision, binding, onCheckpoint); }
+      let checkpoint = null;
+      try { checkpoint = await this.#checkpointBefore(name, args, decision, binding, onCheckpoint); }
       catch (error) {
         if (options.signal?.aborted) throw error;
         return refused('checkpoint_failed', 'Could not create pre-operation checkpoint: ' + error.message + ' The operation was NOT executed.');
@@ -375,10 +376,12 @@ export class HubManager {
           : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
             : await external(name, args, options);
       } catch (error) {
+        await this.#noteAfter(checkpoint); // a call that threw may have changed files before it did
         // A stopped call is not a failure of the tool; any other exception is, and the hooks are told before it travels on.
         if (!options.signal?.aborted) await this.#postToolHooks('PostToolUseFailure', { name, args, binding, toolUseId, error: error?.message ?? String(error), signal: options.signal });
         throw error;
       }
+      await this.#noteAfter(checkpoint);
       const structured = result?.structuredContent;
       const verified = (name === 'studio.diff_check' && structured?.ok === true)
         || (name === 'local.run_command' && result?.isError !== true && structured?.kind === 'verify' && structured?.exitCode === 0);
@@ -484,5 +487,16 @@ export class HubManager {
     }
     // Awaited, like onDecision: whoever records "this is the checkpoint of this call" has written it down before the call can have any effect. If it throws, the call is refused.
     await onCheckpoint?.({ id: snap.id, partial: snap.partial === true || (snap.skipped?.length ?? 0) > 0, reused: snap.reused === true, targeted: snap.targeted === true });
+    return { id: snap.id, targeted: snap.targeted === true };
+  }
+
+  /**
+   * After a call that had a checkpoint of exactly its files: notes the sha each of them has now, beside the checkpoint, so that undoing the step can tell a file that is still what the
+   * step left from one that was changed later (StudioWorkspace.recordAfterState). Best effort: the note is a convenience for the person, and its failure never fails the call.
+   */
+  async #noteAfter(checkpoint) {
+    if (!checkpoint?.targeted) return;
+    try { await this.studio.recordAfterState(checkpoint.id); }
+    catch (error) { this.log(`Không ghi được trạng thái sau thao tác của checkpoint ${checkpoint.id}: ${error.message}`); }
   }
 }
