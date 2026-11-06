@@ -20,14 +20,17 @@ function collapseOnEscape(event: KeyboardEvent<HTMLDetailsElement>) {
 function ChangeFileView({ file }: { file: ChangeFile }) {
   const { t } = useTranslation();
   const action = t(ACTION_KEYS[file.action]);
+  // The Hub hides only what looks like a private key; when it did hide rows, the summary says how many, so that a file that is no key file but has rows hidden is noticed without opening it.
+  const keyRows = file.hiddenKeyRows > 0 ? t(file.hiddenKeyRows === 1 ? 'agents_apr_changes_key_rows_one' : 'agents_apr_changes_key_rows_other', { n: file.hiddenKeyRows }) : '';
   return (
     <details data-testid="change-file" data-path={file.path} onKeyDown={collapseOnEscape} className="group rounded-xl border border-line bg-bg">
       <summary
-        aria-label={t('agents_apr_changes_file_label', { action, path: file.path, added: file.additions, removed: file.deletions })}
+        aria-label={t('agents_apr_changes_file_label', { action, path: file.path, added: file.additions, removed: file.deletions }) + (keyRows ? `, ${keyRows}` : '')}
         className="flex cursor-pointer list-none flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl px-3 py-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-primary/70 [&::-webkit-details-marker]:hidden">
         <ChevronRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open:rotate-90" />
         <span data-testid="change-file-action" className="rounded-full border border-line bg-surface px-2 text-[12px] font-medium text-fg">{action}</span>
         <code data-testid="change-file-path" className="min-w-0 break-all font-mono text-[12px] text-fg">{file.path}</code>
+        {keyRows && <span data-testid="change-key-rows" className="rounded-full border border-warning/40 bg-warning/10 px-2 text-[12px] text-fg">{keyRows}</span>}
         <span data-testid="change-file-counts" className="ml-auto font-mono text-[12px] text-muted">{`+${file.additions} -${file.deletions}`}</span>
       </summary>
       <div className="space-y-2 border-t border-line-subtle px-3 py-2.5">

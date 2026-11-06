@@ -46,11 +46,55 @@ const READS_OF_THE_ENVIRONMENT = String.raw`(?:process\.env|import\.meta\.env|os
 // A secret given to a command as the value of a flag. A flag counts when a space (or the start of the text) comes before it; the value is bare or in quotes; a read of a variable ($PASSWORD,
 // %PASSWORD%) is no secret, and neither is another flag. A flag whose name says that there is no password (--no-password, --ask-password) takes no value.
 const LONG_FLAG = String.raw`(?<!\S)--(?!(?:no|skip|ask|prompt|disable|enable|with|use|require|show|hide|ignore)-)(?:[a-z0-9]+-)*(?:password|passwd|passphrase|pass|pwd|token|secret|api-?key|access-?key|secret-?key)`;
-// -u, --user and --proxy-user take a user and a password (user:password) in curl; docker, podman and others take a user and a group with the same flags (-u 1000:1000, --user node:node). So the flag
-// counts when the word curl (curl.exe too) comes before it in the same command line: within 200 characters of it, or over the continuation of the line (a backslash, a caret or a backtick, then the
-// line ending), which is how a long curl is written.
-const CURL_BEFORE = String.raw`(?<=\bcurl\b(?:[\\^\x60][ \t]*\r?\n|[^\r\n]){0,200}?)`;
-const USER_FLAG = String.raw`(?<!\S)${CURL_BEFORE}(?:-u|--user|--proxy-user)[ \t=]+`;
+// -u, --user and --proxy-user take a user and a password (user:password) in curl and in a good many other clients; the clients of containers take a user and a group with the same flags (-u 1000:1000,
+// --user node:node). So the flags are a user and a password wherever they stand, but for two things: a numeric pair (a user id and a group id), and the flags of a container client (see
+// afterContainerClient). A secret fails safe: what is not known to be a container is masked.
+const USER_FLAG = String.raw`(?<!\S)(?:-u|--user|--proxy-user)[ \t=]+`;
+const NUMERIC_PAIR = String.raw`\d{1,10}:\d{1,10}`;
+const CONTAINER_CLIENT = /\b(?:docker|podman|nerdctl|buildah|skopeo|kubectl|oc|crictl|ctr|lxc|incus)\b/gi;
+const CONTAINER_WINDOW = 200;
+const isWordCharacter = (code) => (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95;
+/** Whether the word curl starts at `index` (as a whole word, in any case). */
+const curlStartsAt = (text, index) => (text[index] === 'c' || text[index] === 'C') && text.slice(index, index + 4).toLowerCase() === 'curl' && !isWordCharacter(text.charCodeAt(index - 1)) && !isWordCharacter(text.charCodeAt(index + 4));
+// The ends of the names of container clients in the text that the rules are working on: read once for it (the callbacks of one replace get the very same string), and let go at the end of maskSecrets.
+let clientEnds = { text: null, ends: [] };
+const containerClientEnds = (text) => {
+  if (clientEnds.text !== text) clientEnds = { text, ends: Array.from(text.matchAll(CONTAINER_CLIENT), (match) => match.index + match[0].length) };
+  return clientEnds.ends;
+};
+/**
+ * Whether the flag that starts at `at` comes after the name of a container client in the same command: at most 200 characters before it (a continuation of the line, a backslash or a caret or a
+ * backtick and then the line ending, counts as one), with no curl and no ; & | and no other line ending in between. It walks back from the flag, so what it reads is what lies between the flag and
+ * the nearest name of a client: docker exec web curl -u user:secret is a curl; docker pull x; tool -u user:secret is another command; and a user and a group after docker stay as they are.
+ */
+function afterContainerClient(text, at) {
+  const ends = containerClientEnds(text);
+  let low = 0;
+  let high = ends.length - 1;
+  let end = -1;
+  while (low <= high) { // the last name that ends at or before the flag: a name further back would have this one between itself and the flag, and no more is allowed there
+    const middle = (low + high) >> 1;
+    if (ends[middle] <= at) { end = ends[middle]; low = middle + 1; } else high = middle - 1;
+  }
+  if (end < 0) return false;
+  let cursor = at;
+  for (let items = 0; ; items += 1) {
+    if (cursor === end) return true;
+    if (items === CONTAINER_WINDOW) return false;
+    const character = text[cursor - 1];
+    if (character === '\n') { // only the continuation of a line goes over a line ending
+      let back = cursor - 2;
+      if (text[back] === '\r') back -= 1;
+      while (text[back] === ' ' || text[back] === '\t') back -= 1; // text[-1] is undefined: the loop and the test below stop at the start of the text
+      if (text[back] !== '\\' && text[back] !== '^' && text[back] !== '`') return false;
+      cursor = back;
+    } else if (character === '\r' || character === ';' || character === '&' || character === '|' || curlStartsAt(text, cursor - 1)) {
+      return false;
+    } else {
+      cursor -= 1;
+    }
+  }
+}
 // The -p of the clients of MySQL has its password glued to it (-psecret); in sshpass and in the login of a container client it is a word of its own (-p secret). Their letters are small and so is
 // the -p: a capital -P is the port of mysql (-P3306), so these two do not ignore the case.
 const MYSQL_P = String.raw`\b(?:mysql|mysqldump|mysqladmin|mysqlimport|mysqlcheck|mysqlshow|mysqlpump|mariadb)\b[^\r\n]{0,200}?(?<!\S)-p`;
@@ -82,8 +126,10 @@ const TOKEN_PATTERNS = [
   // A secret given to a command: --password secret, --github-token secret, curl -u user:secret, mysql -psecret, sshpass -p secret, docker login -p secret.
   [quotedValue(`${LONG_FLAG}[ \\t]+`), '$1$2[REDACTED]$2'],
   [bareValue(`${LONG_FLAG}[ \\t]+`, 4), '$1[REDACTED]'],
-  [new RegExp(String.raw`(${USER_FLAG}(["'])[^\r\n"':]{1,100}:)(?!//|[$%])(?:(?!\2)[^\r\n]){1,2000}\2`, 'gi'), '$1[REDACTED]$2'],
-  [new RegExp(String.raw`(${USER_FLAG}[^\s:"']{1,100}:)(?!//|[$%])[^\s"'|;&<>()]+`, 'gi'), '$1[REDACTED]'],
+  [new RegExp(String.raw`(${USER_FLAG}(["'])(?!${NUMERIC_PAIR}\2)[^\r\n"':]{1,100}:)(?!//|[$%])(?:(?!\2)[^\r\n]){1,2000}\2`, 'gi'),
+    (all, head, quote, at, text) => (afterContainerClient(text, at) ? all : `${head}[REDACTED]${quote}`)],
+  [new RegExp(String.raw`(${USER_FLAG}(?!${NUMERIC_PAIR}(?![^\s"'|;&<>()]))[^\s:"']{1,100}:)(?!//|[$%])[^\s"'|;&<>()]+`, 'gi'),
+    (all, head, at, text) => (afterContainerClient(text, at) ? all : `${head}[REDACTED]`)],
   [quotedValue(MYSQL_P, 'g'), '$1$2[REDACTED]$2'],
   [bareValue(MYSQL_P, 1, 'g'), '$1[REDACTED]'],
   [quotedValue(SPACED_P, 'g'), '$1$2[REDACTED]$2'],
@@ -103,6 +149,7 @@ export function maskSecrets(value, secrets = []) {
   // The keys first: a rule below can break a frame (a token glued to it takes five of its dashes) and then leaves the body behind. hideKeyBlocks reads the text once, whatever it holds.
   text = hideKeyBlocks(text);
   for (const [pattern, replacement] of TOKEN_PATTERNS) text = text.replace(pattern, replacement);
+  clientEnds = { text: null, ends: [] }; // do not keep the text (it can be megabytes) until the next call
   return text;
 }
 const maskDeep = (value, secrets) => {

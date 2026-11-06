@@ -25,7 +25,7 @@ test('parseChangePreview reads only what it knows', () => {
   const view = parseChangePreview({ preview: buildChangePreview([editPlan()]) });
   assert.equal(view.files.length, 1);
   assert.deepEqual({ ...view.files[0], hunks: view.files[0].hunks.length }, {
-    path: 'src/app.js', action: 'edit', baseSha: view.files[0].baseSha, additions: 1, deletions: 1, unchanged: false, oldUnreadable: false, hunks: 1, shownRows: 4, hiddenRows: 0, truncated: false,
+    path: 'src/app.js', action: 'edit', baseSha: view.files[0].baseSha, additions: 1, deletions: 1, unchanged: false, oldUnreadable: false, hunks: 1, shownRows: 4, hiddenRows: 0, hiddenKeyRows: 0, truncated: false,
   });
   assert.equal(view.files[0].baseSha?.length, 64);
   assert.deepEqual([view.fileCount, view.hiddenFiles, view.truncated, view.error], [1, 0, false, null]);
@@ -61,6 +61,8 @@ test('parseChangePreview is strict about each field', () => {
   assert.deepEqual([file.additions, file.deletions, file.baseSha, file.unchanged, file.oldUnreadable], [0, 0, null, false, false]);
   assert.equal(parseChangePreview(withFiles([{ path: 'p', baseSha: 'A'.repeat(64) }])).files[0].baseSha, null, 'a hash is lower-case hex');
   assert.deepEqual(parseChangePreview(withFiles([{ path: 'p', additions: 2.7, deletions: 1.2, shownRows: 3.9, hiddenRows: 4.5 }])).files.map((item) => [item.additions, item.deletions, item.shownRows, item.hiddenRows]), [[2, 1, 3, 4]], 'a count is a whole number');
+  assert.deepEqual(parseChangePreview(withFiles([{ path: 'p', hiddenKeyRows: 3.9 }, { path: 'q', hiddenKeyRows: -2 }, { path: 'r', hiddenKeyRows: 'many' }, { path: 's' }])).files.map((item) => item.hiddenKeyRows), [3, 0, 0, 0],
+    'the rows that the Hub hid as private key material are a whole number, and 0 when the Hub says nothing');
   assert.equal(parseChangePreview(withFiles([{ path: 'p', baseSha: 'a'.repeat(63) }])).files[0].baseSha, null);
   assert.equal(parseChangePreview(withFiles([{ path: 'p', baseSha: 'a'.repeat(64) }])).files[0].baseSha, 'a'.repeat(64));
   assert.deepEqual(parseChangePreview(withFiles([{ path: 'p', unchanged: true, oldUnreadable: true, action: 'create' }])).files.map((item) => [item.unchanged, item.oldUnreadable, item.action]), [[true, true, 'create']]);

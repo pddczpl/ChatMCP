@@ -39,6 +39,8 @@ export interface ChangeFile {
   hunks: ChangeHunk[];
   shownRows: number;
   hiddenRows: number;
+  /** How many of the rows of this file the Hub hid as private key material (it hides only what looks like a key): an owner who sees hidden rows in a file that is no key file should look twice. */
+  hiddenKeyRows: number;
   truncated: boolean;
 }
 
@@ -102,6 +104,7 @@ function parseFile(value: unknown): ChangeFile[] {
     hunks,
     shownRows: value.shownRows === undefined ? rows : count(value.shownRows),
     hiddenRows,
+    hiddenKeyRows: count(value.hiddenKeyRows),
     truncated: value.truncated === true || hiddenRows > 0,
   }];
 }

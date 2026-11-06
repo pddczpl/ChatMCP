@@ -88,10 +88,70 @@ function keyParts(text, open) {
   return parts;
 }
 
+// ---- What looks like a key. The frames tell where to look; they do not tell what is a key. A model can write a BEGIN frame in front of anything, and a card that hid whatever follows one would let
+// the model hide its code from the owner. So a row, or a part of a row, is hidden only when its text is base64 as well: the characters of base64 in tokens of 16 or more, wrapped as a key is
+// wrapped in code (quotes, commas, a comment sign, a list dash, a + or a backslash at the end of a line, the \n of a one-line key), or the checksum line of PGP. Code, commands, words and the
+// armour headers of PGP are not hidden: they are not key material.
+const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;
+const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;
+const KEY_ESCAPES = /\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;
+const LEFT_OF_A_KEY = new Set([' ', '\t', '\r', '\n', '"', "'", '`', '#', '>', ';', '%', '*', '/']);
+const RIGHT_OF_A_KEY = new Set([' ', '\t', '\r', '\n', '"', "'", '`', ',', ';', '\\', '+']);
+
+/** The text of a row, or of a part of a row, without what a key is wrapped in in code. Loops and no regular expression with a * before $: a megabyte of one character is read once. */
+function keyCore(text) {
+  let start = 0;
+  let end = text.length;
+  while (RIGHT_OF_A_KEY.has(text[end - 1])) end -= 1; // text[-1] is undefined and in no set: the loops stop at the ends of the text
+  while (LEFT_OF_A_KEY.has(text[start])) start += 1;
+  if (text[start] === '-' && (text[start + 1] === ' ' || text[start + 1] === '\t')) start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others
+  return text.slice(start, end);
+}
+
+function keyToken(token, last, only) {
+  if (!KEY_TOKEN.test(token)) return last && KEY_CHECKSUM.test(token);
+  if (token.length >= 16) return true;
+  // the short last line of a body has to look random: a capital, a digit or one of + / = (a whole line of a body), a digit or one of + / = (the end of several tokens)
+  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);
+}
+
 /**
- * The text with its key material replaced by [REDACTED]; the frames and the words around them stay. A key that begins and ends in the text is always replaced (also an empty one), and a block over
- * several lines keeps its frames on lines of their own. With `edges`, the head and the tail are replaced too when they hold something (a line ending is not a part of them): that is what the card
- * does with a row, where the key goes on in the lines before or after. Without it they are left alone, as they are for a text that is not read line by line.
+ * Whether a row (`whole`: one line of a body, which is one token) or a part of a row (the text after a BEGIN frame, before an END frame or between them: as many tokens as a key written on one line
+ * has) looks like key material. A command with arguments, a statement, a call, a URL, a word, a header and a blank line do not.
+ */
+export function looksLikeKey(text, whole = false) {
+  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(/\s+/).filter(Boolean);
+  if (tokens.length === 0 || (whole && tokens.length > 1)) return false;
+  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));
+}
+
+/**
+ * The text between two frames (or after a BEGIN frame, or before an END frame) with the key material in it hidden. Over several lines the lines that look like a key become one [REDACTED] line
+ * (a run of them, one) and the others stay, so that the frames stay on lines of their own and a line of code among the lines of a key stays where it is.
+ */
+function hideKeyText(inner) {
+  const lines = inner.split('\n');
+  const out = [];
+  let run = false;
+  lines.forEach((line, index) => {
+    const edge = index === 0 || index === lines.length - 1; // the rest of the line of a frame
+    if (!looksLikeKey(line, !edge)) {
+      out.push(line);
+      run = false;
+    } else if (edge) {
+      out.push('[REDACTED]'); // a run of hidden lines is made of the lines between the two lines of the frames: this one cannot be a part of one
+    } else if (!run) {
+      out.push(line.endsWith('\r') ? '[REDACTED]\r' : '[REDACTED]');
+      run = true;
+    }
+  });
+  return out.join('\n');
+}
+
+/**
+ * The text with its key material replaced by [REDACTED]; the frames and the words around them stay, and so does everything that does not look like a key. A key that begins and ends in the text
+ * is replaced, and a block over several lines keeps its frames on lines of their own. With `edges`, the head and the tail are replaced too when they look like a key: that is what the card does
+ * with a row, where the key goes on in the lines before or after. Without it they are left alone, as they are for a text that is not read line by line.
  * It reads the text once, whatever it holds: a line of a megabyte of BEGIN frames is not a search from every frame to the end of the line.
  */
 function hideKeyParts(text, open, edges) {
@@ -101,13 +161,13 @@ function hideKeyParts(text, open, edges) {
   for (const part of keyParts(text, open)) {
     let { end } = part;
     if (part.kind === 'closed') {
-      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\n') ? '\n[REDACTED]\n' : '[REDACTED]');
+      out += text.slice(from, part.start) + hideKeyText(text.slice(part.start, end));
       from = end;
       continue;
     }
     if (!edges) continue;
     if (part.kind === 'tail') while (end > part.start && (text[end - 1] === '\n' || text[end - 1] === '\r')) end -= 1;
-    if (text.slice(part.start, end).trim() === '') continue;
+    if (!looksLikeKey(text.slice(part.start, end))) continue;
     out += `${text.slice(from, part.start)}[REDACTED]`;
     from = end;
   }
@@ -119,14 +179,14 @@ export const hideKeyBlocks = (text) => hideKeyParts(text, false, false);
 
 /**
  * A line (or a row of the card: its line ending stays) that holds a frame, with the key material in it hidden: a key that begins and ends in it, the text that comes after a BEGIN frame when the
- * body goes on in the next line, and the text that comes before the END frame of a body that was open when the line began (`open`).
+ * body goes on in the next line, and the text that comes before the END frame of a body that was open when the line began (`open`); in each case when it looks like a key.
  */
 export const hideKeyMaterial = (line, open) => hideKeyParts(line, open, true);
 
 /**
  * What a text says about the private keys in it, line by line (0-based):
- *   - `body`: the lines that are wholly the body of a key, between the line of a BEGIN frame and the line of the END frame, or to the end of the text when the end is not there. A line of a
- *     body looks like any base64, so only its place tells what it is; the card cuts a file into rows, which keeps their place.
+ *   - `body`: the lines that lie between the line of a BEGIN frame and the line of the END frame, or to the end of the text when the end is not there. This is where a key is, by place; whether a
+ *     line is a key is for `looksLikeKey`. The card cuts a file into rows, which keeps their place.
  *   - `framed`: the lines that hold a frame, with whether a body was open where each of them began. They are not body lines: the frames stay, and `hideKeyMaterial` hides the key material in them.
  *   - `lines`: the lines.
  * What a line leaves open is told by the frame that comes LAST in it: a key that begins and ends in one line (a service-account file keeps the whole key in one line, its line breaks written \n)
@@ -149,14 +209,14 @@ export function keyLines(text) {
   return { body, framed, lines };
 }
 
-/** The 0-based numbers of the lines that are wholly the body of a private key (see keyLines). */
+/** The 0-based numbers of the lines that lie between a BEGIN frame and its END frame (see keyLines). */
 export const privateKeyBodyLines = (text) => keyLines(text).body;
 
-/** Whether a text holds private key material: a line of a body, key material in a line that holds a frame, or a key that begins and ends in one line. */
+/** Whether a text holds private key material: a line of a body that looks like a key, key material in a line that holds a frame, or a key that begins and ends in one line. */
 export function holdsPrivateKey(text) {
   if (!text.includes('PRIVATE KEY')) return false;
   const { body, framed, lines } = keyLines(text);
-  if (body.size > 0) return true;
+  for (const index of body) if (looksLikeKey(lines[index], true)) return true;
   for (const [index, open] of framed) if (hideKeyMaterial(lines[index], open) !== lines[index]) return true;
   return false;
 }
@@ -164,9 +224,16 @@ export function holdsPrivateKey(text) {
 const NO_KEYS = Object.freeze({ body: new Set(), framed: new Map(), lines: [] });
 
 /**
- * The rows of a hunk with the key material hidden: a row that is a line of a private key's body becomes a marker (the row keeps its kind and its line ending), and a row that holds a frame has
- * the key material in it cut out (the frames, the words around them and the line ending stay).
+ * The row at `place` of the text that `keys` describes, with the key material in it hidden: a line of a body that looks like a key becomes a marker (it keeps its line ending), a row that holds a
+ * frame has the key material in it cut out (the frames, the words around them and the line ending stay), and any other row is as it was.
  */
+export function hideKeyRow(keys, place, text) {
+  if (keys.body.has(place)) return looksLikeKey(text, true) ? `[REDACTED]${terminatorOf(text)}` : text;
+  if (keys.framed.has(place)) return hideKeyMaterial(text, keys.framed.get(place));
+  return text;
+}
+
+/** The rows of a hunk with the key material hidden (see hideKeyRow); a row that is hidden is a new object, any other is the row itself. */
 function hideKeyBodies(hunk, oldKeys, newKeys) {
   if (!oldKeys.framed.size && !newKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key
   let lead = 0;
@@ -179,12 +246,8 @@ function hideKeyBodies(hunk, oldKeys, newKeys) {
     const place = row.kind === 'removed' ? old : current;
     if (row.kind !== 'added') old += 1;
     if (row.kind !== 'removed') current += 1;
-    if (keys.body.has(place)) return { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` };
-    if (keys.framed.has(place)) {
-      const text = hideKeyMaterial(row.text, keys.framed.get(place));
-      if (text !== row.text) return { kind: row.kind, text };
-    }
-    return row;
+    const text = hideKeyRow(keys, place, row.text);
+    return text === row.text ? row : { kind: row.kind, text };
   });
 }
 
@@ -196,11 +259,13 @@ function fileEntry(plan, budget) {
   for (const hunk of plan.hunks) total += hunk.rows.length;
   const oldKeys = typeof plan.oldText === 'string' ? keyLines(plan.oldText) : NO_KEYS;
   const newKeys = typeof plan.newText === 'string' ? keyLines(plan.newText) : NO_KEYS;
+  let hiddenKeyRows = 0;
   for (const hunk of plan.hunks) {
     if (shown >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;
     const rows = [];
-    for (const row of hideKeyBodies(hunk, oldKeys, newKeys)) {
+    for (const [index, row] of hideKeyBodies(hunk, oldKeys, newKeys).entries()) {
       if (shown + rows.length >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;
+      if (row !== hunk.rows[index]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen
       const clipped = clipRow(row);
       budget.chars -= clipped.text.length;
       rows.push(clipped);
@@ -220,6 +285,7 @@ function fileEntry(plan, budget) {
     deletions: plan.deletions,
     unchanged: plan.unchanged,
     ...(plan.oldUnreadable ? { oldUnreadable: true } : {}),
+    ...(hiddenKeyRows > 0 ? { hiddenKeyRows } : {}),
     hunks,
     shownRows: shown,
     hiddenRows: total - shown,

