@@ -502,9 +502,44 @@ const COMMAND_LINES = [
   ['placeholders in XML', '<password>your-password</password><password>********</password><password>%DB_PASSWORD%</password><password><![CDATA[x]]></password>', '<password>your-password</password><password>********</password><password>%DB_PASSWORD%</password><password><![CDATA[x]]></password>'],
   ['an entry with a read, a short value, and a key that is not a secret', '<add key="ApiKey" value="%API_KEY%" /><add key="ApiKey" value="abc" /><add key="Mode" value="x-long-value"/>', '<add key="ApiKey" value="%API_KEY%" /><add key="ApiKey" value="abc" /><add key="Mode" value="x-long-value"/>'],
   ['a key with a prefix, an entry named by name=, a value in single quotes', `<add key="DefaultAdminPassword" value="${V}"/><add name="password" value="${V}"/><add key="Password" value='${V}'/>`, '<add key="DefaultAdminPassword" value="[REDACTED]"/><add name="password" value="[REDACTED]"/><add key="Password" value=\'[REDACTED]\'/>'],
+  // The 200 items of the walk when the 200th item is a LINE ENDING that continues the line (a backslash, then the line ending): the continued branch of commandStart has its own check, and it is pinned at 199,
+  // 200 and 201 like the plain one. The text starts with the continuation, so the command starts at the start of the text (or, behind a ;, right after the line ending).
+  ['a continued line whose line ending is the 199th item: the start of the command is found, the flag is the flag of docker', `\\\ndocker ${'x'.repeat(191)} -u node:node img`, `\\\ndocker ${'x'.repeat(191)} -u node:node img`],
+  ['and the 200th item: outside the window, the flag is masked', `\\\ndocker ${'x'.repeat(192)} -u node:node img`, `\\\ndocker ${'x'.repeat(192)} -u node:[REDACTED] img`],
+  ['and the 201st item (a plain character): outside as well', `\\\ndocker ${'x'.repeat(193)} -u node:node img`, `\\\ndocker ${'x'.repeat(193)} -u node:[REDACTED] img`],
+  ['behind a separator the start is the item after the line ending: found at 199 ...', `a;\\\ndocker ${'x'.repeat(191)} -u node:node img`, `a;\\\ndocker ${'x'.repeat(191)} -u node:node img`],
+  ['... and masked at 200', `a;\\\ndocker ${'x'.repeat(192)} -u node:node img`, `a;\\\ndocker ${'x'.repeat(192)} -u node:[REDACTED] img`],
+  ['a numeric pair after a start that is found is a user id and a group id (the line ending is the 199th item)', `\\\ndocker ${'x'.repeat(191)} -u 1000:1000 img`, `\\\ndocker ${'x'.repeat(191)} -u 1000:1000 img`],
+  ['but not when the start of the command is not found: the line ending is the 200th item, so the pair is masked', `\\\ndocker ${'x'.repeat(192)} -u 1000:1000 img`, `\\\ndocker ${'x'.repeat(192)} -u 1000:[REDACTED] img`],
+  // a variable of the command is a word of letters, digits and underscores that does not start with a digit, in any case
+  ['a variable of the command in small letters', 'foo=bar docker run -u node:node img', 'foo=bar docker run -u node:node img'],
+  ['with a digit and an underscore in its name, two of them', 'Foo_1=bar _x=1 docker run -u node:node img', 'Foo_1=bar _x=1 docker run -u node:node img'],
+  ['an empty value is a variable too', 'foo= docker run -u node:node img', 'foo= docker run -u node:node img'],
+  ['a word that starts with a digit is no variable: the first word of the command is not the client', '1foo=bar docker run -u node:node img', '1foo=bar docker run -u node:[REDACTED] img'],
 ];
 for (const [label, line, expected] of COMMAND_LINES) assert.equal(maskSecrets(line, []), expected, `${label}: not the line that was expected`);
 ok(`${COMMAND_LINES.length} lines on the edges of the flags and the tags (their limits, glued words, reads, short values, several in a line)`);
+
+// A curl written over continued lines (the usual way to write a long one) with a numeric pair after its headers. A numeric pair is a user id and a group id anywhere else, never in a curl. The walk back from
+// the flag has 200 items, and whatever the width of the headers, the 200th item falls on a character, on a line ending that continues the line, or on the start: in every one of these 480 alignments the pair
+// is masked and nothing else changes. (Turning the fail-safe of the continued branch into "the command starts at the flag" lets 10 of them through.)
+{
+  const NUMBER_PASSWORD = '7391824';
+  let alignments = 0;
+  for (let headers = 3; headers <= 14; headers += 1) {
+    for (let pad = 0; pad < 40; pad += 1) {
+      const lines = ['curl https://api.example.com/v1 \\'];
+      for (let i = 0; i < headers; i += 1) lines.push(`  -H 'X-Header-${i}: ${'v'.repeat(pad)}' \\`);
+      lines.push(`  -u 5551234567:${NUMBER_PASSWORD} \\`, '  -d @body.json');
+      const text = lines.join('\n');
+      const out = maskSecrets(text, []);
+      assert.ok(!out.includes(NUMBER_PASSWORD), `${headers} headers of ${pad} characters: the password of a numeric pair in a curl is masked`);
+      assert.equal(out, text.replace(NUMBER_PASSWORD, '[REDACTED]'), `${headers} headers of ${pad} characters: and nothing else changes`);
+      alignments += 1;
+    }
+  }
+  ok(`${alignments} alignments of a curl over continued lines with a numeric pair after its headers: the pair is masked in every one, whatever the item (a character, a line ending, the start) that is the 200th of the walk`);
+}
 
 // The characters of a word, to the character: the first and the last of each range stand next to curl, before it and after it, and it is another word there (the flag after it stays a flag of
 // docker); the characters just outside the ranges (/ : @ [ ` { and the signs of a command) are not letters, and curl is curl there.
