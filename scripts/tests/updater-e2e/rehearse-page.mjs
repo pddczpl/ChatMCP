@@ -142,7 +142,9 @@ try {
   const debugPort = await freePort();
   const profile = path.join(scratch, 'profile');
   const session = await hub.session();
-  const address = dashboardUrl(hub.origin, await requestTicket(hub.origin, session.secret));
+  // A ticket is redeemable ONCE and for 60 s (TICKET_TTL_MS in lib/hub-session.mjs), so it is asked for when the window is about to open and not before the build of the WebView2 host, which takes 20 s on a hosted
+  // runner and took 67 s once: the window then opened on "Session required" and the rehearsal waited 120 s for a header that could not come (CI run 42169801756, attempt 1).
+  const openingAddress = async () => dashboardUrl(hub.origin, await requestTicket(hub.origin, session.secret));
   let driver;
   // what the pretended shell has been told to answer and what it has been sent, the same two things in either kind of window
   let shell;
@@ -159,6 +161,7 @@ try {
       policySet = true;
       log(`WebView2 policy: ${HOST_PROGRAM} gets --remote-debugging-port=${debugPort}`);
     }
+    const address = await openingAddress();
     // with --policy the port is opened by the policy and by nothing else (no environment variable), or a green rehearsal would not say which of the two worked
     browser = spawn(path.join(hostOutput, HOST_PROGRAM), [address, profile, replies, receivedFile], {
       env: policy ? environmentWithout(process.env, 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS') : { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` }, stdio: 'ignore',
@@ -178,7 +181,7 @@ try {
     driver = new PageDriver(cdp, { log });
     await cdp.send('Page.enable');
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: PRETEND_SHELL });
-    await cdp.send('Page.navigate', { url: address });
+    await cdp.send('Page.navigate', { url: await openingAddress() });
     shell = {
       pushReply: (...codes) => driver.evaluate(`window.__pretend.script.push(...${JSON.stringify(codes)}); true`),
       received: () => driver.evaluate('window.__pretend.received'),
