@@ -67,7 +67,11 @@ jobs:
         run: python -m unittest discover -s ../scripts/tests -p test_release_source.py -v
       - name: Syntax check
         run: |
-          for f in hub.mjs lib/*.mjs tests/*.mjs; do node --check "$f"; done
+          for f in hub.mjs lib/*.mjs lib/acp/*.mjs tests/*.mjs tests/support/*.mjs; do node --check "$f"; done
+      # The ACP suites (docs/ACP.md) need the official client library and the schema checker, which are kept in a folder of their own so that they never reach the Hub
+      # (tests/acp-tools/package.json: devDependencies only, one lock file). A suite that cannot find them is skipped, and --no-skip below turns a skip into a failure.
+      - name: Install the ACP test tools
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix tests/acp-tools
       # --retry-failed-once runs a suite that failed a second time. One that passes then is FLAKY: never PASS, a ::warning annotation, a line in
       # the step summary and a count in summary.json (docs/CI-HEALTH.md). The run is still red for a suite that fails twice.
       - name: Run all suites
