@@ -1,0 +1,82 @@
+{
+  "suite": "verify-e2e-acp.mjs",
+  "mutations": [
+    {
+      "name": "select-instead-of-add",
+      "what": "the folder of a session is SELECTED in the Hub, which switches the workspace of the desktop app",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/workspaces/add' },\n",
+          "new": "  { method: 'POST', path: '/api/workspace/select' },\n"
+        },
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  if (FORBIDDEN_ROUTES.includes(route)) return false;\n",
+          "new": ""
+        },
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "this.#send('POST', '/api/workspaces/add', { path: cwd })",
+          "new": "this.#send('POST', '/api/workspace/select', { path: cwd })"
+        }
+      ]
+    },
+    {
+      "name": "task-without-workspace",
+      "what": "a task is started without the folder of the session (it would run in the one the Hub has selected)",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "(await this.#send('POST', '/api/tasks/start', { prompt, workspacePath })).task",
+          "new": "(await this.#send('POST', '/api/tasks/start', { prompt })).task"
+        }
+      ]
+    },
+    {
+      "name": "later-prompt-starts",
+      "what": "a later prompt of a session starts a new task instead of continuing the conversation",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const task = session.taskId === null ? await hub.startTask({ prompt: text, workspacePath: session.workspacePath }) : await hub.continueTask({ id: session.taskId, prompt: text });",
+          "new": "const task = await hub.startTask({ prompt: text, workspacePath: session.workspacePath });"
+        }
+      ]
+    },
+    {
+      "name": "embedded-protected-check-off",
+      "what": "the text of a protected file that the editor embeds is sent to the model",
+      "patches": [
+        {
+          "file": "lib/acp/content.mjs",
+          "old": "const protectedName = isProtectedPath(place.file ? (place.inside ? place.relative : paths.basename(place.absolute)) : nameOfUri(resource.uri));",
+          "new": "const protectedName = false;"
+        }
+      ]
+    },
+    {
+      "name": "csrf-token-wrong",
+      "what": "a POST carries a CSRF token that is not the Hub's",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "mutationHeaders(this.origin, this.#secret, await this.#csrfToken())",
+          "new": "mutationHeaders(this.origin, this.#secret, 'wrong')"
+        }
+      ]
+    },
+    {
+      "name": "hub-lets-go-ignored",
+      "what": "a task at rest ends the turn although the Hub may still hold the workspace",
+      "equivalent": "the Hub lets go of the workspace within a moment of turning the task \"completed\", so a turn that ends at once and one that waits for the release are not told apart by a run of the suite; the scripted Hub of verify-acp-logic.mjs holds the workspace on purpose and kills this mutation there (active-ignored)",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    return active.includes(id);\n",
+          "new": "    return false;\n"
+        }
+      ]
+    }
+  ]
+}

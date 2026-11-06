@@ -1,0 +1,443 @@
+{
+  "suite": "verify-e2e-acp-connection.mjs",
+  "mutations": [
+    {
+      "name": "owned-port-check-off",
+      "what": "launchOwned starts a Hub on a port that something holds",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  if (await portOpen(options.port)) throw new Error(`Port ${options.port} is used by another program. It is not stopped.`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-rotation-off",
+      "what": "a log that grew past 4 MB is not kept apart",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  try { if ((await fs.stat(logFile)).size > 4_000_000) await fs.rename(logFile, path.join(directory, 'hub.previous.log')); }\n  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }\n  const child = spawn(process.execPath, [hubEntry",
+          "new": "  const child = spawn(process.execPath, [hubEntry"
+        }
+      ]
+    },
+    {
+      "name": "owned-rotation-edge",
+      "what": "a log of exactly 4,000,000 bytes is rotated",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  try { if ((await fs.stat(logFile)).size > 4_000_000) await fs.rename(logFile, path.join(directory, 'hub.previous.log')); }\n  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }\n  const child = spawn(process.execPath, [hubEntry",
+          "new": "  try { if ((await fs.stat(logFile)).size >= 4_000_000) await fs.rename(logFile, path.join(directory, 'hub.previous.log')); }\n  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }\n  const child = spawn(process.execPath, [hubEntry"
+        }
+      ]
+    },
+    {
+      "name": "owned-rotation-limit",
+      "what": "the log is rotated from 3,999,999 bytes",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  try { if ((await fs.stat(logFile)).size > 4_000_000) await fs.rename(logFile, path.join(directory, 'hub.previous.log')); }\n  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }\n  const child = spawn(process.execPath, [hubEntry",
+          "new": "  try { if ((await fs.stat(logFile)).size > 3_999_999) await fs.rename(logFile, path.join(directory, 'hub.previous.log')); }\n  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }\n  const child = spawn(process.execPath, [hubEntry"
+        }
+      ]
+    },
+    {
+      "name": "owned-rotation-name",
+      "what": "the old log is kept under another name",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  try { if ((await fs.stat(logFile)).size > 4_000_000) await fs.rename(logFile, path.join(directory, 'hub.previous.log')); }\n  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }\n  const child = spawn(process.execPath, [hubEntry",
+          "new": "  try { if ((await fs.stat(logFile)).size > 4_000_000) await fs.rename(logFile, path.join(directory, 'hub.old.log')); }\n  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }\n  const child = spawn(process.execPath, [hubEntry"
+        }
+      ]
+    },
+    {
+      "name": "owned-stdin-error-handler",
+      "what": "a broken pipe to the Hub is not handled",
+      "platforms": [
+        "linux",
+        "darwin"
+      ],
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  child.stdin.on('error', () => {}); // the Hub is gone: a write or an end then finds a broken pipe\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-gone-not-checked",
+      "what": "a Hub that exited is waited for until the time is up",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "while (Date.now() < until && !gone) {",
+          "new": "while (Date.now() < until) {"
+        }
+      ]
+    },
+    {
+      "name": "owned-failure-keeps-hub",
+      "what": "a Hub that did not come up is left running",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  await stopOwned(child).catch(() => {});\n  const tail = recent",
+          "new": "  const tail = recent"
+        }
+      ]
+    },
+    {
+      "name": "owned-timeout-sentence",
+      "what": "the time is not named when the Hub does not come up",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": " : ` within ${timeoutMs / 1000} s`}",
+          "new": " : ` in time`}"
+        }
+      ]
+    },
+    {
+      "name": "owned-exited-sentence",
+      "what": "a Hub that exited is not told apart",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "${gone ? ' (it exited)' :",
+          "new": "${gone ? ' (it failed)' :"
+        }
+      ]
+    },
+    {
+      "name": "owned-not-initialized",
+      "what": "launchOwned returns before the Hub has loaded",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "if (ready?.app === 'chatmcp-local-hub' && ready.initialized) return { url, child, pid: child.pid, logFile, exited };",
+          "new": "if (ready?.app === 'chatmcp-local-hub') return { url, child, pid: child.pid, logFile, exited };"
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-no-unref",
+      "what": "the watch on standard input keeps a finished Hub alive",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "process.stdin.unref?.(); // the server keeps the process alive; this watch must not (a Hub that found its port taken returns from main() and has nothing else to wait for)\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-failure-silent",
+      "what": "a Hub that cannot start does not say why",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "  if (logFile) { try { appendFileSync(logFile, `${line}\\n`, { mode: 0o600 }); } catch { /* the log is best effort */ } }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-failure-code",
+      "what": "a Hub that cannot start exits with code 0",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "  process.exitCode = 1;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-old-hub",
+      "what": "a Hub with no session secret is used",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (!hubRequiresBearer(running)) throw unavailable(`The Hub on port ${port} is version ${running.version ?? 'unknown'}, which has no session secret (an old version). Stop it (STOP-CHATMCP-HUB.cmd) and start a current one; the agent does not use it.`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-loading-not-waited",
+      "what": "a Hub that is still loading is used at once",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "while (!running?.initialized) {",
+          "new": "while (false) {"
+        }
+      ]
+    },
+    {
+      "name": "connect-loading-sentence",
+      "what": "the time given to a loading Hub is not named",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "`The Hub on port ${port} did not finish loading within ${timeoutMs / 1000} s.`",
+          "new": "`The Hub on port ${port} did not finish loading.`"
+        }
+      ]
+    },
+    {
+      "name": "connect-loading-vanished",
+      "what": "a Hub that stops answering while loading is waited for until the time is up",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "      if (!running) throw unavailable(`The Hub on port ${port} stopped answering while it was loading.`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-session-port",
+      "what": "a session file of another port is taken for this Hub's",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "if (!session || session.port !== port) throw",
+          "new": "if (!session) throw"
+        }
+      ]
+    },
+    {
+      "name": "connect-owned-pid",
+      "what": "the session file of another process is accepted for a Hub the agent started",
+      "equivalent": "a Hub the agent has just started replaces any older session file with its own before it says it has loaded, and the listener check right after refuses a file whose process is not the listener",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (owned && session.pid !== owned.pid) throw unavailable(`The session file names process ${session.pid}, not the Hub the agent started (process ${owned.pid}).`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-rejected-sentence",
+      "what": "a Hub that rejects the saved session is not told apart",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "error instanceof HubError && error.status === 401",
+          "new": "false"
+        }
+      ]
+    },
+    {
+      "name": "connect-first-request-sentence",
+      "what": "a Hub that fails its first request is not told",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "did not accept the first request: ${error.message}",
+          "new": "did not accept the first request"
+        }
+      ]
+    },
+    {
+      "name": "connect-failure-keeps-hub",
+      "what": "a Hub the agent started is left running when it cannot be used",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (owned) await stopOwned(owned.child).catch(() => {}); // never leave a Hub the agent started behind a failure\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "stop-wait-short",
+      "what": "a Hub is given one second to stop before it is killed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "within(this.#exited, 10_000)",
+          "new": "within(this.#exited, 1_000)"
+        }
+      ]
+    },
+    {
+      "name": "stop-force-off",
+      "what": "a Hub that does not stop is not killed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "        await stopOwned(this.#child).catch((error) => this.#log(`could not stop the Hub: ${error?.message ?? error}`));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "stop-attached-allowed",
+      "what": "stop() of a Hub the agent attached to goes on",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (!this.owned) return Promise.resolve(false);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "stop-not-memoized",
+      "what": "stop() asks the Hub again each time",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    this.#stopping ??= (async () => {",
+          "new": "    this.#stopping = (async () => {"
+        }
+      ]
+    },
+    {
+      "name": "owned-flag-always",
+      "what": "every connection counts as owned",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "this.owned = child !== null;",
+          "new": "this.owned = true;"
+        }
+      ]
+    },
+    {
+      "name": "kill-on-exit-off",
+      "what": "the exit handler that kills a Hub the agent started is not registered (only where it matters: on Windows libuv puts every child that is not detached in a job object that ends with its parent, so the Hub dies anyway - measured with a stubborn child on Node 24.19.0, parent ended by an uncaught error and by process.exit; a POSIX run is what kills this mutation)",
+      "platforms": [
+        "linux",
+        "darwin"
+      ],
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "      process.once('exit', this.#killOnExit);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "main-stdout-not-redirected",
+      "what": "a library that writes to stdout reaches the editor",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "  process.stdout.write = (chunk, encoding, callback) => process.stderr.write(chunk, encoding, callback);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "main-rejection-handler-off",
+      "what": "an unhandled rejection is not handled",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "  process.on('unhandledRejection', (reason) => { stderr(`unhandled rejection: ${reason?.stack ?? reason}`); });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "main-credentials-not-masked",
+      "what": "the credentials of the connection are not given to the masker",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const masker = createMasker({ secrets: () => credentials.connection?.secrets ?? [] });",
+          "new": "const masker = createMasker({ secrets: () => [] });"
+        }
+      ]
+    },
+    {
+      "name": "main-credentials-not-kept",
+      "what": "the connection is not remembered for the masker",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const connection = await connectToHub({ ...options, log: stderr }); credentials.connection = connection; return connection;",
+          "new": "const connection = await connectToHub({ ...options, log: stderr }); return connection;"
+        }
+      ]
+    },
+    {
+      "name": "main-uncaught-handler-off",
+      "what": "an uncaught error is not handled",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "  process.on('uncaughtException', (error) => { stderr(`uncaught exception: ${error?.stack ?? error}`); void end('uncaught exception', 1); });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "main-uncaught-code",
+      "what": "an uncaught error ends the agent with code 0",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "void end('uncaught exception', 1);",
+          "new": "void end('uncaught exception', 0);"
+        }
+      ]
+    },
+    {
+      "name": "main-setting-min-edge",
+      "what": "the smallest value of a setting is refused",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "value < min ||",
+          "new": "value <= min ||"
+        }
+      ]
+    },
+    {
+      "name": "main-setting-max-edge",
+      "what": "the largest value of a setting is refused",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "|| value > max)",
+          "new": "|| value >= max)"
+        }
+      ]
+    },
+    {
+      "name": "main-setting-not-integer",
+      "what": "a setting may be a fraction",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "!Number.isInteger(value) ||",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "main-setting-empty",
+      "what": "a setting that is empty is read as a number",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (env[name] === undefined || env[name] === '') return fallback;",
+          "new": "if (env[name] === undefined) return fallback;"
+        }
+      ]
+    }
+  ]
+}
