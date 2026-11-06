@@ -57,7 +57,11 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   await expandToolActivity(page);
   await expect(page.getByRole('button', { name: /^local\.edit_file:/ })).toBeVisible();
   await expect(page.getByText(/Phân loại rủi ro:/)).toBeVisible();
-  await expect(page.getByText('+ return a + b;', { exact: false })).toBeVisible();
+  // The card shows the change the Hub planned, a file at a time and closed until it is opened (P8 ux-7): this line used to read the two strings the model wrote as a crude diff.
+  const planned = page.getByTestId('change-file');
+  await planned.locator('summary').click();
+  await expect(planned.locator('[data-row="added"]')).toContainText('return a + b;');
+  await expect(planned.locator('[data-row="removed"]')).toContainText('return a - b;');
   await page.getByRole('button', { name: 'Phê duyệt', exact: true }).and(page.locator(':enabled')).click();
   await expect(page.getByRole('region', { name: 'Phê duyệt local.run_command' }).getByText('node test.js', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Phê duyệt', exact: true }).and(page.locator(':enabled')).click();

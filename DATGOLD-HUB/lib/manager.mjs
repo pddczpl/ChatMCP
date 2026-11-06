@@ -371,7 +371,8 @@ export class HubManager {
       }
       let result;
       try {
-        result = name.startsWith('local.') && this.localTools ? await this.localTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
+        // `decision.guard` is what the owner was shown when the gate asked about a file change: the call is held to those files (a file that changed since is not written).
+        result = name.startsWith('local.') && this.localTools ? await this.localTools.call(name, args, { taskId: binding.taskId, signal: options.signal, guard: decision.guard })
           : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
             : await external(name, args, options);
       } catch (error) {
@@ -427,7 +428,7 @@ export class HubManager {
     if (!this.permissions) return { decision, refusal: `a hook asked for confirmation and nobody can be asked${outcome.reason ? `: ${outcome.reason}` : ''}` };
     await this.workflow?.mark(binding.taskId, 'hook_asked', { toolName: name, category: decision.category });
     const asked = await this.permissions.authorize({ name, args, definition, taskId: binding.taskId, signal: options.signal, forceAsk: true, askReason: outcome.reason ?? '' });
-    return { decision: asked.allowed ? { ...decision, asked: true } : asked, refusal: null };
+    return { decision: asked.allowed ? { ...decision, asked: true, ...(asked.guard ? { guard: asked.guard } : {}) } : asked, refusal: null };
   }
 
   /**

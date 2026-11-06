@@ -25,6 +25,7 @@ export function ReviewRows({ rows, showEndings }: { rows: readonly DiffRow[]; sh
             row.kind === 'context' && 'border-transparent text-muted')}>
           <span aria-hidden="true" className="w-3 shrink-0 select-none opacity-70">{GUTTER[row.kind]}</span>
           <span><HiddenText text={lineBody(row.text) || ' '} /></span>
+          {row.omitted ? <span data-testid="row-cut" className="select-none pl-1 font-sans text-[12px] opacity-70">{t('review_row_cut', { count: row.omitted })}</span> : null}
           {showEndings && row.kind !== 'context' && <span className="select-none pl-3 font-sans text-[12px] opacity-70">{t(`review_eol_${terminatorOf(row.text)}`)}</span>}
         </div>
       ))}
