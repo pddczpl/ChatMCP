@@ -7,6 +7,7 @@ import { startHub, cleanEnvironment, waitFor } from '../../tests/e2e/hub-process
 import { startMockModel } from '../../tests/e2e/mock-model-server.mjs';
 import { makeCalcProject, gitInit, WRONG_EXPECTATION_TEST } from '../../tests/e2e/fixtures.mjs';
 import { BODY_LIMIT_MS, readBody } from './response-body.mjs';
+import { refusedSocketNote } from './refused-socket.mjs';
 
 export const test = base.extend({
   failingProject: [false, { option: true }],
@@ -179,7 +180,7 @@ export const test = base.extend({
     await Promise.all(checks);
     await testInfo.attach('browser-errors.json', { body: JSON.stringify(errors, null, 2), contentType: 'application/json' });
     await testInfo.attach('browser-warnings.json', { body: JSON.stringify(warnings, null, 2), contentType: 'application/json' });
-    expect(errors, 'React must not hide runtime or API errors').toEqual([]);
+    expect(errors, `React must not hide runtime or API errors${refusedSocketNote(errors)}`).toEqual([]);
   }, { auto: true }],
 });
 
