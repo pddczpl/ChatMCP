@@ -8,6 +8,7 @@ import { delay } from '../lib/runtime.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { PermissionGate, PERMISSION_MODES, maskSecrets } from '../lib/permissions.mjs';
+import { JSON_TEXT_SHAPES, SECRET, NUMBER_PASSWORD } from './support/json-text-shapes.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -313,6 +314,61 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   assert.equal(maskSecrets('postgres://user:s3cretpass@db/app'), 'postgres://user:[REDACTED]@db/app');
   assert.equal(maskSecrets('plain text with no secret'), 'plain text with no secret');
   ok('approval preview: the whole command is shown (not a prefix), credentials are masked in the UI and the history');
+}
+
+// ------------------------------------------------------------------ the arguments of a call that has no card of its own
+// The prompt of a tool that is not local, and the `arguments` of a local tool that has no card of its own (tasks_run, git_commit ...), print the arguments as JSON. A shell command inside them is text
+// in which a double quote is written \", a line break \n and a tab \t, and none of that is decoded by a rule that reads the JSON: a double-quoted credential was masked by no rule, a container word
+// behind a ; inside a string looked as if it stood outside it, and `curl` after a \n was no word. The strings are masked as the text they are, BEFORE they are written as JSON (the follow-up of
+// round 5 of the audit of PR #103). The shapes are those of the auditor's probes (r5-json-quoted-credentials, r5-two-level-probe, r5-json-newline).
+{
+  const gate = await newGate();
+  const SHAPES = JSON_TEXT_SHAPES;
+  const WAYS = [
+    ['a tool that is not local', 'mcp.shell.start_process', (command) => ({ command })],
+    ['a tool that is not local, the command two levels down', 'mcp.shell.start_process', (command) => ({ job: { steps: [{ run: command }] } })],
+    ['a tool that is not local, in a list', 'mcp.shell.start_process', (command) => ({ commands: ['echo start', command] })],
+    ['a local tool with no card of its own (tasks_run)', 'local.tasks_run', (command) => ({ command })],
+    ['a local tool with no card of its own (git_commit)', 'local.git_commit', (command) => ({ message: command })],
+  ];
+  const leaks = [];
+  let asked = 0;
+  for (const [way, tool, argumentsOf] of WAYS) {
+    for (const [label, command, secret] of SHAPES) {
+      const prompt = await outcome(gate, tool, argumentsOf(command), { approve: false }).catch(() => null);
+      if (!prompt || prompt.kind !== 'prompt') { leaks.push(`${way} / ${label}: no card was drawn`); continue; }
+      asked += 1;
+      const shown = [prompt.request.preview, JSON.stringify(prompt.request.detail), prompt.request.summary, prompt.request.reason];
+      if (shown.some((text) => String(text).includes(secret))) leaks.push(`${way} / ${label}`);
+    }
+  }
+  assert.deepEqual(leaks, [], `the password shows on the card in ${leaks.length} of ${WAYS.length * SHAPES.length} calls:\n  ${leaks.join('\n  ')}`);
+  assert.equal(asked, WAYS.length * SHAPES.length);
+  const history = JSON.stringify(gate.state().recent);
+  assert.ok(!history.includes(SECRET) && !history.includes(NUMBER_PASSWORD), 'and the history holds none of them');
+
+  // A key that names a secret blanks its value, in any spelling the masker knows (passwd, pwd, credentials, access_key, passphrase ...): the names of the keys are in view of the pass over the JSON text only.
+  for (const args of [{ passwd: 'hunter2hunter2' }, { pwd: 'hunter2hunter2' }, { credentials: 'hunter2hunter2' }, { config: { access_key: 'hunter2hunter2' } }, { auth: { passphrase: 'hunter2hunter2' } }]) {
+    const prompt = await outcome(gate, 'mcp.shell.start_process', args, { approve: false });
+    assert.equal(prompt.kind, 'prompt');
+    assert.ok(!prompt.request.preview.includes('hunter2hunter2'), `${JSON.stringify(args)}: the value of a key that names a secret is not on the card`);
+  }
+
+  // A secret that the Hub knows (a registered one) is replaced in the strings, not in their JSON: JSON writes a quote and a backslash differently, so the text of the card never held it.
+  const SPECIAL = 'Qz9"Kx7\\Lm2';
+  manager.secrets.push(SPECIAL);
+  try {
+    const found = [];
+    for (const [way, tool, argumentsOf] of WAYS) {
+      const prompt = await outcome(gate, tool, argumentsOf(`echo ${SPECIAL} now`), { approve: false }).catch(() => null);
+      if (!prompt || prompt.kind !== 'prompt') { found.push(`${way}: no card was drawn`); continue; }
+      const shown = JSON.stringify([prompt.request.preview, prompt.request.detail, prompt.request.summary]);
+      if (['Qz9', 'Kx7', 'Lm2'].some((part) => shown.includes(part))) found.push(way);
+    }
+    assert.deepEqual(found, [], 'a registered secret with a quote and a backslash is on no card');
+  } finally { manager.secrets.pop(); }
+  assert.ok(!['Qz9', 'Kx7', 'Lm2'].some((part) => JSON.stringify(gate.state().recent).includes(part)), 'nor in the history');
+  ok(`the arguments of a call with no card of its own are masked as the text they are: ${asked} calls (${SHAPES.length} shapes of a double-quoted credential, of a container word behind a separator inside a string and of curl after \\n, \\r and \\t, in ${WAYS.length} ways) show no password on the card or in the history`);
 }
 
 // ------------------------------------------------------------------ cancellation and expiry

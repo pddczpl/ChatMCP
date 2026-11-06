@@ -7,8 +7,9 @@
 //     47 readable (a type, a read of the environment, a placeholder, a fetch option) are narrow: a value that only looks like one is still masked
 //  4. the time it takes does not depend on how the text is laid out
 import assert from 'node:assert/strict';
-import { maskSecrets } from '../lib/permissions.mjs';
+import { maskSecrets, previewArguments } from '../lib/permissions.mjs';
 import { hideKeyBlocks } from '../lib/approval-preview.mjs';
+import { JSON_TEXT_SHAPES } from './support/json-text-shapes.mjs';
 import { BEGIN as KEY_BEGIN_FRAME, END as KEY_END_FRAME, KEY_BODY as KEY_BODY_LINES, LAST_LINE as KEY_LAST_LINE, keyShapes, piecesIn } from './support/key-shapes.mjs';
 
 let checks = 0;
@@ -319,8 +320,8 @@ const COMMAND_LINES = [
   ['spaces and a tab after the backslash still continue the line of docker', 'docker run \\ \t \n  -u node:node img', 'docker run \\ \t \n  -u node:node img'],
   ['a space after the backslash still continues the line of docker', 'docker run \\ \n  -u node:node img', 'docker run \\ \n  -u node:node img'],
   ['and a tab', 'docker run \\\t\n  -u node:node img', 'docker run \\\t\n  -u node:node img'],
-  ['a continuation right after the name of the client', 'docker\\\n  -u node:node img', 'docker\\\n  -u node:node img'],
-  ['a continuation of the line counts as one character, whatever its spaces', `docker \\${' '.repeat(300)}\n  -u node:node img`, `docker \\${' '.repeat(300)}\n  -u node:node img`],
+  ['a continuation right after the name of the client', 'docker\\\n  run -u node:node img', 'docker\\\n  run -u node:node img'],
+  ['a continuation of the line counts as one character, whatever its spaces', `docker run \\${' '.repeat(300)}\n  -u node:node img`, `docker run \\${' '.repeat(300)}\n  -u node:node img`],
   ['the second command of a line has its own first word', 'docker pull img; podman run -u node:node img', 'docker pull img; podman run -u node:node img'],
   ['and after && and |', 'docker pull img && docker run -u node:node img | cat', 'docker pull img && docker run -u node:node img | cat'],
   ['the masked text is looked at again for the next rule: a secret masked before docker does not move its flag out of reach', `curl -u "usr:${V}${V}" url; docker run -u node:node img`, 'curl -u "usr:[REDACTED]" url; docker run -u node:node img'],
@@ -334,6 +335,10 @@ const COMMAND_LINES = [
   ['crictl', `crictl pull -u admin:${V} img`, 'crictl pull -u admin:[REDACTED] img'],
   ['lxc', `lxc remote add x 10.0.0.1 --user admin:${V}`, 'lxc remote add x 10.0.0.1 --user admin:[REDACTED]'],
   ['incus', `incus remote add x 10.0.0.1 --user admin:${V}`, 'incus remote add x 10.0.0.1 --user admin:[REDACTED]'],
+  ...['skopeo', 'kubectl', 'oc', 'crictl', 'ctr', 'lxc', 'incus'].flatMap((client) => [
+    [`${client} run, a subcommand of a container client: not on the list`, `${client} run -u admin:${V} img`, `${client} run -u admin:[REDACTED] img`],
+    [`${client} exec`, `${client} exec -u admin:${V} web`, `${client} exec -u admin:[REDACTED] web`],
+  ]),
   // a word of a container client in a URL, a host, a path or a header of a curl is no command: the first word of the command is curl
   ['registry media type in a header', `curl -H "Accept: application/vnd.docker.distribution.manifest.v2+json" -u admin:${V} https://registry.example.com/v2/img/manifests/latest`, 'curl -H "Accept: application/vnd.docker.distribution.manifest.v2+json" -u admin:[REDACTED] https://registry.example.com/v2/img/manifests/latest'],
   ['docker in the URL host', `curl https://registry.hub.docker.com/v2/repositories/x -u admin:${V}`, 'curl https://registry.hub.docker.com/v2/repositories/x -u admin:[REDACTED]'],
@@ -364,7 +369,7 @@ const COMMAND_LINES = [
   // the first word of the command is the client, not any word of it
   ['a docker word that is not the first word of the command', `echo docker run -u node:${V} img`, `echo docker run -u node:[REDACTED] img`],
   ['a shell started with a docker command inside', `bash -c 'docker run -u node:${V} img'`, `bash -c 'docker run -u node:[REDACTED] img'`],
-  ['a docker word glued to others: nodocker, dockerd, dockerfile, docker2', `nodocker run -u app:${V} x; dockerd -u app:${V} y; dockerfile -u app:${V} z; docker2 -u app:${V} w`, `nodocker run -u app:[REDACTED] x; dockerd -u app:[REDACTED] y; dockerfile -u app:[REDACTED] z; docker2 -u app:[REDACTED] w`],
+  ['a docker word glued to others: nodocker, dockerd, dockerfile, docker2', `nodocker run -u app:${V} x; dockerd run -u app:${V} y; dockerfile run -u app:${V} z; docker2 run -u app:${V} w`, `nodocker run -u app:[REDACTED] x; dockerd run -u app:[REDACTED] y; dockerfile run -u app:[REDACTED] z; docker2 run -u app:[REDACTED] w`],
   ['sudo -u before docker is not a user and a group of docker', `sudo -u root docker run -u node:${V} img`, `sudo -u root docker run -u node:[REDACTED] img`],
   ['a wrapper in capitals', 'SUDO docker run -u node:node img', 'SUDO docker run -u node:node img'],
   ['a continuation between the wrapper and the client (a backslash)', 'sudo \\\n  docker run -u node:node img', 'sudo \\\n  docker run -u node:node img'],
@@ -387,32 +392,36 @@ const COMMAND_LINES = [
   ['and after ||', `docker run img || tool -u admin:${V}`, `docker run img || tool -u admin:[REDACTED]`],
   ['and after the end of a line', `docker run img\n  -u svc:${V}`, `docker run img\n  -u svc:[REDACTED]`],
   ['and after a Windows line ending that does not continue the line', `docker run img\r\n  -u svc:${V}`, `docker run img\r\n  -u svc:[REDACTED]`],
-  ['a carriage return alone ends the command', `docker run img\r  -u svc:${V}`, `docker run img\r  -u svc:[REDACTED]`],
+  ['a carriage return alone ends the command', `docker run\r  -u svc:${V} img`, `docker run\r  -u svc:[REDACTED] img`],
+  ['and in the middle of a word', `docker run -e A=b\rc -u svc:${V} img`, `docker run -e A=b\rc -u svc:[REDACTED] img`],
+  ['a | glued to the words around it ends the command', 'docker run -e A=b|c -u node:node img', 'docker run -e A=b|c -u node:[REDACTED] img'],
+  ['and a & glued to them', 'docker run -e A=b&c -u node:node img', 'docker run -e A=b&c -u node:[REDACTED] img'],
+  ['and a ;', 'docker run -e A=b;c -u node:node img', 'docker run -e A=b;c -u node:[REDACTED] img'],
   ['a blank line after the backslash ends the command of docker: the -u below it is masked', `docker run \\\n\n  -u svc:${V}`, `docker run \\\n\n  -u svc:[REDACTED]`],
   ['a backslash that is not at the end of its line continues nothing: the -u on the next line is masked', `docker run \\ x\n  -u svc:${V}`, `docker run \\ x\n  -u svc:[REDACTED]`],
   ['a command after the container client with the flag on the line of a curl above it: the line above is another command', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u node:node img', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u node:node img'],
   ['a ; inside quotes between docker and the flag ends the command too (the limit): the flag is masked', "docker run -e 'A=b;c' -u node:node img", "docker run -e 'A=b;c' -u node:[REDACTED] img"],
   ['a docker beyond 200 characters of its -u (the limit): masked', `docker run${' x'.repeat(150)} -u node:node img`, `docker run${' x'.repeat(150)} -u node:[REDACTED] img`],
   // the 200 characters of the command, to the character: from the start of the command to the flag, 200 are looked at and a continuation of the line counts as one
-  ['docker, the flag 200 characters from the start of the text: inside', `docker ${'x'.repeat(192)} -u node:node img`, `docker ${'x'.repeat(192)} -u node:node img`],
-  ['and 201: outside', `docker ${'x'.repeat(193)} -u node:node img`, `docker ${'x'.repeat(193)} -u node:[REDACTED] img`],
-  ['the same from the start of the second command of a line (the ; and the space before docker are not counted)', `a; docker ${'x'.repeat(191)} -u node:node img`, `a; docker ${'x'.repeat(191)} -u node:node img`],
-  ['and 201 from it', `a; docker ${'x'.repeat(192)} -u node:node img`, `a; docker ${'x'.repeat(192)} -u node:[REDACTED] img`],
-  ['a continuation inside the command counts as one: 200 in all', `docker \\\n${'x'.repeat(191)} -u node:node img`, `docker \\\n${'x'.repeat(191)} -u node:node img`],
-  ['and 201 are out', `docker \\\n${'x'.repeat(192)} -u node:node img`, `docker \\\n${'x'.repeat(192)} -u node:[REDACTED] img`],
+  ['docker, the flag 200 characters from the start of the text: inside', `docker run -e ${'x'.repeat(185)} -u node:node img`, `docker run -e ${'x'.repeat(185)} -u node:node img`],
+  ['and 201: outside', `docker run -e ${'x'.repeat(186)} -u node:node img`, `docker run -e ${'x'.repeat(186)} -u node:[REDACTED] img`],
+  ['the same from the start of the second command of a line (the ; and the space before docker are not counted)', `a; docker run -e ${'x'.repeat(184)} -u node:node img`, `a; docker run -e ${'x'.repeat(184)} -u node:node img`],
+  ['and 201 from it', `a; docker run -e ${'x'.repeat(185)} -u node:node img`, `a; docker run -e ${'x'.repeat(185)} -u node:[REDACTED] img`],
+  ['a continuation inside the command counts as one: 200 in all', `docker \\\nrun -e ${'x'.repeat(184)} -u node:node img`, `docker \\\nrun -e ${'x'.repeat(184)} -u node:node img`],
+  ['and 201 are out', `docker \\\nrun -e ${'x'.repeat(185)} -u node:node img`, `docker \\\nrun -e ${'x'.repeat(185)} -u node:[REDACTED] img`],
   ['mysql, the -p 200 characters after its name: inside the window', `mysql ${'x'.repeat(198)} -p${V} db`, `mysql ${'x'.repeat(198)} -p[REDACTED] db`],
   ['and 201: outside', `mysql ${'x'.repeat(199)} -p${V} db`, `mysql ${'x'.repeat(199)} -p${V} db`],
   ['docker login, the -p 200 characters after login: inside the window', `docker login ${'x'.repeat(198)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(198)} -p [REDACTED] registry.example.test`],
   ['and 201: outside', `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`],
   // what is a curl and what is not (the word, in any case): the flag after another word is still the flag of a docker command
-  ['xcurl is no curl: the flag after it still follows docker', 'docker exec web xcurl -u node:node', 'docker exec web xcurl -u node:node'],
-  ['curly is no curl either', 'docker exec web curly -u node:node', 'docker exec web curly -u node:node'],
-  ['nor is curl2', 'docker exec web curl2 -u node:node', 'docker exec web curl2 -u node:node'],
-  ['nor is 2curl', 'docker exec web 2curl -u node:node', 'docker exec web 2curl -u node:node'],
-  ['nor is _curl', 'docker exec web _curl -u node:node', 'docker exec web _curl -u node:node'],
-  ['nor is curl_', 'docker exec web curl_ -u node:node', 'docker exec web curl_ -u node:node'],
-  ['CURL is curl in any case', `docker exec web CURL -u admin:${V} x`, `docker exec web CURL -u admin:[REDACTED] x`],
-  ['curl.exe is curl', `docker exec web curl.exe -u admin:${V} x`, `docker exec web curl.exe -u admin:[REDACTED] x`],
+  ['xcurl is no curl: the flag after it still follows docker', 'docker exec -e xcurl -u node:node web', 'docker exec -e xcurl -u node:node web'],
+  ['curly is no curl either', 'docker exec -e curly -u node:node web', 'docker exec -e curly -u node:node web'],
+  ['nor is curl2', 'docker exec -e curl2 -u node:node web', 'docker exec -e curl2 -u node:node web'],
+  ['nor is 2curl', 'docker exec -e 2curl -u node:node web', 'docker exec -e 2curl -u node:node web'],
+  ['nor is _curl', 'docker exec -e _curl -u node:node web', 'docker exec -e _curl -u node:node web'],
+  ['nor is curl_', 'docker exec -e curl_ -u node:node web', 'docker exec -e curl_ -u node:node web'],
+  ['CURL is curl in any case', `docker exec -e CURL -u admin:${V} web`, `docker exec -e CURL -u admin:[REDACTED] web`],
+  ['curl.exe is curl', `docker exec -e curl.exe -u admin:${V} web`, `docker exec -e curl.exe -u admin:[REDACTED] web`],
   ['a flag at the start of the text, after a line ending', `\n  -u svc:${V}`, `\n  -u svc:[REDACTED]`],
   ['a quoted user and password in a text of curl', `curl -u "admin:${V}" x`, 'curl -u "admin:[REDACTED]" x'],
   ['and the other way: a client that is nearer but behind a ; leaves the flag masked', `podman ps; tool -u svc:${V}`, `podman ps; tool -u svc:[REDACTED]`],
@@ -504,11 +513,11 @@ const COMMAND_LINES = [
   ['a key with a prefix, an entry named by name=, a value in single quotes', `<add key="DefaultAdminPassword" value="${V}"/><add name="password" value="${V}"/><add key="Password" value='${V}'/>`, '<add key="DefaultAdminPassword" value="[REDACTED]"/><add name="password" value="[REDACTED]"/><add key="Password" value=\'[REDACTED]\'/>'],
   // The 200 items of the walk when the 200th item is a LINE ENDING that continues the line (a backslash, then the line ending): the continued branch of commandStart has its own check, and it is pinned at 199,
   // 200 and 201 like the plain one. The text starts with the continuation, so the command starts at the start of the text (or, behind a ;, right after the line ending).
-  ['a continued line whose line ending is the 199th item: the start of the command is found, the flag is the flag of docker', `\\\ndocker ${'x'.repeat(191)} -u node:node img`, `\\\ndocker ${'x'.repeat(191)} -u node:node img`],
-  ['and the 200th item: outside the window, the flag is masked', `\\\ndocker ${'x'.repeat(192)} -u node:node img`, `\\\ndocker ${'x'.repeat(192)} -u node:[REDACTED] img`],
-  ['and the 201st item (a plain character): outside as well', `\\\ndocker ${'x'.repeat(193)} -u node:node img`, `\\\ndocker ${'x'.repeat(193)} -u node:[REDACTED] img`],
-  ['behind a separator the start is the item after the line ending: found at 199 ...', `a;\\\ndocker ${'x'.repeat(191)} -u node:node img`, `a;\\\ndocker ${'x'.repeat(191)} -u node:node img`],
-  ['... and masked at 200', `a;\\\ndocker ${'x'.repeat(192)} -u node:node img`, `a;\\\ndocker ${'x'.repeat(192)} -u node:[REDACTED] img`],
+  ['a continued line whose line ending is the 199th item: the start of the command is found, the flag is the flag of docker', `\\\ndocker run -e ${'x'.repeat(184)} -u node:node img`, `\\\ndocker run -e ${'x'.repeat(184)} -u node:node img`],
+  ['and the 200th item: outside the window, the flag is masked', `\\\ndocker run -e ${'x'.repeat(185)} -u node:node img`, `\\\ndocker run -e ${'x'.repeat(185)} -u node:[REDACTED] img`],
+  ['and the 201st item (a plain character): outside as well', `\\\ndocker run -e ${'x'.repeat(186)} -u node:node img`, `\\\ndocker run -e ${'x'.repeat(186)} -u node:[REDACTED] img`],
+  ['behind a separator the start is the item after the line ending: found at 199 ...', `a;\\\ndocker run -e ${'x'.repeat(184)} -u node:node img`, `a;\\\ndocker run -e ${'x'.repeat(184)} -u node:node img`],
+  ['... and masked at 200', `a;\\\ndocker run -e ${'x'.repeat(185)} -u node:node img`, `a;\\\ndocker run -e ${'x'.repeat(185)} -u node:[REDACTED] img`],
   ['a numeric pair after a start that is found is a user id and a group id (the line ending is the 199th item)', `\\\ndocker ${'x'.repeat(191)} -u 1000:1000 img`, `\\\ndocker ${'x'.repeat(191)} -u 1000:1000 img`],
   ['but not when the start of the command is not found: the line ending is the 200th item, so the pair is masked', `\\\ndocker ${'x'.repeat(192)} -u 1000:1000 img`, `\\\ndocker ${'x'.repeat(192)} -u 1000:[REDACTED] img`],
   // a variable of the command is a word of letters, digits and underscores that does not start with a digit, in any case
@@ -580,19 +589,21 @@ const COMMAND_LINES = [
   ['a path to docker after the cut', `curl -d 'x; /usr/bin/docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'x; /usr/bin/docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
   ['a variable and then docker after the cut', `curl -d 'x; FOO=bar docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'x; FOO=bar docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
   ['sudo and a flag of it after the cut', `curl -d 'x; sudo -E docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'x; sudo -E docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
-  ['an escaped ; separates nothing', 'curl -d a\\;docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\;docker ps -u admin:[REDACTED] https://ci.example.test/api'],
-  ['an escaped &', 'curl -d a\\&docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\&docker ps -u admin:[REDACTED] https://ci.example.test/api'],
-  ['an escaped |', 'curl -d a\\|docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\|docker ps -u admin:[REDACTED] https://ci.example.test/api'],
-  ['a caret escapes the & in cmd', 'curl -d a^&docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a^&docker ps -u admin:[REDACTED] https://ci.example.test/api'],
-  ['a backtick escapes the ; in PowerShell', 'curl.exe -d a`;docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl.exe -d a`;docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['an escaped ; separates nothing', 'curl -d a\\;docker run -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\;docker run -u admin:[REDACTED] https://ci.example.test/api'],
+  ['an escaped &', 'curl -d a\\&docker run -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\&docker run -u admin:[REDACTED] https://ci.example.test/api'],
+  ['an escaped |', 'curl -d a\\|docker run -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\|docker run -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a caret escapes the & in cmd', 'curl -d a^&docker run -u admin:' + V + ' https://ci.example.test/api', 'curl -d a^&docker run -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a backtick escapes the ; in PowerShell', 'curl.exe -d a`;docker run -u admin:' + V + ' https://ci.example.test/api', 'curl.exe -d a`;docker run -u admin:[REDACTED] https://ci.example.test/api'],
   ['and with a numeric pair', 'curl -d a\\;docker ps -u 5551234567:7391824 https://ci.example.test/api', 'curl -d a\\;docker ps -u 5551234567:[REDACTED] https://ci.example.test/api'],
   // Found by fuzzing nested quoting (strings in substitutions in strings): a backtick that the reading meets INSIDE what it takes for a quote, and a continuation in such a place, are not read; a bracket closes
   // only a bracket of its own kind; a group with a quote inside it is nested quoting, which is not read.
   ['a backtick substitution inside double quotes, with the idiom for an apostrophe in it', 'curl --data-raw "` \' &  /usr/bin/docker \'"\'"\' sudo docker ls\' C:/tmpimg`" -u admin:' + V + ' https://ci.example.test/api', 'curl --data-raw "` \' &  /usr/bin/docker \'"\'"\' sudo docker ls\' C:/tmpimg`" -u admin:[REDACTED] https://ci.example.test/api'],
   ['a backtick that ends a line inside a string is no continuation', "curl -d \"` $'&& FOO=bar docker '  'C:/tmp'  $' nerdctl node:node'  '\" nerdctl ' `\n\" -u svc_user:" + V + ' https://ci.example.test/api', "curl -d \"` $'&& FOO=bar docker '  'C:/tmp'  $' nerdctl node:node'  '\" nerdctl ' `\n\" -u svc_user:[REDACTED] https://ci.example.test/api"],
   ['a brace and a parenthesis do not close each other', 'curl $(echo a; docker run { ) ( } -u admin:' + V + ' https://ci.example.test/api)', 'curl $(echo a; docker run { ) ( } -u admin:[REDACTED] https://ci.example.test/api)'],
+  ['and the same with the brackets as values of flags, so that the command would be a plain one', 'curl $(echo a; docker run -e { -e ) -e ( -e } -u admin:' + V + ' https://ci.example.test/api)', 'curl $(echo a; docker run -e { -e ) -e ( -e } -u admin:[REDACTED] https://ci.example.test/api)'],
+  ['a backtick that ends a line inside a string is no continuation (a plain command)', 'docker run -e "a `\nb" -u svc:' + V + ' img', 'docker run -e "a `\nb" -u svc:[REDACTED] img'],
   ['a closing parenthesis before an opening one', 'curl $(echo a; docker ps )( -u admin:' + V + ' https://ci.example.test/api)', 'curl $(echo a; docker ps )( -u admin:[REDACTED] https://ci.example.test/api)'],
-  ['three backslashes before a ;: the third escapes it', 'curl -d a\\\\\\;docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\\\\\;docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['three backslashes before a ;: the third escapes it', 'curl -d a\\\\\\;docker run -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\\\\\;docker run -u admin:[REDACTED] https://ci.example.test/api'],
   ['a quote that the reading takes for the end of a string, a brace in the next, and the closing parenthesis of the substitution', `curl "$(echo 'a\nbuildah '"'"'{x=1' -v)" -u admin:${V} https://ci.example.test/api`, `curl "$(echo 'a\nbuildah '"'"'{x=1' -v)" -u admin:[REDACTED] https://ci.example.test/api`],
   // what stays: only what stands BEFORE the flag counts, and a command that starts with a container client keeps its own place
   ['quotes that close inside a container command stay balanced: the flag is the flag of docker', "docker run -e 'A=b' --label \"x y\" -u node:node img", "docker run -e 'A=b' --label \"x y\" -u node:node img"],
@@ -623,16 +634,20 @@ const COMMAND_LINES = [
   ['an escaped ; before a real one: the real one separates', 'echo a\\;; docker run -u node:node img', 'echo a\\;; docker run -u node:node img'],
   ['an escaped backslash before a ;: the ; is real', 'echo a\\\\; docker run -u node:node img', 'echo a\\\\; docker run -u node:node img'],
   ['a curl with an escaped ; and then a real container command', 'curl -d a\\;b https://x.example.test ; docker run -u node:node img', 'curl -d a\\;b https://x.example.test ; docker run -u node:node img'],
-  ['the flag inside the quoted data is data, not a flag of curl (the documented limit of a flag inside a quoted string): it is shown', "curl -d 'cmd=ls; docker ps -u admin:" + V + "' https://ci.example.test/api", "curl -d 'cmd=ls; docker ps -u admin:" + V + "' https://ci.example.test/api"],
+  ['the flag inside the quoted data is data, not a flag of curl (the documented limit of a flag inside a quoted string): it is shown', "curl -d 'cmd=ls; docker run -u admin:" + V + " img' https://ci.example.test/api", "curl -d 'cmd=ls; docker run -u admin:" + V + " img' https://ci.example.test/api"],
+  ['but a docker command with no user and group in it (ps) is masked, in a string or not', "curl -d 'cmd=ls; docker ps -u admin:" + V + "' https://ci.example.test/api", "curl -d 'cmd=ls; docker ps -u admin:[REDACTED]' https://ci.example.test/api"],
   ['an edge: a closing parenthesis inside quotes with no opening one is masked (a smiley in a label)', 'docker run --label "a :)" -u node:node img', 'docker run --label "a :)" -u node:[REDACTED] img'],
   ['an edge: a quote inside a substitution is nested quoting, which is not read: the flag after it is masked', `docker run -e "X=$(echo 'x')" -u node:node img`, `docker run -e "X=$(echo 'x')" -u node:[REDACTED] img`],
   ['and a quote inside a brace expansion', `docker run -e "H=\${X:-'a'}" -u node:node img`, `docker run -e "H=\${X:-'a'}" -u node:[REDACTED] img`],
   ['an edge: a brace that stays open before the flag', 'docker run ${x -u node:node img', 'docker run ${x -u node:[REDACTED] img'],
-  ['a quote at the start of a continued line is read', 'docker run \\\n"x y" -u node:node img', 'docker run \\\n"x y" -u node:node img'],
+  ['and as the value of a flag, which the words alone would not refuse', 'docker run -e ${x -u node:node img', 'docker run -e ${x -u node:[REDACTED] img'],
+  ['a quote at the start of a continued line is read', 'docker run -e \\\n"x y" -u node:node img', 'docker run -e \\\n"x y" -u node:node img'],
+  ['and a flag at the start of one', 'docker run \\\n-w /app -u node:node img', 'docker run \\\n-w /app -u node:node img'],
   ['a braces expansion that closes in the command, and the template of docker, are no reason', 'docker run -e "H=${HOME}" --format {{.ID}} -u node:node img', 'docker run -e "H=${HOME}" --format {{.ID}} -u node:node img'],
   ['an edge: a backtick inside double quotes (an escape of PowerShell) is not read: the flag after it is masked', 'docker run -e "A=`$x" -u node:node img', 'docker run -e "A=`$x" -u node:[REDACTED] img'],
   ['a continuation in front of the flag is no backtick: a PowerShell command over several lines stays readable, quotes and all', 'docker run `\n  -e "A=b" `\n  -v "$(pwd):/app" `\n  -u node:node img', 'docker run `\n  -e "A=b" `\n  -v "$(pwd):/app" `\n  -u node:node img'],
   ['an edge: a parenthesis that stays open before the flag: the flag is inside a group, masked', 'docker run $(echo -u node:node img', 'docker run $(echo -u node:[REDACTED] img'],
+  ['and as the value of a flag', 'docker run -e $(echo -u node:node img', 'docker run -e $(echo -u node:[REDACTED] img'],
   ['a URL after the flag is not before it: the pair is a user id and a group id', 'tool -u 1000:1000 https://api.example.com/v1', 'tool -u 1000:1000 https://api.example.com/v1'],
   ['a container command after a curl, behind a ;, keeps its place (a user and a group)', 'curl https://x.example.test -o f; docker run -u node:node img', 'curl https://x.example.test -o f; docker run -u node:node img'],
   ['and with a numeric pair', 'curl https://x.example.test -o f; docker run -u 1000:1000 img', 'curl https://x.example.test -o f; docker run -u 1000:1000 img'],
@@ -643,6 +658,390 @@ const COMMAND_LINES = [
 ];
 for (const [label, line, expected] of COMMAND_LINES) assert.equal(maskSecrets(line, []), expected, `${label}: not the line that was expected`);
 ok(`${COMMAND_LINES.length} lines on the edges of the flags and the tags (their limits, glued words, reads, short values, several in a line)`);
+
+// Two spellings of the flag of the user that the rule did not see (the follow-up of round 5 of the audit of PR #103). The flag was a word of its own with a blank after it:
+//  - the user glued to the flag: curl -uadmin:secret (the short flag only: --user and --proxy-user need a blank or an equals sign);
+//  - a quote right before the flag: CURL_OPTS='-u admin:secret', echo "-u admin:secret", and the same in the JSON text of a tool call ("args":"-u admin:secret ..."), where EVERY string value starts after a quote.
+// They are judged like the flag with a blank: a user and a password are masked, a user and a group of a container command and a numeric pair or a drive path (by their shape) stay.
+{
+  const FLAG_SPELLINGS = [
+    // the user glued to the flag
+    ['glued: curl -uUSER:PW', `curl -uadmin:${V} https://x.example.test`, 'curl -uadmin:[REDACTED] https://x.example.test'],
+    ['glued: the capital U of curl (the proxy user)', `curl -Uproxy:${V} https://x.example.test`, 'curl -Uproxy:[REDACTED] https://x.example.test'],
+    ['glued, any tool: a user and a password are masked', `tool -uadmin:${V} run`, 'tool -uadmin:[REDACTED] run'],
+    ['glued, in double quotes', `curl -u"admin:${V}" https://x.example.test`, 'curl -u"admin:[REDACTED]" https://x.example.test'],
+    ['glued, in single quotes', `curl -u'admin:${V}' https://x.example.test`, "curl -u'admin:[REDACTED]' https://x.example.test"],
+    ['glued: a user of one character', `tool -ua:${V} run`, 'tool -ua:[REDACTED] run'],
+    ['glued, a numeric pair after a curl: curl\'s, masked', 'curl -u5551234567:7391824 https://x.example.test', 'curl -u5551234567:[REDACTED] https://x.example.test'],
+    ['glued, a numeric pair and no curl anywhere: a user id and a group id', 'tool -u1000:1000 run', 'tool -u1000:1000 run'],
+    ['glued, a user and a group of a container command', 'docker run -unode:node img', 'docker run -unode:node img'],
+    ['glued, a numeric pair of a container command', 'docker run -u1000:1000 -v /srv:/srv img', 'docker run -u1000:1000 -v /srv:/srv img'],
+    ['glued, behind sudo', 'sudo docker exec -uroot:root web sh', 'sudo docker exec -uroot:root web sh'],
+    ['glued, a user and a group of a command that is not a container client: masked', 'tool -unode:node run', 'tool -unode:[REDACTED] run'],
+    ['glued, a drive path', 'diff -uC:\\a\\old.txt C:\\a\\new.txt', 'diff -uC:\\a\\old.txt C:\\a\\new.txt'],
+    ['glued, with no colon there is no password: mysql -uroot keeps its user, the -p is masked', `mysql -uroot -p${V} db`, 'mysql -uroot -p[REDACTED] db'],
+    ['glued: -u and a word with no colon', 'tool -uroot run', 'tool -uroot run'],
+    ['glued, a read of a variable is no secret', 'curl -u$USER:$PASS https://x.example.test', 'curl -u$USER:$PASS https://x.example.test'],
+    ['glued to a word is still no flag', 'foo-uadmin:' + V, 'foo-uadmin:' + V],
+    ['a time format after -u is no user and password', 'date -u+%H:%M', 'date -u+%H:%M'],
+    ['the long flags need their blank: --userid:x is not --user', 'tool --userid:abcd run', 'tool --userid:abcd run'],
+    ['and --proxy-userid:x is not --proxy-user', 'tool --proxy-userid:abcd run', 'tool --proxy-userid:abcd run'],
+    ['an equals sign and then a quoted value of -u', `curl -u="admin:${V}" https://x.example.test`, 'curl -u="admin:[REDACTED]" https://x.example.test'],
+    ['several blanks after --user', `curl --user   admin:${V} url`, 'curl --user   admin:[REDACTED] url'],
+    ['tabs after --proxy-user', `curl --proxy-user\t\tproxy:${V} url`, 'curl --proxy-user\t\tproxy:[REDACTED] url'],
+    ['two blanks after -u and a quote', `curl -u  "admin:${V}" url`, 'curl -u  "admin:[REDACTED]" url'],
+    // a quote right before the flag
+    ["a variable of options in single quotes", `CURL_OPTS='-u admin:${V}'`, "CURL_OPTS='-u admin:[REDACTED]'"],
+    ['a message in double quotes', `echo "-u admin:${V}"`, 'echo "-u admin:[REDACTED]"'],
+    ['--user after a quote', `export OPTS="--user admin:${V} --silent"`, 'export OPTS="--user admin:[REDACTED] --silent"'],
+    ['--proxy-user after a quote', `x='--proxy-user proxy:${V}'`, "x='--proxy-user proxy:[REDACTED]'"],
+    ['a glued flag after a quote', `OPTS='-uadmin:${V}'`, "OPTS='-uadmin:[REDACTED]'"],
+    ['the equals sign after a quote', `OPTS="--user=admin:${V}"`, 'OPTS="--user=admin:[REDACTED]"'],
+    ['a numeric pair after a quote, no curl anywhere: by its shape it stays', 'echo "-u 1000:1000"', 'echo "-u 1000:1000"'],
+    ['a numeric pair after a quote and a curl: masked', 'curl -d x https://h.example.test; echo "-u 1000:1000"', 'curl -d x https://h.example.test; echo "-u 1000:[REDACTED]"'],
+    ['a quote right before the flag of a container command: the quote is open at the flag, so it is masked', "docker run img '-u node:node'", "docker run img '-u node:[REDACTED]'"],
+    ['the flag in the JSON text of a tool call (a string value starts after a quote)', `{"args":"-u admin:${V} https://x.example.test"}`, '{"args":"-u admin:[REDACTED] https://x.example.test"}'],
+    ['and the same in a YAML list', `args: "-u admin:${V}"`, 'args: "-u admin:[REDACTED]"'],
+    ['the curl is in another field of the JSON text, so the numeric pair is a password', '{"program":"curl","args":"-u 5551234567:7391824 https://x.example.test"}', '{"program":"curl","args":"-u 5551234567:[REDACTED] https://x.example.test"}'],
+    ['a quote in front of anything but a flag changes nothing', `echo "x-u admin:${V}" "y"`, `echo "x-u admin:${V}" "y"`],
+    ['a long flag that is none of ours, after a quote: --ux is not -u', `tool "--ux admin:${V}" run`, `tool "--ux admin:${V}" run`],
+  ];
+  const wrong = FLAG_SPELLINGS.map(([label, line, expected]) => [label, line, expected, maskSecrets(line, [])]).filter(([, , expected, got]) => got !== expected)
+    .map(([label, line, expected, got]) => `${label}: ${JSON.stringify(line)} -> ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
+  assert.deepEqual(wrong, [], `${wrong.length} of ${FLAG_SPELLINGS.length} lines are not as expected:\n  ${wrong.join('\n  ')}`);
+  ok(`${FLAG_SPELLINGS.length} lines on the spellings of the flag of the user: glued to the user, after a quote, in the JSON text of a call (masked like the flag with a blank, with the same two exemptions)`);
+}
+
+// The flag of a container client is the client's only BEFORE the image: `docker run [flags] IMAGE [COMMAND] [ARGS]`, and what follows the image belongs to the program that runs in the container (`docker run img
+// tool -u admin:secret https://...`: the -u is the tool's, and a tool is any program). So a user and a group is readable only when the words before the flag are the subcommand (run, exec, create or config,
+// after compose, container, service or pod where there is one) and flags with their values; a word that is none of them is the image, the container or the service, and the flag after it is masked.
+// Which word is the value of a flag is told by the flag: a long flag takes the word after it unless it is one of the ones that take none (--rm ...); a short flag takes it only if its letter is one of the clients'
+// (-e, -v, -p, -w ...), so that a flag that is none of theirs (-k, -s) does not swallow the image. The value can be glued to the flag (-p80:80, --name=web).
+{
+  const NO_VALUE_FLAGS = ['--rm', '--init', '--privileged', '--read-only', '--detach', '--interactive', '--tty', '--publish-all', '--quiet', '--no-healthcheck', '--no-deps', '--build', '--service-ports', '--remove-orphans', '--help'];
+  const VALUE_LETTERS = ['e', 'v', 'p', 'w', 'l', 'h', 'm', 'c', 'a', 'f', 'u', 'n'];
+  const LETTERS_WITHOUT_A_VALUE = ['d', 'i', 't', 'P', 'q', 'T', 'k', 's', 'X', 'z'];
+  const masked = (line) => line.replace('node:node', 'node:[REDACTED]').replace(`admin:${V}`, 'admin:[REDACTED]');
+  const AFTER_THE_IMAGE = [
+    `docker run img tool -u admin:${V} https://x.example.test`,
+    `docker run img -u admin:${V}`,
+    `docker run --rm img tool -u admin:${V}`,
+    `docker run --rm img -u admin:${V}`,
+    `docker run -it --rm -v /srv:/srv img tool --verbose -u admin:${V}`,
+    `docker run ghcr.io/org/tool:1.0 -u admin:${V}`,
+    `docker run -e A=b -e C=d img sh -c 'x' -u admin:${V}`,
+    `docker exec web mytool -u admin:${V}`,
+    'docker exec web -u node:node',
+    'docker exec -it web -u node:node bash',
+    'docker compose run app npm test -u node:node',
+    'docker compose run --rm app -u node:node',
+    'docker-compose run app -u node:node',
+    'docker container run img -u node:node',
+    'docker container exec web -u node:node sh',
+    'docker service create img -u node:node',
+    'podman run img -u node:node',
+    'nerdctl run img -u node:node',
+    'buildah run ctr -- tool -u node:node',
+    'sudo docker run img tool -u node:node',
+    'env A=1 docker run img -u node:node',
+    'FOO=bar docker run img -u node:node',
+    'docker.exe run img -u node:node',
+    '/usr/bin/docker exec web ls -u node:node',
+    'docker run -p8080:80 img -u node:node',
+    'docker run -v/srv:/srv img -u node:node',
+    'docker run --name=web img -u node:node',
+    'docker run -w /app img -u node:node',
+    'docker run -e "A=b c" img -u node:node',
+    "docker run --entrypoint '' img -u node:node",
+    'docker run --rm\\\n  img\\\n  -u node:node',
+    "docker run -e 'A=b\\' img -u node:node",
+    'docker run -e A=${B:-x y} img -u node:node',
+    'docker run -e A=$(echo a b) img -u node:node',
+    'docker run "img"-u node:node x',
+    'docker run -e A=b\\ c img -u node:node',
+    'docker run -v $(pwd):/app img -u node:node',
+    'docker run \\\n  --rm \\\n  img \\\n  -u node:node',
+    'docker run `\n  --rm `\n  img `\n  -u node:node',
+    'docker run -a stdin -a stdout img -u node:node',
+    ...NO_VALUE_FLAGS.map((flag) => `docker run ${flag} img -u node:node`),
+    ...LETTERS_WITHOUT_A_VALUE.map((letter) => `docker run -${letter} img -u node:node`),
+    ...VALUE_LETTERS.map((letter) => `docker run -${letter}value img -u node:node`),
+    ...VALUE_LETTERS.map((letter) => `docker run -${letter} value img -u node:node`),
+    'docker run -k img --user node:node', 'docker run -s img --user=node:node', 'docker run -X POST img -u node:node',
+    'docker run -dit img -u node:node',
+    'docker run -itd img -u node:node',
+  ];
+  const BEFORE_THE_IMAGE = [
+    'docker run -u node:node img',
+    'docker run --user node:node img',
+    'docker run --user=node:node img',
+    'docker exec -u root:root web bash',
+    'docker exec -it -u root:root web bash -c "echo hi; ls"',
+    "docker exec -u root:root web sh -c 'a; b'",
+    'docker create -u node:node img',
+    'docker run --rm -it -v $(pwd):/app -w /app -u node:node node:20 npm test',
+    'docker run -e "FOO=bar baz" --user app:app img',
+    "docker run -e 'A=b' -e \"C=d\" -u node:node img",
+    'docker run --env-file .env -p 8080:80 -u node:node nginx',
+    'docker run -d --name web -p 80:80 -u app:app nginx',
+    'docker run -dit --name x -u app:app img',
+    'docker run -itd -u app:app img',
+    'docker run --restart always --cpus 2 --memory 1g -u app:app img',
+    'docker run -v /srv:/srv:ro --network=host -u app:app img',
+    'docker run -p8080:80 -v/srv:/srv -u node:node img',
+    'docker run -a stdin -a stdout -u node:node img',
+    'docker run -h myhost -l k=v -m 1g -c 512 -u node:node img',
+    'docker run --pull always --platform linux/amd64 -u node:node img',
+    "docker run --entrypoint '' -u node:node img",
+    'docker run --entrypoint "" -u node:node img',
+    'docker run -e A=1 -e B=2 --label x=y --label "p q" -u node:node img',
+    'docker --context prod run -u node:node img',
+    'docker --config /tmp/c run -u node:node img',
+    'docker compose run --rm -u node:node app npm test',
+    'docker compose exec -u node:node app sh',
+    'docker-compose run --rm -u node:node app',
+    'docker container run --rm -u node:node img',
+    'docker container exec -u root:root web sh',
+    'docker service create --user app:app img',
+    'podman run --userns=keep-id -u node:node img',
+    'podman container run -u node:node img',
+    'nerdctl run --rm -u node:node img',
+    'buildah run --user node:node ctr -- sh',
+    'buildah config --user node:node ctr',
+    'sudo docker exec -u root:root web sh',
+    'sudo -E docker run --rm -u node:node img',
+    'env A=1 docker run -u node:node img',
+    'time docker run -u node:node img',
+    'FOO=bar docker run -u node:node img',
+    '/usr/bin/docker run -u node:node img',
+    'docker.exe run -u node:node img',
+    'docker run \\\n  -v "$(pwd):/app" \\\n  -u node:node \\\n  img',
+    'docker run `\n  -v "${PWD}:/app" `\n  -e "A=b" `\n  -u node:node img',
+    'cd /tmp && docker run -u node:node img',
+    'curl https://x.example.test -o f; docker run --rm -u node:node img',
+    'docker run -e "NAME=O\'Brien" -u node:node img',
+    'docker run -e A=$(echo hello world) -u node:node img',
+    'docker run -e A=${B:-x y} -u node:node img',
+    'docker run -e A=b\\ c -u node:node img',
+    'docker run --some-flag -e A=b -u node:node img',
+    ...NO_VALUE_FLAGS.map((flag) => `docker run ${flag} -u node:node img`),
+    ...LETTERS_WITHOUT_A_VALUE.map((letter) => `docker run -${letter} -u node:node img`),
+    ...VALUE_LETTERS.map((letter) => `docker run -${letter} value -u node:node img`),
+    ...VALUE_LETTERS.map((letter) => `docker run -${letter}value -u node:node img`),
+    'docker compose -f docker-compose.yml run -u node:node app',
+    // the numeric pair is judged by its shape alone, wherever it stands
+    'docker run img tool -u 1000:1000',
+    'docker exec web mytool -u 1000:1000',
+  ];
+  // a subcommand that is not one with a user and a group: the flag is the registry's user (login) or nobody's
+  const OTHER_SUBCOMMANDS = [
+    ['docker login -u admin:SECRET registry.example.test', 'docker login -u admin:[REDACTED] registry.example.test'],
+    ['docker pull -u node:node img', 'docker pull -u node:[REDACTED] img'],
+    ['docker build -u node:node .', 'docker build -u node:[REDACTED] .'],
+    ['docker -u node:node run img', 'docker -u node:[REDACTED] run img'],
+    ['docker -H unix:///var/run/docker.sock run -u node:node img', 'docker -H unix:///var/run/docker.sock run -u node:[REDACTED] img'],
+    ['docker compose up -u node:node', 'docker compose up -u node:[REDACTED]'],
+    ['docker container ls -u node:node', 'docker container ls -u node:[REDACTED]'],
+    ['docker compose -u node:node', 'docker compose -u node:[REDACTED]'],
+    ['docker node run -u node:node img', 'docker node run -u node:[REDACTED] img'],
+    ['docker run run -u node:node img', 'docker run run -u node:[REDACTED] img'],
+  ];
+  const wrong = [];
+  for (const line of AFTER_THE_IMAGE) if (maskSecrets(line, []) !== masked(line)) wrong.push(`after the image: ${JSON.stringify(line)} -> ${JSON.stringify(maskSecrets(line, []))}`);
+  for (const line of BEFORE_THE_IMAGE) if (maskSecrets(line, []) !== line) wrong.push(`before the image: ${JSON.stringify(line)} -> ${JSON.stringify(maskSecrets(line, []))}`);
+  for (const [line, expected] of OTHER_SUBCOMMANDS) if (maskSecrets(line.replace('SECRET', V), []) !== expected.replace('SECRET', V).replace(`admin:${V}`, 'admin:[REDACTED]')) wrong.push(`other subcommand: ${JSON.stringify(line)} -> ${JSON.stringify(maskSecrets(line.replace('SECRET', V), []))}`);
+  assert.deepEqual(wrong, [], `${wrong.length} of ${AFTER_THE_IMAGE.length + BEFORE_THE_IMAGE.length + OTHER_SUBCOMMANDS.length} commands are not as expected:\n  ${wrong.join('\n  ')}`);
+  ok(`${AFTER_THE_IMAGE.length} container commands with the flag after the image are masked, ${BEFORE_THE_IMAGE.length} with the flag before it stay, ${OTHER_SUBCOMMANDS.length} subcommands that have no user and group are masked (${NO_VALUE_FLAGS.length} long flags that take no value, ${VALUE_LETTERS.length} letters that take one)`);
+}
+
+// A shell command in a string of another language, in a FILE that the card shows (a package.json script, a YAML `run: "..."`, a Python string, a doubled-quote string of YAML or PowerShell): the card draws the
+// lines of a file as they are, so nothing is decoded, and the rules read a `\"` where the command has a quote, a `''` where it has one, and a `\n` in front of curl. Three fail-safes (round 5 of the audit of
+// PR #103 prototyped them; a text that is JSON is masked as a structure instead, see previewArguments below): curl after a backslash and n, r or t is curl; a `\"` that can close something outside quotes fails the
+// proof that a container command starts outside every quote; so does a doubled quote glued to the word before it. A fail-safe masks more, never less: the price is a container command that is
+// written that way (`docker run -e A=b'' -u node:node img`).
+{
+  const FILE_TEXT = [
+    // curl after the escape of a line break or a tab: a numeric pair is a password, not a user id and a group id
+    ['curl after \\n in the text of a string', '{"command":"cd /app\\ncurl -u 5551234567:7391824 https://x.example.test"}', '{"command":"cd /app\\ncurl -u 5551234567:[REDACTED] https://x.example.test"}'],
+    ['curl after \\r', 'run = "cd /app\\r\\ncurl -u 5551234567:7391824 https://x.example.test"', 'run = "cd /app\\r\\ncurl -u 5551234567:[REDACTED] https://x.example.test"'],
+    ['curl after \\t', '{"command":"run:\\tcurl -u 5551234567:7391824 https://x.example.test"}', '{"command":"run:\\tcurl -u 5551234567:[REDACTED] https://x.example.test"}'],
+    ['curl right after \\r', 'run = "cd /app\\rcurl -u 5551234567:7391824 https://x.example.test"', 'run = "cd /app\\rcurl -u 5551234567:[REDACTED] https://x.example.test"'],
+    ['curl right after \\n', 'run = "cd /app\\ncurl -u 5551234567:7391824 https://x.example.test"', 'run = "cd /app\\ncurl -u 5551234567:[REDACTED] https://x.example.test"'],
+    ['curl.exe after \\n, the flag first', '{"command":"cd C:\\\\work\\ncurl.exe -u 5551234567:7391824 https://x.example.test"}', '{"command":"cd C:\\\\work\\ncurl.exe -u 5551234567:[REDACTED] https://x.example.test"}'],
+    ['curl CAPITALS after \\n', '{"command":"cd /app\\nCURL -u 5551234567:7391824 https://x.example.test"}', '{"command":"cd /app\\nCURL -u 5551234567:[REDACTED] https://x.example.test"}'],
+    ['n, r and t without their backslash are letters of another word', 'docker exec -e ncurl -u node:node web; docker exec -e rcurl -u node:node web; docker exec -e tcurl -u node:node web', 'docker exec -e ncurl -u node:node web; docker exec -e rcurl -u node:node web; docker exec -e tcurl -u node:node web'],
+    ['a backslash and another letter is another word', 'docker exec -e \\fcurl -u node:node web; docker exec -e \\bcurl -u node:node web', 'docker exec -e \\fcurl -u node:node web; docker exec -e \\bcurl -u node:node web'],
+    ['curl glued after the escape: \\ncurly is another word', 'docker exec -e \\ncurly -u node:node web', 'docker exec -e \\ncurly -u node:node web'],
+    // a backslash and a double quote, outside quotes, that can close a string
+    ['\\" and then a ; in the text of a string', `curl -d \\"cmd=ls; docker ps\\" -u admin:${V} https://ci.example.test/api`, 'curl -d \\"cmd=ls; docker ps\\" -u admin:[REDACTED] https://ci.example.test/api'],
+    ['the same in a line of a package.json', `"deploy": "curl -d \\"cmd=ls; docker ps\\" -u admin:${V} https://ci.example.test/api",`, '"deploy": "curl -d \\"cmd=ls; docker ps\\" -u admin:[REDACTED] https://ci.example.test/api",'],
+    ['a YAML double-quoted run', `  - run: "curl --data \\"cmd=ls && docker run img\\" -u admin:${V} https://ci.example.test/api"`, '  - run: "curl --data \\"cmd=ls && docker run img\\" -u admin:[REDACTED] https://ci.example.test/api"'],
+    ['a Python string', `os.system("curl -H \\"X-Run: a | sudo docker run img\\" --user admin:${V} https://ci.example.test/api")`, 'os.system("curl -H \\"X-Run: a | sudo docker run img\\" --user admin:[REDACTED] https://ci.example.test/api")'],
+    ['an escaped quote that opens a word stays an escaped character', 'docker run -e A=\\"b -u node:node img', 'docker run -e A=\\"b -u node:node img'],
+    ['and inside single quotes a backslash is a character, so \\" and a blank close nothing', `docker run -e 'A=\\" b' -u node:node img`, `docker run -e 'A=\\" b' -u node:node img`],
+    ['inside double quotes it is an escaped quote', `docker run -e "A=\\" b" -u node:node img`, `docker run -e "A=\\" b" -u node:node img`],
+    ['an escaped quote around a word that is not closed by a blank, a separator or a bracket', 'docker run -e A=\\"b\\"x -u node:node img', 'docker run -e A=\\"b\\"x -u node:node img'],
+    ['\\" followed by a blank', 'docker run -e A=b\\" -u node:node img', 'docker run -e A=b\\" -u node:[REDACTED] img'],
+    ['\\" followed by a tab', 'docker run -e A=b\\"\t-u node:node img', 'docker run -e A=b\\"\t-u node:[REDACTED] img'],
+    ['\\" at the end of the command, right before the flag', 'docker run -e A=b\\"-u node:node img', 'docker run -e A=b\\"-u node:[REDACTED] img'],
+    ['\\" followed by a comma', 'docker run -e A=b\\",x -u node:node img', 'docker run -e A=b\\",x -u node:[REDACTED] img'],
+    ['\\" followed by a colon', 'docker run -e A=b\\":x -u node:node img', 'docker run -e A=b\\":x -u node:[REDACTED] img'],
+    ['\\" followed by a square bracket', 'docker run -e A=[b\\"] -u node:node img', 'docker run -e A=[b\\"] -u node:[REDACTED] img'],
+    ['\\" followed by the parenthesis that closes a substitution', 'docker run -e X=$(echo a\\") -u node:node img', 'docker run -e X=$(echo a\\") -u node:[REDACTED] img'],
+    ['\\" followed by the brace that closes a template', 'docker run --format {{.A\\"}} -u node:node img', 'docker run --format {{.A\\"}} -u node:[REDACTED] img'],
+    // a doubled quote glued to the word before it (YAML, PowerShell and SQL write a quote inside a string of the same kind twice)
+    ['a YAML single-quoted run', `steps:\n  - run: 'curl -d ''cmd=ls; docker ps'' -u admin:${V} https://ci.example.test/api'\n`, `steps:\n  - run: 'curl -d ''cmd=ls; docker ps'' -u admin:[REDACTED] https://ci.example.test/api'\n`],
+    ['a PowerShell single-quoted string', `$cmd = 'curl.exe -d ''cmd=ls; docker ps'' -u admin:${V} https://ci.example.test/api'\n`, `$cmd = 'curl.exe -d ''cmd=ls; docker ps'' -u admin:[REDACTED] https://ci.example.test/api'\n`],
+    ['a SQL string', `INSERT INTO jobs(cmd) VALUES ('curl -d ''cmd=ls; docker ps'' -u admin:${V} https://ci.example.test/api');\n`, `INSERT INTO jobs(cmd) VALUES ('curl -d ''cmd=ls; docker ps'' -u admin:[REDACTED] https://ci.example.test/api');\n`],
+    ['a doubled quote of a header', `curl -H ''X-Run: a | docker run img'' --user admin:${V} https://ci.example.test/api`, `curl -H ''X-Run: a | docker run img'' --user admin:[REDACTED] https://ci.example.test/api`],
+    ['doubled double quotes', `curl -d ""cmd=ls; docker ps"" -u admin:${V} https://ci.example.test/api`, 'curl -d ""cmd=ls; docker ps"" -u admin:[REDACTED] https://ci.example.test/api'],
+    ['a doubled single quote after the value of a flag', `curl -d ''cmd=ls; docker run -e a'' -u admin:${V} https://ci.example.test/api`, `curl -d ''cmd=ls; docker run -e a'' -u admin:[REDACTED] https://ci.example.test/api`],
+    ['a doubled double quote after the value of a flag', `curl -d ""cmd=ls; docker run -e a"" -u admin:${V} https://ci.example.test/api`, 'curl -d ""cmd=ls; docker run -e a"" -u admin:[REDACTED] https://ci.example.test/api'],
+    ['a YAML single-quoted run whose docker command is a run', `steps:\n  - run: 'curl -d ''cmd=ls; docker run -e a'' -u admin:${V} https://ci.example.test/api'\n`, `steps:\n  - run: 'curl -d ''cmd=ls; docker run -e a'' -u admin:[REDACTED] https://ci.example.test/api'\n`],
+    ['adjacent quoted strings are one word, not a doubled quote', "docker run -e 'A=b''c' -u node:node img", "docker run -e 'A=b''c' -u node:node img"],
+    ['an empty string after a blank is an empty argument', "docker run --entrypoint '' -u node:node img", "docker run --entrypoint '' -u node:node img"],
+    ['and an empty string of double quotes', 'docker run --entrypoint "" -u node:node img', 'docker run --entrypoint "" -u node:node img'],
+    ['an empty value glued to its name is the price', "docker run -e A='' -u node:node img", "docker run -e A='' -u node:[REDACTED] img"],
+    ['and a doubled quote glued to a word', "docker run -e A=b'' -u node:node img", "docker run -e A=b'' -u node:[REDACTED] img"],
+    ['two different quotes in a row are not a doubled quote', `docker run -e "A=b"'c' -u node:node img`, `docker run -e "A=b"'c' -u node:node img`],
+    ['a quote that closes a word and one that opens the next one, the same kind with a letter between', `docker run -e 'A=b'c'd' -u node:node img`, `docker run -e 'A=b'c'd' -u node:node img`],
+  ];
+  const wrong = FILE_TEXT.map(([label, line, expected]) => [label, line, expected, maskSecrets(line, [])]).filter(([, , expected, got]) => got !== expected)
+    .map(([label, line, expected, got]) => `${label}: ${JSON.stringify(line)} -> ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
+  assert.deepEqual(wrong, [], `${wrong.length} of ${FILE_TEXT.length} lines are not as expected:\n  ${wrong.join('\n  ')}`);
+  ok(`${FILE_TEXT.length} lines of a shell command inside a string of another language in a file: curl after \\n \\r \\t, a \\" that can close a string, a doubled quote glued to a word (fail-safes: masked, not shown)`);
+}
+
+// A credential in double quotes inside a string that escapes its quotes, in the text of a FILE: a package.json script, a JSON fixture, a YAML `run: "..."`, a Python string. The quote is written \" there, and the
+// quoted-value rules saw no quote (a backslash stood in the way), so --user "admin:S", --password "S", mysql -p"S" and export API_KEY="S" were masked by no rule. A quote that is written \" opens and closes a
+// value like one that is not. (The strings of the arguments of a tool call are masked decoded, see previewArguments; a file is drawn as it is.)
+{
+  const ESCAPED = [
+    ['--user', `curl --user "admin:${V}" https://x.example.test`, `curl --user "admin:[REDACTED]" https://x.example.test`],
+    ['-u', `curl -u "admin:${V}" https://x.example.test`, `curl -u "admin:[REDACTED]" https://x.example.test`],
+    ['--proxy-user', `curl --proxy-user "proxy:${V}" https://x.example.test`, `curl --proxy-user "proxy:[REDACTED]" https://x.example.test`],
+    ['-u glued', `curl -u"admin:${V}" https://x.example.test`, `curl -u"admin:[REDACTED]" https://x.example.test`],
+    ['--password', `tool --password "${V}" run`, `tool --password "[REDACTED]" run`],
+    ['--token=', `tool --token="${V}" run`, `tool --token="[REDACTED]" run`],
+    ['mysql -p', `mysql -u root -p"${V}" db`, `mysql -u root -p"[REDACTED]" db`],
+    ['sshpass -p', `sshpass -p "${V}" ssh host`, `sshpass -p "[REDACTED]" ssh host`],
+    ['docker login -p', `docker login -u me -p "${V}" registry.example.test`, `docker login -u me -p "[REDACTED]" registry.example.test`],
+    ['export API_KEY=', `export API_KEY="${V}"`, `export API_KEY="[REDACTED]"`],
+    ['password =', `password = "${V}"`, `password = "[REDACTED]"`],
+    ['password:', `password: "${V}"`, `password: "[REDACTED]"`],
+    ['a value with a blank in it', `tool --password "two words ${V}" run`, `tool --password "[REDACTED]" run`],
+    // what is not a secret stays, escaped quotes or not
+    ['a read of a variable', 'tool --password "$PASS" run', 'tool --password "$PASS" run'],
+    ['an empty value', 'tool --password "" run', 'tool --password "" run'],
+    ['the credentials option of fetch', 'fetch(url, { credentials: "include" })', 'fetch(url, { credentials: "include" })'],
+    ['a user and a password read from the environment', 'curl -u "$USER:$PASS" https://x.example.test', 'curl -u "$USER:$PASS" https://x.example.test'],
+    ['a numeric pair with no curl before it, in quotes', 'tool -u "1000:1000" run', 'tool -u "1000:1000" run'],
+  ];
+  // a shell script that escapes its apostrophes: \'S\'
+  for (const [line, expected] of [
+    [`tool --password \\'${V}\\' run`, "tool --password \\'[REDACTED]\\' run"],
+    [`mysql -u root -p\\'${V}\\' db`, "mysql -u root -p\\'[REDACTED]\\' db"],
+    [`curl -u \\'admin:${V}\\' https://x.example.test`, "curl -u \\'admin:[REDACTED]\\' https://x.example.test"],
+    [`export API_KEY=\\'${V}\\'`, "export API_KEY=\\'[REDACTED]\\'"],
+  ]) assert.equal(maskSecrets(line, []), expected, `${line}: an escaped apostrophe is a quote too`);
+  const wrong = [];
+  for (const [label, line, expected] of ESCAPED) {
+    const asJson = JSON.stringify({ command: line });
+    const gotJson = maskSecrets(asJson, []);
+    if (gotJson !== JSON.stringify({ command: expected })) wrong.push(`${label}, as the JSON text of a call: ${asJson} -> ${gotJson}`);
+    const asScript = `"deploy": ${JSON.stringify(line)},`;
+    const gotScript = maskSecrets(asScript, []);
+    if (gotScript !== `"deploy": ${JSON.stringify(expected)},`) wrong.push(`${label}, as a line of a package.json: ${asScript} -> ${gotScript}`);
+    if (maskSecrets(line, []) !== expected) wrong.push(`${label}, as it is written: ${line} -> ${maskSecrets(line, [])}`);
+  }
+  assert.deepEqual(wrong, [], `${wrong.length} are not as expected:\n  ${wrong.join('\n  ')}`);
+  ok(`${ESCAPED.length} credentials written in double quotes (and what is no secret) are masked the same when the quote is written \\" in a JSON string or in the line of a package.json`);
+}
+
+// The arguments of a tool call are printed as JSON on the approval card (previewArguments, which PermissionGate uses for a tool that is not local and for the `arguments` of a local tool that has no
+// card of its own). Their strings are masked as the text they are BEFORE they are written as JSON, then the JSON is masked once more (the names of the keys and the other fields are in view there).
+// (The permission suite runs the same shapes through the gate: tests/verify-permissions-modes.mjs.)
+{
+  const LAYOUTS = [
+    ['an object', (command) => ({ command })],
+    ['two levels down', (command) => ({ job: { steps: [{ run: command }] } })],
+    ['a list', (command) => ({ commands: ['echo start', command] })],
+    ['a string', (command) => command],
+  ];
+  // 1. every shape of a command inside the JSON text, in every layout: the password is gone and the first word of the command is still there
+  const leaks = [];
+  let cases = 0;
+  for (const [label, command, secret] of JSON_TEXT_SHAPES) {
+    for (const [layout, wrap] of LAYOUTS) {
+      const out = previewArguments(wrap(command));
+      cases += 1;
+      if (out.includes(secret)) leaks.push(`${layout} / ${label}`);
+      assert.ok(out.includes(command.split(/[\s=]/)[0].replace(/^"/, '')), `${layout} / ${label}: the command is not blanked as a whole`);
+    }
+  }
+  assert.deepEqual(leaks, [], `${leaks.length} of ${cases} show the password:\n  ${leaks.join('\n  ')}`);
+
+  // 2. a command that is written as masked text and then as JSON is what the card prints, whatever the layout
+  for (const [command, masked] of [
+    ['curl --user "admin:Zq424242aB" https://x.test', 'curl --user "admin:[REDACTED]" https://x.test'],
+    ['mysql -u root -p"Zq424242aB" db', 'mysql -u root -p"[REDACTED]" db'],
+    ['sshpass -p "Zq424242aB" ssh host', 'sshpass -p "[REDACTED]" ssh host'],
+    ['export API_KEY="Zq424242aB"', 'export API_KEY="[REDACTED]"'],
+  ]) {
+    for (const [layout, wrap] of LAYOUTS) {
+      assert.equal(previewArguments(wrap(command)), JSON.stringify(wrap(masked)), `${layout}: the structure is kept and only the secret is replaced (${command})`);
+    }
+  }
+
+  // 3. arguments that hold no secret come back exactly as JSON.stringify writes them
+  const BENIGN_ARGUMENTS = [
+    { command: 'ls -la', cwd: 'src' },
+    { path: 'src/app.js', pattern: 'TODO', ignoreCase: true, limit: 20 },
+    { url: 'https://example.com/a?b=c&d=e' },
+    { text: 'He said "hi"\nand left\ttabbed\r\nand "quoted" it' },
+    { query: 'select * from users where name = "bob" and age > 3' },
+    { message: 'fix: handle the token count and the password input' },
+    { code: 'const tokenCount = 3; function passwordInput() { return process.env.API_KEY; }' },
+    { list: [1, 2, 3], nested: { a: null, b: false, c: 1.5 } },
+    { command: 'git log --oneline -5 && npm test' },
+    'plain text',
+    ['a', 'b'],
+    { empty: '', zero: 0 },
+  ];
+  for (const args of BENIGN_ARGUMENTS) assert.equal(previewArguments(args), JSON.stringify(args), `${JSON.stringify(args)}: nothing to hide, nothing changed`);
+
+  // 4. the cuts of the card: 700 characters of a string, 30 items of a list, 50 keys of an object, `length` characters of the text
+  const cut = JSON.parse(previewArguments({ text: 'x'.repeat(1000), list: Array.from({ length: 40 }, (_, i) => i), keys: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`k${i}`, i])) }, 100000));
+  assert.equal(cut.text.length, 700);
+  assert.equal(cut.list.length, 30);
+  assert.equal(Object.keys(cut.keys).length, 50);
+  assert.equal(previewArguments({ a: 'x'.repeat(400) }, 100).length, 100, 'the text is cut at `length`');
+  assert.equal(previewArguments({ a: 'x'.repeat(2500), b: 'y'.repeat(2500), c: 'z'.repeat(2500) }).length, 1800, 'and at 1800 when no length is given');
+  assert.equal(JSON.parse(previewArguments({ a: ['x'.repeat(2000)] }, 5000)).a[0].length, 700, 'a string in a list too');
+
+  // 5. a secret is masked in the string it stands in, and the string is cut at 700 characters BEFORE it is masked, as the card always did
+  assert.equal(previewArguments({ line: `password=${R}${R} keep this` }), JSON.stringify({ line: 'password=[REDACTED] keep this' }));
+  assert.equal(previewArguments({ line: `${'x'.repeat(680)} password=${R}${R}` }), JSON.stringify({ line: `${'x'.repeat(680)} password=[REDACTED]` }), 'a secret cut by the 700 characters is masked in what is left of it');
+
+  // 6. the names of the keys are in view of the second pass: a key that names a secret blanks its value, in any spelling the masker knows
+  for (const key of ['password', 'passwd', 'pwd', 'passphrase', 'credentials', 'access_key', 'ssh_key', 'client_secret', 'api_key', 'private_key', 'DB_PASSWORD', 'token']) {
+    const out = previewArguments({ [key]: `${R}${R}`, other: 'kept' });
+    assert.ok(!out.includes(`${R}${R}`) && out.includes('"other":"kept"'), `${key}: the value is blanked and the next field stays`);
+  }
+  // ... and so is a JSON document inside a string
+  assert.ok(!previewArguments({ body: `{"password":"${R}${R}","user":"bob"}` }).includes(`${R}${R}`), 'a document inside a string');
+
+  // 7. what is in view of the second pass only: a curl in one field makes a pair of numbers in another a password
+  assert.equal(previewArguments({ program: 'curl', args: '-u 5551234567:7391824 https://x.example.test' }), JSON.stringify({ program: 'curl', args: '-u 5551234567:[REDACTED] https://x.example.test' }));
+  assert.equal(previewArguments({ program: 'tool', args: '-u 5551234567:7391824 https://x.example.test' }), JSON.stringify({ program: 'tool', args: '-u 5551234567:7391824 https://x.example.test' }), 'and with no curl anywhere the pair stays');
+
+  // 8. a registered secret is replaced in the string it stands in, also when JSON writes it differently (a quote, a backslash, a line break), and in a key
+  const REGISTERED = ['reg"ister\\ed\nsecret', 'plain-registered-value'];
+  const out = previewArguments({ note: `use reg"ister\\ed\nsecret and plain-registered-value now`, 'plain-registered-value': 1 }, 1800, REGISTERED);
+  assert.ok(!out.includes('plain-registered-value') && !out.includes('ister'), 'a registered secret is gone from the values and the keys, whatever JSON does to it');
+  assert.equal(out, JSON.stringify({ note: 'use [REDACTED] and [REDACTED] now', '[REDACTED]': 1 }));
+  ok(`previewArguments: ${cases} shapes x layouts show no password, the structure is kept, ${BENIGN_ARGUMENTS.length} arguments with nothing to hide come back unchanged, the cuts (700 / 30 / 50 / length), the names of keys, a curl in another field, and registered secrets that JSON writes differently`);
+}
 
 // A curl whose quoted argument holds a separator, then a numeric pair: every kind of separator (; & | a line ending of either kind) x what stands between the quoted argument and the flag (a blank or a
 // continuation of the line of each kind) x every spelling of the flag x the width of what stands before the separator (so that the curl is 0, 150, 790 and 2000 characters away from it). The separator is
@@ -786,11 +1185,17 @@ ok(`${COMMAND_LINES.length} lines on the edges of the flags and the tags (their 
 
 // The characters of a word, to the character: the first and the last of each range stand next to curl, before it and after it, and it is another word there (the flag after it stays a flag of
 // docker); the characters just outside the ranges (/ : @ [ ` { and the signs of a command) are not letters, and curl is curl there.
+for (const character of ['`', '{', '/', ':', '@', '[', '-', '.', '=', '(', '"', ' ']) {
+  for (const text of [`${character}curl -u 5551234567:7391824 https://x.example.test`, `curl${character} -u 5551234567:7391824 https://x.example.test`]) {
+    const out = maskSecrets(text, []);
+    assert.ok(!out.includes('7391824'), `${text}: curl next to ${JSON.stringify(character)} is curl, so the pair is a password`);
+  }
+}
 for (const character of ['0', '9', 'A', 'Z', 'a', 'z', '_']) {
-  for (const text of [`docker exec web ${character}curl -u node:node img`, `docker exec web curl${character} -u node:node img`]) assert.equal(maskSecrets(text, []), text, `${text}: curl glued to ${character} is another word`);
+  for (const text of [`docker exec -e ${character}curl -u node:node web`, `docker exec -e curl${character} -u node:node web`]) assert.equal(maskSecrets(text, []), text, `${text}: curl glued to ${character} is another word`);
 }
 for (const character of ['/', ':', '@', '[', '`', '{', '-', '.', '=', '(', '"']) {
-  for (const [text, masked] of [[`docker exec web ${character}curl -u admin:${V} x`, `docker exec web ${character}curl -u admin:[REDACTED] x`], [`docker exec web curl${character} -u admin:${V} x`, `docker exec web curl${character} -u admin:[REDACTED] x`]]) {
+  for (const [text, masked] of [[`docker exec -e ${character}curl -u admin:${V} web`, `docker exec -e ${character}curl -u admin:[REDACTED] web`], [`docker exec -e curl${character} -u admin:${V} web`, `docker exec -e curl${character} -u admin:[REDACTED] web`]]) {
     assert.equal(maskSecrets(text, []), masked, `${text}: ${character} is not a letter, so curl stays curl`);
   }
 }
@@ -894,7 +1299,7 @@ ok('what was pinned before is unchanged');
     'a megabyte of numeric pairs in one line (a command of more than 200 characters is masked)': ['-u 1:1 '.repeat(150_000), false],
     'a megabyte of flags with 190 characters before each (the whole walk, then masked)': [`${'x'.repeat(190)} -u a:b\n`.repeat(5000), false],
     'a megabyte of docker commands, each with a curl word in it': ['docker run curl -u a:b\n'.repeat(45_000), false],
-    'a megabyte of docker commands with 180 characters before each flag (the whole walk, then the whole reading of the quotes)': [`docker ${'x'.repeat(180)} -u node:node img\n`.repeat(5000), true],
+    'a megabyte of docker commands with 180 characters before each flag (the whole walk, then the whole reading of the quotes)': [`docker run -e ${'x'.repeat(173)} -u node:node img\n`.repeat(5000), true],
     'a megabyte of URLs and then 100,000 numeric flags in one line (all behind a URL: masked)': ['https://x.test/a '.repeat(30_000) + '-u 1:1 '.repeat(100_000), false],
   };
   for (const [label, [text, untouched]] of Object.entries(TEXTS)) {
