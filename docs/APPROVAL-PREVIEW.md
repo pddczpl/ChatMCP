@@ -56,11 +56,13 @@ Bounds: 20 files, 200 rows of a file, a line cut at 400 characters (with `omitte
     space, bare or in quotes, from four characters (the flags that say there is none, `--no-password`, `--ask-password` ..., take no value); `curl -u user:secret` (also `--user`, `--proxy-user`, and `curl.exe`);
     `mysql -psecret` (and mysqldump, mysqladmin, mysqlimport, mysqlcheck, mysqlshow, mysqlpump, mariadb); `sshpass -p secret`; `docker login -p secret` (also podman, nerdctl, buildah, skopeo). A value read from a
     variable (`"$PASSWORD"`, `%PASSWORD%`) stays. `-u`, `--user` and `--proxy-user` are a user and a password wherever they stand (curl, any other client that takes `user:password`, a script, a file of notes), but for two things that
-    are a user and a group: a numeric pair (`-u 1000:1000`, `--user=1000:1000`), and the flags of a command that STARTS with a container client (docker, podman, nerdctl, buildah): `docker run -u node:node`,
-    `sudo docker exec -u root:root web sh` and `--user app:app` stay as they are. Both are decided on the whole COMMAND that holds the flag (the text from the last `;`, `&`, `|` or line ending to the flag), which
-    must hold no `curl` and no `://` before the flag: `docker exec web curl -u admin:secret` (the flag is curl's), `docker pull x; tool -u admin:secret` (another command), `tool -u admin:secret` (no client) and
-    `curl -u 5551234567:123456` (a pair of numbers, but curl's) are masked. A secret fails safe: what is not known to be a user and a group is masked, and so is every client that is not on the list (`ctr` takes
-    `-u user:password` as the credentials of a registry, and skopeo, kubectl, oc, crictl, lxc and incus are not exempted either). A drive path is no user and password (`diff -u C:\a\old.txt C:\a\new.txt` stays) unless the command holds `curl` or `://` (`curl -u c:/secret` is masked).
+    are a user and a group: the flags of a command that STARTS with a container client (docker, podman, nerdctl, buildah: `docker run -u node:node`, `sudo docker exec -u root:root web sh`, `--user app:app`),
+    decided on the COMMAND that holds the flag (the text from the last `;`, `&`, `|` or line ending to the flag, which must hold no `curl` and no `://` and must start outside every quote and substitution), and a numeric pair
+    (`-u 1000:1000`, `--user=1000:1000`), which is judged by its shape alone and so needs more: **no `curl` and no `://` anywhere in the text before the flag**. `docker exec web curl -u admin:secret` (the flag is
+    curl's), `docker pull x; tool -u admin:secret` (another command), `tool -u admin:secret` (no client), `curl -u 5551234567:123456` (a pair of numbers, but curl's), `curl 'https://x?a=1&b=2' -u 5551234567:7391824`
+    (a `&`, `;` or `|` or a line ending inside a quote or a URL looks like the start of a command, and a rule that read only the command would not see the curl), `curl -d 'cmd=ls; docker ps' -u admin:secret` and
+    `curl $(echo a | docker run img) -u admin:secret` (the same character, then a container word: what closes the string or the substitution stands before the flag, so the "command" began inside it) are masked. A secret fails safe: what is not known to be a user and a group is masked, and so is every client that is not on the list (`ctr` takes
+    `-u user:password` as the credentials of a registry, and skopeo, kubectl, oc, crictl, lxc and incus are not exempted either). A drive path is no user and password under the same rule as a numeric pair (`diff -u C:\a\old.txt C:\a\new.txt` stays; `curl -u c:/secret` is masked).
     The `-p` of the clients above is the lower-case one: `mysql -P3306` (a port) and `sshpass -P assword` (a prompt) stay.
   - **XML.** `<password>secret</password>` (an element named like a secret, with attributes or with a prefix: `<db-password encrypted="false">`), `<add key="ApiKey" value="secret"/>` and
     `<property name="password" value="secret"/>`.
@@ -112,17 +114,40 @@ is. A "no" is `permission_denied` as before. A call that came without a card (Au
 - It is a pattern mask. A secret in a spelling nobody listed shows on the card; a protected file never does. The edges of what is listed above, so that nobody is surprised by them:
   - the card masks a file line by line: a flag on a continuation line away from its command (`mysql \` and, on the next line, `-psecret`) is not seen, while `--password secret` is seen wherever it stands; the
     program of a `-p` is looked for within 200 characters before it on the same line (for `sshpass`, the `-p` has to follow it directly);
-  - `-u`, `--user` and `--proxy-user` are masked everywhere but for a numeric pair and the flags of a command that starts with docker, podman, nerdctl or buildah. The COMMAND is the text from the last `;`, `&`,
+  - `-u`, `--user` and `--proxy-user` are masked everywhere but for the flags of a command that starts with docker, podman, nerdctl or buildah, a numeric pair and a drive path. The COMMAND is the text from the last `;`, `&`,
     `|`, carriage return or line ending to the flag; a backslash, a caret or a backtick at the end of a line, then the line ending, joins two lines (and counts as one character). Only 200 characters of it are
-    looked at, and when its start is not found within them the flag is masked. The flag is a user and a group when (1) the FIRST word of the command is the client (a path and `.exe` are fine: `/usr/bin/docker`,
+    looked at, and when its start is not found within them the flag is masked. The flag is a user and a group (of a container command) when (1) the FIRST word of the command is the client (a path and `.exe` are fine: `/usr/bin/docker`,
     `docker.exe`; so are `sudo`, `doas`, `env`, `time`, `nohup`, their flags and `VAR=x` before it; any other prefix is a first word that is none, so `- docker run -u node:node` of a YAML list, `$ docker …`,
-    `RUN docker …` and `# docker …` are masked: it fails safe) and (2) the text before the flag holds no `curl` (any case, `curl.exe`) and no `://`. The edges of that: a `;`
-    inside quotes ends the command too (`docker run -e 'A=b;c' -u node:node img` is masked, a limit); a URL before the flag (`docker -H tcp://127.0.0.1:2375 run -u node:node img`) or a word `curl` anywhere
-    before it (`docker run curlimages/curl -u a:b`) masks it; `docker run -v /data:/data -u node:node img` holds no URL and stays. A user and a password that are both numbers up to ten digits long
-    (`-u 1234:5678`) are a user id and a group id, unless the command holds `curl` or `://` before the flag (`curl -u 5551234567:123456` is masked on purpose, though it is numbers); a user of ONE letter with
-    a password that starts with a slash (`-u c:/x`) is read as a drive path and stays, in a command with no `curl` and no `://`. The flag is seen as a word of its own only: `curl -uadmin:secret` (the user
+    `RUN docker …` and `# docker …` are masked: it fails safe), (2) the text before the flag holds no `curl` (any case, `curl.exe`) and no `://`, and (3) **the start of the command is proven to be outside every quote,
+    substitution and group**. A `;`, `&`, `|` or line ending INSIDE a string, a substitution (`$( | )`) or a parameter expansion cuts the command where there is none, and what stands after the cut can be a container
+    word (`curl -d 'cmd=ls; docker ps' -u admin:secret`, `curl $(echo a | docker run img) -u admin:secret`, `curl "$(echo "a; docker ps")" -u admin:secret`, `curl -d a\;docker ps -u admin:secret`): the "command" is then
+    the tail of a string, and the exemption must not be given to it. So the command is read from its start as if that start stood outside, and it must close nothing that it did not open and leave nothing open. What is
+    not proven fails the reading and the flag is masked: a quote that does not pair up (a `'` or a `"` that closes before the flag and was never opened in the command); a `)` or a `}` with no `(` or `{` of its own kind
+    before it (the closing parenthesis of a substitution is no quote); a `(` or a `{` still open at the flag; a quote inside a group (nested quoting is not read); a backtick anywhere (the quote of a substitution in sh,
+    the escape of PowerShell; a backtick that continues a line is skipped first, outside quotes); a backslash or a `$` before a single quote outside quotes (`\'`, `$'...'`: in a single quote a backslash is a character and
+    the quote after it closes the string, and nobody can tell where a `$'...'` string ends); and a `;`, `&` or `|` that is escaped with a backslash, a caret or a backtick, which separates nothing. A backslash escapes the
+    next character outside single quotes, and a quote of the other kind inside a quote is a character like any other: `docker run -e "NAME=O'Brien" -u node:node img` and `docker run -v $(pwd):/app -u node:node img` stay.
+    **What (3) proves is that the text between the cut and the flag is a plain command, not the tail of a string. It proves no more**: it is a reading of the text, not a shell, so a contrived mix of nested quotes and
+    escapes that only one shell reads that way can still fool it (a fuzz of valid-by-construction curls with nested quoting found none in 1.8 million), a flag inside
+    a quoted string is a flag of that string and is shown (`curl -d 'cmd=ls; docker ps -u admin:secret'`: the limit of a flag inside a quoted string, below), and a here-document or a comment is not read. The edges of (3),
+    all on the side of masking: a `;` inside quotes ends the command too (`docker run -e 'A=b;c' -u node:node img` is masked, a limit); a double-quoted path that ends in a backslash (`docker run -v "C:\data\":/data
+    -u node:node img`), and a `;` after a path that ends in a backslash (`cd C:\work\; docker run -u node:node img`, the backslash is taken for an escape); a quote inside a substitution (`-e "T=$(cat 'f')"`), a backtick
+    substitution (``-e A=`date` ``), a `\'` or a `$'...'` string and a bracket that is not closed inside double quotes (`--label "a :)"`) fail the reading too (everyday container commands stay readable: `-v $(pwd):/app`,
+    `-e "A=b"`, `-e "H=${HOME}"`, a PowerShell command over several lines with a backtick at the end of each line); a URL before the flag (`docker -H tcp://127.0.0.1:2375 run -u node:node img`) or a word `curl` anywhere
+    before it (`docker run curlimages/curl -u a:b`) masks it; `docker run -v /data:/data -u node:node img` holds no URL and stays; a container command keeps its place after a curl or a URL EARLIER in the text
+    (`curl https://x -o f; docker run -u 1000:1000 img` stays). **A numeric pair and a drive path look at the whole text, not at the command**, because a separator inside a quote or a URL (`curl -H 'Accept: text/html; q=0.9'
+    -u 5551234567:7391824`, `curl 'https://x?a=1&b=2' -u ...`, a JSON body over several lines and then `-u`) cuts the command where there is none and hides the curl: a user and a password that are both numbers up
+    to ten digits long (`-u 1234:5678`), and a user of ONE letter with a password that starts with a slash (`-u c:/x`, read as a drive path), are exempt only with no `curl` and no `://` anywhere before the flag
+    (`curl -u 5551234567:123456` is masked on purpose, though it is numbers). The one over-mask that remains: the numeric pair or the drive path of an unknown tool is masked when a `curl` or a `://` stands EARLIER in
+    the same text (`tool -u 1234:5678` under a curl example). A URL after the flag does not count (`tool -u 1000:1000 https://x` stays). The flag is seen as a word of its own only: `curl -uadmin:secret` (the user
     glued to the flag), a flag inside a quoted string (`CURL_OPTS='-u admin:secret'`, `echo "-u admin:secret"`) and a flag after the program of a container (`docker run img tool -u admin:secret https://…`)
     are not masked;
+  - **a shell command that lives inside a string of another language is read as the text it is.** The JSON text of a tool call (the approval prompt of a tool that is not local, and the `arguments` of a local tool that
+    has no card of its own, are `JSON.stringify` of the arguments and are masked as that text), a `package.json`, a YAML or a Python string write a double quote as `\"`, a doubled quote as `''` and a line break as `\n`,
+    and none of that is decoded: a double-quoted credential is not masked there by any rule (`--user \"admin:S\"`, `--password \"S\"`, `mysql -p\"S\"`, `export API_KEY=\"S\"`), a container word after a cut inside such a
+    string is not recognised as inside it (`curl -d \"cmd=ls; docker ps\" -u admin:secret`, `'curl -d ''cmd=ls; docker ps'' -u admin:secret'`), and `curl` after a `\n` is not a word
+    (`{"command":"cd /app\ncurl -u 5551234567:7391824 https://x"}`). The local `run_command` card is masked on the decoded text and is not affected. A follow-up, not part of this change: mask the structure before
+    `JSON.stringify` in `safePreview`;
   - a private key pasted WITHOUT its frames is not recognised (a line of base64 looks like any other, and only the place between two frames tells); the body of a DER key (it starts with `MII`) is masked by its shape;
   - what is hidden between two frames is a run of 16 characters or more of base64, and a row that is ONE short token. The edges of that, so that nobody is surprised by them:
     - a last line of a key that is decorated AND shorter than 16 characters shows (`echo "t2R23QrNfeo=" >> key`, `-- t2R23QrNfeo=`): the last line of a key can be one to 64 characters, there is no run in a
@@ -150,4 +175,4 @@ Tests: `tests/verify-line-diff.mjs`, `tests/verify-edit-plans.mjs`, `tests/verif
 
 Mutation lists (`node tests/mutation/run-mutations.mjs tests/mutation/<list>.json`): `line-diff.json`, `edit-plans.json` (the planners), `approval-guard.json` (the guard, the gate, the manager), `approval-preview.json`
 (the card: bounds, a cut line, the runs of base64 and where they are hidden, the state machine that finds the frames, the count of hidden rows), `mask-secrets.json` (every rule, every word of every list,
-the command that holds a flag of the user, the runs of base64 of a key) and `change-preview.json` (the page's reader): 805 mutations, 789 killed, 16 equivalent with the reason written in the list, 0 survived.
+the command that holds a flag of the user, the runs of base64 of a key) and `change-preview.json` (the page's reader): 866 mutations, 843 killed, 23 equivalent with the reason written in the list, 0 survived.
