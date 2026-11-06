@@ -2350,8 +2350,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : text.endsWith('\\r') ? '\\r' : '');",
-          "new": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : '');"
+          "old": "const endingOf = (text) => terminatorOf(text) || (text.endsWith('\\r') ? '\\r' : '');",
+          "new": "const endingOf = (text) => terminatorOf(text) || '';"
         }
       ]
     },
@@ -2361,8 +2361,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : text.endsWith('\\r') ? '\\r' : '');",
-          "new": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : '\\r');"
+          "old": "const endingOf = (text) => terminatorOf(text) || (text.endsWith('\\r') ? '\\r' : '');",
+          "new": "const endingOf = (text) => terminatorOf(text) || '\\r';"
         }
       ]
     },
@@ -2834,8 +2834,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : text.endsWith('\\r') ? '\\r' : '');",
-          "new": "const endingOf = (text) => (text.endsWith('\\n') ? '\\n' : text.endsWith('\\r') ? '\\r' : '');"
+          "old": "const terminatorOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : '');",
+          "new": "const terminatorOf = (text) => (text.endsWith('\\n') ? '\\n' : '');"
         }
       ]
     },
@@ -2845,8 +2845,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : text.endsWith('\\r') ? '\\r' : '');",
-          "new": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\r') ? '\\r' : '');"
+          "old": "const terminatorOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : '');",
+          "new": "const terminatorOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : '');"
         }
       ]
     },
@@ -2856,8 +2856,19 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "const endingOf = (text) => (text.endsWith('\\r\\n') ? '\\r\\n' : text.endsWith('\\n') ? '\\n' : text.endsWith('\\r') ? '\\r' : '');",
-          "new": ""
+          "old": "const endingOf = (text) => terminatorOf(text) || (text.endsWith('\\r') ? '\\r' : '');",
+          "new": "const endingOf = () => '';"
+        }
+      ]
+    },
+    {
+      "name": "AP-ending-ignores-terminator",
+      "what": "endingOf does not use terminatorOf: only a lone carriage return is kept",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const endingOf = (text) => terminatorOf(text) || (text.endsWith('\\r') ? '\\r' : '');",
+          "new": "const endingOf = (text) => (text.endsWith('\\r') ? '\\r' : '');"
         }
       ]
     }

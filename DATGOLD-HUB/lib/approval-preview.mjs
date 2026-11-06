@@ -133,7 +133,8 @@ export function looksLikeKey(text, whole = false) {
 const KEY_RUN = /[A-Za-z0-9+/_-]{16,}={0,2}/g;
 /** The text with every run of 16 characters or more of base64 replaced by [REDACTED]; every other character stays where it is. One reading of the text: no run is searched for twice. */
 const hideKeyRuns = (text) => text.replace(KEY_RUN, '[REDACTED]');
-const endingOf = (text) => (text.endsWith('\r\n') ? '\r\n' : text.endsWith('\n') ? '\n' : text.endsWith('\r') ? '\r' : '');
+/** The line ending of a row, as terminatorOf reads it, and a lone carriage return too: the lines of hideKeyText are split on \n, so a Windows line keeps its \r. */
+const endingOf = (text) => terminatorOf(text) || (text.endsWith('\r') ? '\r' : '');
 
 /** A whole row of a body (a card row keeps its line ending): hidden whole when it is one token of base64, else every run of base64 in it is hidden where it stands. */
 function hideBodyRow(text) {
