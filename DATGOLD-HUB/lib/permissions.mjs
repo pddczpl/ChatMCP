@@ -47,13 +47,12 @@ const READS_OF_THE_ENVIRONMENT = String.raw`(?:process\.env|import\.meta\.env|os
 // %PASSWORD%) is no secret, and neither is another flag. A flag whose name says that there is no password (--no-password, --ask-password) takes no value.
 const LONG_FLAG = String.raw`(?<!\S)--(?!(?:no|skip|ask|prompt|disable|enable|with|use|require|show|hide|ignore)-)(?:[a-z0-9]+-)*(?:password|passwd|passphrase|pass|pwd|token|secret|api-?key|access-?key|secret-?key)`;
 // -u, --user and --proxy-user take a user and a password (user:password) in curl and in a good many other clients; docker, podman, nerdctl and buildah take a user and a group with the same flags
-// (-u 1000:1000, --user node:node). So the flags are a user and a password wherever they stand, but for a user and a group: a numeric pair, or the flags of one of those four. Both need the COMMAND
-// that holds the flag to have no curl and no URL before the flag; the second needs one of the four to be the FIRST word of the command (see readableUserFlag). A secret fails safe: what is not known
-// to be a user and a group is masked. ctr (containerd) is not one of the four: it takes -u/--user as the user and the password of a registry; skopeo, kubectl, oc, crictl, lxc and incus are not
-// exempted either: their flag takes one name or number, so nothing readable is lost when a pair after it is masked. The exemption of a drive and a path (diff -u C:\a\old.txt C:\a\new.txt) is
-// decided by the command too: after a curl or a URL it is a user and a password.
+// (-u 1000:1000, --user node:node). So the flags are a user and a password wherever they stand, but for a user and a group: the flags of a command that starts with one of those four (decided on the
+// COMMAND that holds the flag, which has no curl and no URL before it and starts outside every quote), a numeric pair and a drive and a path (judged by their shape alone, so they need no curl and no URL
+// anywhere in the TEXT before the flag). See readableUserFlag. A secret fails safe: what is not known to be a user and a group is masked. ctr (containerd) is not one of the four: it takes -u/--user as the user and the password of a
+// registry; skopeo, kubectl, oc, crictl, lxc and incus are not exempted either: their flag takes one name or number, so nothing readable is lost when a pair after it is masked.
 const USER_FLAG = String.raw`(?<!\S)(?:-u|--user|--proxy-user)[ \t=]+`;
-/** diff -u C:\a\old.txt C:\a\new.txt: a letter and a colon before a slash is a drive, not a user and a password (after a curl or a URL it is: see readableUserFlag). */
+/** diff -u C:\a\old.txt C:\a\new.txt: a letter and a colon before a slash is a drive, not a user and a password (with a curl or a URL before the flag it is: see readableUserFlag). */
 const isDrivePath = (user, password) => user.length === 1 && /[A-Za-z]/.test(user) && (password[0] === '\\' || password[0] === '/');
 const NUMBER = /^\d{1,10}$/;
 const isNumericPair = (user, password) => NUMBER.test(user) && NUMBER.test(password);
@@ -96,12 +95,25 @@ function commandStart(text, at) {
     }
   }
 }
-/** Whether the word curl (any case, curl.exe too) or a :// stands in text[from, to): a client of the network, whatever its name. */
+/** Whether a client of the network starts at `index`: the word curl (any case, curl.exe too) or a ://, whatever the name of the program. */
+const startsNetworkClient = (text, index) => curlStartsAt(text, index) || (text[index] === ':' && text[index + 1] === '/' && text[index + 2] === '/');
+/** Whether a client of the network stands in text[from, to). */
 function holdsNetworkClient(text, from, to) {
   for (let index = from; index < to; index += 1) {
-    if (curlStartsAt(text, index) || (text[index] === ':' && text[index + 1] === '/' && text[index + 2] === '/')) return true;
+    if (startsNetworkClient(text, index)) return true;
   }
   return false;
+}
+// Where the first curl or the first :// of a text starts (Infinity when there is none), read once for the text that the rules are working on: the callbacks of one replace get the very same string, and a
+// mask asks about every flag in it. Let go at the end of maskSecrets.
+let firstNetwork = { text: null, index: Infinity };
+function firstNetworkIndex(text) {
+  if (firstNetwork.text !== text) {
+    let index = 0;
+    while (index < text.length && !startsNetworkClient(text, index)) index += 1;
+    firstNetwork = { text, index: index < text.length ? index : Infinity };
+  }
+  return firstNetwork.index;
 }
 /** The index of the first character at or after `cursor` that is neither a blank nor the continuation of a line. */
 function skipBlanks(text, cursor) {
@@ -127,15 +139,71 @@ function startsWithContainerClient(text, from, to) {
     cursor = end;
   }
 }
+/** Whether the ; & | just before `from` is escaped (a backslash, a caret or a backtick before it): it separates nothing, and what follows is the middle of another command. */
+function startsAfterEscapedSeparator(text, from) {
+  const separator = text[from - 1];
+  if (separator !== ';' && separator !== '&' && separator !== '|') return false;
+  const before = text[from - 2];
+  if (before === '^' || before === '`') return true;
+  let backslashes = 0;
+  for (let index = from - 2; text[index] === '\\'; index -= 1) backslashes += 1;
+  return backslashes % 2 === 1;
+}
 /**
- * Whether the flag at `at`, with the `user` and the `password` after it, is no user and password: the command that holds it has no curl and no URL before the flag, and the two are numbers (a user id
- * and a group id) or a drive and a path (diff -u C:\a\old.txt C:\a\new.txt), or the command starts with docker, podman, nerdctl or buildah (a user and a group). docker exec web curl -u user:secret
- * is a curl; docker pull x; tool -u user:secret is another command. Every exemption is decided on the command, not on the shape of the two alone.
+ * Whether the command text[from, to) can be read as one that starts OUTSIDE every quote, substitution and group. A ; & | or a line ending that stood INSIDE a quote, a command substitution ($( | )), a
+ * backtick substitution or a parameter expansion ends "the command" for commandStart, and what was inside can go on with a container word (curl -d 'cmd=ls; docker ps' -u user:pw, curl $(echo a | docker run
+ * img) -u user:pw): the "command" is then  docker ps'  or  docker run img) , and what closes it stands before the flag. Read from its start as if that start were outside, such a text closes what it never
+ * opened or leaves something open: a quote that does not pair up, a ) or a } without its opener of the same kind (counted inside the quotes too, so that a string cannot hide it), a ( or a { that is still open at
+ * the flag, a quote inside a group (nested quoting is not read). An escaped separator is no cut at all. Inside double quotes a backslash escapes the next character; inside single quotes it does not; a quote
+ * of the other kind inside a quote is a character like any other. The reading starts OUTSIDE a quote, and the command may really have started inside one, where the same characters read differently: in a
+ * single quote a backslash is a character (the quote after it closes the string), in a double-quoted string of PowerShell a backtick escapes the double quote, a backtick can close a substitution that began
+ * before the command, and the quote of a string of the form $'...' can be taken for the end of a string. Nobody can tell where those end, so a backtick (anywhere), a backslash before a single quote and a $
+ * before a single quote (outside a quote) fail the reading; a backtick that continues a line is not one: the continuation of a line, a backslash, a caret or a backtick, then the line ending, is skipped before
+ * a character is taken for a quote or an escape. It is a reading of the text, not a shell: a contrived mix of quotes and escapes can still fool it.
+ */
+function startsOutsideQuotes(text, from, to) {
+  if (startsAfterEscapedSeparator(text, from)) return false;
+  let quote = '';
+  const depth = [0, 0]; // ( and { opened outside single quotes and not closed
+  for (let index = from; index < to; index += 1) {
+    const character = text[index];
+    if (quote === '') {
+      const next = continuationEnd(text, index);
+      if (next !== -1) {
+        index = next - 1;
+        continue;
+      }
+    }
+    if (character === '`') return false;
+    if (quote === '' && (character === '\\' || character === '$') && text[index + 1] === "'") return false;
+    if (character === '\\' && quote !== "'") {
+      index += 1;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      if (depth[0] + depth[1] > 0) return false;
+      if (quote === '') quote = character;
+      else if (quote === character) quote = '';
+      continue;
+    }
+    const kind = character === '(' || character === ')' ? 0 : character === '{' || character === '}' ? 1 : -1;
+    if (kind === -1 || quote === "'") continue;
+    depth[kind] += character === '(' || character === '{' ? 1 : -1;
+    if (depth[kind] < 0) return false;
+  }
+  return quote === '' && depth[0] === 0 && depth[1] === 0;
+}
+/**
+ * Whether the flag at `at`, with the `user` and the `password` after it, is no user and password. A user and a group is decided on the COMMAND that holds the flag: it starts with docker, podman, nerdctl
+ * or buildah, holds no curl and no URL before the flag and starts outside every quote and substitution (docker exec web curl -u user:secret is a curl; docker pull x; tool -u user:secret is another command). A numeric
+ * pair (a user id and a group id) and a drive and a path (diff -u C:\a\old.txt C:\a\new.txt) are judged by their shape alone, so the command is not enough for them: a ; & | or a line ending inside a quote
+ * or a URL looks like the start of a command, and the curl before it is out of its sight (curl 'https://x?a=1&b=2' -u 5551234567:7391824). They need no curl and no :// anywhere in the text before the flag.
  */
 function readableUserFlag(text, at, user, password) {
   const start = commandStart(text, at);
   if (start < 0 || holdsNetworkClient(text, start, at)) return false;
-  return isNumericPair(user, password) || isDrivePath(user, password) || startsWithContainerClient(text, start, at);
+  if ((isNumericPair(user, password) || isDrivePath(user, password)) && firstNetworkIndex(text) >= at) return true;
+  return startsWithContainerClient(text, start, at) && startsOutsideQuotes(text, start, at);
 }
 // The -p of the clients of MySQL has its password glued to it (-psecret); in sshpass and in the login of a container client it is a word of its own (-p secret). Their letters are small and so is
 // the -p: a capital -P is the port of mysql (-P3306), so these two do not ignore the case.
@@ -191,6 +259,7 @@ export function maskSecrets(value, secrets = []) {
   // The keys first: a rule below can break a frame (a token glued to it takes five of its dashes) and then leaves the body behind. hideKeyBlocks reads the text once, whatever it holds.
   text = hideKeyBlocks(text);
   for (const [pattern, replacement] of TOKEN_PATTERNS) text = text.replace(pattern, replacement);
+  firstNetwork = { text: null, index: Infinity }; // do not keep the text (it can be megabytes) until the next call
   return text;
 }
 const maskDeep = (value, secrets) => {

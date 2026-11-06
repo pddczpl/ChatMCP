@@ -516,9 +516,252 @@ const COMMAND_LINES = [
   ['with a digit and an underscore in its name, two of them', 'Foo_1=bar _x=1 docker run -u node:node img', 'Foo_1=bar _x=1 docker run -u node:node img'],
   ['an empty value is a variable too', 'foo= docker run -u node:node img', 'foo= docker run -u node:node img'],
   ['a word that starts with a digit is no variable: the first word of the command is not the client', '1foo=bar docker run -u node:node img', '1foo=bar docker run -u node:[REDACTED] img'],
+  // A ; & | or a line ending INSIDE a quote or a URL looks like the end of a command, and the curl (or the URL) before it is then out of sight of the command that holds the flag. A numeric pair and a drive
+  // and a path are judged by their shape alone, so they are a user and a password in a text that holds a curl or a :// anywhere before the flag. Only a command that starts with a container client has its
+  // own place, and that place is the command.
+  ['a & in a quoted URL before the flag', "curl 'https://api.example.com/v1?a=1&b=2' -u 5551234567:7391824", "curl 'https://api.example.com/v1?a=1&b=2' -u 5551234567:[REDACTED]"],
+  ['and in double quotes', 'curl "https://api.example.com/v1?a=1&b=2" -u 5551234567:7391824', 'curl "https://api.example.com/v1?a=1&b=2" -u 5551234567:[REDACTED]'],
+  ['a ; in a header', "curl -H 'Accept: text/html; q=0.9' -u 5551234567:7391824 https://api.example.com/v1", "curl -H 'Accept: text/html; q=0.9' -u 5551234567:[REDACTED] https://api.example.com/v1"],
+  ['a | in a header', "curl -H 'X-Filter: a|b' -u 5551234567:7391824 https://api.example.com/v1", "curl -H 'X-Filter: a|b' -u 5551234567:[REDACTED] https://api.example.com/v1"],
+  ['a & in the data', "curl -d 'a=1&b=2' -u 5551234567:7391824 https://api.example.com/v1", "curl -d 'a=1&b=2' -u 5551234567:[REDACTED] https://api.example.com/v1"],
+  ['a ; in the data, with --user', 'curl --data "x=1;y=2" --user 5551234567:7391824 https://api.example.com/v1', 'curl --data "x=1;y=2" --user 5551234567:[REDACTED] https://api.example.com/v1'],
+  ['a line ending in a quoted body', "curl -d '{\n  \"a\": 1\n}' -u 5551234567:7391824 https://api.example.com/v1", "curl -d '{\n  \"a\": 1\n}' -u 5551234567:[REDACTED] https://api.example.com/v1"],
+  ['and a Windows line ending in it', "curl -d '{\r\n  \"a\": 1\r\n}' -u 5551234567:7391824 https://api.example.com/v1", "curl -d '{\r\n  \"a\": 1\r\n}' -u 5551234567:[REDACTED] https://api.example.com/v1"],
+  ['--proxy-user', "curl 'https://api.example.com/v1?a=1&b=2' --proxy-user 5551234567:7391824 -x http://proxy.test:3128", "curl 'https://api.example.com/v1?a=1&b=2' --proxy-user 5551234567:[REDACTED] -x http://proxy.test:3128"],
+  ['--user=', "curl 'https://api.example.com/v1?a=1&b=2' --user=5551234567:7391824", "curl 'https://api.example.com/v1?a=1&b=2' --user=5551234567:[REDACTED]"],
+  ['curl.exe', "curl.exe 'https://api.example.com/v1?a=1&b=2' -u 5551234567:7391824", "curl.exe 'https://api.example.com/v1?a=1&b=2' -u 5551234567:[REDACTED]"],
+  ['a drive and a path', `curl 'https://api.example.com/v1?a=1&b=2' -u c:/${V}`, "curl 'https://api.example.com/v1?a=1&b=2' -u c:[REDACTED]"],
+  ['the word curl alone, with no URL before the flag (curl is the first word of the text)', "curl -d 'a=1&b=2' -u 5551234567:7391824", "curl -d 'a=1&b=2' -u 5551234567:[REDACTED]"],
+  ['a URL alone, with no curl before the flag', "tool 'https://api.example.com/v1?a=1&b=2' -u 5551234567:7391824", "tool 'https://api.example.com/v1?a=1&b=2' -u 5551234567:[REDACTED]"],
+  ['a body of 800 characters over several lines, then the flag on a continued line', `curl https://api.example.com/v1 \\\n  -d '{\n  "k": "${'v'.repeat(800)}"\n}' \\\n  -u 5551234567:7391824`, `curl https://api.example.com/v1 \\\n  -d '{\n  "k": "${'v'.repeat(800)}"\n}' \\\n  -u 5551234567:[REDACTED]`],
+  ['and of 2000 characters', `curl https://api.example.com/v1 \\\n  -d '{\n  "k": "${'v'.repeat(2000)}"\n}' \\\n  -u 5551234567:7391824`, `curl https://api.example.com/v1 \\\n  -d '{\n  "k": "${'v'.repeat(2000)}"\n}' \\\n  -u 5551234567:[REDACTED]`],
+  ['a curl 300 characters before the separator that is 10 characters before the flag', `curl -H 'X-Long: ${'v'.repeat(300)}' -d 'a=1;b=2' -u 5551234567:7391824 https://api.example.com/v1`, `curl -H 'X-Long: ${'v'.repeat(300)}' -d 'a=1;b=2' -u 5551234567:[REDACTED] https://api.example.com/v1`],
+  // The same root cause one step further: a container word right AFTER such a separator makes "the command that holds the flag" start with that word, and the exemption of a container client would show any
+  // pair, a user and a password with letters too. A quote that closes between the start of that command and the flag shows that the start stood inside a quote: it is no command.
+  ['a ; in the data, then a container word: a user and a password with letters', `curl -d 'cmd=ls; docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'cmd=ls; docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['a ; in a header, then docker run', `curl -H 'X-Cmd: a; docker run' -u admin:${V} https://ci.example.test/api`, "curl -H 'X-Cmd: a; docker run' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['a & in a quoted URL', `curl 'https://x.example.test/run?a=1&docker run' -u admin:${V}`, "curl 'https://x.example.test/run?a=1&docker run' -u admin:[REDACTED]"],
+  ['a | in a header, with --proxy-user', `curl -H 'X: a | docker ps' --proxy-user admin:${V} -x http://proxy.test:3128 https://x.example.test`, "curl -H 'X: a | docker ps' --proxy-user admin:[REDACTED] -x http://proxy.test:3128 https://x.example.test"],
+  ['a line ending in a quoted body', `curl -d 'echo hi\ndocker ps' --user admin:${V} https://ci.example.test/api`, "curl -d 'echo hi\ndocker ps' --user admin:[REDACTED] https://ci.example.test/api"],
+  ['and a Windows line ending', `curl -d 'echo hi\r\ndocker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'echo hi\r\ndocker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['podman', `curl -d 'a=1&podman ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'a=1&podman ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['nerdctl', `curl -d 'a; nerdctl ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'a; nerdctl ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['buildah', `curl -d 'a; buildah bud .' -u admin:${V} https://ci.example.test/api`, "curl -d 'a; buildah bud .' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['behind sudo', `curl -d 'a; sudo docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'a; sudo docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['behind env and a variable', `curl -d 'a; env FOO=1 docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'a; env FOO=1 docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['in double quotes', `curl -H "X-Cmd: a; docker ps" -u admin:${V} https://ci.example.test/api`, 'curl -H "X-Cmd: a; docker ps" -u admin:[REDACTED] https://ci.example.test/api'],
+  ['with --user=', `curl -d 'cmd=ls; docker ps' --user=admin:${V} https://ci.example.test/api`, "curl -d 'cmd=ls; docker ps' --user=admin:[REDACTED] https://ci.example.test/api"],
+  ['a second quoted argument between the quote and the flag', `curl -d 'a; docker ps' -H 'X: y' -u admin:${V} https://ci.example.test/api`, "curl -d 'a; docker ps' -H 'X: y' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['a quote that is escaped inside double quotes does not close the string', `curl -d "a; docker ps \\"" -u admin:${V} https://ci.example.test/api`, 'curl -d "a; docker ps \\"" -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a numeric pair (the shape of the first finding), after a container word', "curl -d 'cmd=ls; docker ps' -u 5551234567:7391824 https://ci.example.test/api", "curl -d 'cmd=ls; docker ps' -u 5551234567:[REDACTED] https://ci.example.test/api"],
+  ['and a drive and a path', `curl -d 'cmd=ls; docker ps' -u c:/${V} https://ci.example.test/api`, "curl -d 'cmd=ls; docker ps' -u c:[REDACTED] https://ci.example.test/api"],
+  // An escape can hide the quote that closes before the flag: the reading starts outside any quote, and the command really started inside one. In a single quote a backslash is a character, so the quote after it
+  // closes the string; in PowerShell a backtick escapes a double quote inside a double-quoted string. A backslash before a single quote, or a backtick before a double quote, outside a quote: nobody can tell.
+  ['a backslash before the closing single quote: in a single quote it is a character, and the quote closes the string', String.raw`curl -d 'a; docker run -v C:\data\' -u admin:${V} https://ci.example.test/api`, String.raw`curl -d 'a; docker run -v C:\data\' -u admin:[REDACTED] https://ci.example.test/api`],
+  ['and with a numeric pair', String.raw`curl -d 'a; docker run -v C:\data\' -u 5551234567:7391824 https://ci.example.test/api`, String.raw`curl -d 'a; docker run -v C:\data\' -u 5551234567:[REDACTED] https://ci.example.test/api`],
+  ['PowerShell: a backtick before a double quote inside a double-quoted string', `curl.exe -H "X: a; docker ps\`"" -u admin:${V} https://ci.example.test/api`, 'curl.exe -H "X: a; docker ps`"" -u admin:[REDACTED] https://ci.example.test/api'],
+  ['and with a numeric pair', 'curl.exe -H "X: a; docker ps`"" -u 5551234567:7391824 https://ci.example.test/api', 'curl.exe -H "X: a; docker ps`"" -u 5551234567:[REDACTED] https://ci.example.test/api'],
+  // The cut can stand inside more than a quote: a command substitution (the closing parenthesis, or the closing backtick, is not a quote), a quote inside a substitution inside a quote, a parameter expansion, and
+  // an escaped separator, which separates nothing. In every one the command that "starts" after the cut starts inside something, and the container word after it is not the program of the flag.
+  ['a pipe in a command substitution, then a container word, with no quote at all', `curl $(echo a | docker run img) -u admin:${V} https://ci.example.test/api`, 'curl $(echo a | docker run img) -u admin:[REDACTED] https://ci.example.test/api'],
+  ['and with a numeric pair', 'curl $(echo a | docker run img) -u 5551234567:7391824 https://ci.example.test/api', 'curl $(echo a | docker run img) -u 5551234567:[REDACTED] https://ci.example.test/api'],
+  ['PowerShell: a pipeline in a substitution', `curl.exe $(Get-Content f | docker run img) -u admin:${V} https://ci.example.test/api`, 'curl.exe $(Get-Content f | docker run img) -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a ; in a backtick substitution', `curl \`date; docker ps\` -u admin:${V} https://ci.example.test/api`, 'curl `date; docker ps` -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a ; in a substitution inside double quotes', `curl "$(cat f; docker ps -q)" -u admin:${V} https://ci.example.test/api`, 'curl "$(cat f; docker ps -q)" -u admin:[REDACTED] https://ci.example.test/api'],
+  ['double quotes inside the substitution: the first quote closes an inner string, the parenthesis closes the substitution', `curl "$(echo "a; docker ps")" -u admin:${V} https://ci.example.test/api`, 'curl "$(echo "a; docker ps")" -u admin:[REDACTED] https://ci.example.test/api'],
+  ['and single quotes inside it', `curl "$(echo 'a; docker ps')" -u admin:${V} https://ci.example.test/api`, `curl "$(echo 'a; docker ps')" -u admin:[REDACTED] https://ci.example.test/api`],
+  ['a ; in a parameter expansion', 'curl ${H:-a; docker ps} -u admin:' + V + ' https://ci.example.test/api', 'curl ${H:-a; docker ps} -u admin:[REDACTED] https://ci.example.test/api'],
+  ["a string of the form $'...'", "curl -d $'a\\nb; docker ps' -u admin:" + V + ' https://ci.example.test/api', "curl -d $'a\\nb; docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['and an escaped quote inside it', "curl -d $'it\\'s; docker ps' -u admin:" + V + ' https://ci.example.test/api', "curl -d $'it\\'s; docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['the idiom that writes an apostrophe inside single quotes', `curl -d 'it'"'"'s; docker ps' -u admin:${V} https://ci.example.test/api`, `curl -d 'it'"'"'s; docker ps' -u admin:[REDACTED] https://ci.example.test/api`],
+  ['a container word on the last line of a quoted JSON body', `curl -d '{\n  "a": 1,\n  docker ps' -u admin:${V} https://ci.example.test/api`, `curl -d '{\n  "a": 1,\n  docker ps' -u admin:[REDACTED] https://ci.example.test/api`],
+  ['a lone carriage return in a quoted body', `curl -d 'a\rdocker ps' -u admin:${V} https://ci.example.test/api`, `curl -d 'a\rdocker ps' -u admin:[REDACTED] https://ci.example.test/api`],
+  ['docker.exe after the cut', `curl -d 'x; docker.exe ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'x; docker.exe ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['a path to docker after the cut', `curl -d 'x; /usr/bin/docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'x; /usr/bin/docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['a variable and then docker after the cut', `curl -d 'x; FOO=bar docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'x; FOO=bar docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['sudo and a flag of it after the cut', `curl -d 'x; sudo -E docker ps' -u admin:${V} https://ci.example.test/api`, "curl -d 'x; sudo -E docker ps' -u admin:[REDACTED] https://ci.example.test/api"],
+  ['an escaped ; separates nothing', 'curl -d a\\;docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\;docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['an escaped &', 'curl -d a\\&docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\&docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['an escaped |', 'curl -d a\\|docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\|docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a caret escapes the & in cmd', 'curl -d a^&docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a^&docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a backtick escapes the ; in PowerShell', 'curl.exe -d a`;docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl.exe -d a`;docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['and with a numeric pair', 'curl -d a\\;docker ps -u 5551234567:7391824 https://ci.example.test/api', 'curl -d a\\;docker ps -u 5551234567:[REDACTED] https://ci.example.test/api'],
+  // Found by fuzzing nested quoting (strings in substitutions in strings): a backtick that the reading meets INSIDE what it takes for a quote, and a continuation in such a place, are not read; a bracket closes
+  // only a bracket of its own kind; a group with a quote inside it is nested quoting, which is not read.
+  ['a backtick substitution inside double quotes, with the idiom for an apostrophe in it', 'curl --data-raw "` \' &  /usr/bin/docker \'"\'"\' sudo docker ls\' C:/tmpimg`" -u admin:' + V + ' https://ci.example.test/api', 'curl --data-raw "` \' &  /usr/bin/docker \'"\'"\' sudo docker ls\' C:/tmpimg`" -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a backtick that ends a line inside a string is no continuation', "curl -d \"` $'&& FOO=bar docker '  'C:/tmp'  $' nerdctl node:node'  '\" nerdctl ' `\n\" -u svc_user:" + V + ' https://ci.example.test/api', "curl -d \"` $'&& FOO=bar docker '  'C:/tmp'  $' nerdctl node:node'  '\" nerdctl ' `\n\" -u svc_user:[REDACTED] https://ci.example.test/api"],
+  ['a brace and a parenthesis do not close each other', 'curl $(echo a; docker run { ) ( } -u admin:' + V + ' https://ci.example.test/api)', 'curl $(echo a; docker run { ) ( } -u admin:[REDACTED] https://ci.example.test/api)'],
+  ['a closing parenthesis before an opening one', 'curl $(echo a; docker ps )( -u admin:' + V + ' https://ci.example.test/api)', 'curl $(echo a; docker ps )( -u admin:[REDACTED] https://ci.example.test/api)'],
+  ['three backslashes before a ;: the third escapes it', 'curl -d a\\\\\\;docker ps -u admin:' + V + ' https://ci.example.test/api', 'curl -d a\\\\\\;docker ps -u admin:[REDACTED] https://ci.example.test/api'],
+  ['a quote that the reading takes for the end of a string, a brace in the next, and the closing parenthesis of the substitution', `curl "$(echo 'a\nbuildah '"'"'{x=1' -v)" -u admin:${V} https://ci.example.test/api`, `curl "$(echo 'a\nbuildah '"'"'{x=1' -v)" -u admin:[REDACTED] https://ci.example.test/api`],
+  // what stays: only what stands BEFORE the flag counts, and a command that starts with a container client keeps its own place
+  ['quotes that close inside a container command stay balanced: the flag is the flag of docker', "docker run -e 'A=b' --label \"x y\" -u node:node img", "docker run -e 'A=b' --label \"x y\" -u node:node img"],
+  ['an apostrophe inside double quotes is no quote', 'docker run --label "it\'s" -u node:node img', 'docker run --label "it\'s" -u node:node img'],
+  ['and a double quote inside single quotes', "docker run --label 'say \"hi\"' -u node:node img", "docker run --label 'say \"hi\"' -u node:node img"],
+  ['a backslash is no escape inside single quotes', "docker run -v 'C:\\data\\' -u node:node img", "docker run -v 'C:\\data\\' -u node:node img"],
+  ['a stray apostrophe before the separator of a real command does not count: the reading starts at the command', "echo don't; docker run -u node:node img", "echo don't; docker run -u node:node img"],
+  ['a curl with a ; in a quote, then a real container command', "curl -H 'X: a;b' https://x.example.test ; docker run -u node:node img", "curl -H 'X: a;b' https://x.example.test ; docker run -u node:node img"],
+  ['a numeric pair in a container command with quotes', "docker run -e 'A=b' -u 1000:1000 img", "docker run -e 'A=b' -u 1000:1000 img"],
+  ['an escaped quote inside double quotes does not close them: the quotes of the command are balanced', 'docker run -e "A=\\"b\\"" -u node:node img', 'docker run -e "A=\\"b\\"" -u node:node img'],
+  ['a backslash escapes one character: two of them and a quote leave the quote open, the flag after it is masked', 'docker run -e A=\\\\"b -u node:node img', 'docker run -e A=\\\\"b -u node:[REDACTED] img'],
+  ['the one edge: a double-quoted path that ends in a backslash leaves the quote open for this reading, so the flag after it is masked', 'docker run -v "C:\\data\\" -u node:node img', 'docker run -v "C:\\data\\" -u node:[REDACTED] img'],
+  ['a backslash before an apostrophe INSIDE double quotes is a character: the quotes are balanced', 'docker run -e "A=it\\\'s" -u node:node img', 'docker run -e "A=it\\\'s" -u node:node img'],
+  ['an escaped double quote outside quotes is a character: the quote that closes a string still opens one for the reading', 'docker run -e A=\\"b -u node:node img', 'docker run -e A=\\"b -u node:node img'],
+  ['the edges of the escapes: a backslash before an apostrophe outside quotes may be the end of a string that the command started in, so the flag after it is masked', "docker run -e A=it\\'s -u node:node img", "docker run -e A=it\\'s -u node:[REDACTED] img"],
+  ['and a backtick before a double quote outside quotes (PowerShell)', 'docker run -e A=it`"s -u node:node img', 'docker run -e A=it`"s -u node:[REDACTED] img'],
+  ['a backslash before any other character outside quotes (a path of Windows) is no quote', 'docker run -v C:\\data:/data -u node:node img', 'docker run -v C:\\data:/data -u node:node img'],
+  ['and a backtick that continues a line (PowerShell) is no quote either', 'docker run `\n  -v data:/data `\n  -u node:node img', 'docker run `\n  -v data:/data `\n  -u node:node img'],
+  ['an apostrophe inside double quotes in a container command (a name)', 'docker run -e "NAME=O\'Brien" -u node:node img', 'docker run -e "NAME=O\'Brien" -u node:node img'],
+  ['a command substitution that closes in the command: the parentheses are balanced', 'docker run -v $(pwd):/app -u node:node img', 'docker run -v $(pwd):/app -u node:node img'],
+  ['and inside double quotes', 'docker run -e "X=$(date +%s)" -u node:node img', 'docker run -e "X=$(date +%s)" -u node:node img'],
+  ['an edge: a backtick substitution in the command is not read (nobody can tell if it ends there or began before): the flag after it is masked', 'docker run -e A=`date` -u node:node img', 'docker run -e A=`date` -u node:[REDACTED] img'],
+  ["an edge: a string of the form $'...' in the command is not read either", "docker run -e A=$'x\\ny' -u node:node img", "docker run -e A=$'x\\ny' -u node:[REDACTED] img"],
+  ['but a $ before a quote inside single quotes is a character, and a $ at the end of double quotes too', `docker run -e 'A=$' -e "B=$" -u node:node img`, `docker run -e 'A=$' -e "B=$" -u node:node img`],
+  ['the idiom for an apostrophe inside single quotes, balanced', `docker run -e A='it'"'"'s' -u node:node img`, `docker run -e A='it'"'"'s' -u node:node img`],
+  ['braces of a template, balanced', "docker run --format '{{.ID}}' -u node:node img", "docker run --format '{{.ID}}' -u node:node img"],
+  ['an opening parenthesis alone inside quotes is a character', "docker run -e 'A=(' -u node:node img", "docker run -e 'A=(' -u node:node img"],
+  ['an escaped ; before a real one: the real one separates', 'echo a\\;; docker run -u node:node img', 'echo a\\;; docker run -u node:node img'],
+  ['an escaped backslash before a ;: the ; is real', 'echo a\\\\; docker run -u node:node img', 'echo a\\\\; docker run -u node:node img'],
+  ['a curl with an escaped ; and then a real container command', 'curl -d a\\;b https://x.example.test ; docker run -u node:node img', 'curl -d a\\;b https://x.example.test ; docker run -u node:node img'],
+  ['the flag inside the quoted data is data, not a flag of curl (the documented limit of a flag inside a quoted string): it is shown', "curl -d 'cmd=ls; docker ps -u admin:" + V + "' https://ci.example.test/api", "curl -d 'cmd=ls; docker ps -u admin:" + V + "' https://ci.example.test/api"],
+  ['an edge: a closing parenthesis inside quotes with no opening one is masked (a smiley in a label)', 'docker run --label "a :)" -u node:node img', 'docker run --label "a :)" -u node:[REDACTED] img'],
+  ['an edge: a quote inside a substitution is nested quoting, which is not read: the flag after it is masked', `docker run -e "X=$(echo 'x')" -u node:node img`, `docker run -e "X=$(echo 'x')" -u node:[REDACTED] img`],
+  ['and a quote inside a brace expansion', `docker run -e "H=\${X:-'a'}" -u node:node img`, `docker run -e "H=\${X:-'a'}" -u node:[REDACTED] img`],
+  ['an edge: a brace that stays open before the flag', 'docker run ${x -u node:node img', 'docker run ${x -u node:[REDACTED] img'],
+  ['a quote at the start of a continued line is read', 'docker run \\\n"x y" -u node:node img', 'docker run \\\n"x y" -u node:node img'],
+  ['a braces expansion that closes in the command, and the template of docker, are no reason', 'docker run -e "H=${HOME}" --format {{.ID}} -u node:node img', 'docker run -e "H=${HOME}" --format {{.ID}} -u node:node img'],
+  ['an edge: a backtick inside double quotes (an escape of PowerShell) is not read: the flag after it is masked', 'docker run -e "A=`$x" -u node:node img', 'docker run -e "A=`$x" -u node:[REDACTED] img'],
+  ['a continuation in front of the flag is no backtick: a PowerShell command over several lines stays readable, quotes and all', 'docker run `\n  -e "A=b" `\n  -v "$(pwd):/app" `\n  -u node:node img', 'docker run `\n  -e "A=b" `\n  -v "$(pwd):/app" `\n  -u node:node img'],
+  ['an edge: a parenthesis that stays open before the flag: the flag is inside a group, masked', 'docker run $(echo -u node:node img', 'docker run $(echo -u node:[REDACTED] img'],
+  ['a URL after the flag is not before it: the pair is a user id and a group id', 'tool -u 1000:1000 https://api.example.com/v1', 'tool -u 1000:1000 https://api.example.com/v1'],
+  ['a container command after a curl, behind a ;, keeps its place (a user and a group)', 'curl https://x.example.test -o f; docker run -u node:node img', 'curl https://x.example.test -o f; docker run -u node:node img'],
+  ['and with a numeric pair', 'curl https://x.example.test -o f; docker run -u 1000:1000 img', 'curl https://x.example.test -o f; docker run -u 1000:1000 img'],
+  ['and behind a line ending', 'curl -fsSL https://x.example.test | sh\ndocker run -u 1000:1000 img', 'curl -fsSL https://x.example.test | sh\ndocker run -u 1000:1000 img'],
+  ['the one over-mask that remains: the numeric pair of an unknown tool after a curl earlier in the text', 'curl https://x.example.test\ntool -u 1234:5678 x', 'curl https://x.example.test\ntool -u 1234:[REDACTED] x'],
+  ['and after a URL', 'wget https://x.example.test\ntool -u 1234:5678 x', 'wget https://x.example.test\ntool -u 1234:[REDACTED] x'],
+  ['a drive and a path after a URL in the same text: masked too', 'git clone https://x.example.test r\ndiff -u C:\\a\\old.txt C:\\a\\new.txt', 'git clone https://x.example.test r\ndiff -u C:[REDACTED] C:\\a\\new.txt'],
 ];
 for (const [label, line, expected] of COMMAND_LINES) assert.equal(maskSecrets(line, []), expected, `${label}: not the line that was expected`);
 ok(`${COMMAND_LINES.length} lines on the edges of the flags and the tags (their limits, glued words, reads, short values, several in a line)`);
+
+// A curl whose quoted argument holds a separator, then a numeric pair: every kind of separator (; & | a line ending of either kind) x what stands between the quoted argument and the flag (a blank or a
+// continuation of the line of each kind) x every spelling of the flag x the width of what stands before the separator (so that the curl is 0, 150, 790 and 2000 characters away from it). The separator is
+// always within 20 characters of the flag, so the command that holds the flag starts after it and the curl is out of its sight. In every one of these the pair is masked and nothing else changes.
+{
+  const NUMBER_PASSWORD = '7391824';
+  const FLAGS = [['-u ', ''], ['--user ', ''], ['--proxy-user ', ''], ['--user=', ''], ['-u=', ''], ['-u\t', '']];
+  let cases = 0;
+  for (const separator of [';', '&', '|', '\n', '\r\n']) {
+    for (const join of [' ', ' \\\n  ', ' ^\n  ', ' `\n  ', ' \\\r\n  ']) {
+      for (const [flag] of FLAGS) {
+        for (const width of [0, 150, 790, 2000]) {
+          const text = `curl -H 'X-Long: ${'v'.repeat(width)}' -d 'a=1${separator}b=2'${join}${flag}5551234567:${NUMBER_PASSWORD} https://api.example.com/v1`;
+          const out = maskSecrets(text, []);
+          assert.ok(!out.includes(NUMBER_PASSWORD), `${JSON.stringify({ separator, join, flag, width })}: the password of a numeric pair after a curl is masked`);
+          assert.equal(out, text.replace(NUMBER_PASSWORD, '[REDACTED]'), `${JSON.stringify({ separator, join, flag, width })}: and nothing else changes`);
+          cases += 1;
+        }
+      }
+    }
+  }
+  ok(`${cases} curls with a separator inside a quoted argument (5 kinds) x 5 ways to reach the flag x 6 spellings of it x 4 widths: the numeric pair is masked in every one, whatever the curl is away from the separator`);
+}
+
+// A container word right after a separator that stands inside the quoted argument of a curl: every kind of separator (; & | a line ending of either kind) x every way to close the quote before the flag (a plain
+// single or double quote; a backslash before the single quote, where the backslash is a character; a backslash and a backtick, the escapes of sh and of PowerShell, before a double quote that is part of the string
+// and then the double quote that closes it) x every spelling of the word (a client of the four, behind sudo, behind env and a variable) x every spelling of the flag x every kind of credential (letters, a
+// numeric pair, a drive and a path). The quote closes before the flag, so the "command" that holds the flag starts inside the quote with the container word: in every one of these the password is masked and
+// nothing else changes.
+{
+  const FLAGS = ['-u ', '--user ', '--proxy-user ', '--user=', '-u=', '-u\t'];
+  const WORDS = ['docker', 'podman', 'nerdctl', 'buildah', 'sudo docker', 'env FOO=1 docker'];
+  const CREDENTIALS = [[`admin:${V}`, 'admin:[REDACTED]'], ['5551234567:7391824', '5551234567:[REDACTED]'], [`c:/${V}`, 'c:[REDACTED]']];
+  // [the quote that opens the string, how the string ends]
+  const CLOSINGS = [["'", "ps'"], ["'", "ps\\'"], ['"', 'ps"'], ['"', 'ps\\""'], ['"', 'ps`""']];
+  let cases = 0;
+  for (const separator of [';', '&', '|', '\n', '\r\n']) {
+    for (const [quote, closing] of CLOSINGS) {
+      for (const word of WORDS) {
+        for (const flag of FLAGS) {
+          for (const [credential, masked] of CREDENTIALS) {
+            const text = `curl -H ${quote}X-Cmd: a${separator}${word} ${closing} ${flag}${credential} https://api.example.com/v1`;
+            const out = maskSecrets(text, []);
+            const label = JSON.stringify({ separator, closing, word, flag, credential: credential.slice(0, 4) });
+            assert.ok(!out.includes(credential), `${label}: the password after a container word that stood inside a quote of a curl is masked`);
+            assert.equal(out, text.replace(credential, masked), `${label}: and nothing else changes`);
+            cases += 1;
+          }
+        }
+      }
+    }
+  }
+  ok(`${cases} curls with a container word behind a separator inside a quoted argument (5 kinds x 5 ways to close the quote x 6 words x 6 spellings of the flag x 3 credentials): the password is masked in every one`);
+}
+
+// The same, with the cut inside what is not a plain quote: a command substitution with no quote at all, a backtick substitution, a substitution inside double quotes (with nothing, double quotes or single quotes
+// inside it), a parameter expansion, a string of the form $'...', and the idiom that writes an apostrophe inside single quotes; and the cut that is no cut, a ; & | with a backslash, a caret or a backtick before it.
+// Every kind of cut x every spelling of the word x every spelling of the flag x every kind of credential: in every one the password is masked and nothing else changes.
+{
+  const FLAGS = ['-u ', '--user ', '--proxy-user ', '--user=', '-u=', '-u\t'];
+  const WORDS = ['docker', 'podman', 'nerdctl', 'buildah', 'sudo docker', 'env FOO=1 docker'];
+  const CREDENTIALS = [[`admin:${V}`, 'admin:[REDACTED]'], ['5551234567:7391824', '5551234567:[REDACTED]'], [`c:/${V}`, 'c:[REDACTED]']];
+  const FORMS = {
+    'substitution': (cut, word) => `$(echo a ${cut} ${word} img)`,
+    'backtick substitution': (cut, word) => `\`echo a ${cut} ${word} img\``,
+    'substitution in double quotes': (cut, word) => `"$(echo a ${cut} ${word} img)"`,
+    'double quotes inside it': (cut, word) => `"$(echo "a ${cut} ${word} ps")"`,
+    'single quotes inside it': (cut, word) => `"$(echo 'a ${cut} ${word} ps')"`,
+    'parameter expansion': (cut, word) => `\${H:-a ${cut} ${word} ps}`,
+    "string of the form $'...'": (cut, word) => `$'a\\nb ${cut} ${word} ps'`,
+    'idiom for an apostrophe': (cut, word) => `'it'"'"'s ${cut} ${word} ps'`,
+  };
+  let cases = 0;
+  for (const [name, form] of Object.entries(FORMS)) {
+    for (const cut of [';', '&', '|', '&&', '||', '\n']) {
+      for (const word of WORDS) {
+        for (const flag of FLAGS) {
+          for (const [credential, masked] of CREDENTIALS) {
+            const text = `curl ${form(cut, word)} ${flag}${credential} https://api.example.com/v1`;
+            const out = maskSecrets(text, []);
+            const label = JSON.stringify({ form: name, cut, word, flag, credential: credential.slice(0, 4) });
+            assert.ok(!out.includes(credential), `${label}: the password after a container word that stood inside a substitution or a string is masked`);
+            assert.equal(out, text.replace(credential, masked), `${label}: and nothing else changes`);
+            cases += 1;
+          }
+        }
+      }
+    }
+  }
+  for (const escaper of ['\\', '^', '`']) {
+    for (const cut of [';', '&', '|']) {
+      for (const word of WORDS) {
+        for (const flag of FLAGS) {
+          for (const [credential, masked] of CREDENTIALS) {
+            const text = `curl -d a${escaper}${cut}${word} ps ${flag}${credential} https://api.example.com/v1`;
+            const out = maskSecrets(text, []);
+            const label = JSON.stringify({ escaper, cut, word, flag, credential: credential.slice(0, 4) });
+            assert.ok(!out.includes(credential), `${label}: a separator that is escaped separates nothing, the password after it is masked`);
+            assert.equal(out, text.replace(credential, masked), `${label}: and nothing else changes`);
+            cases += 1;
+          }
+        }
+      }
+    }
+  }
+  ok(`${cases} curls with the cut inside a substitution, a parameter expansion or a string (8 kinds x 6 cuts x 6 words x 6 spellings of the flag x 3 credentials) or escaped (3 escapes x 3 separators x 6 x 6 x 3): the password is masked in every one`);
+}
+
+// The place of the first curl or :// is read once for the text that a rule is working on, and the text can change between two rules. A quoted drive path is a user and a password only after a curl or a URL, the
+// second flag below is masked and its password holds a :// that goes with it (the marker has the length of the word it replaces), so the third flag, a numeric pair, has none of them before it any more: if
+// the place that the first rule saw were kept for a text of the same length, it would be masked.
+{
+  const text = 'tool -u "c:/p" tool -u "x:http://abc" tool -u 1000:1000 y';
+  assert.equal(maskSecrets(text, []), 'tool -u "c:/p" tool -u "x:[REDACTED]" tool -u 1000:1000 y', 'a place that was read in one text is not used in another of the same length');
+  // and the other way: the first rule sees no marker, the text that the second one gets has one in front of its flag
+  const other = 'tool -u "c:/p" tool -u "x:abcdefghij" tool -u 1000:1000 y';
+  assert.equal(maskSecrets(other, []), 'tool -u "c:/p" tool -u "x:[REDACTED]" tool -u 1000:1000 y', 'a text without a marker has none, whatever text was read before');
+  ok('the place of the first curl or :// is read again for a text that has changed, also when it has the length of the one before');
+}
 
 // A curl written over continued lines (the usual way to write a long one) with a numeric pair after its headers. A numeric pair is a user id and a group id anywhere else, never in a curl. The walk back from
 // the flag has 200 items, and whatever the width of the headers, the 200th item falls on a character, on a line ending that continues the line, or on the start: in every one of these 480 alignments the pair
@@ -641,6 +884,8 @@ ok('what was pinned before is unchanged');
 {
   // [text, whether there is nothing to mask]
   const TEXTS = {
+    // first, so that a search from the start of the text for every flag (the work grows with the square of the text) fails here in seconds and not after the larger texts below
+    'numeric pairs, one to a line, 30,000 of them, and a curl at the very end (every flag asks where the first curl is)': [`${'-u 1:1\n'.repeat(30_000)}curl https://x.test\n`, true],
     'a megabyte of words': ['word '.repeat(200_000), true],
     'a megabyte of -u with no colon after it': ['-u '.repeat(350_000), true],
     'a megabyte of user flags with a colon': ['-u a:b '.repeat(150_000), false],
@@ -649,6 +894,8 @@ ok('what was pinned before is unchanged');
     'a megabyte of numeric pairs in one line (a command of more than 200 characters is masked)': ['-u 1:1 '.repeat(150_000), false],
     'a megabyte of flags with 190 characters before each (the whole walk, then masked)': [`${'x'.repeat(190)} -u a:b\n`.repeat(5000), false],
     'a megabyte of docker commands, each with a curl word in it': ['docker run curl -u a:b\n'.repeat(45_000), false],
+    'a megabyte of docker commands with 180 characters before each flag (the whole walk, then the whole reading of the quotes)': [`docker ${'x'.repeat(180)} -u node:node img\n`.repeat(5000), true],
+    'a megabyte of URLs and then 100,000 numeric flags in one line (all behind a URL: masked)': ['https://x.test/a '.repeat(30_000) + '-u 1:1 '.repeat(100_000), false],
   };
   for (const [label, [text, untouched]] of Object.entries(TEXTS)) {
     const started = performance.now();
