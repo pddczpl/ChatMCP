@@ -316,6 +316,13 @@ const TOKEN_PATTERNS = [
   // A secret given to a command: --password secret, --github-token secret, curl -u user:secret, mysql -psecret, sshpass -p secret, docker login -p secret.
   [quotedValue(`${LONG_FLAG}[ \\t]+`), '$1$2[REDACTED]$2'],
   [bareValue(`${LONG_FLAG}[ \\t]+`, 4), '$1[REDACTED]'],
+  // A secret assigned to a name: in quotes (up to the closing quote, spaces included, but for the words of fetch's credentials option), or bare (not a number, not a regular expression, not a call, not a
+  // ${placeholder} or <placeholder>, and none of the values that are no secret: a type, a read of the environment or of a variable, a placeholder). These two rules run BEFORE the ones of the flag of the user:
+  // the password of -u runs up to the next blank, and in the text of a file a line break is the two characters \n, so a password at the end of a line took the NAME of the next secret with it (napi_key=)
+  // and left the value behind it in view.
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)${QUOTE}(?!(?:include|omit|same-origin)\2)(?:(?!\2)[^\r\n]){4,}\2`, 'gi'), '$1$2[REDACTED]$2'],
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(?!["'/]|[0-9]+(?![\w.@/+=-])|${VALUE_CHAR}*\(|${WHOLE_VALUES}|${READS_OF_THE_ENVIRONMENT})${VALUE_CHAR}{6,}`, 'gi'), '$1[REDACTED]'],
+  // The user and the password of the flag of the user, then the -p of mysql, of sshpass and of the login of a container client.
   [new RegExp(String.raw`(${USER_FLAG}${QUOTE}([^\r\n"':]{1,100}):)(?!//|[$%])((?:(?!\2)[^\r\n]){1,2000})\2`, 'gi'),
     (all, head, quote, user, password, at, source) => (readableUserFlag(source, at, user, password) ? all : `${head}[REDACTED]${quote}`)],
   [new RegExp(String.raw`(${USER_FLAG}([^\s:"']{1,100}):)(?!//|[$%])([^\s"'|;&<>()]+)`, 'gi'),
@@ -327,10 +334,6 @@ const TOKEN_PATTERNS = [
   // A secret in XML: the text of an element named like a secret, and the value of an entry (<add key=".." value=".."/>) whose key is named like one. A read (${env.X}, %X%) and a placeholder are not.
   [new RegExp(String.raw`(<(${XML_NAME})(?:[ \t][^<>\r\n]{0,200})?>)(?![ \t]*(?:[$%]|(?:${PLACEHOLDER_WORDS.join('|')})[ \t]*<))[^<\r\n]{4,}?(?=<\/\2[ \t]*>)`, 'gi'), '$1[REDACTED]'],
   [new RegExp(String.raw`(\b(?:key|name)=(["'])[^"'\r\n]{0,60}${SECRET_WORD}[^"'\r\n]{0,20}\2\s+value=)(["'])(?![$%])(?:(?!\3)[^\r\n<>]){4,}\3`, 'gi'), '$1$3[REDACTED]$3'],
-  // A secret assigned to a name: in quotes (up to the closing quote, spaces included, but for the words of fetch's credentials option), or bare (not a number, not a regular expression, not a call, not a
-  // ${placeholder} or <placeholder>, and none of the values that are no secret: a type, a read of the environment or of a variable, a placeholder).
-  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)${QUOTE}(?!(?:include|omit|same-origin)\2)(?:(?!\2)[^\r\n]){4,}\2`, 'gi'), '$1$2[REDACTED]$2'],
-  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(?!["'/]|[0-9]+(?![\w.@/+=-])|${VALUE_CHAR}*\(|${WHOLE_VALUES}|${READS_OF_THE_ENVIRONMENT})${VALUE_CHAR}{6,}`, 'gi'), '$1[REDACTED]'],
   [/(\/\/[^\s/:@]+:)[^\s/@]{3,}(@)/g, '$1[REDACTED]$2'],
 ];
 export function maskSecrets(value, secrets = []) {

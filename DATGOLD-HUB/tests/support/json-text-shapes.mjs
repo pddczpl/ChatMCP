@@ -31,4 +31,10 @@ export const JSON_TEXT_SHAPES = [
   ['a numeric pair after a \\r\\n and curl', `cd /app\r\ncurl -u 5551234567:${NUMBER_PASSWORD} https://x.test`, NUMBER_PASSWORD],
   ['the URL after the flag, curl after a \\n', `export A=1\ncurl --user 5551234567:${NUMBER_PASSWORD} \\\n  https://x.test/api`, NUMBER_PASSWORD],
   ['curl.exe after a \\n', `cd C:\\work\ncurl.exe -u 5551234567:${NUMBER_PASSWORD} https://x.test`, NUMBER_PASSWORD],
+  // the decoded string is itself the text of a FILE (a Python string, a YAML run): the escape of a line break in it is the two characters \ and n, and the password of a flag of the user must not take
+  // the name of the next secret with it (round 1 of the audit of PR #108)
+  // (the first word of each is a plain word: the suites check that the command is not blanked as a whole by looking for it in the JSON text, where a quote is written \")
+  ['a file text: -u after a quote, the escape \\n, a name in quotes', `run = "-u 1000:1000\\napi_key='${SECRET}'"`, SECRET],
+  ['a file text: an ordinary flag, the escape \\n, a bare name', `run = "curl -u admin:pw\\npassword: ${SECRET}"`, SECRET],
+  ['a file text: the user glued to -u, the escape \\n, a name in quotes', `x = "tool -uroot:pw\\napi_key='${SECRET}'"`, SECRET],
 ];

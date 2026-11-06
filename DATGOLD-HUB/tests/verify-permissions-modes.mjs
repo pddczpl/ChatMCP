@@ -320,7 +320,8 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
 // The prompt of a tool that is not local, and the `arguments` of a local tool that has no card of its own (tasks_run, git_commit ...), print the arguments as JSON. A shell command inside them is text
 // in which a double quote is written \", a line break \n and a tab \t, and none of that is decoded by a rule that reads the JSON: a double-quoted credential was masked by no rule, a container word
 // behind a ; inside a string looked as if it stood outside it, and `curl` after a \n was no word. The strings are masked as the text they are, BEFORE they are written as JSON (the follow-up of
-// round 5 of the audit of PR #103). The shapes are those of the auditor's probes (r5-json-quoted-credentials, r5-two-level-probe, r5-json-newline).
+// round 5 of the audit of PR #103). The shapes are those of the auditor's probes (r5-json-quoted-credentials, r5-two-level-probe, r5-json-newline) and, for a string that is itself the text of a file,
+// the escape \n behind a flag of the user (r6-escape-probe, round 1 of the audit of PR #108).
 {
   const gate = await newGate();
   const SHAPES = JSON_TEXT_SHAPES;
@@ -368,7 +369,7 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
     assert.deepEqual(found, [], 'a registered secret with a quote and a backslash is on no card');
   } finally { manager.secrets.pop(); }
   assert.ok(!['Qz9', 'Kx7', 'Lm2'].some((part) => JSON.stringify(gate.state().recent).includes(part)), 'nor in the history');
-  ok(`the arguments of a call with no card of its own are masked as the text they are: ${asked} calls (${SHAPES.length} shapes of a double-quoted credential, of a container word behind a separator inside a string and of curl after \\n, \\r and \\t, in ${WAYS.length} ways) show no password on the card or in the history`);
+  ok(`the arguments of a call with no card of its own are masked as the text they are: ${asked} calls (${SHAPES.length} shapes of a double-quoted credential, of a container word behind a separator inside a string, of curl after \\n, \\r and \\t, and of a flag of the user followed by the escape \\n and a name, in ${WAYS.length} ways) show no password on the card or in the history`);
 }
 
 // ------------------------------------------------------------------ cancellation and expiry

@@ -958,6 +958,68 @@ ok(`${COMMAND_LINES.length} lines on the edges of the flags and the tags (their 
   ok(`${ESCAPED.length} credentials written in double quotes (and what is no secret) are masked the same when the quote is written \\" in a JSON string or in the line of a package.json`);
 }
 
+// The password of a flag of the user runs up to the next blank, quote or separator. In the text of a FILE that holds the ESCAPES of another language (a Python string, a YAML `run: "..."`, the text of a JSON
+// string) a line break is `\n`: TWO characters and no blank. The password of `-u 1000:1000` then ran ACROSS the escape and took the NAME of the next secret with it (`napi_key=`: the n of the escape is a letter of
+// the name, and a name may have a prefix), and the value behind the name stayed in view. Main has this for an ordinary flag (`curl -u admin:pw\napi_key='S'`); the widening of this PR (a flag right after a quote,
+// the user glued to -u) made five more shapes reach it (round 1 of the audit of PR #108). The two rules of "a secret assigned to a name" now run BEFORE the rules of the flag of the user: a name is found whatever
+// stands in front of it, and the flag takes what is left. The preview is garbled in these shapes (`-u 1000:[REDACTED]'[REDACTED]'`): the rules cannot tell where the escape ends, and they hide both.
+// Each shape is run alone, with a readable container command in front of it and with one behind it: the fix must not hide the container command's own user and group.
+{
+  const ESCAPE_SHAPES = [
+    // [what it is, the text, the text as it is masked, a container command whose flag is readable]
+    ['an ordinary flag and a name in quotes (a Python string; main has this one too)', `os.system("curl -u admin:pw\\napi_key='${V}'")`, `os.system("curl -u admin:[REDACTED]'[REDACTED]'")`, 'docker run -u node:node img'],
+    ['an ordinary flag and a bare name (main has this one too)', `os.system("curl -u admin:pw\\npassword: ${V}")`, 'os.system("curl -u admin:[REDACTED] [REDACTED]")', 'docker run -u node:node img'],
+    ['a numeric pair right after the opening quote', `os.system("-u 1000:1000\\napi_key='${V}'")`, `os.system("-u 1000:[REDACTED]'[REDACTED]'")`, 'docker run -u 1000:1000 alpine id'],
+    ['a user and a group right after the opening quote', `cmd = "--user node:node\\napi_key='${V}'"`, `cmd = "--user node:[REDACTED]'[REDACTED]'"`, 'docker run --user node:node img'],
+    ['date -u, three lines, a pair and a name, in the text of a JSON string', `{"command":"date -u\\nls\\nx:y\\n-d\\napi_key='${V}' "}`, `{"command":"date -u\\nls\\nx:[REDACTED]'[REDACTED]' "}`, 'docker exec -u app:app web id'],
+    ['the user glued to -u, then a name in quotes', `x = "tool -uroot:pw\\napi_key='${V}'"`, `x = "tool -uroot:[REDACTED]'[REDACTED]'"`, 'docker run -unode:node img'],
+    ['the user glued to -u, then a bare name (a YAML run)', `steps:\n  - run: "-username:abc\\npassword: ${V}"\n`, 'steps:\n  - run: "-username:[REDACTED] [REDACTED]"\n', 'docker run -unode:node img'],
+    ['a PowerShell variable behind the escape', `x = "tool -uroot:pw\\n$password = '${V}'"`, `x = "tool -uroot:[REDACTED] = '[REDACTED]'"`, 'docker run -unode:node img'],
+    ['an exported name behind the escape (the word export goes with the password, the name stays)', `x = "-u 1000:1000\\nexport API_TOKEN='${V}'"`, `x = "-u 1000:[REDACTED] API_TOKEN='[REDACTED]'"`, 'docker run -u 1000:1000 alpine id'],
+  ];
+  const wrong = [];
+  const run = (label, line, expected) => { const got = maskSecrets(line, []); if (got !== expected) wrong.push(`${label}: ${JSON.stringify(line)} -> ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`); };
+  for (const [label, text, expected, container] of ESCAPE_SHAPES) {
+    run(label, text, expected);
+    run(`${label}, a readable container command in front of it`, `${container}\n${text}`, `${container}\n${expected}`);
+    run(`${label}, a readable container command behind it`, `${text}\ndocker run -u node:node img`, `${expected}\ndocker run -u node:node img`);
+    assert.ok(!expected.includes(V), `${label}: the expected text must not hold the secret`);
+  }
+  // the same flags with a REAL line break or a real blank before the name: the escape is not there, the flag stops at the blank, and a numeric pair of a text with no curl stays readable
+  run('a real line break instead of the escape', `os.system("-u 1000:1000\napi_key='${V}'")`, `os.system("-u 1000:1000\napi_key='[REDACTED]'")`);
+  run('a real blank instead of the escape', `os.system("-u 1000:1000 api_key='${V}'")`, `os.system("-u 1000:1000 api_key='[REDACTED]'")`);
+  run('a real line break after an ordinary flag', `os.system("curl -u admin:pw\napi_key='${V}'")`, `os.system("curl -u admin:[REDACTED]\napi_key='[REDACTED]'")`);
+  // a name and a readable container flag in ONE command: the name goes first now, and the container rule reads the text with its [REDACTED]
+  run('a name before the readable flag of a container command', `docker run -e API_KEY=${V} -u node:node img`, 'docker run -e API_KEY=[REDACTED] -u node:node img');
+  run('a quoted name before the readable flag of a container command', `docker run -e API_KEY='${V}' -u 1000:1000 alpine id`, "docker run -e API_KEY='[REDACTED]' -u 1000:1000 alpine id");
+  run('a name after the readable flag of a container command', `docker run -u node:node -e PASSWORD="${V}" img`, 'docker run -u node:node -e PASSWORD="[REDACTED]" img');
+  run('the flag and the name of a curl in the same command', `curl -u admin:pw -d 'password=${V}' https://x.example.test`, "curl -u admin:[REDACTED] -d 'password=[REDACTED]' https://x.example.test");
+  assert.deepEqual(wrong, [], `${wrong.length} lines are not as expected:\n  ${wrong.join('\n  ')}`);
+  ok(`${ESCAPE_SHAPES.length} shapes of a flag of the user followed by the escape \\n and the name of a secret, each alone and next to a readable container command: the value is hidden, the container flag stays`);
+}
+
+// A bare value that starts with a backslash is a value. Only the backslash of a quote (\" or \') is the start of a quoted value, and the bare value does not start with it. A Windows share, a path with a
+// backslash or a password that holds one is a bare value. Round 1 of the audit of PR #108: the exclusion of `bareValue` was widened to ANY backslash by a mutant and no row noticed; the four rules that read a bare
+// value are the long flags, the -p of mysql, the -p of sshpass and the -p of the login of a container client.
+{
+  const BARE_BACKSLASH = [
+    ['a long flag, a value that starts with a backslash', `deploy --password \\${V} --env prod`, 'deploy --password [REDACTED] --env prod'],
+    ['a long flag, a share of Windows', `deploy --token \\\\server\\share\\${V} now`, 'deploy --token [REDACTED] now'],
+    ['a long flag, a path of Windows', `deploy --api-key C:\\keys\\${V} now`, 'deploy --api-key [REDACTED] now'],
+    ['the -p of mysql, glued', `mysql -p\\${V} db`, 'mysql -p[REDACTED] db'],
+    ['the -p of mysql, after a user', `mysql -u root -p\\\\${V} db`, 'mysql -u root -p[REDACTED] db'],
+    ['the -p of sshpass', `sshpass -p \\${V} ssh host`, 'sshpass -p [REDACTED] ssh host'],
+    ['the -p of the login of a container client', `docker login -u me -p \\${V} registry.example.test`, 'docker login -u me -p [REDACTED] registry.example.test'],
+    // the other side of the exclusion: the backslash of a quote starts a QUOTED value, whose quotes stay
+    ['a long flag, a value in \\"..\\"', `deploy --password \\"${V}\\" --env prod`, 'deploy --password \\"[REDACTED]\\" --env prod'],
+    ['a long flag, a value in \\\'..\\\'', `deploy --password \\'${V}\\' --env prod`, "deploy --password \\'[REDACTED]\\' --env prod"],
+  ];
+  const wrong = BARE_BACKSLASH.map(([label, line, expected]) => [label, line, expected, maskSecrets(line, [])]).filter(([, , expected, got]) => got !== expected)
+    .map(([label, line, expected, got]) => `${label}: ${JSON.stringify(line)} -> ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
+  assert.deepEqual(wrong, [], `${wrong.length} of ${BARE_BACKSLASH.length} lines are not as expected:\n  ${wrong.join('\n  ')}`);
+  ok(`${BARE_BACKSLASH.length} lines on a bare value that starts with a backslash (a share, a path, a password) in the four rules that read one: masked; the backslash of a quote starts a quoted value`);
+}
+
 // The arguments of a tool call are printed as JSON on the approval card (previewArguments, which PermissionGate uses for a tool that is not local and for the `arguments` of a local tool that has no
 // card of its own). Their strings are masked as the text they are BEFORE they are written as JSON, then the JSON is masked once more (the names of the keys and the other fields are in view there).
 // (The permission suite runs the same shapes through the gate: tests/verify-permissions-modes.mjs.)
