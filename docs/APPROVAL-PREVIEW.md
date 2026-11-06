@@ -150,4 +150,4 @@ Tests: `tests/verify-line-diff.mjs`, `tests/verify-edit-plans.mjs`, `tests/verif
 
 Mutation lists (`node tests/mutation/run-mutations.mjs tests/mutation/<list>.json`): `line-diff.json`, `edit-plans.json` (the planners), `approval-guard.json` (the guard, the gate, the manager), `approval-preview.json`
 (the card: bounds, a cut line, the runs of base64 and where they are hidden, the state machine that finds the frames, the count of hidden rows), `mask-secrets.json` (every rule, every word of every list,
-the command that holds a flag of the user, the runs of base64 of a key) and `change-preview.json` (the page's reader): 797 mutations, 781 killed, 16 equivalent with the reason written in the list, 0 survived.
+the command that holds a flag of the user, the runs of base64 of a key) and `change-preview.json` (the page's reader): 805 mutations, 789 killed, 16 equivalent with the reason written in the list, 0 survived.
