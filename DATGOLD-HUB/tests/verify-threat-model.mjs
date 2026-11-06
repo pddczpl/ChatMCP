@@ -86,7 +86,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
     const candidates = [name, `DATGOLD-HUB/tests/${name}`, `DATGOLD-HUB/${name}`].map((candidate) => path.join(codeRoot, candidate));
     if (!candidates.some((candidate) => existsSync(candidate))) fail(`the test ${name} does not exist`);
   }
-  for (const match of model.matchAll(/^\| ((?:H|O|R|K|S|P|M|U)\d+) \|(.*)\|$/gm)) {
+  for (const match of model.matchAll(/^\| ((?:H|O|R|K|S|P|M|U|E)\d+) \|(.*)\|$/gm)) {
     const cells = match[2].split(' | ');
     const testCell = cells[cells.length - 2] ?? '';
     if (!/`[^`]*(?:verify-|\.spec\.|smoke|run\.mjs)[^`]*`|not tested/i.test(testCell)) fail(`${match[1]}: the Test column names no test and does not say "not tested"`);
@@ -343,7 +343,7 @@ try {
     ['an identifier of the role column that does not exist', model, (text) => text.replace('`decideOutbound`', '`decideOutboundNow`'), /decideOutboundNow/],
     ['a wrong ticket lifetime', model, (text) => text.replace('60 second', '30 second'), /ticket lives 60 seconds/],
     ['a wrong pairing limit', model, (text) => text.replace('10 attempts', '3 attempts'), /allows 10 attempts/],
-    ['a reference that is not in the table', model, (text) => text.replace('single-use ticket in a URL fragment [C9]', 'single-use ticket in a URL fragment [C99] [C9]'), /\[C99\]/],
+    ['a reference that is not in the table', model, (text) => text.replace('single-use ticket in a URL fragment [C9]', 'single-use ticket in a URL fragment [C999] [C9]'), /\[C999\]/],
     ['a table row nobody cites', model, (text) => text.replace(/\[C18\]/g, ''), /C18 is in the code reference table but no text cites it/],
     ['a test that does not exist', model, (text) => text.replace('`DATGOLD-HUB/tests/verify-readonly-corpus.mjs`', '`DATGOLD-HUB/tests/verify-readonly-nothing.mjs`'), /verify-readonly-nothing\.mjs does not exist/],
     ['a route missing from SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('`/api/extension-state`', 'the extension state route'), /SECURITY\.md does not name \/api\/extension-state/],
