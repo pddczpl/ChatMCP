@@ -133,6 +133,15 @@ try {
   feed.installer.set({ name: 'DatGoldSetup.exe', bytes: installerBytes });
   const spki = JSON.parse(fs.readFileSync(keys.run.listFile, 'utf8')).keys[0].spki;
 
+  // ---- the stand-in host of the shell (--webview2), built FIRST ---------------------------------------------------------------------------------------
+  // The build takes 20 s on a hosted runner and took 67 s once, and nothing long may stand between the Hub's one-time ticket (redeemable ONCE and for 60 s: TICKET_TTL_MS in lib/hub-session.mjs) and the window that
+  // redeems it: with the build after the ticket, that slow build opened the window on "Session required" and the rehearsal waited 120 s for a header that could not come (CI run 42169801756, attempt 1).
+  const hostOutput = path.join(scratch, 'host');
+  if (webview2) {
+    const built = spawnSync('dotnet', ['build', path.join(HERE, 'WebView2Host', 'WebView2Host.csproj'), '-c', 'Release', '-o', hostOutput, '--nologo', '-v', 'q'], { encoding: 'utf8', timeout: 300_000, windowsHide: true });
+    if (built.status !== 0) throw new Error(`The WebView2 host did not build:\n${String(built.stdout).slice(-1500)}${String(built.stderr).slice(-500)}`);
+  }
+
   // ---- the Hub of this work tree, on a free port, reading the stand-in ----------------------------------------------------------------------------
   hub = await startHub({ scratch: path.join(scratch, 'hub'), env: { CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_FIRST_CHECK_MS: '300', CHATMCP_UPDATE_TEST_KEY: spki } });
   check(hub.port !== 3007, `the Hub is on port ${hub.port}, not 3007`);
@@ -147,9 +156,6 @@ try {
   // what the pretended shell has been told to answer and what it has been sent, the same two things in either kind of window
   let shell;
   if (webview2) {
-    const hostOutput = path.join(scratch, 'host');
-    const built = spawnSync('dotnet', ['build', path.join(HERE, 'WebView2Host', 'WebView2Host.csproj'), '-c', 'Release', '-o', hostOutput, '--nologo', '-v', 'q'], { encoding: 'utf8', timeout: 300_000, windowsHide: true });
-    if (built.status !== 0) throw new Error(`The WebView2 host did not build:\n${String(built.stdout).slice(-1500)}${String(built.stderr).slice(-500)}`);
     const replies = path.join(scratch, 'replies.txt');
     const receivedFile = path.join(scratch, 'received.jsonl');
     fs.writeFileSync(replies, '');
@@ -225,9 +231,30 @@ try {
   const received = await shell.received();
   check(received.length === 1 && received[0].type === 'chatmcp.apply-update' && /^[a-f0-9-]{16,64}$/i.test(received[0].id) && Object.keys(received[0]).sort().join() === 'id,type', 'the page sent ONE message to the shell: its type and an id, nothing else');
   await driver.waitForVisible('update-apply-again');
+  const requestsBefore = feed.installer.hits();
+  const pressedAt = Date.now();
   await driver.pressTestId('update-apply-again');
+  // The second request does not come at once: the Hub looks at the signed release again, clears the folder of the first download and opens its file before it asks the stand-in for the installer. The marker
+  // update-download-ready is still on the page from the FIRST download (the page changes it when the Hub's next status reaches it), so a wait for that marker waits for nothing, and a count read right after the
+  // press (the press itself waits 60 ms, which was enough most of the time) can be read before the request is there: it failed so once on a hosted runner (CI run 41783133350). So the stand-in's count is polled
+  // until the new request is in, counted from the start of the press; only a failure spends the 10 s.
+  let requestsNow = feed.installer.hits();
+  while (requestsNow <= requestsBefore && Date.now() - pressedAt < 10_000) {
+    await sleep(25);
+    requestsNow = feed.installer.hits();
+  }
+  check(requestsNow > requestsBefore, `Download again fetched the installer anew (requests for it: ${requestsBefore} before the press, ${requestsNow} after ${Date.now() - pressedAt} ms)`);
+  // Once that request is counted the Hub has left "ready" (it sets "downloading" before it looks at the release again), so a "ready" read from here on is the second download's and not the first one's. The page
+  // follows the Hub's status, so its marker is waited for after the Hub, not before it.
+  const readyDeadline = Date.now() + 60_000;
+  let download = (await hub.state()).update.download;
+  while (download?.state !== 'ready' && download?.state !== 'failed' && Date.now() < readyDeadline) {
+    await sleep(100);
+    download = (await hub.state()).update.download;
+  }
+  check(download?.state === 'ready' && download.version === offered, `and the Hub says ready again when the second download is done (download: ${JSON.stringify(download)})`);
   await driver.waitForVisible('update-download-ready', { timeoutMs: 60_000 });
-  check(feed.installer.hits() >= 2, 'Download again fetched the installer anew (two requests for it now)');
+  await driver.waitForVisible('update-apply');
 
   // ---- work that is running holds the button back in the page, and a press on it does nothing ------------------------------------------------------------
   const client = new HubClient({ origin: hub.origin, stateDirectory: hub.stateDir });
