@@ -1280,8 +1280,8 @@ export class LocalTools {
     const from = Math.max(1, firstLine - 3);
     const to = Math.min(outLines.length, firstLine + replacedLines - 1 + 3);
     // The lines the model gets back are the ones around its edit. A secret in them is hidden in this answer (the file keeps it), as it is on the owner's card: by its spelling, a line of the body
-    // of a private key (by its place between two frames, and when it looks like a key), and the key material in a line that holds a frame (text after the BEGIN frame, text before the END frame)
-    // the way the card hides it. Code after a BEGIN frame is not key material and is in the answer.
+    // of a private key (by its place between two frames; what is hidden in it is every run of 16 characters or more of base64, and a row that is one token of it), and the key material in a line that
+    // holds a frame (text after the BEGIN frame, text before the END frame) the way the card hides it. Code after a BEGIN frame has no run of base64 and is in the answer.
     const keys = keyLines(plan.lfText);
     const registered = this.secrets?.() ?? [];
     let masked = false;

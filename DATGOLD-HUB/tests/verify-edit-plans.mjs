@@ -14,6 +14,7 @@ import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools, planApplyPatch, planEdit, planWrite, planWriteBatch } from '../lib/local-tools.mjs';
 import { decodeText, encodeText, sha256, toLf } from '../lib/fs-safe.mjs';
 import { diffHunks, hunksDigest } from '../lib/line-diff.mjs';
+import { keyShapes, piecesIn } from './support/key-shapes.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -562,6 +563,25 @@ function oracleWrite(existing, content) {
     assert.match(mixed, /đã được che trong câu trả lời này/, 'and the answer says that something was hidden');
   }
   ok('a fake key hides nothing in the answer of an edit (code and commands after a BEGIN frame are there, the answer does not say that it hid anything); a real key among such lines goes and the code stays');
+
+  // The fourth audit: a real key written the way people write it in scripts and code (a prefix of a comment, echo "..." >> key, b"...\n", a PowerShell backtick-n between the lines of a one-line key)
+  // showed in the answer of an edit, because a row was hidden only when it was ONE token of base64 after a short list of quotes and commas was taken off it. What is hidden now is every run of 16
+  // characters or more of base64 in a body, wherever it stands. One of each kind; the edit is on a line that stands after the first line of the shape, so that the answer shows lines of the key
+  // (a one-line key whole).
+  {
+    for (const part of ['"-- " prefix', 'markdown table', 'echo per line', 'PowerShell Add-Content', 'bytes b"...\\n"', 'XML element', 'backtick-n', 'percent-encoded', '\\x0a hex', 'implicit concatenation']) {
+      const shape = keyShapes().find((item) => item.name.includes(part));
+      assert.ok(shape, part);
+      const [first, ...rest] = shape.content.split('\n');
+      await fs.writeFile(target, [first, 'mark = 1;', ...rest].join('\n'));
+      const answer = readBack(await tools.call('edit_file', { path: 'wrapped-echo.txt', old_string: 'mark = 1;', new_string: 'done = 2;' }));
+      assert.deepEqual(piecesIn(answer), [], `${shape.name}: no part of the key is in the answer`);
+      assert.match(answer, /done = 2;/, `${shape.name}: the edited line is there`);
+      assert.match(answer, /đã được che trong câu trả lời này/, `${shape.name}: and the answer says that something was hidden`);
+      assert.ok(piecesIn(await fs.readFile(target, 'utf8')).length > 0, `${shape.name}: the file keeps its key`);
+    }
+  }
+  ok('a key as people write it in scripts, comments, strings and one line (a "-- " prefix, a markdown table, echo per line, Add-Content, b"...\\n", an XML element, a backtick-n, %0A, \\x0a, implicit concatenation) shows none of it in the answer of an edit, which says that it hid something; the file keeps the key');
 
   // a megabyte of BEGIN frames in one line, with the edit on the next line: the answer comes at once, whatever it says
   const hostileTarget = path.join(work, 'hostile.txt');
