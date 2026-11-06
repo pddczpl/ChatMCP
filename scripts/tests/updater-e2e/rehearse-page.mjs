@@ -133,6 +133,15 @@ try {
   feed.installer.set({ name: 'DatGoldSetup.exe', bytes: installerBytes });
   const spki = JSON.parse(fs.readFileSync(keys.run.listFile, 'utf8')).keys[0].spki;
 
+  // ---- the stand-in host of the shell (--webview2), built FIRST ---------------------------------------------------------------------------------------
+  // The build takes 20 s on a hosted runner and took 67 s once, and nothing long may stand between the Hub's one-time ticket (redeemable ONCE and for 60 s: TICKET_TTL_MS in lib/hub-session.mjs) and the window that
+  // redeems it: with the build after the ticket, that slow build opened the window on "Session required" and the rehearsal waited 120 s for a header that could not come (CI run 42169801756, attempt 1).
+  const hostOutput = path.join(scratch, 'host');
+  if (webview2) {
+    const built = spawnSync('dotnet', ['build', path.join(HERE, 'WebView2Host', 'WebView2Host.csproj'), '-c', 'Release', '-o', hostOutput, '--nologo', '-v', 'q'], { encoding: 'utf8', timeout: 300_000, windowsHide: true });
+    if (built.status !== 0) throw new Error(`The WebView2 host did not build:\n${String(built.stdout).slice(-1500)}${String(built.stderr).slice(-500)}`);
+  }
+
   // ---- the Hub of this work tree, on a free port, reading the stand-in ----------------------------------------------------------------------------
   hub = await startHub({ scratch: path.join(scratch, 'hub'), env: { CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_FIRST_CHECK_MS: '300', CHATMCP_UPDATE_TEST_KEY: spki } });
   check(hub.port !== 3007, `the Hub is on port ${hub.port}, not 3007`);
@@ -142,16 +151,11 @@ try {
   const debugPort = await freePort();
   const profile = path.join(scratch, 'profile');
   const session = await hub.session();
-  // A ticket is redeemable ONCE and for 60 s (TICKET_TTL_MS in lib/hub-session.mjs), so it is asked for when the window is about to open and not before the build of the WebView2 host, which takes 20 s on a hosted
-  // runner and took 67 s once: the window then opened on "Session required" and the rehearsal waited 120 s for a header that could not come (CI run 42169801756, attempt 1).
-  const openingAddress = async () => dashboardUrl(hub.origin, await requestTicket(hub.origin, session.secret));
+  const address = dashboardUrl(hub.origin, await requestTicket(hub.origin, session.secret));
   let driver;
   // what the pretended shell has been told to answer and what it has been sent, the same two things in either kind of window
   let shell;
   if (webview2) {
-    const hostOutput = path.join(scratch, 'host');
-    const built = spawnSync('dotnet', ['build', path.join(HERE, 'WebView2Host', 'WebView2Host.csproj'), '-c', 'Release', '-o', hostOutput, '--nologo', '-v', 'q'], { encoding: 'utf8', timeout: 300_000, windowsHide: true });
-    if (built.status !== 0) throw new Error(`The WebView2 host did not build:\n${String(built.stdout).slice(-1500)}${String(built.stderr).slice(-500)}`);
     const replies = path.join(scratch, 'replies.txt');
     const receivedFile = path.join(scratch, 'received.jsonl');
     fs.writeFileSync(replies, '');
@@ -161,7 +165,6 @@ try {
       policySet = true;
       log(`WebView2 policy: ${HOST_PROGRAM} gets --remote-debugging-port=${debugPort}`);
     }
-    const address = await openingAddress();
     // with --policy the port is opened by the policy and by nothing else (no environment variable), or a green rehearsal would not say which of the two worked
     browser = spawn(path.join(hostOutput, HOST_PROGRAM), [address, profile, replies, receivedFile], {
       env: policy ? environmentWithout(process.env, 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS') : { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` }, stdio: 'ignore',
@@ -181,7 +184,7 @@ try {
     driver = new PageDriver(cdp, { log });
     await cdp.send('Page.enable');
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: PRETEND_SHELL });
-    await cdp.send('Page.navigate', { url: await openingAddress() });
+    await cdp.send('Page.navigate', { url: address });
     shell = {
       pushReply: (...codes) => driver.evaluate(`window.__pretend.script.push(...${JSON.stringify(codes)}); true`),
       received: () => driver.evaluate('window.__pretend.received'),
