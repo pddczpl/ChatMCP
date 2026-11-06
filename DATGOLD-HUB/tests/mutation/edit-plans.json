@@ -305,19 +305,19 @@
       "patches": [
         {
           "file": "lib/local-tools.mjs",
-          "old": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);",
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
           "new": "      const shown = line;"
         }
       ]
     },
     {
       "name": "EP-echo-key-place",
-      "what": "the body of a private key is not hidden by its place in the answer",
+      "what": "the lines of a private key are not hidden in the answer",
       "patches": [
         {
           "file": "lib/local-tools.mjs",
-          "old": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);",
-          "new": "      const shown = maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);"
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow({ ...keys, body: new Set() }, from - 1 + i, line), registered);"
         }
       ]
     },
@@ -327,8 +327,8 @@
       "patches": [
         {
           "file": "lib/local-tools.mjs",
-          "old": "      const place = from - 1 + i;",
-          "new": "      const place = from + i;"
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow(keys, from + i, line), registered);"
         }
       ]
     },
@@ -338,8 +338,8 @@
       "patches": [
         {
           "file": "lib/local-tools.mjs",
-          "old": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);",
-          "new": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, []);"
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), []);"
         }
       ]
     },
@@ -723,30 +723,19 @@
       "patches": [
         {
           "file": "lib/local-tools.mjs",
-          "old": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);",
-          "new": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(line, registered);"
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow({ ...keys, framed: new Map() }, from - 1 + i, line), registered);"
         }
       ]
     },
     {
-      "name": "EP-echo-framed-open",
-      "what": "the answer does not know that a body was open where a line with a frame began",
+      "name": "EP-echo-keys-none",
+      "what": "the lines of the text are not looked at for keys",
       "patches": [
         {
           "file": "lib/local-tools.mjs",
-          "old": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);",
-          "new": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, false) : line, registered);"
-        }
-      ]
-    },
-    {
-      "name": "EP-echo-framed-off",
-      "what": "the answer hides the lines with a frame whole",
-      "patches": [
-        {
-          "file": "lib/local-tools.mjs",
-          "old": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? hideKeyMaterial(line, keys.framed.get(place)) : line, registered);",
-          "new": "      const shown = keys.body.has(place) ? '[REDACTED]' : maskSecrets(keys.framed.has(place) ? '[REDACTED]' : line, registered);"
+          "old": "    const keys = keyLines(plan.lfText);",
+          "new": "    const keys = keyLines('');"
         }
       ]
     }

@@ -454,6 +454,39 @@
           "new": "filter(([key]) => key !== 'previews')"
         }
       ]
+    },
+    {
+      "name": "CP-key-rows-dropped",
+      "what": "the number of rows that the Hub hid as key material is not read",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "    hiddenKeyRows: count(value.hiddenKeyRows),",
+          "new": "    hiddenKeyRows: 0,"
+        }
+      ]
+    },
+    {
+      "name": "CP-key-rows-raw",
+      "what": "the number of rows that the Hub hid is taken as it comes (a negative number, a fraction or a word)",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "    hiddenKeyRows: count(value.hiddenKeyRows),",
+          "new": "    hiddenKeyRows: Number(value.hiddenKeyRows) || 0,"
+        }
+      ]
+    },
+    {
+      "name": "CP-key-rows-field",
+      "what": "the number of rows that the Hub hid is read from the number of rows it did not show",
+      "patches": [
+        {
+          "file": "ui/src/lib/change-preview.ts",
+          "old": "    hiddenKeyRows: count(value.hiddenKeyRows),",
+          "new": "    hiddenKeyRows: count(value.hiddenRows),"
+        }
+      ]
     }
   ]
 }

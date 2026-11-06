@@ -1,6 +1,6 @@
 {
   "suite": "verify-approval-preview.mjs",
-  "description": "The card of a file change (lib/approval-preview.mjs): the bounds (20 files, 200 rows, 400 characters, 120,000 characters, 500 characters of a refusal), a line cut at a character and not inside one, the guard of every file of the call and the digest of the arguments, and the body of a private key hidden by its place in the old and the new text, judged by tests/verify-approval-preview.mjs. After the audit of PR #103: the key in one line, PGP's frames, the rows' keys hidden before they are cut. Second round of PR #103: the key machinery is one state machine (frames, parts, lines), shared by the masker, the card and the answer of edit_file.",
+  "description": "The card of a file change (lib/approval-preview.mjs): the bounds (20 files, 200 rows, 400 characters, 120,000 characters, 500 characters of a refusal), a line cut at a character and not inside one, the guard of every file of the call and the digest of the arguments, and the body of a private key hidden by its place in the old and the new text, judged by tests/verify-approval-preview.mjs. After the audit of PR #103: the key in one line, PGP's frames, the rows' keys hidden before they are cut. Second round of PR #103: the key machinery is one state machine (frames, parts, lines), shared by the masker, the card and the answer of edit_file. Third round of PR #103: what is hidden is what looks like a key (looksLikeKey: tokens, the characters of base64, what a key is wrapped in), and the card says how many rows it hid (hiddenKeyRows).",
   "mutations": [
     {
       "name": "AP-files-more",
@@ -233,8 +233,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "text: `[REDACTED]${terminatorOf(row.text)}`",
-          "new": "text: '[REDACTED]'"
+          "old": "  if (keys.body.has(place)) return looksLikeKey(text, true) ? `[REDACTED]${terminatorOf(text)}` : text;",
+          "new": "  if (keys.body.has(place)) return looksLikeKey(text, true) ? `[REDACTED]` : text;"
         }
       ]
     },
@@ -483,12 +483,12 @@
     },
     {
       "name": "AP-inline-marker",
-      "what": "the key in a row is cut out and nothing is put in its place",
+      "what": "a key in one line (or the first or the last line of a block) is cut out and nothing is put in its place",
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\\n') ? '\\n[REDACTED]\\n' : '[REDACTED]');",
-          "new": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\\n') ? '\\n[REDACTED]\\n' : '');"
+          "old": "      out.push('[REDACTED]'); // a run of hidden lines is made of the lines between the two lines of the frames: this one cannot be a part of one",
+          "new": "      out.push(''); // a run of hidden lines is made of the lines between the two lines of the frames: this one cannot be a part of one"
         }
       ]
     },
@@ -521,7 +521,7 @@
         {
           "file": "lib/approval-preview.mjs",
           "old": "  for (const frame of framesOf(text)) {",
-          "new": "  for (const frame of framesOf(text)) { text.indexOf('-----END', frame.end);"
+          "new": "  for (const frame of framesOf(text)) { if (text.indexOf('-----END', frame.end) === 123456789) break;"
         }
       ]
     },
@@ -531,8 +531,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    for (const row of hideKeyBodies(hunk, oldKeys, newKeys)) {",
-          "new": "    for (const row of hideKeyBodies({ ...hunk, rows: hunk.rows.map(clipRow) }, oldKeys, newKeys)) {"
+          "old": "    for (const [index, row] of hideKeyBodies(hunk, oldKeys, newKeys).entries()) {",
+          "new": "    for (const [index, row] of hideKeyBodies({ ...hunk, rows: hunk.rows.map(clipRow) }, oldKeys, newKeys).entries()) {"
         }
       ]
     },
@@ -542,8 +542,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "      if (text !== row.text) return { kind: row.kind, text };",
-          "new": "      if (text !== row.text) return { kind: 'context', text };"
+          "old": "    return text === row.text ? row : { kind: row.kind, text };",
+          "new": "    return text === row.text ? row : { kind: 'context', text };"
         }
       ]
     },
@@ -553,7 +553,7 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "  if (body.size > 0) return true;",
+          "old": "  for (const index of body) if (looksLikeKey(lines[index], true)) return true;",
           "new": ""
         }
       ]
@@ -775,8 +775,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "      out += text.slice(from, part.start) + (text.slice(part.start, end)",
-          "new": "      out += text.slice(part.start, part.start) + (text.slice(part.start, end)"
+          "old": "      out += text.slice(from, part.start) + hideKeyText(text.slice(part.start, end));",
+          "new": "      out += text.slice(part.start, part.start) + hideKeyText(text.slice(part.start, end));"
         }
       ]
     },
@@ -788,17 +788,6 @@
           "file": "lib/approval-preview.mjs",
           "old": "      from = end;\n      continue;",
           "new": "      from = part.start;\n      continue;"
-        }
-      ]
-    },
-    {
-      "name": "AP-hide-closed-block",
-      "what": "a key over several lines is hidden as if it were in one line (its frames are not on lines of their own)",
-      "patches": [
-        {
-          "file": "lib/approval-preview.mjs",
-          "old": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes('\\n') ? '\\n[REDACTED]\\n' : '[REDACTED]');",
-          "new": "      out += text.slice(from, part.start) + (text.slice(part.start, end).includes(\"\\u0000\") ? '\\n[REDACTED]\\n' : '[REDACTED]');"
         }
       ]
     },
@@ -877,28 +866,6 @@
           "file": "lib/approval-preview.mjs",
           "old": "    if (!edges) continue;",
           "new": "    if (!edges || part.kind === 'tail') continue;"
-        }
-      ]
-    },
-    {
-      "name": "AP-hide-blank",
-      "what": "a part with only spaces in it is hidden",
-      "patches": [
-        {
-          "file": "lib/approval-preview.mjs",
-          "old": "    if (text.slice(part.start, end).trim() === '') continue;",
-          "new": "    if (false) continue;"
-        }
-      ]
-    },
-    {
-      "name": "AP-hide-blank-trim",
-      "what": "a part with only spaces in it is not blank",
-      "patches": [
-        {
-          "file": "lib/approval-preview.mjs",
-          "old": "    if (text.slice(part.start, end).trim() === '') continue;",
-          "new": "    if (text.slice(part.start, end) === '') continue;"
         }
       ]
     },
@@ -1062,8 +1029,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    if (keys.framed.has(place)) {",
-          "new": "    if (false) {"
+          "old": "  if (keys.framed.has(place)) return hideKeyMaterial(text, keys.framed.get(place));",
+          "new": "  if (false) return hideKeyMaterial(text, keys.framed.get(place));"
         }
       ]
     },
@@ -1073,8 +1040,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "      const text = hideKeyMaterial(row.text, keys.framed.get(place));",
-          "new": "      const text = hideKeyMaterial(row.text, false);"
+          "old": "  if (keys.framed.has(place)) return hideKeyMaterial(text, keys.framed.get(place));",
+          "new": "  if (keys.framed.has(place)) return hideKeyMaterial(text, false);"
         }
       ]
     },
@@ -1084,8 +1051,8 @@
       "patches": [
         {
           "file": "lib/approval-preview.mjs",
-          "old": "    if (keys.body.has(place)) return { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` };",
-          "new": "    if (false) return { kind: row.kind, text: `[REDACTED]${terminatorOf(row.text)}` };"
+          "old": "  if (keys.body.has(place)) return looksLikeKey(text, true) ? `[REDACTED]${terminatorOf(text)}` : text;",
+          "new": "  if (false) return looksLikeKey(text, true) ? `[REDACTED]${terminatorOf(text)}` : text;"
         }
       ]
     },
@@ -1108,18 +1075,6 @@
           "file": "lib/approval-preview.mjs",
           "old": "    const place = row.kind === 'removed' ? old : current;",
           "new": "    const place = old;"
-        }
-      ]
-    },
-    {
-      "name": "AP-rows-unchanged",
-      "what": "a row with a frame that has no key material in it is copied (the same row)",
-      "equivalent": "the copy has the same kind and the same text as the row it was made from",
-      "patches": [
-        {
-          "file": "lib/approval-preview.mjs",
-          "old": "      if (text !== row.text) return { kind: row.kind, text };",
-          "new": "      return { kind: row.kind, text };"
         }
       ]
     },
@@ -1154,6 +1109,1502 @@
           "file": "lib/approval-preview.mjs",
           "old": "  if (!oldKeys.framed.size && !newKeys.framed.size) return hunk.rows; // a body starts at a line with a frame: no such line, no key",
           "new": "  if (false) return hunk.rows; // a body starts at a line with a frame: no such line, no key"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-upper",
+      "what": "a capital is not a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[a-z0-9+/_-]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-lower",
+      "what": "a small letter is not a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Z0-9+/_-]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-digit",
+      "what": "a digit is not a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z+/_-]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-plus",
+      "what": "a + is not a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9/_-]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-slash",
+      "what": "a / is not a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+_-]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-underscore",
+      "what": "an underscore (base64url) is not a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+/-]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-hyphen",
+      "what": "a hyphen (base64url) is not a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+/_]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-padding-none",
+      "what": "a key has no = at its end",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-padding-one",
+      "what": "a key has one = at its end, not two",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,1}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-padding-three",
+      "what": "a key has three = at its end",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,3}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-start",
+      "what": "a token has to start with a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /[A-Za-z0-9+/_-]+={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-end",
+      "what": "a token has to end with a character of a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-single",
+      "what": "a token is one character",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]+={0,2}$/;",
+          "new": "const KEY_TOKEN = /^[A-Za-z0-9+/_-]={0,2}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-sign",
+      "what": "the checksum of PGP does not start with =",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^[A-Za-z0-9+/]{4}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-three",
+      "what": "the checksum has three characters",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{3}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-five",
+      "what": "the checksum has five characters",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{5}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-plus",
+      "what": "a + is not a character of the checksum",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[A-Za-z0-9/]{4}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-slash",
+      "what": "a / is not a character of the checksum",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[A-Za-z0-9+]{4}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-upper",
+      "what": "a capital is not a character of the checksum",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[a-z0-9+/]{4}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-lower",
+      "what": "a small letter is not a character of the checksum",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[A-Z0-9+/]{4}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-digit",
+      "what": "a digit is not a character of the checksum",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[A-Za-z+/]{4}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-start",
+      "what": "the checksum may have something before it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /=[A-Za-z0-9+/]{4}$/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-checksum-end",
+      "what": "the checksum may have something after it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}$/;",
+          "new": "const KEY_CHECKSUM = /^=[A-Za-z0-9+/]{4}/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-n",
+      "what": "the \\n of a key in one line is not an escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[rt/]|u[0-9a-fA-F]{4})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-r",
+      "what": "the \\r of a key in one line is not an escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nt/]|u[0-9a-fA-F]{4})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-t",
+      "what": "the \\t of a key in one line is not an escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nr/]|u[0-9a-fA-F]{4})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-slash",
+      "what": "the \\/ of a key in one line is not an escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt]|u[0-9a-fA-F]{4})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-unicode",
+      "what": "the \\u0000 of a key in one line is not an escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt/])/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-three",
+      "what": "a \\u escape has three digits",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{3})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-five",
+      "what": "a \\u escape has five digits",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{5})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-digit",
+      "what": "a digit is not a digit of a \\u escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[a-fA-F]{4})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-lower",
+      "what": "a small letter is not a digit of a \\u escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9A-F]{4})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-upper",
+      "what": "a capital is not a digit of a \\u escape",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-f]{4})/g;"
+        }
+      ]
+    },
+    {
+      "name": "AP-escape-global",
+      "what": "only the first escape of a text is one",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/g;",
+          "new": "const KEY_ESCAPES = /\\\\(?:[nrt/]|u[0-9a-fA-F]{4})/;"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-space",
+      "what": "a space before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set(['\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-tab",
+      "what": "a tab before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-cr",
+      "what": "a cr before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-lf",
+      "what": "a lf before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-double-quote",
+      "what": "a double quote before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', \"'\", '`', '#', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-single-quote",
+      "what": "a single quote before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', '`', '#', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-backtick",
+      "what": "a backtick before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '#', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-hash",
+      "what": "a hash before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '>', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-greater",
+      "what": "a greater before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', ';', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-semicolon",
+      "what": "a semicolon before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', '%', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-percent",
+      "what": "a percent before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '*', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-star",
+      "what": "a star before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '/']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-left-slash",
+      "what": "a slash before a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*', '/']);",
+          "new": "const LEFT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', '#', '>', ';', '%', '*']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-space",
+      "what": "a space after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set(['\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-tab",
+      "what": "a tab after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-cr",
+      "what": "a cr after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-lf",
+      "what": "a lf after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\"', \"'\", '`', ',', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-double-quote",
+      "what": "a double quote after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', \"'\", '`', ',', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-single-quote",
+      "what": "a single quote after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', '`', ',', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-backtick",
+      "what": "a backtick after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", ',', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-comma",
+      "what": "a comma after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ';', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-semicolon",
+      "what": "a semicolon after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', '\\\\', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-backslash",
+      "what": "a backslash after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '+']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-right-plus",
+      "what": "a plus after a key is not taken off it",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\', '+']);",
+          "new": "const RIGHT_OF_A_KEY = new Set([' ', '\\t', '\\r', '\\n', '\"', \"'\", '`', ',', ';', '\\\\']);"
+        }
+      ]
+    },
+    {
+      "name": "AP-core-right",
+      "what": "what a key is wrapped in is not taken off its end",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  while (RIGHT_OF_A_KEY.has(text[end - 1])) end -= 1; // text[-1] is undefined and in no set: the loops stop at the ends of the text",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-core-left",
+      "what": "what a key is wrapped in is not taken off its start",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  while (LEFT_OF_A_KEY.has(text[start])) start += 1;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-core-dash",
+      "what": "the dash of a list item is not taken off a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (text[start] === '-' && (text[start + 1] === ' ' || text[start + 1] === '\\t')) start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-core-dash-tab",
+      "what": "the dash of a list item followed by a tab is not a list dash",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (text[start] === '-' && (text[start + 1] === ' ' || text[start + 1] === '\\t')) start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others",
+          "new": "  if (text[start] === '-' && (text[start + 1] === ' ')) start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others"
+        }
+      ]
+    },
+    {
+      "name": "AP-core-dash-space",
+      "what": "the dash of a list item followed by a space is not a list dash",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (text[start] === '-' && (text[start + 1] === ' ' || text[start + 1] === '\\t')) start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others",
+          "new": "  if (text[start] === '-' && (text[start + 1] === '\\t')) start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others"
+        }
+      ]
+    },
+    {
+      "name": "AP-core-dash-glued",
+      "what": "a dash glued to a key (base64url) is taken for the dash of a list item",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (text[start] === '-' && (text[start + 1] === ' ' || text[start + 1] === '\\t')) start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others",
+          "new": "  if (text[start] === '-') start += 1; // the dash of a list item (YAML); the spaces after it are cut with all the others"
+        }
+      ]
+    },
+    {
+      "name": "AP-core-slice-start",
+      "what": "what a key is wrapped in is taken off its end only",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return text.slice(start, end);",
+          "new": "  return text.slice(0, end);"
+        }
+      ]
+    },
+    {
+      "name": "AP-core-slice-end",
+      "what": "what a key is wrapped in is taken off its start only",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return text.slice(start, end);",
+          "new": "  return text.slice(start);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-checksum-off",
+      "what": "the checksum line of PGP is not key material",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!KEY_TOKEN.test(token)) return last && KEY_CHECKSUM.test(token);",
+          "new": "  if (!KEY_TOKEN.test(token)) return false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-checksum-any",
+      "what": "the checksum of PGP may come anywhere in a part",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!KEY_TOKEN.test(token)) return last && KEY_CHECKSUM.test(token);",
+          "new": "  if (!KEY_TOKEN.test(token)) return KEY_CHECKSUM.test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-code",
+      "what": "a token that is not base64 is key material",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (!KEY_TOKEN.test(token)) return last && KEY_CHECKSUM.test(token);",
+          "new": "  if (!KEY_TOKEN.test(token)) return true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-long",
+      "what": "a token of 16 characters is not a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (token.length >= 16) return true;",
+          "new": "  if (token.length >= 17) return true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-long-short",
+      "what": "a token of 15 characters is a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (token.length >= 16) return true;",
+          "new": "  if (token.length >= 15) return true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-long-off",
+      "what": "a long token is no more a key than a short one",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (token.length >= 16) return true;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-last",
+      "what": "a short token anywhere in a part is a key, not only the last one",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-min",
+      "what": "a token of 4 characters is not a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 5 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-min-low",
+      "what": "a token of 3 characters is a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 3 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-only-swapped",
+      "what": "a short last token is judged by the rule of the others when it is alone, and the other way round",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[0-9+/=]/ : /[A-Z0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-only-true",
+      "what": "a short last token after others is judged by the rule of a token that is alone",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (true ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-only-false",
+      "what": "a short last token that is alone is judged by the rule of a token after others",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (false ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-alone-upper",
+      "what": "a capital does not make a short token that is alone look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[0-9+/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-alone-digit",
+      "what": "a digit does not make a short token that is alone look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z+/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-alone-plus",
+      "what": "a + does not make a short token that is alone look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z0-9/=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-alone-slash",
+      "what": "a / does not make a short token that is alone look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z0-9+=]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-alone-equals",
+      "what": "an = does not make a short token that is alone look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/]/ : /[0-9+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-after-digit",
+      "what": "a digit does not make a short last token after others look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[+/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-after-plus",
+      "what": "a + does not make a short last token after others look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9/=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-after-slash",
+      "what": "a / does not make a short last token after others look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+=]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-token-short-after-equals",
+      "what": "an = does not make a short last token after others look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/=]/).test(token);",
+          "new": "  return last && token.length >= 4 && (only ? /[A-Z0-9+/=]/ : /[0-9+/]/).test(token);"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-default",
+      "what": "a part (not a whole line) is judged as a whole line by default",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "export function looksLikeKey(text, whole = false) {",
+          "new": "export function looksLikeKey(text, whole = true) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-core",
+      "what": "what a key is wrapped in is not taken off before the tokens are read",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(/\\s+/).filter(Boolean);",
+          "new": "  const tokens = text.replace(KEY_ESCAPES, ' ').split(/\\s+/).filter(Boolean);"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-escapes-off",
+      "what": "the escapes of a key in one line are not taken out",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(/\\s+/).filter(Boolean);",
+          "new": "  const tokens = keyCore(text).split(/\\s+/).filter(Boolean);"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-escapes-glued",
+      "what": "the escapes of a key in one line are taken out and the tokens around them are glued",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(/\\s+/).filter(Boolean);",
+          "new": "  const tokens = keyCore(text).replace(KEY_ESCAPES, '').split(/\\s+/).filter(Boolean);"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-split",
+      "what": "the tokens are split at a space only",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(/\\s+/).filter(Boolean);",
+          "new": "  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(' ').filter(Boolean);"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-filter",
+      "what": "the empty tokens at the ends of a text are tokens",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(/\\s+/).filter(Boolean);",
+          "new": "  const tokens = keyCore(text).replace(KEY_ESCAPES, ' ').split(/\\s+/);"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-empty",
+      "what": "a text with no token (blank) looks like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (tokens.length === 0 || (whole && tokens.length > 1)) return false;",
+          "new": "  if ((whole && tokens.length > 1)) return false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-whole",
+      "what": "a whole line of several tokens looks like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (tokens.length === 0 || (whole && tokens.length > 1)) return false;",
+          "new": "  if (tokens.length === 0) return false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-whole-always",
+      "what": "a part of several tokens does not look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (tokens.length === 0 || (whole && tokens.length > 1)) return false;",
+          "new": "  if (tokens.length === 0 || (tokens.length > 1)) return false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-whole-two",
+      "what": "a whole line of two tokens looks like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (tokens.length === 0 || (whole && tokens.length > 1)) return false;",
+          "new": "  if (tokens.length === 0 || (whole && tokens.length > 2)) return false;"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-some",
+      "what": "a text looks like a key when one of its tokens does",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));",
+          "new": "  return tokens.some((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-last-first",
+      "what": "the first token is the last token",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));",
+          "new": "  return tokens.every((token, index) => keyToken(token, index === 0, tokens.length === 1));"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-last-never",
+      "what": "no token is the last token",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));",
+          "new": "  return tokens.every((token, index) => keyToken(token, false, tokens.length === 1));"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-last-always",
+      "what": "every token is the last token",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));",
+          "new": "  return tokens.every((token, index) => keyToken(token, true, tokens.length === 1));"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-only-never",
+      "what": "no token is alone",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));",
+          "new": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, false));"
+        }
+      ]
+    },
+    {
+      "name": "AP-like-only-always",
+      "what": "every token is alone",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, tokens.length === 1));",
+          "new": "  return tokens.every((token, index) => keyToken(token, index === tokens.length - 1, true));"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-edge-first",
+      "what": "the text on the line of the BEGIN frame is judged as a whole line",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    const edge = index === 0 || index === lines.length - 1; // the rest of the line of a frame",
+          "new": "    const edge = index === lines.length - 1; // the rest of the line of a frame"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-edge-last",
+      "what": "the text on the line of the END frame is judged as a whole line",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    const edge = index === 0 || index === lines.length - 1; // the rest of the line of a frame",
+          "new": "    const edge = index === 0; // the rest of the line of a frame"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-edge-and",
+      "what": "only a text that is on both lines of frames (a key in one line) is an edge",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    const edge = index === 0 || index === lines.length - 1; // the rest of the line of a frame",
+          "new": "    const edge = index === 0 && index === lines.length - 1; // the rest of the line of a frame"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-edge-all",
+      "what": "every line is judged as an edge",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    const edge = index === 0 || index === lines.length - 1; // the rest of the line of a frame",
+          "new": "    const edge = true; // the rest of the line of a frame"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-whole",
+      "what": "the lines between the frames are judged as parts, not as whole lines",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!looksLikeKey(line, !edge)) {",
+          "new": "    if (!looksLikeKey(line, false)) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-whole-swapped",
+      "what": "the edges are judged as whole lines and the lines between the frames as parts",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!looksLikeKey(line, !edge)) {",
+          "new": "    if (!looksLikeKey(line, edge)) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-inverted",
+      "what": "what does not look like a key is hidden and the key stays",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!looksLikeKey(line, !edge)) {",
+          "new": "    if (looksLikeKey(line, !edge)) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-run-reset",
+      "what": "a line of code between two runs of key lines does not end the first run",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      run = false;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-text-edge-branch",
+      "what": "a key on the line of a frame is hidden like a line of a run",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    } else if (edge) {",
+          "new": "    } else if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-collapse",
+      "what": "every line of a key is hidden by a marker of its own",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    } else if (!run) {",
+          "new": "    } else if (true) {"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-run-cr",
+      "what": "the marker of a line of a key forgets the carriage return of a Windows line ending",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      out.push(line.endsWith('\\r') ? '[REDACTED]\\r' : '[REDACTED]');",
+          "new": "      out.push('[REDACTED]');"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-run-cr-always",
+      "what": "the marker of a line of a key always has a carriage return",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      out.push(line.endsWith('\\r') ? '[REDACTED]\\r' : '[REDACTED]');",
+          "new": "      out.push('[REDACTED]\\r');"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-run-marker",
+      "what": "a line of a key is cut out and nothing is put in its place",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      out.push(line.endsWith('\\r') ? '[REDACTED]\\r' : '[REDACTED]');",
+          "new": "      out.push(line.endsWith('\\r') ? '\\r' : '');"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-run-set",
+      "what": "the line after a hidden line of a key is hidden by a marker of its own",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      run = true;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-text-join",
+      "what": "the lines of a block are joined (its frames are not on lines of their own)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return out.join('\\n');",
+          "new": "  return out.join('');"
+        }
+      ]
+    },
+    {
+      "name": "AP-text-join-double",
+      "what": "the lines of a block are joined by two line breaks",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return out.join('\\n');",
+          "new": "  return out.join('\\n\\n');"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-closed-shown",
+      "what": "a key that begins and ends in the text is shown",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      out += text.slice(from, part.start) + hideKeyText(text.slice(part.start, end));",
+          "new": "      out += text.slice(from, part.start) + text.slice(part.start, end);"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-edge-always",
+      "what": "the head and the tail are hidden whether or not they look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!looksLikeKey(text.slice(part.start, end))) continue;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-edge-inverted",
+      "what": "the head and the tail are hidden when they do not look like a key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!looksLikeKey(text.slice(part.start, end))) continue;",
+          "new": "    if (looksLikeKey(text.slice(part.start, end))) continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-hide-edge-whole",
+      "what": "the head and the tail are judged as whole lines (one token)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    if (!looksLikeKey(text.slice(part.start, end))) continue;",
+          "new": "    if (!looksLikeKey(text.slice(part.start, end), true)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "AP-holds-body-always",
+      "what": "a line of a body is key material whatever it is",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const index of body) if (looksLikeKey(lines[index], true)) return true;",
+          "new": "  for (const index of body) if (true) return true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-holds-body-parts",
+      "what": "a line of a body of several tokens is key material",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  for (const index of body) if (looksLikeKey(lines[index], true)) return true;",
+          "new": "  for (const index of body) if (looksLikeKey(lines[index])) return true;"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-body-always",
+      "what": "a row between two frames is hidden whatever it is",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (keys.body.has(place)) return looksLikeKey(text, true) ? `[REDACTED]${terminatorOf(text)}` : text;",
+          "new": "  if (keys.body.has(place)) return true ? `[REDACTED]${terminatorOf(text)}` : text;"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-body-parts",
+      "what": "a row between two frames of several tokens is hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  if (keys.body.has(place)) return looksLikeKey(text, true) ? `[REDACTED]${terminatorOf(text)}` : text;",
+          "new": "  if (keys.body.has(place)) return looksLikeKey(text) ? `[REDACTED]${terminatorOf(text)}` : text;"
+        }
+      ]
+    },
+    {
+      "name": "AP-rows-copy",
+      "what": "a row that is not hidden is copied (and counted as hidden)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    return text === row.text ? row : { kind: row.kind, text };",
+          "new": "    return { kind: row.kind, text };"
+        }
+      ]
+    },
+    {
+      "name": "AP-count-step",
+      "what": "a hidden row counts for two",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      if (row !== hunk.rows[index]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen",
+          "new": "      if (row !== hunk.rows[index]) hiddenKeyRows += 2; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen"
+        }
+      ]
+    },
+    {
+      "name": "AP-count-inverted",
+      "what": "the rows that are not hidden are counted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      if (row !== hunk.rows[index]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen",
+          "new": "      if (row === hunk.rows[index]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen"
+        }
+      ]
+    },
+    {
+      "name": "AP-count-all",
+      "what": "every row is counted as hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      if (row !== hunk.rows[index]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen",
+          "new": "      hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen"
+        }
+      ]
+    },
+    {
+      "name": "AP-count-off",
+      "what": "the rows that are hidden are not counted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      if (row !== hunk.rows[index]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-count-index",
+      "what": "a row is compared with the first row of its hunk",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      if (row !== hunk.rows[index]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen",
+          "new": "      if (row !== hunk.rows[0]) hiddenKeyRows += 1; // the card says how many rows it hid as key material, so that a file that hides rows it should not is seen"
+        }
+      ]
+    },
+    {
+      "name": "AP-count-field",
+      "what": "the number of hidden rows is in the card whether it is zero or not",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    ...(hiddenKeyRows > 0 ? { hiddenKeyRows } : {}),",
+          "new": "    ...({ hiddenKeyRows }),"
+        }
+      ]
+    },
+    {
+      "name": "AP-count-field-off",
+      "what": "the card does not say how many rows were hidden",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "    ...(hiddenKeyRows > 0 ? { hiddenKeyRows } : {}),",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AP-count-beyond",
+      "what": "the rows that are hidden but not shown (beyond the limits of the card) are counted",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "      if (shown + rows.length >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;\n      if (row !== hunk.rows[index]) hiddenKeyRows += 1;",
+          "new": "      if (row !== hunk.rows[index]) hiddenKeyRows += 1;\n      if (shown + rows.length >= PREVIEW_LIMITS.rows || budget.chars <= 0) break;"
         }
       ]
     }
