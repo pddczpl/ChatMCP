@@ -738,6 +738,28 @@
           "new": "    const keys = keyLines('');"
         }
       ]
+    },
+    {
+      "name": "EP-echo-runs-row",
+      "what": "the answer of an edit keeps the runs of base64 in a row of a body that is more than one token (echo \"...\" >> key)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return looksLikeKey(text, true) ? `[REDACTED]${endingOf(text)}` : hideKeyRuns(text);",
+          "new": "  return looksLikeKey(text, true) ? `[REDACTED]${endingOf(text)}` : text;"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-runs-part",
+      "what": "the answer of an edit keeps the runs of base64 in a one-line key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return looksLikeKey(part) ? '[REDACTED]' : hideKeyRuns(part);",
+          "new": "  return looksLikeKey(part) ? '[REDACTED]' : part;"
+        }
+      ]
     }
   ]
 }
