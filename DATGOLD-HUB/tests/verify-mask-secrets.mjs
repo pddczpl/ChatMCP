@@ -794,7 +794,15 @@ for (const character of ['/', ':', '@', '[', '`', '{', '-', '.', '=', '(', '"'])
     assert.equal(maskSecrets(text, []), masked, `${text}: ${character} is not a letter, so curl stays curl`);
   }
 }
-ok('curl glued to a letter, a digit or an underscore is another word, and to the characters beside those ranges it is not');
+// The same boundaries asked of a command that no other rule touches. The reading of the start of a container command masks its flag by itself when a backtick, a bracket or a quote stands before it, whatever
+// curl is, so the rows above cannot tell for those characters if curl is curl. The numeric pair of an unknown tool is masked only when a curl (or a ://) stands before it: nothing else decides.
+for (const character of ['0', '9', 'A', 'Z', 'a', 'z', '_']) {
+  for (const text of [`tool ${character}curl -u 1000:1000 x`, `tool curl${character} -u 1000:1000 x`]) assert.equal(maskSecrets(text, []), text, `${text}: curl glued to ${character} is another word, the pair is a user id and a group id`);
+}
+for (const character of ['/', ':', '@', '[', '`', '{', '-', '.', '=', '(', '"']) {
+  for (const text of [`tool ${character}curl -u 1000:1000 x`, `tool curl${character} -u 1000:1000 x`]) assert.equal(maskSecrets(text, []), text.replace('1000:1000', '1000:[REDACTED]'), `${text}: ${character} is not a letter, so curl stays curl and the pair is a user and a password`);
+}
+ok('curl glued to a letter, a digit or an underscore is another word, and to the characters beside those ranges it is not (asked of a container command and, where no other rule decides, of the numeric pair of an unknown tool)');
 
 // the pins that were there before
 assert.equal(maskSecrets('password=hunter2hunter2 keep this', []), 'password=[REDACTED] keep this');
