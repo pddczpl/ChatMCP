@@ -9,6 +9,8 @@ import { formatToolOutput } from '@/lib/tool-output';
 import { describeTool, type ToolKind } from '@/lib/tool-labels';
 import { formatDuration } from '@/lib/format';
 import { receiptTarget } from '@/lib/review-offer';
+import { undoTarget } from '@/lib/rollback';
+import { UndoStepButton } from './UndoStepButton';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -27,6 +29,7 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
   const [expanded, setExpanded] = useState(false);
   const focusReview = useAppStore((state) => state.focusReview);
   const reviewTarget = receiptTarget(tool);
+  const undo = undoTarget(tool);
 
   const { kind, verb, target } = describeTool(tool, lang);
   const Icon = ICONS[kind];
@@ -69,6 +72,7 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
       </div>
 
       {/* Beside the row, not inside it: a button inside a button is not one control. Only an edit that went through, with the checkpoint the Hub made for that very call, leads to the review. */}
+      {undo && <UndoStepButton checkpointId={undo.checkpointId} label={t('rollback_undo_step_label', { path: target || tool.name })} />}
       {reviewTarget && (
         <button type="button" onClick={() => focusReview(reviewTarget.path)} aria-label={t('review_receipt_link_label', { path: reviewTarget.path })} data-testid="receipt-review-link"
           className="mr-2 shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-primary transition-colors hover:bg-hover">

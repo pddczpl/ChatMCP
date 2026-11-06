@@ -24,10 +24,14 @@ const FOLDERS = {
   CodeIntelligenceSection: 'settings', PermissionsSection: 'settings', WorkspaceSection: 'settings', CommandPalette: 'palette',
   OnboardingModal: 'onboarding', IntelligenceTab: 'inspector', InspectorPanel: 'inspector', FilesTab: 'inspector', GitTab: 'inspector',
 };
+// A screen that asks a question (unpairing the Companion, restoring a checkpoint) asks through the page's confirm dialog (useConfirm): each component is rendered with the context the
+// dialog's provider fills, answered by the test (see fire()). The components keep their names, so that the rewrites and the elements the render records are found as before.
 const entryOf = (names) => `
   ${renderPrelude}
-  ${names.map((name) => `import { ${name} } from './src/components/${FOLDERS[name]}/${name}';`).join('\n')}
+  import { ConfirmContext } from './src/components/ui/ConfirmDialog';
+  ${names.map((name) => `import { ${name} as Real${name} } from './src/components/${FOLDERS[name]}/${name}';`).join('\n')}
   import { translations } from './src/lib/i18n';
+  ${names.map((name) => `const ${name} = (props) => <ConfirmContext.Provider value={(request) => globalThis.__ask?.(request) ?? Promise.resolve(false)}><Real${name} {...props} /></ConfirmContext.Provider>;`).join('\n')}
   export { translations, ${names.join(', ')} };
 `;
 
@@ -297,19 +301,17 @@ const domButton = (matchProps) => (element) => element.type === 'button' && matc
 const aButton = (matchProps) => (element) => typeof element.type === 'object' && element.type?.displayName === 'Button' && matchProps(element.props);
 const item = (label) => (element) => typeof element.type === 'function' && element.type.name === 'Item' && element.props.label === label;
 /**
- * Click it, as a browser would: window.confirm (and the bare confirm the Git tab calls) answers `confirmAnswer` and says what it was asked, localStorage
+ * Click it, as a browser would: the page's confirm dialog answers `confirmAnswer` and says what it was asked (the question: its body, else its title), localStorage
  * exists, and every step the handler started (a request, a toast) is let finish.
  */
 async function fire(handler, args = [], { confirmAnswer = true } = {}) {
   const asked = [];
-  const confirm = (message) => { asked.push(message); return confirmAnswer; };
-  globalThis.window = { confirm };
-  globalThis.confirm = confirm;
+  globalThis.__ask = (request) => { asked.push(request.body ?? request.title); return Promise.resolve(confirmAnswer); };
   globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
   try {
     await handler(...args);
     for (let turn = 0; turn < 40; turn++) await new Promise((resolve) => setImmediate(resolve));
-  } finally { delete globalThis.window; delete globalThis.confirm; delete globalThis.localStorage; }
+  } finally { delete globalThis.__ask; delete globalThis.localStorage; }
   return { asked };
 }
 
@@ -479,9 +481,15 @@ test('the Git tab says it could not create, preview or restore a checkpoint when
     serve({ '/api/studio/preview-checkpoint?checkpointId=cp-1': { ok: false } });
     await fire(restore);
     assert.deepEqual(toasts, [[says.previewFailed, 'error']], `${lang}: preview refused`);
-    serve({ '/api/studio/preview-checkpoint?checkpointId=cp-1': { ok: true, files: [], modifiedFilesCount: 0 }, '/api/studio/restore-checkpoint': throwsAString });
+    // something to restore: a file that differs. The question is asked, answered yes, and the Hub's refusal says nothing
+    const differs = { path: 'a.txt', kind: 'copy', action: 'overwrite', baselineSha: 'b'.repeat(64), currentSha: 'c'.repeat(64), changedSinceStep: null };
+    serve({ '/api/studio/preview-checkpoint?checkpointId=cp-1': { ok: true, files: [differs], modifiedFilesCount: 1 }, '/api/studio/restore-checkpoint': throwsAString });
     await fire(restore);
     assert.deepEqual(toasts, [[says.restoreFailed, 'error']], `${lang}: restore`);
+    // nothing to restore: the files are already as the checkpoint holds them, so nothing is asked and nothing is sent
+    serve({ '/api/studio/preview-checkpoint?checkpointId=cp-1': { ok: true, files: [{ ...differs, action: 'unchanged', currentSha: differs.baselineSha }], modifiedFilesCount: 0 } });
+    const { asked } = await fire(restore);
+    assert.deepEqual([asked, toasts, calls.map((call) => call.route)], [[], [], ['/api/studio/preview-checkpoint?checkpointId=cp-1']], `${lang}: nothing to restore asks nothing`);
   }
 });
 

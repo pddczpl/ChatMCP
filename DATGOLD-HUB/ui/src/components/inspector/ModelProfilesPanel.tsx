@@ -7,6 +7,7 @@ import { useTranslation } from '@/lib/i18n';
 import { PROFILE_PROTOCOLS, buildProfilePayload, draftFromProfile, emptyProfileDraft, type ProfileDraft } from '@/lib/model-profile-form';
 import { useModelInfo } from '@/lib/useModelInfo';
 import type { AiProfile } from '@/types';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { ModelField } from './ModelField';
 import { ReasoningEffortField } from './ReasoningEffortField';
 
@@ -26,6 +27,7 @@ export function ModelProfilesPanel(){
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState('');
   const {t}=useTranslation();
+  const ask=useConfirm();
   // What the Hub knows about the model in the form (the catalog's window and prices): the empty fields below say what the Hub uses then. A profile has a protocol and an endpoint, no preset.
   const {data:modelInfo}=useModelInfo({protocol:draft.protocol,apiBaseUrl:draft.apiBaseUrl,model:draft.model});
   const windowHint=contextWindowHint(draft.contextWindow,modelInfo);
@@ -61,7 +63,7 @@ export function ModelProfilesPanel(){
     finally{setBusy(false);}
   };
   const remove=async(id:string)=>{
-    if(busy||!window.confirm('Delete model profile '+id+'? Existing task revisions may no longer resume.'))return;
+    if(busy||!(await ask({title:t('models_profile_delete_title',{id}),body:t('models_profile_delete_body'),tone:'danger',confirmLabel:t('models_profile_delete_confirm')})))return;
     setBusy(true);
     try{
       await api.deleteProfile(id);

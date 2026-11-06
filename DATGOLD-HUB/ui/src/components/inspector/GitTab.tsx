@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { Bookmark, GitBranch, GitCommit, RotateCcw } from 'lucide-react';
+import { Bookmark, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useTranslation } from '@/lib/i18n';
-import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { EmptyBlock, ErrorLine, LoadingLine, RowCard, SectionHeading, TabBody } from './parts';
+import { ErrorLine, LoadingLine, RowCard, SectionHeading, TabBody } from './parts';
+import { CheckpointsPanel } from './CheckpointsPanel';
 import { DiffView } from './DiffView';
 
 export function GitTab() {
@@ -23,7 +23,6 @@ export function GitTab() {
   const checkpointsQuery = useQuery({ queryKey: ['checkpointsList', workspace], queryFn: api.getCheckpoints, enabled: Boolean(workspace), refetchInterval: 5000 });
   const diffQuery = useQuery({ queryKey: ['gitDiff', workspace, staged], queryFn: () => api.getGitDiff(staged), enabled: Boolean(workspace), refetchInterval: 3000 });
   const gitStatus = gitQuery.data;
-  const checkpoints = checkpointsQuery.data ?? [];
   const statusError = hubQuery.error || gitQuery.error;
 
   const refresh = async () => {
@@ -39,28 +38,6 @@ export function GitTab() {
       await refresh();
     } catch (error) {
       showToast(error instanceof Error ? error.message : t('git_checkpoint_create_failed'), 'error');
-    } finally { setLoading(false); }
-  };
-  const handleRevertCheckpoint = async (id: string) => {
-    setLoading(true);
-    try {
-      const preview = await api.previewCheckpoint(id);
-      if (!preview?.ok) throw new Error(t('git_checkpoint_preview_failed'));
-      const fileCount = preview.files?.length ?? 0;
-      const newerCount = preview.files?.filter((file) => file.willOverwriteNewer).length ?? 0;
-      let message = lang === 'vi' ? `Khôi phục checkpoint này sẽ hoàn tác ${fileCount} file (${preview.modifiedFilesCount ?? 0} file đang có thay đổi).` : `Restore this checkpoint for ${fileCount} files (${preview.modifiedFilesCount ?? 0} changed files)?`;
-      if (newerCount) message += lang === 'vi' ? `\nCẢNH BÁO: ${newerCount} file có thay đổi mới hơn sẽ bị ghi đè.` : `\nWARNING: ${newerCount} files have newer changes that will be overwritten.`;
-      if (preview.partial) message += lang === 'vi' ? '\nCheckpoint chỉ chứa một phần workspace.' : '\nThis checkpoint contains only part of the workspace.';
-      message += lang === 'vi' ? '\n\nBạn có chắc chắn muốn tiếp tục?' : '\n\nContinue?';
-      if (!confirm(message)) return;
-      const expectedShas: Record<string, string | null> = {};
-      for (const file of preview.files ?? []) expectedShas[file.path] = file.currentSha ?? null;
-      const result = await api.revertCheckpoint(id, expectedShas);
-      if (!result.ok) throw new Error('Checkpoint restore was not completed.');
-      showToast(lang === 'vi' ? `Đã khôi phục ${result.restoredCount} file.` : `Restored ${result.restoredCount} files.`, 'success');
-      await refresh();
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : t('git_checkpoint_restore_failed'), 'error');
     } finally { setLoading(false); }
   };
 
@@ -107,21 +84,7 @@ export function GitTab() {
             </div>
           </div>
 
-          <div className="space-y-2.5">
-            <SectionHeading title={t('git_checkpoint_history')} count={checkpoints.length} />
-            {checkpointsQuery.error ? <ErrorLine message={checkpointsQuery.error.message} />
-              : checkpointsQuery.isLoading ? <LoadingLine text={lang === 'vi' ? 'Đang tải checkpoint…' : 'Loading checkpoints…'} />
-              : checkpoints.length === 0 ? <EmptyBlock icon={GitCommit} title={t('git_checkpoint_empty')} />
-              : checkpoints.map((checkpoint) => (
-                <RowCard key={checkpoint.id} className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5"><span className="truncate font-medium text-fg">{checkpoint.label || 'Checkpoint'}</span>{checkpoint.partial && <span className="rounded-full border border-warning/30 bg-warning/10 px-1.5 text-[12px] text-warning">Partial</span>}</div>
-                    <div className="font-mono text-[12px] text-faint">{checkpoint.id.slice(0, 12)} · {checkpoint.fileCount ?? '—'} files{checkpoint.at ? ` · ${formatDateTime(checkpoint.at, lang)}` : ''}</div>
-                  </div>
-                  <Button size="sm" variant="secondary" disabled={loading} onClick={() => handleRevertCheckpoint(checkpoint.id)} className="shrink-0 gap-1 text-warning" title={t('git_checkpoint_revert')}><RotateCcw className="h-3 w-3" /><span>{t('git_checkpoint_revert')}</span></Button>
-                </RowCard>
-              ))}
-          </div>
+          <CheckpointsPanel workspace={workspace} />
         </>
       )}
     </TabBody>

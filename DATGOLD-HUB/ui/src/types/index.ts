@@ -763,8 +763,14 @@ export interface Checkpoint {
   at: string;
   label: string;
   fileCount?: number;
+  /** Files the checkpoint records as absent: the ones the call that made it was about to create. */
+  absentCount?: number;
   partial?: boolean;
+  /** True for a checkpoint of exactly the files a call named; false for a snapshot of the source files taken before a command. */
   targeted?: boolean;
+  /** `undo` for the backup a restore makes before it changes files. */
+  kind?: 'undo' | null;
+  taskId?: string | null;
   limitations?: string[];
 }
 
