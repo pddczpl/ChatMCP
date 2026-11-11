@@ -605,7 +605,8 @@ export class PermissionGate {
     const askedAt=this.now();
     const request={id,taskId,toolName:name,category,reason:shownReason,summary,preview,detail,at:new Date(askedAt).toISOString(),expiresAt:new Date(askedAt+this.timeout).toISOString()};
     const promise=new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{this.requests.delete(id);this.#record(request,'expired');resolve(false);},this.timeout);
+      // An expired request is over: the stop of its task that may follow must not record it once more as cancelled, so the listener goes with it.
+      const timer=setTimeout(()=>{signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,'expired');resolve(false);},this.timeout);
       const aborted=()=>{clearTimeout(timer);this.requests.delete(id);this.#record(request,'cancelled');reject(signal.reason||error('cancelled','Tác vụ đã dừng.'));};
       if(signal)signal.addEventListener('abort',aborted,{once:true});
       this.requests.set(id,{...request,resolve:(yes)=>{clearTimeout(timer);signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,yes?'approved':'denied');resolve(yes);},abort:aborted});

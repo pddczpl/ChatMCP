@@ -119,8 +119,10 @@ export function applyEditToText(hay, { oldString, newString, replaceAll = false 
   if (positions.length > 1 && !replaceAll) {
     throw fault('ambiguous_match', `old_string xuất hiện ${positions.length} lần (dòng ${positions.slice(0, 10).map(lineAt).join(', ')}${positions.length > 10 ? ', ...' : ''}). Thêm vài dòng ngữ cảnh xung quanh để duy nhất, hoặc đặt replace_all=true.`, 409);
   }
-  const text = replaceAll ? hay.split(oldString).join(newString) : hay.slice(0, positions[0]) + newString + hay.slice(positions[0] + oldString.length);
-  return { text, count: replaceAll ? positions.length : 1, firstLine: lineAt(positions[0]), replacedLines: newString ? newString.split('\n').length : 1 };
+  // The search above stops at 5000 places (enough to tell an ambiguous match); a replace_all replaces every place, so its count comes from the split itself.
+  const parts = replaceAll ? hay.split(oldString) : null;
+  const text = parts ? parts.join(newString) : hay.slice(0, positions[0]) + newString + hay.slice(positions[0] + oldString.length);
+  return { text, count: parts ? parts.length - 1 : 1, firstLine: lineAt(positions[0]), replacedLines: newString ? newString.split('\n').length : 1 };
 }
 /** The fault for a file that cannot be read as text. */
 function decodeFault(relative, reason) {

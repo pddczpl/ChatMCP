@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
   escapeXml,
@@ -198,8 +199,11 @@ try {
 
   console.log('# 7. PowerShell configuration.ps1 Parity');
   {
-    const psScript = path.resolve('DATGOLD-HUB/windows/sandbox/configuration.ps1');
-    if (process.platform === 'win32' && fs.existsSync(psScript)) {
+    // Found from this file, not from the working directory: run-all starts the suites inside DATGOLD-HUB, where a path that begins with
+    // DATGOLD-HUB/ does not exist, and the check below used to report "skipped (file not found)" on every run.
+    const psScript = fileURLToPath(new URL('../windows/sandbox/configuration.ps1', import.meta.url));
+    assert.ok(fs.existsSync(psScript), 'configuration.ps1 is where the repository keeps it');
+    if (process.platform === 'win32') {
       const outConfig = path.join(testBaseDir, 'generated.wsb');
       const stdout = execFileSync(
         'powershell.exe',
@@ -248,9 +252,32 @@ try {
         psTraversalFailed = true;
       }
       assert.ok(psTraversalFailed, 'PowerShell script rejected path traversal');
-      ok('PowerShell configuration.ps1 script parity and traversal rejection verified');
+
+      // The two folders must be disjoint, nested ones included: a writable export folder inside the read-only input (or the reverse) is refused.
+      const psRefuses = (inputDirectory, exportDirectory) => {
+        try {
+          execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', psScript, '-InputDirectory', inputDirectory, '-ExportDirectory', exportDirectory, '-OutputFile', path.join(testBaseDir, 'nested.wsb')],
+            { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: powerShellChildEnvironment() });
+          return false;
+        } catch (error) {
+          return /must be disjoint/.test(String(error.stderr ?? ''));
+        }
+      };
+      const exportInsideInput = path.join(dummyInput, 'ps-export-inside');
+      const inputInsideExport = path.join(dummyOutput, 'ps-input-inside');
+      fs.mkdirSync(exportInsideInput, { recursive: true });
+      fs.mkdirSync(inputInsideExport, { recursive: true });
+      try {
+        assert.ok(psRefuses(dummyInput, exportInsideInput), 'PowerShell script refuses an export folder inside the input folder');
+        assert.ok(psRefuses(inputInsideExport, dummyOutput), 'PowerShell script refuses an input folder inside the export folder');
+        assert.ok(psRefuses(dummyInput, dummyInput), 'PowerShell script refuses the same folder twice');
+      } finally {
+        fs.rmSync(exportInsideInput, { recursive: true, force: true });
+        fs.rmSync(inputInsideExport, { recursive: true, force: true });
+      }
+      ok('PowerShell configuration.ps1 script parity, traversal rejection and nested-folder refusal verified');
     } else {
-      ok('PowerShell configuration.ps1 check skipped (file not found)');
+      ok('PowerShell configuration.ps1 check skipped (not Windows)');
     }
   }
 
