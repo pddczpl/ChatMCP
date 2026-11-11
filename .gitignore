@@ -21,15 +21,7 @@ credentials.json
 secrets.json
 secrets.*.json
 
-# --- Third-party dependency clones (see deps/ and scripts/bootstrap-*) ------
-/cloud-harness-mcp/
-/cloud-harness-mcp-rescue-*/
-/.deps/
-
-# --- Hand-made backups, rescue copies and release bundles -------------------
-/chatmcp-hub-before-*/
-/chatmcp-state-backup-*/
-/RESCUE-*/
+# --- Hand-made backups and release bundles -----------------------------------
 *.zip
 **/*.bak
 
