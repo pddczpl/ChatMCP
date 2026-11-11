@@ -28,25 +28,6 @@ export async function writeJson(file, data) {
   } finally { await fs.unlink(temp).catch(() => {}); }
 }
 
-export function collectSecrets(value) {
-  const secrets = new Set();
-  function walk(v, key = '') {
-    if (typeof v === 'string' && /authorization|token|secret|password|api.?key/i.test(key)) {
-      if (v.length >= 4) secrets.add(v);
-      const bare = v.replace(/^Bearer\s+/i, '');
-      if (bare.length >= 4) secrets.add(bare);
-    }
-    if (v && typeof v === 'object') {
-      for (const [k, item] of Object.entries(v)) {
-        if (key.toLowerCase() === 'headers' && typeof item === 'string' && item.length >= 4) secrets.add(item);
-        walk(item, k);
-      }
-    }
-  }
-  walk(value);
-  return [...secrets].sort((a, b) => b.length - a.length);
-}
-
 export function redact(line, secrets = []) {
   let result = String(line).replace(/\u001b\[[0-9;]*m/g, '');
   for (const secret of secrets) result = result.split(secret).join('[REDACTED]');
@@ -62,19 +43,6 @@ export async function resolveProgram(name, extra = []) {
   const candidates = [...extra, ...entries.filter(Boolean).map((p) => path.join(p, name))];
   for (const file of candidates) if (await exists(file)) return path.resolve(file);
   return null;
-}
-
-export async function npmCli() {
-  const besideNode = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  const npmCmd = await resolveProgram(process.platform === 'win32' ? 'npm.cmd' : 'npm');
-  const candidates = [
-    besideNode,
-    path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-    ...(npmCmd ? [path.join(path.dirname(npmCmd), 'node_modules', 'npm', 'bin', 'npm-cli.js')] : []),
-  ];
-  if (npmCmd && process.platform !== 'win32') candidates.push(await fs.realpath(npmCmd));
-  for (const file of candidates) if (await exists(file)) return path.resolve(file);
-  throw new Error('Không tìm thấy npm-cli.js của Node.js. Hãy kiểm tra bản cài Node/npm.');
 }
 
 export function portOpen(port, host = '127.0.0.1', timeout = 700) {

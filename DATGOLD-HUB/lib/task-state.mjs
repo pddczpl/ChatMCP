@@ -58,7 +58,6 @@ export const TASK_STATE_INFO = Object.freeze({
 
 export const isTaskState = (value) => typeof value === 'string' && TASK_STATES.includes(value);
 export const isActiveState = (value) => ACTIVE_STATES.has(value);
-export const isRestState = (value) => REST_STATES.has(value);
 
 export function canTransition(from, to) {
   if (!isTaskState(to)) return false;

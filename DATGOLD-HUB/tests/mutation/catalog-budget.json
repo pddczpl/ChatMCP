@@ -76,7 +76,7 @@
       "name": "B11",
       "what": "the context meter reads the owner's window only",
       "patches": [
-        { "file": "lib/gateway-provider.mjs", "old": "const window = this.effectiveContextWindow();\n    return { estimated: true,", "new": "const window = this.contextWindowTokens;\n    return { estimated: true," }
+        { "file": "lib/gateway-provider.mjs", "old": "effectiveContextWindowTokens: this.effectiveContextWindow(),", "new": "effectiveContextWindowTokens: this.contextWindowTokens," }
       ]
     },
     {

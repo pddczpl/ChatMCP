@@ -54,6 +54,14 @@ try {
   const idHistory = structuredClone(history);
   idHistory[1].providerCallId = 'gemini-call-42';
   equal(asGeminiContents(idHistory)[2].parts[0].functionResponse.id, 'gemini-call-42', 'Gemini function response retains original provider ID');
+  // A picture a tool returned: every adapter that cannot pass it on tells the model so in the SAME words (one sentence, lib/model-history.mjs).
+  const PICTURE_NOTE = '[Image returned by a tool. This model adapter cannot inspect images; do not claim to have viewed it.]';
+  const pictureHistory = [history[0], history[1], { type: 'function_call_output', call_id: 'call-1', output: [{ type: 'input_text', text: 'saved' }, { type: 'input_image', image_url: 'data:image/png;base64,AAAA' }] }];
+  equal(asGeminiContents(pictureHistory)[2].parts[0].functionResponse.response.output, `saved\n${PICTURE_NOTE}`, 'Gemini is told that a returned picture was not inspected');
+  equal(asChatMessages(pictureHistory, 'system')[3].content, `saved\n${PICTURE_NOTE}`, 'and Chat Completions is told the same words');
+  // The one other difference of the shared contentText: a bare string inside the content list of an assistant message is kept (the copy that stood in the Gemini adapter
+  // dropped it; the Hub writes objects there, so no stored history changes).
+  equal(asGeminiContents([{ type: 'message', role: 'assistant', content: ['plain', { type: 'output_text', text: 'part' }] }])[0].parts[0].text, 'plain\npart', 'string parts of an assistant content list are kept');
   const messages = asChatMessages(history, 'system');
   equal(messages.map(c=>c.role),['system','user','assistant','tool']);
   equal(messages[2].tool_calls[0].id,'call-1');
