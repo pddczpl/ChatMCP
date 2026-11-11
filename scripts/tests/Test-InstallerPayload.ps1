@@ -99,7 +99,7 @@ try {
     New-Item -ItemType Directory -Path $fixture -Force | Out-Null
     Invoke-FixtureGit @('init', '-q')
     Write-Fixture '.gitignore' "installed-plugins.json`nsecrets.json`ntest-results/`nnode_modules/`n"
-    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'DATGOLD-HUB/hub.mjs', 'DATGOLD-HUB/package.json', 'DATGOLD-HUB/lib/agent.mjs', 'DATGOLD-HUB/lib/space name.mjs', 'DATGOLD-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'DATGOLD-HUB/tests/private-fixture.json', 'DATGOLD-HUB/ui/src/App.tsx', 'DATGOLD-HUB/web/dist/index.html', 'DATGOLD-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) { Write-Fixture $file }
+    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'DATGOLD-HUB/hub.mjs', 'DATGOLD-HUB/package.json', 'DATGOLD-HUB/lib/agent.mjs', 'DATGOLD-HUB/lib/space name.mjs', 'DATGOLD-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'DATGOLD-HUB/tests/private-fixture.json', 'DATGOLD-HUB/ui/src/App.tsx', 'DATGOLD-HUB/web/dist/index.html', 'DATGOLD-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/install-desktop.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) { Write-Fixture $file }
     $unicodeSource = 'DATGOLD-HUB/lib/caf' + [char]0x00e9 + '.mjs'
     $unicodePayload = 'DATGOLD-HUB/lib/caf' + [char]0x00e9 + '.mjs'
     Write-Fixture $unicodeSource
@@ -130,7 +130,7 @@ try {
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/assets/new-hash.js')) 'new generated UI asset ships'
     Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/assets/old-hash.js'))) 'stale tracked UI asset is not resurrected'
     Assert-Payload ((Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/favicon.ico')) -and (Test-Path -LiteralPath (Join-Path $destination 'DATGOLD-HUB/web/dist/chatmcp-logo.png'))) 'the favicon and the logo that the build copies from ui/public ship'
-    foreach ($excluded in @('DATGOLD-HUB/installed-plugins.json', 'DATGOLD-HUB/secrets.json', 'DATGOLD-HUB/test-results', 'DATGOLD-HUB/node_modules', 'DATGOLD-HUB/skills', 'DATGOLD-HUB/tests', 'DATGOLD-HUB/ui', 'DATGOLD-HUB/windows/sandbox/GuestSupervisor', 'scripts/tests', 'scripts/Build-Installer.ps1', 'scripts/local-personal.ps1', 'assets/private.png')) {
+    foreach ($excluded in @('DATGOLD-HUB/installed-plugins.json', 'DATGOLD-HUB/secrets.json', 'DATGOLD-HUB/test-results', 'DATGOLD-HUB/node_modules', 'DATGOLD-HUB/skills', 'DATGOLD-HUB/tests', 'DATGOLD-HUB/ui', 'DATGOLD-HUB/windows/sandbox/GuestSupervisor', 'scripts/tests', 'scripts/Build-Installer.ps1', 'scripts/install-desktop.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/local-personal.ps1', 'assets/private.png')) {
         Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination $excluded))) "excluded from payload: $excluded"
     }
     Assert-Payload ([IO.File]::ReadAllText((Join-Path $fixture 'DATGOLD-HUB/installed-plugins.json')) -eq 'PRIVATE-STATE-MUST-NOT-SHIP') 'user state remains untouched'
