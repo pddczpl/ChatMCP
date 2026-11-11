@@ -746,8 +746,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "    session.turn = turn;\n    const onAbort",
-          "new": "    const onAbort"
+          "old": "    session.turn = turn;\n    const askSignal",
+          "new": "    const askSignal"
         },
         {
           "file": "lib/acp/agent.mjs",
@@ -883,19 +883,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "typeof finished.finalText === 'string' && finished.finalText.trim()) outbound.notify(",
-          "new": "false) outbound.notify("
-        }
-      ]
-    },
-    {
-      "name": "blank-answer-sent",
-      "what": "an answer of white space is sent",
-      "patches": [
-        {
-          "file": "lib/acp/agent.mjs",
-          "old": "typeof finished.finalText === 'string' && finished.finalText.trim()) outbound.notify(",
-          "new": "typeof finished.finalText === 'string') outbound.notify("
+          "old": "      if (rest) outbound.notify(",
+          "new": "      if (false) outbound.notify("
         }
       ]
     },
@@ -916,8 +905,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "      if (typeof finished.finalText === 'string' && finished.finalText.trim()) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: finished.finalText } } });\n      if (outcome.notice) tell(sessionId, outcome.notice);\n",
-          "new": "      if (outcome.notice) tell(sessionId, outcome.notice);\n      if (typeof finished.finalText === 'string' && finished.finalText.trim()) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: finished.finalText } } });\n"
+          "old": "      if (rest) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: rest } } });\n      if (outcome.notice) tell(sessionId, outcome.notice);\n",
+          "new": "      if (outcome.notice) tell(sessionId, outcome.notice);\n      if (rest) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: rest } } });\n"
         }
       ]
     },
