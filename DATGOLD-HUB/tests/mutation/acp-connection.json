@@ -88,7 +88,7 @@
       "patches": [
         {
           "file": "lib/launch.mjs",
-          "old": "  await stopOwned(child).catch(() => {});\n  const tail = recent",
+          "old": "  await stop(child).catch(() => {});\n  const tail = recent",
           "new": "  const tail = recent"
         }
       ]
@@ -110,8 +110,24 @@
       "patches": [
         {
           "file": "lib/launch.mjs",
-          "old": "${gone ? ' (it exited)' :",
-          "new": "${gone ? ' (it failed)' :"
+          "old": "${exitedByItself ? ' (it exited)' :",
+          "new": "${exitedByItself ? ' (it failed)' :"
+        }
+      ]
+    },
+    {
+      "name": "owned-exit-read-after-stop",
+      "what": "whether the Hub exited by itself is read after it was stopped, so that a stop that returns after the exit (Linux, macOS) makes every Hub that did not come up in time look like one that exited",
+      "patches": [
+        {
+          "file": "lib/launch.mjs",
+          "old": "  const exitedByItself = gone;\n",
+          "new": ""
+        },
+        {
+          "file": "lib/launch.mjs",
+          "old": "${exitedByItself ? ' (it exited)' :",
+          "new": "${gone ? ' (it exited)' :"
         }
       ]
     },

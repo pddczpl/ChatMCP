@@ -64,6 +64,10 @@ await runScenario({
     const neverPid = Number(fs.readFileSync(path.join(folder, 'never.pid'), 'utf8'));
     await gone(neverPid, 'the Hub that never came up');
     t.check(!alive(neverPid), 'and the process that never came up is stopped: a failure leaves no Hub behind');
+    // The same Hub when stopping it returns only after it has exited, which is what a signal does on Linux and macOS (the first CI run on Ubuntu found it): it did not come up in time, and it did not exit by itself.
+    await launchOwned(['--backend', 'local', '--port', String(await freePort()), '--state-dir', t.dir('never-state-slow-stop'), '--no-open'], { env: cleanEnvironment(t.scratch), timeoutMs: 1500, hubEntry: never, stop: async (child) => { child.kill('SIGKILL'); await new Promise((resolve) => child.once('exit', resolve)); } }).then(
+      () => t.check(false, 'a Hub that never comes up is reported, also when the stop returns after its exit'),
+      (error) => t.check(/did not start within 1\.5 s/.test(error.message) && !/it exited/.test(error.message), 'a Hub that did not come up in time is told as that even when stopping it returns only after it has exited (Linux, macOS), and not as a Hub that exited by itself', error.message));
     const quitBegan = Date.now();
     await launchOwned(['--backend', 'local', '--port', String(await freePort()), '--state-dir', t.dir('quits-state'), '--no-open'], { env: cleanEnvironment(t.scratch), timeoutMs: 20_000, hubEntry: quits }).then(
       () => t.check(false, 'a Hub that exits is reported'),

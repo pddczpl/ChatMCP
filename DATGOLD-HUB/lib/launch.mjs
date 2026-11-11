@@ -167,7 +167,7 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
  *
  * @returns {Promise<{url: string, child: import('node:child_process').ChildProcess, pid: number, logFile: string, exited: Promise<{code: number|null, signal: string|null}>}>}
  */
-export async function launchOwned(args, { env = process.env, timeoutMs = 30000, hubEntry = path.join(bundle, 'lib', 'acp', 'owned-hub.mjs') } = {}) {
+export async function launchOwned(args, { env = process.env, timeoutMs = 30000, hubEntry = path.join(bundle, 'lib', 'acp', 'owned-hub.mjs'), stop = stopOwned } = {}) {
   const options = parseArguments(args, env);
   const url = `http://127.0.0.1:${options.port}`;
   if (await portOpen(options.port)) throw new Error(`Port ${options.port} is used by another program. It is not stopped.`);
@@ -188,10 +188,12 @@ export async function launchOwned(args, { env = process.env, timeoutMs = 30000, 
     if (ready?.app === 'chatmcp-local-hub' && ready.initialized) return { url, child, pid: child.pid, logFile, exited };
     await delay(150);
   }
+  // Whether the Hub ended by itself is read BEFORE it is stopped: stopping it ends it, and where the stop returns only after the exit (a signal, on Linux and macOS) it would always read as "exited".
+  const exitedByItself = gone;
   const recent = await fs.readFile(logFile, 'utf8').catch(() => '');
-  await stopOwned(child).catch(() => {});
+  await stop(child).catch(() => {});
   const tail = recent.split(/\r?\n/).filter(Boolean).slice(-6).map((line) => redact(line)).join(' | ');
-  throw new Error(`The Hub did not start${gone ? ' (it exited)' : ` within ${timeoutMs / 1000} s`}. Log ${logFile}: ${tail || '(empty)'}`);
+  throw new Error(`The Hub did not start${exitedByItself ? ' (it exited)' : ` within ${timeoutMs / 1000} s`}. Log ${logFile}: ${tail || '(empty)'}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
