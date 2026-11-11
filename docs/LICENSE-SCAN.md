@@ -15,7 +15,7 @@
 | 1 | Obligation not met | **`node.exe` is shipped without Node.js's LICENSE.** [Build-Installer.ps1](../scripts/Build-Installer.ps1) copies only the build machine's `node.exe` (and its `.sha256`) into `runtimes/node`. Node.js is MIT, but the binary contains V8 (BSD-3-Clause), OpenSSL (Apache-2.0), ICU (Unicode licence), zlib, c-ares, nghttp2, undici and others, whose notices Node collects in its `LICENSE` file (it is in the nodejs.org ZIP archive of each release). Ship that file next to `node.exe`. The Node version is whatever is on the build machine's PATH (the release workflow uses Node 24); it is not pinned. |
 | 2 | Obligation not met | **The installer ships no notice for Microsoft.Web.WebView2.** `ChatMCP.exe` bundles `Microsoft.Web.WebView2.Core.dll`, `Microsoft.Web.WebView2.WinForms.dll` and `WebView2Loader.dll` (package 1.0.4258.31, a Microsoft BSD-3-Clause-style licence whose `LICENSE.txt` requires reproducing the copyright notice and disclaimer for binary redistribution). The package `NOTICE.txt` additionally lists Antlr3.Runtime 3.5.2-rc1 and StringTemplate4 4.0.9-rc1 (BSD-3-Clause). None of this text is in the payload. |
 | 3 | Obligation not met | **The OFL-1.1 fonts ship without their licence text.** `web/dist/assets` contains Inter (variable, `@fontsource-variable/inter` 5.3.0) and JetBrains Mono (400, `@fontsource/jetbrains-mono` 5.3.0) as `.woff2`/`.woff` files. The SIL Open Font License 1.1 requires the copyright notice and licence text to accompany the font files; the `LICENSE` files of the two packages are not copied into the build output or the payload. |
-| 4 | Obligation not met | **MIT/ISC/BSD/0BSD notices of the bundled UI libraries are not shipped.** The Vite bundle compiles in up to 167 production packages (161 MIT, 2 ISC, 1 BSD-3-Clause, 1 0BSD, 2 OFL-1.1). In the built bundle only React and lucide-react keep a licence comment (`@license` banners; none in the vendor chunk), and `node_modules` is not shipped, so recipients get no copyright and permission notice for the others. The only notice file installed is the archived [DATGOLD-HUB/THIRD-PARTY-NOTICES.txt](../DATGOLD-HUB/THIRD-PARTY-NOTICES.txt) (see [Notice files that need an update](#notice-files)). `react-remove-scroll-bar` declares MIT but its package contains no LICENSE file. |
+| 4 | Obligation not met | **MIT/ISC/BSD/0BSD notices of the bundled UI libraries are not shipped.** The Vite bundle compiles in up to 143 production packages (137 MIT, 2 ISC, 1 BSD-3-Clause, 1 0BSD, 2 OFL-1.1). In the built bundle only React and lucide-react keep a licence comment (`@license` banners; none in the vendor chunk), and `node_modules` is not shipped, so recipients get no copyright and permission notice for the others. The only notice file installed is the archived [DATGOLD-HUB/THIRD-PARTY-NOTICES.txt](../DATGOLD-HUB/THIRD-PARTY-NOTICES.txt) (see [Notice files that need an update](#notice-files)). `react-remove-scroll-bar` declares MIT but its package contains no LICENSE file. |
 | 5 | Obligation not met | **The Tree-sitter grammars' own MIT notices are not shipped.** `stage.mjs` copies four compiled grammars (`javascript`, `typescript`, `tsx`, `python`) out of `tree-sitter-wasms` 0.1.13 and only that package's LICENSE (Unlicense, which covers the packaging, not the grammars) into `licenses/tree-sitter-wasms/`. The grammars are compiled from the upstream tree-sitter-javascript, tree-sitter-typescript and tree-sitter-python projects, which are MIT-licensed *(upstream, not verified here)* and require their copyright notice to be kept. |
 | 6 | To verify at build | **Embedded CPython 3.11.9 (PSF-2.0) and the Microsoft Visual C++ runtime.** The embeddable archive carries `LICENSE.txt` *(upstream, not verified here)* and also contains `vcruntime140.dll` / `vcruntime140_1.dll`, Microsoft's redistributable C++ runtime, which is proprietary (not OSI-approved) and may be redistributed only under Microsoft's redistribution terms. It also contains OpenSSL 3.x (Apache-2.0), SQLite (public domain), libffi (MIT), expat (MIT), zlib, bzip2, liblzma and mpdecimal *(upstream, not verified here)*. [stage-python.ps1](../scripts/intelligence-runtime/stage-python.ps1) extracts every file of the pinned archive (SHA-256 checked) but does not assert that `LICENSE.txt` is present; add that assertion and list the Microsoft runtime terms in the notices. |
 | 7 | Check | **Brand assets.** `assets/icons/*`, `web/chatmcp-logo.png` and `web/favicon.ico` are drawn by [scripts/generate-brand-icon.py](../scripts/generate-brand-icon.py) (Pillow, original geometry), so they fall under the repository licence. The owner should confirm that nothing in them is third-party artwork. Apache-2.0 section 6 grants no trademark rights: the DatGold name and logo are not licensed for use as a brand. |
@@ -57,7 +57,7 @@ The DatGold code is Apache-2.0. A component is marked compatible when it may be 
 | `playwright`, `playwright-core` (staged to `runtimes/browser/node_modules`) | 1.64.0 | Apache-2.0 | Yes | Whole package folders are copied, including LICENSE and NOTICE (and `ThirdPartyNotices.txt` in playwright-core). Browser executables are not bundled. They are devDependencies in the UI lockfile but are redistributed. |
 | Microsoft.Web.WebView2 (managed DLLs and `WebView2Loader.dll`) | 1.0.4258.31 | Microsoft BSD-3-Clause-style licence; NOTICE adds Antlr3.Runtime and StringTemplate4 (BSD-3-Clause) | Yes | Finding 2. The WebView2 *Runtime* itself is a separate Microsoft installation and is not bundled. |
 | .NET 10 runtime and base libraries inside `ChatMCP.exe`, `DatGoldSetup.exe` / `Uninstall.exe` (self-contained single files) and `GuestSupervisor.exe` (Native AOT) | 10.0.x | MIT | Yes | The runtime's own third-party notice file is not shipped. |
-| UI bundle (`DATGOLD-HUB/web/dist/assets/*.js`, `*.css`) | see [UI production packages](#ui-production-packages-compiled-into-webdist) | MIT (161), OFL-1.1 (2), ISC (2), BSD-3-Clause (1), 0BSD (1) | Yes | Finding 4. The Tailwind CSS banner and the `@license` comments of React and lucide-react survive the build. |
+| UI bundle (`DATGOLD-HUB/web/dist/assets/*.js`, `*.css`) | see [UI production packages](#ui-production-packages-compiled-into-webdist) | MIT (137), OFL-1.1 (2), ISC (2), BSD-3-Clause (1), 0BSD (1) | Yes | Finding 4. The Tailwind CSS banner and the `@license` comments of React and lucide-react survive the build. |
 | Inter variable and JetBrains Mono 400 web fonts (`web/dist/assets/*.woff2`, `*.woff`) | 5.3.0 and 5.3.0 (Fontsource packages) | OFL-1.1 | Yes, as separate font files | Finding 3. Inter: Copyright 2016 The Inter Project Authors. JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors. |
 | Icons and logo (`assets/icons`, `DATGOLD-HUB/ui/public/chatmcp-logo.png`, `DATGOLD-HUB/ui/public/favicon.ico`) | - | Apache-2.0 (own work) | - | Finding 7. |
 
@@ -81,7 +81,7 @@ Findings 1, 5 and 6 were addressed in the build scripts; the rest are open. `DAT
 | 1 | Fixed in the build, not run end to end | [InstallerPayload.ps1](../scripts/InstallerPayload.ps1) `Copy-InstallerNodeLicense` copies the `LICENSE` that sits beside `node.exe` (or the file named by `CHATMCP_NODE_LICENSE_FILE`) to `runtimes/node/LICENSE` and refuses a build without a genuine Node.js text; [Build-Installer.ps1](../scripts/Build-Installer.ps1) calls it. Tested in [Test-InstallerPayload.ps1](../scripts/tests/Test-InstallerPayload.ps1) (tested). A Node.js installed by the MSI has no `LICENSE` beside `node.exe`, so such a machine needs `CHATMCP_NODE_LICENSE_FILE`; the Node.js ZIP distribution (what `setup-node` uses) carries it. `Build-Installer.ps1` itself was not run here (it cannot finish on this machine). The Node.js version is still not pinned. |
 | 2 | Open | WebView2 `LICENSE` and `NOTICE` are still not shipped. The entry exists in the notice files as "pending" (tested). |
 | 3 | Open | OFL texts of the two fonts still not shipped; entry marked "pending" (tested). |
-| 4 | Open | The MIT, ISC, BSD and 0BSD notices of the UI libraries are still not shipped. [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) now lists all 167 production packages with version and license, generated from the lockfile by [generate-licenses.mjs](../scripts/generate-licenses.mjs) (tested against the lockfile). |
+| 4 | Open | The MIT, ISC, BSD and 0BSD notices of the UI libraries are still not shipped. [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) now lists all 143 production packages with version and license, generated from the lockfile by [generate-licenses.mjs](../scripts/generate-licenses.mjs) (tested against the lockfile). |
 | 5 | Fixed in the build | [notices.mjs](../scripts/intelligence-runtime/notices.mjs), [stage.mjs](../scripts/intelligence-runtime/stage.mjs) and [verify.mjs](../scripts/intelligence-runtime/verify.mjs) stage `licenses/<upstream>/LICENSE` for tree-sitter-javascript, tree-sitter-typescript (also behind `tsx`) and tree-sitter-python from `scripts/intelligence-runtime/licenses/`, refuse a staging without them and refuse a staged runtime without them (tested on fixtures). The three upstream MIT texts have been in that folder since commit `106f649` (2026-10-19): they were copied unchanged from the default branch of each upstream repository, not written from memory. The grammar versions inside `tree-sitter-wasms` are not recorded in its package, so they are the texts of the upstream default branch and not of the exact versions compiled into the grammars. `ci.yml` no longer sets `CHATMCP_ALLOW_PENDING_NOTICES`, so the installer jobs run the real `stage.mjs` and `verify.mjs` with the notices required, and the suite fails if a workflow sets the variable again. The option stays in `notices.mjs` and `stage.mjs` for builds that are not releases (it stages `licenses/PENDING-NOTICES.txt` and records `pendingNotices` in the manifest); no workflow uses it. |
 | 6 | Partly fixed | [stage-python.ps1](../scripts/intelligence-runtime/stage-python.ps1) now requires `LICENSE.txt` in the archive and that it is the PSF text; `stage.mjs` and `verify.mjs` assert it again in the staged runtime (tested on fixtures; the PowerShell assertion itself was only parse-checked here because the archive was not available offline). The check string was taken from the `LICENSE.txt` of a local CPython 3.11.9 installation, not from the embeddable archive. The notice files list CPython and the Microsoft Visual C++ runtime; the Microsoft redistribution terms are named, not reproduced. |
 
@@ -101,54 +101,30 @@ Findings 1, 5 and 6 were addressed in the build scripts; the rest are open. `DAT
 
 ## UI production packages (compiled into web/dist)
 
-167 packages from the production dependency closure of [DATGOLD-HUB/ui/package.json](../DATGOLD-HUB/ui/package.json) (`"dev": false` in the lockfile). Tree shaking means the bundle contains only the parts that are imported, so this is an upper bound. Licence = the `license` field of the lockfile entry; the installed package.json agrees in every case.
+143 packages from the production dependency closure of [DATGOLD-HUB/ui/package.json](../DATGOLD-HUB/ui/package.json) (`"dev": false` in the lockfile). Tree shaking means the bundle contains only the parts that are imported, so this is an upper bound. Licence = the `license` field of the lockfile entry; the installed package.json agrees in every case.
 
 | Package | Version | Licence | Apache-2.0 compatible |
 |---|---|---|---|
-| `@floating-ui/core` | 1.8.0 | MIT | Yes |
-| `@floating-ui/dom` | 1.8.0 | MIT | Yes |
-| `@floating-ui/react-dom` | 2.1.9 | MIT | Yes |
-| `@floating-ui/utils` | 0.2.12 | MIT | Yes |
 | `@fontsource-variable/inter` | 5.3.0 | OFL-1.1 | Yes - font notice and license text must accompany the font files |
 | `@fontsource/jetbrains-mono` | 5.3.0 | OFL-1.1 | Yes - font notice and license text must accompany the font files |
-| `@radix-ui/number` | 1.1.3 | MIT | Yes |
 | `@radix-ui/primitive` | 1.1.7 | MIT | Yes |
-| `@radix-ui/react-alert-dialog` | 1.1.24 | MIT | Yes |
-| `@radix-ui/react-arrow` | 1.1.16 | MIT | Yes |
-| `@radix-ui/react-collection` | 1.1.16 | MIT | Yes |
 | `@radix-ui/react-compose-refs` | 1.1.5 | MIT | Yes |
 | `@radix-ui/react-context` | 1.2.2 | MIT | Yes |
 | `@radix-ui/react-dialog` | 1.2.0 | MIT | Yes |
-| `@radix-ui/react-direction` | 1.1.5 | MIT | Yes |
 | `@radix-ui/react-dismissable-layer` | 1.1.20 | MIT | Yes |
-| `@radix-ui/react-dropdown-menu` | 2.1.25 | MIT | Yes |
 | `@radix-ui/react-focus-guards` | 1.1.6 | MIT | Yes |
 | `@radix-ui/react-focus-scope` | 1.2.0 | MIT | Yes |
 | `@radix-ui/react-id` | 1.1.4 | MIT | Yes |
-| `@radix-ui/react-menu` | 2.1.25 | MIT | Yes |
-| `@radix-ui/react-popover` | 1.2.0 | MIT | Yes |
-| `@radix-ui/react-popper` | 1.3.8 | MIT | Yes |
 | `@radix-ui/react-portal` | 1.1.18 | MIT | Yes |
 | `@radix-ui/react-presence` | 1.1.11 | MIT | Yes |
 | `@radix-ui/react-primitive` | 2.1.11 | MIT | Yes |
-| `@radix-ui/react-roving-focus` | 1.1.20 | MIT | Yes |
-| `@radix-ui/react-scroll-area` | 1.3.0 | MIT | Yes |
 | `@radix-ui/react-slot` | 1.4.0 | MIT | Yes |
-| `@radix-ui/react-tabs` | 1.1.22 | MIT | Yes |
-| `@radix-ui/react-tooltip` | 1.3.0 | MIT | Yes |
 | `@radix-ui/react-use-callback-ref` | 1.1.4 | MIT | Yes |
 | `@radix-ui/react-use-controllable-state` | 1.2.6 | MIT | Yes |
 | `@radix-ui/react-use-effect-event` | 0.0.5 | MIT | Yes |
-| `@radix-ui/react-use-is-hydrated` | 0.1.3 | MIT | Yes |
 | `@radix-ui/react-use-layout-effect` | 1.1.4 | MIT | Yes |
-| `@radix-ui/react-use-rect` | 1.1.4 | MIT | Yes |
-| `@radix-ui/react-use-size` | 1.1.5 | MIT | Yes |
-| `@radix-ui/react-visually-hidden` | 1.2.12 | MIT | Yes |
-| `@radix-ui/rect` | 1.1.3 | MIT | Yes |
 | `@tanstack/query-core` | 5.104.1 | MIT | Yes |
 | `@tanstack/react-query` | 5.104.1 | MIT | Yes |
-| `@tanstack/react-virtual` | 3.14.15 | MIT | Yes |
-| `@tanstack/virtual-core` | 3.19.0 | MIT | Yes |
 | `@types/debug` | 4.1.13 | MIT | Yes |
 | `@types/estree` | 1.0.9 | MIT | Yes |
 | `@types/estree-jsx` | 1.0.5 | MIT | Yes |
