@@ -1,0 +1,291 @@
+{
+  "suite": "verify-acp-schema.mjs",
+  "mutations": [
+    {
+      "name": "record-sha256",
+      "what": "the record names another hash for the copy",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"sha256\": \"0d0b1ca83c4872e5473f68926a894c7a8203b59b118e2a79bfe43dd76fbcbc1a\",",
+          "new": "\"sha256\": \"0d0b1ca83c4872e5473f68926a894c7a8203b59b118e2a79bfe43dd76fbcbc1b\","
+        }
+      ]
+    },
+    {
+      "name": "record-bytes",
+      "what": "the record names another size for the copy",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"bytes\": 256258,",
+          "new": "\"bytes\": 256259,"
+        }
+      ]
+    },
+    {
+      "name": "record-file",
+      "what": "the record names another file",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"file\": \"schema.json\",",
+          "new": "\"file\": \"schema.v1.json\","
+        }
+      ]
+    },
+    {
+      "name": "record-what",
+      "what": "the record does not say the copy is unchanged",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "copied unchanged.",
+          "new": "copied."
+        }
+      ]
+    },
+    {
+      "name": "record-protocol-version",
+      "what": "the record says the copy is for another version of the protocol",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"protocolVersion\": 1,",
+          "new": "\"protocolVersion\": 2,"
+        }
+      ]
+    },
+    {
+      "name": "record-package-version",
+      "what": "the record names another version of the package",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"version\": \"2.4.0\",",
+          "new": "\"version\": \"2.4.1\","
+        }
+      ]
+    },
+    {
+      "name": "record-path",
+      "what": "the record names the unstable schema",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"path\": \"schema/v1/schema.json\",\n    \"npmTarball\"",
+          "new": "\"path\": \"schema/v1/schema.unstable.json\",\n    \"npmTarball\""
+        }
+      ]
+    },
+    {
+      "name": "record-tarball",
+      "what": "the record names the tarball of another version",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "sdk-2.4.0.tgz\"",
+          "new": "sdk-2.4.1.tgz\""
+        }
+      ]
+    },
+    {
+      "name": "record-integrity",
+      "what": "the record names another integrity",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"sha512-7qJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg==\"",
+          "new": "\"sha512-XqJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg==\""
+        }
+      ]
+    },
+    {
+      "name": "record-package-repository",
+      "what": "the record names another repository for the package",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"packageRepository\": \"https://github.com/agentclientprotocol/typescript-sdk\",",
+          "new": "\"packageRepository\": \"https://github.com/agentclientprotocol/python-sdk\","
+        }
+      ]
+    },
+    {
+      "name": "record-license-spdx",
+      "what": "the record names another licence",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"spdx\": \"Apache-2.0\",",
+          "new": "\"spdx\": \"MIT\","
+        }
+      ]
+    },
+    {
+      "name": "record-license-sha",
+      "what": "the record names another hash for the licence",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"sha256\": \"6ed4f049cce59e05197d585bdf8a39980b45d546d6ea718ee344555f3a867c3a\",",
+          "new": "\"sha256\": \"6ed4f049cce59e05197d585bdf8a39980b45d546d6ea718ee344555f3a867c3b\","
+        }
+      ]
+    },
+    {
+      "name": "record-license-copyright",
+      "what": "the record names another copyright holder",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"copyright\": \"Copyright 2025 Zed Industries, Inc. and contributors\",",
+          "new": "\"copyright\": \"Copyright 2025 Somebody Else\","
+        }
+      ]
+    },
+    {
+      "name": "record-license-copyright-year",
+      "what": "the record does not start the copyright with a year",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"copyright\": \"Copyright 2025 Zed",
+          "new": "\"copyright\": \"Copyright Zed"
+        }
+      ]
+    },
+    {
+      "name": "record-upstream-repository",
+      "what": "the record names another upstream repository",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"repository\": \"https://github.com/agentclientprotocol/agent-client-protocol\",",
+          "new": "\"repository\": \"https://github.com/agentclientprotocol/registry\","
+        }
+      ]
+    },
+    {
+      "name": "record-upstream-tag",
+      "what": "the record names a tag that is not one of the schema",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"tag\": \"schema-v1.29.1\",",
+          "new": "\"tag\": \"v1.29.1\","
+        }
+      ]
+    },
+    {
+      "name": "record-upstream-path",
+      "what": "the record names another path upstream",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"path\": \"schema/v1/schema.json\",\n    \"rawUrl\"",
+          "new": "\"path\": \"schema/schema.json\",\n    \"rawUrl\""
+        }
+      ]
+    },
+    {
+      "name": "record-upstream-url",
+      "what": "the address does not follow from the tag",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "agent-client-protocol/schema-v1.29.1/schema/v1/schema.json\"",
+          "new": "agent-client-protocol/schema-v1.29.0/schema/v1/schema.json\""
+        }
+      ]
+    },
+    {
+      "name": "record-upstream-same",
+      "what": "the record does not say the upstream file is the same",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"sameBytes\": true,",
+          "new": "\"sameBytes\": false,"
+        }
+      ]
+    },
+    {
+      "name": "record-upstream-date",
+      "what": "the record does not say when it was checked",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "\"checked\": \"2026-11-11\",",
+          "new": "\"checked\": \"last week\","
+        }
+      ]
+    },
+    {
+      "name": "record-upstream-how",
+      "what": "the record does not say what was not checked",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "The licence of that repository was not read; ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "record-update",
+      "what": "the record does not say which test follows the update",
+      "patches": [
+        {
+          "file": "lib/acp/schema/SOURCE.json",
+          "old": "tests/verify-acp-schema.mjs fails until the copy, the record and the installed package agree.",
+          "new": "The test fails until they agree."
+        }
+      ]
+    },
+    {
+      "name": "copy-one-byte",
+      "what": "one byte of the copy is not the one that was recorded",
+      "patches": [
+        {
+          "file": "lib/acp/schema/schema.json",
+          "old": "\"title\": \"Agent Client Protocol\",",
+          "new": "\"title\": \"Agent Client Protocols\","
+        }
+      ]
+    },
+    {
+      "name": "copy-draft",
+      "what": "the copy is a schema of another draft",
+      "patches": [
+        {
+          "file": "lib/acp/schema/schema.json",
+          "old": "\"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"title\"",
+          "new": "\"$schema\": \"https://json-schema.org/draft/2019-09/schema\",\n  \"title\""
+        }
+      ]
+    },
+    {
+      "name": "license-version",
+      "what": "the licence file is another version of the licence",
+      "patches": [
+        {
+          "file": "lib/acp/schema/LICENSE",
+          "old": "Version 2.0, January 2004",
+          "new": "Version 1.1, January 2004"
+        }
+      ]
+    },
+    {
+      "name": "license-copyright-line",
+      "what": "the licence file carries another copyright line",
+      "patches": [
+        {
+          "file": "lib/acp/schema/LICENSE",
+          "old": "Copyright 2025 Zed Industries, Inc. and contributors",
+          "new": "Copyright 2025 Zed Industries, Inc. and others"
+        }
+      ]
+    }
+  ]
+}

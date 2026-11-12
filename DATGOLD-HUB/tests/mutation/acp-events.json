@@ -1,0 +1,1330 @@
+{
+  "suite": "verify-acp-events.mjs",
+  "mutations": [
+    {
+      "name": "kind-unknown-is-read",
+      "what": "a tool the table does not know is shown as a read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "return strict ? null : 'other';",
+          "new": "return strict ? null : 'read';"
+        }
+      ]
+    },
+    {
+      "name": "kind-strict-never-null",
+      "what": "strict mode never finds a tool without a kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "return strict ? null : ",
+          "new": "return false ? null : "
+        }
+      ]
+    },
+    {
+      "name": "kind-prefix-kept",
+      "what": "the prefix of a local tool is not removed before the lookup",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "toolName.replace(/^local\\./, '')",
+          "new": "toolName"
+        }
+      ]
+    },
+    {
+      "name": "kind-write-file-unknown",
+      "what": "write_file has no kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "edit: ['write_file', 'edit_file',",
+          "new": "edit: ['edit_file',"
+        }
+      ]
+    },
+    {
+      "name": "kind-delete-path-unknown",
+      "what": "delete_path has no kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "delete: ['delete_path', 'worktrees_remove'],",
+          "new": "delete: ['worktrees_remove'],"
+        }
+      ]
+    },
+    {
+      "name": "kind-move-path-unknown",
+      "what": "move_path has no kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "move: ['move_path'],",
+          "new": "move: [],"
+        }
+      ]
+    },
+    {
+      "name": "kind-run-command-unknown",
+      "what": "run_command has no kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "    'run_command', 'tasks_run',",
+          "new": "    'tasks_run',"
+        }
+      ]
+    },
+    {
+      "name": "kind-read-file-unknown",
+      "what": "read_file has no kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "    'read_file', 'list_directory',",
+          "new": "    'list_directory',"
+        }
+      ]
+    },
+    {
+      "name": "kind-search-files-unknown",
+      "what": "search_files has no kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "'find_files', 'search_files',",
+          "new": "'find_files',"
+        }
+      ]
+    },
+    {
+      "name": "kind-web-fetch-unknown",
+      "what": "web_fetch has no kind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "fetch: ['web_fetch', 'web_extract',",
+          "new": "fetch: ['web_extract',"
+        }
+      ]
+    },
+    {
+      "name": "kind-studio-prefix-lost",
+      "what": "the studio tools lose their prefix like the local ones",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "tableName = (toolName) => (typeof toolName === 'string' ? toolName.replace(",
+          "new": "tableName = (toolName) => (typeof toolName === 'string' ? toolName.replace(/^studio\\./, '').replace("
+        }
+      ]
+    },
+    {
+      "name": "title-no-tool",
+      "what": "a call without a tool name has a title of its own",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (typeof toolName !== 'string' || toolName === '') return 'Tool call';",
+          "new": "if (false) return \"Tool call\";"
+        }
+      ]
+    },
+    {
+      "name": "title-fixed-web",
+      "what": "the title of a web fetch is another sentence",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "['web_fetch', 'Fetch a web page']",
+          "new": "['web_fetch', 'Fetch a page']"
+        }
+      ]
+    },
+    {
+      "name": "title-fixed-plan",
+      "what": "the title of a plan update is another sentence",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "['update_plan', 'Update the plan']",
+          "new": "['update_plan', 'Plan']"
+        }
+      ]
+    },
+    {
+      "name": "title-search-in",
+      "what": "a search in a folder does not say in which",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "first ? `${search} in ${first}` : search",
+          "new": "first ? `${search} ${first}` : search"
+        }
+      ]
+    },
+    {
+      "name": "title-search-clip",
+      "what": "the title of a search is not bounded",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "return clip(first ? `${search} in ${first}` : search, MAX_TITLE_CHARS);",
+          "new": "return first ? `${search} in ${first}` : search;"
+        }
+      ]
+    },
+    {
+      "name": "title-move-both",
+      "what": "a move names only the source",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "from && to ? `Move ${from} to ${to}` : from",
+          "new": "from && to ? `Move ${from}` : from"
+        }
+      ]
+    },
+    {
+      "name": "title-move-nothing",
+      "what": "a move without names says nothing",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": ": 'Move a file'",
+          "new": ": ''"
+        }
+      ]
+    },
+    {
+      "name": "title-batch-many",
+      "what": "a batch of several files names the first one",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (name === 'files_write_batch' && many.length > 1) return `Write ${many.length} files`;",
+          "new": "if (name === 'files_write_batch' && many.length > 99) return `Write ${many.length} files`;"
+        }
+      ]
+    },
+    {
+      "name": "title-batch-two",
+      "what": "a batch of two files is told as one file",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (name === 'files_write_batch' && many.length > 1) return",
+          "new": "if (name === 'files_write_batch' && many.length > 2) return"
+        }
+      ]
+    },
+    {
+      "name": "title-batch-one",
+      "what": "a batch of one file is told as a count",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (name === 'files_write_batch' && many.length > 1) return",
+          "new": "if (name === 'files_write_batch' && many.length > 0) return"
+        }
+      ]
+    },
+    {
+      "name": "title-command-detail",
+      "what": "the title of a command is made from the path",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const detail = name === 'run_command' ? command : (first ?? (many.length === 1 ? text(many[0]) : null));",
+          "new": "const detail = name === 'run_command' ? first : (first ?? (many.length === 1 ? text(many[0]) : null));"
+        }
+      ]
+    },
+    {
+      "name": "title-single-path-list",
+      "what": "a list of one path is not used as the detail",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "command : (first ?? (many.length === 1 ? text(many[0]) : null))",
+          "new": "command : (first ?? null)"
+        }
+      ]
+    },
+    {
+      "name": "title-verb-clip",
+      "what": "the title of a verb is not bounded",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "return clip(detail ? `${verb} ${detail}` : humanize(name), MAX_TITLE_CHARS);",
+          "new": "return detail ? `${verb} ${detail}` : humanize(name);"
+        }
+      ]
+    },
+    {
+      "name": "title-verb-without-detail",
+      "what": "a verb without a detail is written empty",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": ": humanize(name), MAX_TITLE_CHARS);",
+          "new": ": '', MAX_TITLE_CHARS);"
+        }
+      ]
+    },
+    {
+      "name": "title-other-prefix",
+      "what": "a tool of another program keeps the name of the program in its title",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const bare = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name;",
+          "new": "const bare = name;"
+        }
+      ]
+    },
+    {
+      "name": "title-other-clip",
+      "what": "the title of another tool is not bounded",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "return clip(detail ? `${base} ${detail}` : base, MAX_TITLE_CHARS);",
+          "new": "return detail ? `${base} ${detail}` : base;"
+        }
+      ]
+    },
+    {
+      "name": "title-other-command-first",
+      "what": "the detail of another tool prefers the path to the command",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const detail = command ?? first ?? (many.length === 1 ? text(many[0]) : null);\n  const base",
+          "new": "const detail = first ?? command ?? (many.length === 1 ? text(many[0]) : null);\n  const base"
+        }
+      ]
+    },
+    {
+      "name": "title-humanize-case",
+      "what": "the words of a name start in lower case",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "words[0].toUpperCase() + words.slice(1)",
+          "new": "words"
+        }
+      ]
+    },
+    {
+      "name": "title-humanize-separators",
+      "what": "an underscore is not a space",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "split(/[._\\s-]+/)",
+          "new": "split(/[.\\s-]+/)"
+        }
+      ]
+    },
+    {
+      "name": "title-text-trim",
+      "what": "a path with spaces around it keeps them",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "(typeof value === 'string' && value.trim() !== '' ? value.trim() : null)",
+          "new": "(typeof value === 'string' && value.trim() !== '' ? value : null)"
+        }
+      ]
+    },
+    {
+      "name": "loc-outside",
+      "what": "a path above the folder is a location",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;",
+          "new": "relative === '' || relative === '..' || path.isAbsolute(relative)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "loc-parent-itself",
+      "what": "the parent folder itself is a location",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "relative === '' || relative === '..' || relative.startsWith(",
+          "new": "relative === '' || relative.startsWith("
+        }
+      ]
+    },
+    {
+      "name": "loc-folder-itself",
+      "what": "the folder of the session itself is a location",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (relative === '' || relative === '..'",
+          "new": "if (relative === '..'"
+        }
+      ]
+    },
+    {
+      "name": "loc-other-drive",
+      "what": "a path on another drive is a location",
+      "platforms": [
+        "win32"
+      ],
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": " || path.isAbsolute(relative)) continue;",
+          "new": ") continue;"
+        }
+      ]
+    },
+    {
+      "name": "loc-nul",
+      "what": "a path with a NUL byte is a location",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "value === '' || value.includes('\\u0000')",
+          "new": "value === ''"
+        }
+      ]
+    },
+    {
+      "name": "loc-empty",
+      "what": "an empty path is a location",
+      "equivalent": "an empty path resolves to the folder of the session itself, which the check on the relative path (an empty string) refuses too; the explicit test only says it twice",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "typeof value !== 'string' || value === '' ||",
+          "new": "typeof value !== 'string' ||"
+        }
+      ]
+    },
+    {
+      "name": "loc-dedupe",
+      "what": "a path named twice is two locations",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "    if (seen.has(absolute)) continue;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "loc-limit",
+      "what": "the number of locations has no limit",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "    if (found.length >= MAX_LOCATIONS) break;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "loc-no-session-folder",
+      "what": "a call without a folder of the session still has locations",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "typeof cwd !== 'string' || cwd === '') return [];",
+          "new": "typeof cwd !== 'string') return [];"
+        }
+      ]
+    },
+    {
+      "name": "loc-not-object",
+      "what": "an input that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (!isObject(input) || typeof cwd !== 'string'",
+          "new": "if (typeof cwd !== 'string'"
+        }
+      ]
+    },
+    {
+      "name": "loc-source-lost",
+      "what": "the source of a move is not a location",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "input.path, ...(Array.isArray(input.paths) ? input.paths : []), input.source, input.destination]",
+          "new": "input.path, ...(Array.isArray(input.paths) ? input.paths : []), input.destination]"
+        }
+      ]
+    },
+    {
+      "name": "loc-destination-lost",
+      "what": "the destination of a move is not a location",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "(Array.isArray(input.paths) ? input.paths : []), input.source, input.destination]",
+          "new": "(Array.isArray(input.paths) ? input.paths : []), input.source]"
+        }
+      ]
+    },
+    {
+      "name": "loc-paths-lost",
+      "what": "the paths of a batch are not locations",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "[input.path, ...(Array.isArray(input.paths) ? input.paths : []), ",
+          "new": "[input.path, "
+        }
+      ]
+    },
+    {
+      "name": "result-iserror-ignored",
+      "what": "a result that says it is an error is a success",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "(structured && parsed.isError === true) || FAILED.has(String(event.status))",
+          "new": "FAILED.has(String(event.status))"
+        }
+      ]
+    },
+    {
+      "name": "result-status-ignored",
+      "what": "a status of failure on the event is ignored",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "(structured && parsed.isError === true) || FAILED.has(String(event.status))",
+          "new": "(structured && parsed.isError === true)"
+        }
+      ]
+    },
+    {
+      "name": "result-iserror-truthy",
+      "what": "any truthy isError is an error",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "parsed.isError === true",
+          "new": "parsed.isError"
+        }
+      ]
+    },
+    {
+      "name": "result-text-blocks-only",
+      "what": "a block that is not text is read as text",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "block.type === 'text' && typeof block.text === 'string'",
+          "new": "typeof block.text === 'string'"
+        }
+      ]
+    },
+    {
+      "name": "result-blocks-joined",
+      "what": "the blocks of a result are run together",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": ".map((block) => block.text).join('\\n\\n')",
+          "new": ".map((block) => block.text).join('')"
+        }
+      ]
+    },
+    {
+      "name": "result-plain-text",
+      "what": "a result that is plain words says nothing",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "else if (typeof event.message === 'string') words = event.message;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "result-clip-edge",
+      "what": "text of exactly the limit is cut",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (words.length > MAX_TOOL_OUTPUT_CHARS)",
+          "new": "if (words.length >= MAX_TOOL_OUTPUT_CHARS)"
+        }
+      ]
+    },
+    {
+      "name": "result-no-clip",
+      "what": "the text of a result has no limit",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (words.length > MAX_TOOL_OUTPUT_CHARS)",
+          "new": "if (false)"
+        }
+      ]
+    },
+    {
+      "name": "result-clip-says-how-much",
+      "what": "the cut does not say how much is not shown",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "\\n… ${words.length - MAX_TOOL_OUTPUT_CHARS} characters not shown",
+          "new": "\\n…"
+        }
+      ]
+    },
+    {
+      "name": "result-not-json-object",
+      "what": "a result that is JSON but not an object is read as an object",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const structured = isObject(parsed);",
+          "new": "const structured = parsed !== null && parsed !== undefined;"
+        }
+      ]
+    },
+    {
+      "name": "announce-rawinput-lost",
+      "what": "the input is not sent with the call",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "      ...(input ? { rawInput: input } : {}),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "announce-locations-lost",
+      "what": "the locations are not sent with the call",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "      ...(locations.length ? { locations } : {}),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "announce-kind-lost",
+      "what": "the kind is always other",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "kind: kindOf(event.toolName),\n      status,",
+          "new": "kind: 'other',\n      status,"
+        }
+      ]
+    },
+    {
+      "name": "announce-input-array",
+      "what": "an array is taken for an input",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const input = isObject(event.input) ? event.input : undefined;",
+          "new": "const input = event.input && typeof event.input === \"object\" ? event.input : undefined;"
+        }
+      ]
+    },
+    {
+      "name": "start-callid-required",
+      "what": "a start without a call id is announced",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (typeof event.callId !== 'string' || event.callId === '' || calls.has(event.callId)) return;\n      const waiting",
+          "new": "if (calls.has(event.callId)) return;\n      const waiting"
+        }
+      ]
+    },
+    {
+      "name": "start-twice",
+      "what": "a call that started twice is announced twice",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "event.callId === '' || calls.has(event.callId)) return;\n      const waiting",
+          "new": "event.callId === '') return;\n      const waiting"
+        }
+      ]
+    },
+    {
+      "name": "start-waiting-pending",
+      "what": "a call that waits for an approval is told as running",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const status = waiting ? 'pending' : 'in_progress';",
+          "new": "const status = 'in_progress';"
+        }
+      ]
+    },
+    {
+      "name": "start-waiting-phase",
+      "what": "the phase that means waiting is another one",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "task.pendingCall.phase === 'awaiting_approval';",
+          "new": "task.pendingCall.phase === 'executing';"
+        }
+      ]
+    },
+    {
+      "name": "start-waiting-call",
+      "what": "any pending call makes every call wait",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "task.pendingCall.callId === event.callId && task.pendingCall.phase",
+          "new": "task.pendingCall.phase"
+        }
+      ]
+    },
+    {
+      "name": "result-error-event",
+      "what": "a tool_error event is read as a success when its words say nothing",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "event.type === 'tool_result' || event.type === 'tool_error'",
+          "new": "event.type === 'tool_result'"
+        }
+      ]
+    },
+    {
+      "name": "result-error-status",
+      "what": "a tool_error event is told as completed",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "result.failed || event.type === 'tool_error' ? 'failed' : 'completed'",
+          "new": "result.failed ? 'failed' : 'completed'"
+        }
+      ]
+    },
+    {
+      "name": "result-callid-required",
+      "what": "a result without a call id is told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "// A call the owner refused, the permission gate blocked (a protected path) or that failed is a `tool_error` of its own; the words are the same kind of message, or plain words.\n      if (typeof event.callId !== 'string' || event.callId === '') return;",
+          "new": "// A call the owner refused.\n      if (false) return;"
+        }
+      ]
+    },
+    {
+      "name": "result-without-start",
+      "what": "a result whose start was never seen is told as an update of a call nobody knows",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (known === undefined) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "result-update-content",
+      "what": "the words of a result are not sent",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": ", status, ...(content ? { content } : {}) });\n      }",
+          "new": ", status });\n      }"
+        }
+      ]
+    },
+    {
+      "name": "result-announce-content",
+      "what": "the words of a result without a start are not sent",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "...announce(event, task, status), ...(content ? { content } : {}) }",
+          "new": "...announce(event, task, status) }"
+        }
+      ]
+    },
+    {
+      "name": "result-remembered",
+      "what": "a finished call is forgotten",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "      calls.set(event.callId, { status });\n    } else if (event.type === 'assistant')",
+          "new": "    } else if (event.type === 'assistant')"
+        }
+      ]
+    },
+    {
+      "name": "assistant-empty",
+      "what": "an empty message of the model is said",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (typeof event.message !== 'string' || event.message.trim() === '') return;",
+          "new": "if (typeof event.message !== 'string') return;"
+        }
+      ]
+    },
+    {
+      "name": "assistant-not-said",
+      "what": "a message of the model is not remembered, so the answer repeats it",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "      said.add(event.message.trim());\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "assistant-trimmed",
+      "what": "the message of the model is cut at its edges",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "content: { type: 'text', text: event.message } });",
+          "new": "content: { type: 'text', text: event.message.trim() } });"
+        }
+      ]
+    },
+    {
+      "name": "event-not-object",
+      "what": "an event that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (!isObject(event) || typeof event.type !== 'string') return;",
+          "new": "if (typeof event.type !== 'string') return;"
+        }
+      ]
+    },
+    {
+      "name": "cursor-never-moves",
+      "what": "the cursor is never moved to the end of the record",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "      if (total > cursor) cursor = total;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cursor-from",
+      "what": "a turn that continues a task starts at the beginning of its record",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "let cursor = wholeCount(from) ? from : 0;",
+          "new": "let cursor = 0;"
+        }
+      ]
+    },
+    {
+      "name": "cursor-dropped-events",
+      "what": "events the Hub dropped are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (cursor < base) { missed += base - cursor; cursor = base; }",
+          "new": "if (cursor < base) { cursor = base; }"
+        }
+      ]
+    },
+    {
+      "name": "cursor-dropped-cursor",
+      "what": "events the Hub dropped leave the cursor behind",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (cursor < base) { missed += base - cursor; cursor = base; }",
+          "new": "if (cursor < base) { missed += base - cursor; }"
+        }
+      ]
+    },
+    {
+      "name": "record-total-smaller",
+      "what": "a record count that is smaller than the list is believed",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "wholeCount(task.eventCount) && task.eventCount >= events.length ? task.eventCount : events.length",
+          "new": "wholeCount(task.eventCount) ? task.eventCount : events.length"
+        }
+      ]
+    },
+    {
+      "name": "record-not-object",
+      "what": "a record that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (!isObject(task)) return [];\n      const updates",
+          "new": "const updates"
+        }
+      ]
+    },
+    {
+      "name": "pending-executing-update",
+      "what": "a call that waited and now runs is not told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "calls.set(pending.callId, { status: 'in_progress' });\n        updates.push({ sessionUpdate: 'tool_call_update', toolCallId: pending.callId, status: 'in_progress' });",
+          "new": "calls.set(pending.callId, { status: 'in_progress' });"
+        }
+      ]
+    },
+    {
+      "name": "pending-executing-again",
+      "what": "a call that runs is told again at every look",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "pending.phase === 'executing' && calls.get(pending.callId)?.status === 'pending'",
+          "new": "pending.phase === 'executing'"
+        }
+      ]
+    },
+    {
+      "name": "pending-needs-wait",
+      "what": "a call that never waited is told as starting to run",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "calls.get(pending.callId)?.status === 'pending') {",
+          "new": "true) {"
+        }
+      ]
+    },
+    {
+      "name": "plan-version",
+      "what": "a plan of another version is read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "goalPlan.version !== 1 || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "plan-status-working",
+      "what": "a phase in work is told as pending",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "['working', 'in_progress']",
+          "new": "['working', 'pending']"
+        }
+      ]
+    },
+    {
+      "name": "plan-status-evidence",
+      "what": "a phase with evidence is told as in progress",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "['has_evidence', 'completed']",
+          "new": "['has_evidence', 'in_progress']"
+        }
+      ]
+    },
+    {
+      "name": "plan-status-default",
+      "what": "a phase of another state is told as completed",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "PLAN_STATUS.get(phase.status) ?? 'pending'",
+          "new": "PLAN_STATUS.get(phase.status) ?? 'completed'"
+        }
+      ]
+    },
+    {
+      "name": "plan-priority",
+      "what": "a phase is told with another priority",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "priority: 'medium'",
+          "new": "priority: 'high'"
+        }
+      ]
+    },
+    {
+      "name": "plan-clip",
+      "what": "the title of a phase is not bounded",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "content: clip(title, MAX_TITLE_CHARS)",
+          "new": "content: title"
+        }
+      ]
+    },
+    {
+      "name": "plan-empty-title",
+      "what": "a phase without a title is told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (title === null) continue;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "plan-empty-plan",
+      "what": "a plan without phases is told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "return entries.length ? entries : null;",
+          "new": "return entries;"
+        }
+      ]
+    },
+    {
+      "name": "plan-repeat",
+      "what": "the same plan is told at every look",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (key !== lastPlan) { lastPlan = key; updates.push",
+          "new": "if (true) { lastPlan = key; updates.push"
+        }
+      ]
+    },
+    {
+      "name": "plan-key-lost",
+      "what": "the plan is told once and never again when it changes",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (key !== lastPlan) { lastPlan = key; updates.push",
+          "new": "if (lastPlan === null) { lastPlan = key; updates.push"
+        }
+      ]
+    },
+    {
+      "name": "plan-phase-not-object",
+      "what": "a phase that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const title = isObject(phase) ? text(phase.title) : null;",
+          "new": "const title = text(phase.title);"
+        }
+      ]
+    },
+    {
+      "name": "usage-types",
+      "what": "counts that are not whole numbers are read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "!wholeCount(usage.httpRequests) || !wholeCount(usage.inputTokens) || !wholeCount(usage.outputTokens)",
+          "new": "!wholeCount(usage.httpRequests) || !wholeCount(usage.inputTokens)"
+        }
+      ]
+    },
+    {
+      "name": "usage-input-missing",
+      "what": "input tokens the provider did not report are used",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "usage.inputUsageMissing !== 0 || usage.outputUsageMissing !== 0",
+          "new": "usage.outputUsageMissing !== 0"
+        }
+      ]
+    },
+    {
+      "name": "usage-output-missing",
+      "what": "output tokens the provider did not report are used",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "usage.inputUsageMissing !== 0 || usage.outputUsageMissing !== 0",
+          "new": "usage.inputUsageMissing !== 0"
+        }
+      ]
+    },
+    {
+      "name": "usage-one-response",
+      "what": "the sum of several responses is told as the context",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (now.requests - before.requests !== 1) return null;",
+          "new": "if (now.requests - before.requests < 1) return null;"
+        }
+      ]
+    },
+    {
+      "name": "usage-no-response",
+      "what": "a look at which no response was added tells the use again",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (now.requests - before.requests !== 1) return null;",
+          "new": "if (now.requests - before.requests > 1) return null;"
+        }
+      ]
+    },
+    {
+      "name": "usage-mark-kept",
+      "what": "the mark of the last look is not kept",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "    mark = now;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "usage-first-look",
+      "what": "the first look of a turn counts the responses of the turns before",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const before = mark ?? { requests: 0, input: 0, output: 0 };",
+          "new": "const before = { requests: 0, input: 0, output: 0 };"
+        }
+      ]
+    },
+    {
+      "name": "usage-fallback-window",
+      "what": "the conservative fallback is told as the window of the model",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "policy.source === 'conservative_fallback' || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "usage-approximate",
+      "what": "an approximate window is told as the window of the model",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "policy.approximate === true || ",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "usage-capacity-type",
+      "what": "a window that is not a whole number is believed",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "!Number.isSafeInteger(policy.capacityTokens) || policy.capacityTokens <= 0",
+          "new": "policy.capacityTokens <= 0"
+        }
+      ]
+    },
+    {
+      "name": "usage-capacity-zero",
+      "what": "a window of zero is believed",
+      "equivalent": "a window of 0 is also refused by the check that the use is not larger than the window, and a use is at least 1 by then",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "policy.capacityTokens <= 0) return null;",
+          "new": "policy.capacityTokens < 0) return null;"
+        }
+      ]
+    },
+    {
+      "name": "usage-no-policy",
+      "what": "a record without a window policy is read",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "!isObject(policy) || policy.source",
+          "new": "policy.source"
+        }
+      ]
+    },
+    {
+      "name": "usage-zero-used",
+      "what": "a use of zero is told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (!(used > 0) || used > policy.capacityTokens) return null;",
+          "new": "if (used > policy.capacityTokens) return null;"
+        }
+      ]
+    },
+    {
+      "name": "usage-over-window",
+      "what": "a use larger than the window is told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (!(used > 0) || used > policy.capacityTokens) return null;",
+          "new": "if (!(used > 0)) return null;"
+        }
+      ]
+    },
+    {
+      "name": "usage-window-edge",
+      "what": "a use equal to the window is not told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "used > policy.capacityTokens) return null;",
+          "new": "used >= policy.capacityTokens) return null;"
+        }
+      ]
+    },
+    {
+      "name": "usage-sum-output",
+      "what": "the use counts the input only",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const used = (now.input - before.input) + (now.output - before.output);",
+          "new": "const used = (now.input - before.input);"
+        }
+      ]
+    },
+    {
+      "name": "usage-sum-input",
+      "what": "the use counts the output only",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const used = (now.input - before.input) + (now.output - before.output);",
+          "new": "const used = (now.output - before.output);"
+        }
+      ]
+    },
+    {
+      "name": "usage-size",
+      "what": "the size told is not the window",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "{ sessionUpdate: 'usage_update', used, size: policy.capacityTokens }",
+          "new": "{ sessionUpdate: 'usage_update', used, size: used }"
+        }
+      ]
+    },
+    {
+      "name": "final-parts-lost",
+      "what": "the sentences of the Hub that follow the words are lost",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const candidates = isObject(parts) ? [parts.words, parts.verificationNotice, parts.hookNotice] : [task.finalText];",
+          "new": "const candidates = isObject(parts) ? [parts.words] : [task.finalText];"
+        }
+      ]
+    },
+    {
+      "name": "final-hook-lost",
+      "what": "the notice of a hook is lost",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "[parts.words, parts.verificationNotice, parts.hookNotice]",
+          "new": "[parts.words, parts.verificationNotice]"
+        }
+      ]
+    },
+    {
+      "name": "final-verification-lost",
+      "what": "the verification notice is lost",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "[parts.words, parts.verificationNotice, parts.hookNotice]",
+          "new": "[parts.words, parts.hookNotice]"
+        }
+      ]
+    },
+    {
+      "name": "final-said-twice",
+      "what": "words already said as a message are said again at the end",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": ".filter((value) => value !== null && !said.has(value))",
+          "new": ".filter((value) => value !== null)"
+        }
+      ]
+    },
+    {
+      "name": "final-joined",
+      "what": "the parts of the end are run together",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": ".join('\\n\\n');\n    },",
+          "new": ".join('');\n    },"
+        }
+      ]
+    },
+    {
+      "name": "final-no-parts",
+      "what": "a record without parts has no final text",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": ": [task.finalText];",
+          "new": ": [];"
+        }
+      ]
+    },
+    {
+      "name": "text-blank-part",
+      "what": "a part of the end that is only white space is told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const text = (value) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);",
+          "new": "const text = (value) => (typeof value === 'string' ? value.trim() : null);"
+        }
+      ]
+    },
+    {
+      "name": "final-not-object",
+      "what": "a record that is not an object has a final text",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "finalText(task) {\n      if (!isObject(task)) return '';",
+          "new": "finalText(task) {\n      if (false) return \"\";"
+        }
+      ]
+    }
+  ]
+}

@@ -17,7 +17,9 @@ import { pathToFileURL } from 'node:url';
 import { VERSION } from '../manager.mjs';
 import { mapPromptContent } from './content.mjs';
 import { HubError, connectToHub, describeHubFailure, parseCliArguments } from './hub-client.mjs';
+import { createTurnMapper } from './event-map.mjs';
 import { createMasker } from './mask.mjs';
+import { answerWindowMs, decisionFrom, permissionRequestFor } from './permission-map.mjs';
 import { ERROR_CODES, RpcError, createRpcPeer } from './rpc.mjs';
 import { RESTING_STATES, outcomeOf } from './stop-reason.mjs';
 import { parseCancel, parseInitialize, parseNewSession, parsePrompt } from './validate.mjs';
@@ -45,8 +47,10 @@ const SETTLE_POLL_MS = 50; // the Hub turns a task "completed" a moment before i
  * @param {string} [options.version]
  * @param {number} [options.pollMs]  how often the Hub is asked about the task of a running turn
  * @param {number} [options.lostContactMs]  how long a Hub that does not answer is waited for before the turn fails
+ * @param {(hub: object, taskId: string) => Promise<object|null>} [options.readTask]  THE source of what a running task does: by default its record, read again every pollMs
+ *   (GET /api/tasks/<id>), because the Hub's streams of events send nothing in this build; once the Hub's stream works, this is the one function to replace
  */
-export function createAcpAgent({ peer, connectHub, masker, log: sink, version = VERSION, pollMs = 500, lostContactMs = 30_000 }) {
+export function createAcpAgent({ peer, connectHub, masker, log: sink, version = VERSION, pollMs = 500, lostContactMs = 30_000, readTask = (hub, taskId) => hub.getTask(taskId) }) {
   let connector = connectHub;
   const state = { initialized: false, supportsNotices: false, client: null, hubPromise: null, hubConnection: null, shutdown: null };
   const sessions = new Map();
@@ -54,9 +58,11 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
   const log = (line) => sink(masker.text(line));
 
   // ---- the one way out ------------------------------------------------------------------------------------------------------------------------------
-  // A message to the editor leaves here and nowhere else, and its decoded value is masked on the way. Results and errors are masked where the handlers are wrapped (guard).
+  // A message to the editor leaves here and nowhere else (a notification, and a request of our own: the question whether a call may run), and its decoded value is masked on the way. Results and
+  // errors are masked where the handlers are wrapped (guard).
   const outbound = {
     notify(method, params) { peer.notify(method, masker.value(params)); },
+    request(method, params, options) { return peer.request(method, masker.value(params), options); },
   };
   const fail = (code, message, data) => new RpcError(code, masker.text(message), data === undefined ? undefined : masker.value(data));
   const asRpcError = (error) => {
@@ -136,7 +142,7 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
       const hub = await getHub();
       const workspace = await hub.ensureWorkspace(cwd);
       const id = randomUUID();
-      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null });
+      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null, eventCursor: 0, usageMark: null });
       return { sessionId: id };
     } finally { sessionsBeingMade -= 1; }
   }
@@ -152,7 +158,7 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
    * Waits until the Hub says the task is at rest AND has let go of the workspace; returns the task as the Hub last published it. The Hub is asked every `pollMs` (it has no stream of events that works,
    * see lib/acp/hub-client.mjs); a task that is at rest but still held is a moment, and is looked at again after `SETTLE_POLL_MS`. A cancel, a closed connection and the end of the Hub wake the wait at once.
    */
-  async function waitForRest(turn, signal) {
+  async function waitForRest(turn, signal, observe) {
     const { hub } = turn;
     let lastAnswer = Date.now();
     let hubGone = null;
@@ -166,8 +172,10 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
       if (hubGone) throw fail(ERROR_CODES.INTERNAL, `The DatGold Hub stopped while the task was running (exit code ${hubGone.code ?? 'none'}${hubGone.signal ? `, signal ${hubGone.signal}` : ''}).`);
       let napMs = pollMs;
       try {
-        const task = await hub.getTask(turn.taskId);
+        const task = await readTask(hub, turn.taskId);
         if (!task) throw fail(ERROR_CODES.INTERNAL, 'The Hub no longer has this task.');
+        // What is new in the record is told to the editor, and an approval that waits is asked of it. A failure here (the editor, or the Hub when the approvals are looked at) is not a loss of contact with the Hub.
+        await observe(task).catch((error) => log(`could not tell the editor what the task did: ${error?.message ?? error}`));
         if (RESTING_STATES.includes(task.state)) {
           if (!(await hub.isActive(turn.taskId))) return task;
           napMs = Math.min(pollMs, SETTLE_POLL_MS);
@@ -182,6 +190,34 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
     }
   }
 
+  // ---- approvals ------------------------------------------------------------------------------------------------------------------------------------
+  /**
+   * The Hub asks the person before a call that changes files runs, in Review mode; the person who works in the editor is asked in the editor, with the change the Hub worked out. Once for each request,
+   * and only for the requests of the task of this turn. The answer reaches the Hub as it is read (lib/acp/permission-map.mjs): only "allow" allows, and an editor that cannot be asked refuses.
+   */
+  async function lookAtApprovals(turn, session, sessionId, task, signal) {
+    const waiting = task.state === 'waiting_approval' || (task.pendingCall !== null && typeof task.pendingCall === 'object' && task.pendingCall.phase === 'awaiting_approval');
+    if (!waiting) return;
+    for (const request of await turn.hub.pendingApprovals(turn.taskId)) {
+      if (typeof request?.id !== 'string' || turn.asked.has(request.id)) continue;
+      turn.asked.set(request.id, askTheEditor(turn, session, sessionId, request, task.pendingCall?.callId, signal));
+    }
+  }
+
+  async function askTheEditor(turn, session, sessionId, request, callId, signal) {
+    const params = permissionRequestFor({ sessionId, request, callId, cwd: session.cwd });
+    const timeoutMs = answerWindowMs(request);
+    let decision;
+    try { decision = decisionFrom(await outbound.request('session/request_permission', params, { signal, timeoutMs })); } catch (error) { decision = { approved: false, why: 'failed', error }; }
+    log(`approval ${request.id}: ${decision.why}${decision.error ? ` (${decision.error.message ?? decision.error})` : ''}`);
+    if (decision.why === 'failed' && !signal.aborted) {
+      tell(sessionId, { severity: 'warning', title: 'The editor could not be asked', description: 'DatGold needed your approval for a call and the editor could not be asked, so the call was refused.' });
+    }
+    try {
+      if (!(await turn.hub.decide(request.id, decision.approved))) log(`the Hub no longer had the approval ${request.id}`);
+    } catch (error) { log(`could not answer the approval ${request.id}: ${error?.message ?? error}`); }
+  }
+
   async function prompt(params, context) {
     const { sessionId, prompt: blocks } = parsePrompt(params);
     const session = sessions.get(sessionId);
@@ -192,8 +228,15 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
     // the turn (and be refused), and a cancel right behind its prompt must find it too.
     // The task of the TURN is known when the Hub has answered the start or the continue, and not before: for a later prompt the task of the session is the run that has ended, and a cancel sent for it
     // would be spent on nothing (a cancel is sent once). Until then a cancel only marks the turn; the line after the answer stops the run that exists.
-    const turn = { hub: null, taskId: null, cancelRequested: false, cancelPromise: null, wake: null };
+    // `questions` closes the questions this turn has put to the editor when the turn ends (after a cancel as after any other end): each one still open is answered to the Hub as a refusal at once, and not left
+    // waiting, with its timer, for an editor that may never answer.
+    const turn = { hub: null, taskId: null, cancelRequested: false, cancelPromise: null, wake: null, asked: new Map(), questions: new AbortController(), mapper: createTurnMapper({ cwd: session.cwd, from: session.eventCursor, usageMark: session.usageMark }) };
     session.turn = turn;
+    const askSignal = AbortSignal.any([context.signal, turn.questions.signal]);
+    const observe = async (task) => {
+      for (const update of turn.mapper.next(task)) outbound.notify('session/update', { sessionId, update });
+      await lookAtApprovals(turn, session, sessionId, task, askSignal);
+    };
     const onAbort = () => { void cancelHubTask(turn); turn.wake?.(); };
     context.signal.addEventListener('abort', onAbort, { once: true });
     try {
@@ -204,14 +247,19 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
       session.taskId = task.id;
       turn.taskId = task.id;
       if (turn.cancelRequested || context.signal.aborted) await cancelHubTask(turn); // the client cancelled before the Hub had answered the start: the task is stopped the moment its id is known
-      const finished = await waitForRest(turn, context.signal);
+      const finished = await waitForRest(turn, context.signal, observe);
       const outcome = outcomeOf(finished, { cancelRequested: turn.cancelRequested });
       if (outcome.error) throw fail(outcome.error.code, outcome.error.message);
-      if (typeof finished.finalText === 'string' && finished.finalText.trim()) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: finished.finalText } } });
+      // What the model said while the task ran was told as it appeared; the answer is told here only for what was not (the sentences of the Hub that follow it, or all of it when no message carried it).
+      const rest = turn.mapper.finalText(finished);
+      if (rest) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: rest } } });
       if (outcome.notice) tell(sessionId, outcome.notice);
       return { stopReason: outcome.stopReason };
     } finally {
       context.signal.removeEventListener('abort', onAbort);
+      turn.questions.abort();
+      session.eventCursor = turn.mapper.cursor;
+      session.usageMark = turn.mapper.usageMark;
       session.turn = null;
     }
   }

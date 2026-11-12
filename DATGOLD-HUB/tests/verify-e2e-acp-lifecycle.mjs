@@ -39,7 +39,7 @@ await runScenario({
 }, async (t) => {
   const tools = await loadAcpTools();
   if (!tools) t.skip(missingToolsReason());
-  const validator = createAcpSchemaValidator({ Ajv2020: tools.Ajv2020, schema: JSON.parse(fs.readFileSync(tools.sdkSchemaFile, 'utf8')) });
+  const validator = createAcpSchemaValidator({ Ajv2020: tools.Ajv2020, schema: JSON.parse(fs.readFileSync(tools.schemaFile, 'utf8')) });
   const project = t.dir('project');
   makeCalcProject(project);
   const gone = (pid, label) => eventually(() => !alive(pid), { timeoutMs: 25_000, label: `process ${pid} (${label}) to be gone` });
