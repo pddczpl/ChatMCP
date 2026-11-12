@@ -224,4 +224,21 @@ await runScenario({
     t.check(later.length === 1 && later[0].sessionUpdate === 'agent_message_chunk' && /FINAL-ANSWER/.test(later[0].content.text), 'it tells what is new: its answer, and not the calls of the turn before', JSON.stringify(later).slice(0, 300));
     clean(e.adapter, 'continue');
   }
+
+  // ---- G. the plan the Hub makes for a longer coding request ------------------------------------------------------------------------------------------------------------------
+  {
+    const e = await editor('plan', async () => allow);
+    const prompt = '[[WRITE]] First inspect the project files and read calc.js carefully to see what it does. Then write out.txt with the greeting from acp. Finally run the checks and review the change before you report back.';
+    const done = await e.prompt(prompt);
+    t.equal(done.result, { stopReason: 'end_turn' }, 'a longer coding request ends with end_turn');
+    await e.adapter.drained();
+    const updates = e.updates();
+    const plans = updates.filter((u) => u.sessionUpdate === 'plan');
+    t.check(plans.length >= 1, `the plan the Hub made for the request is told (${plans.length})`, JSON.stringify(updates.map((u) => u.sessionUpdate)));
+    const first = plans[0]?.entries ?? [];
+    t.equal(first.map((entry) => entry.content), ['Inspect project instructions and relevant code', 'Implement bounded changes', 'Run relevant checks and diagnose results', 'Review actual changes and report limitations'], 'with the phases of the Hub, in their order');
+    t.check(first[0]?.status === 'in_progress' && first.slice(1).every((entry) => entry.status === 'pending' || entry.status === 'completed' || entry.status === 'in_progress'), 'the first phase is in progress when it is first told', JSON.stringify(first));
+    t.check(updates.findIndex((u) => u.sessionUpdate === 'plan') < updates.findIndex((u) => u.sessionUpdate === 'agent_message_chunk'), 'and the plan is told before the answer');
+    clean(e.adapter, 'plan');
+  }
 });
