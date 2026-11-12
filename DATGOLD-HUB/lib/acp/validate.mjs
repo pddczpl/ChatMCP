@@ -49,6 +49,14 @@ export function parseNewSession(params) {
   return { cwd, mcpServers: mcpServers ?? [], additionalDirectories: additionalDirectories?.length ?? 0 };
 }
 
+/** @returns {{sessionId: string, cwd: string, mcpServers: object[]}} the same rules as session/new, and a session id */
+export function parseLoadSession(params) {
+  const body = requireObject(params, 'session/load');
+  const sessionId = sessionIdOf(body);
+  const { cwd, mcpServers } = parseNewSession(body);
+  return { sessionId, cwd, mcpServers };
+}
+
 /** @returns {{sessionId: string, prompt: unknown[]}} the blocks themselves are checked by lib/acp/content.mjs */
 export function parsePrompt(params) {
   const body = requireObject(params, 'session/prompt');

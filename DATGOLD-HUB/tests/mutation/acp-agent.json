@@ -36,12 +36,12 @@
     },
     {
       "name": "capability-load",
-      "what": "session/load is advertised",
+      "what": "the agent says it cannot load a session",
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "  loadSession: false,\n",
-          "new": "  loadSession: true,\n"
+          "old": "  loadSession: true,\n",
+          "new": "  loadSession: false,\n"
         }
       ]
     },
@@ -371,8 +371,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {",
-          "new": "if (false) {"
+          "old": "    if (sessions.size + sessionsBeingMade < MAX_SESSIONS) return;",
+          "new": "    return;"
         }
       ]
     },
@@ -382,8 +382,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {",
-          "new": "if (sessions.size >= MAX_SESSIONS) {"
+          "old": "    if (sessions.size + sessionsBeingMade < MAX_SESSIONS) return;",
+          "new": "    if (sessions.size < MAX_SESSIONS) return;"
         }
       ]
     },
@@ -393,8 +393,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "    } finally { sessionsBeingMade -= 1; }",
-          "new": "    } finally { /* counted for good */ }"
+          "old": "      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null, eventCursor: 0, usageMark: null });\n    } finally { sessionsBeingMade -= 1; }",
+          "new": "      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null, eventCursor: 0, usageMark: null });\n    } finally { /* counted for good */ }"
         }
       ]
     },
@@ -404,8 +404,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {",
-          "new": "if (sessions.size + sessionsBeingMade > MAX_SESSIONS) {"
+          "old": "    if (sessions.size + sessionsBeingMade < MAX_SESSIONS) return;",
+          "new": "    if (sessions.size + sessionsBeingMade <= MAX_SESSIONS) return;"
         }
       ]
     },
@@ -426,8 +426,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "    const workspace = await hub.ensureWorkspace(cwd);\n",
-          "new": "    const workspace = { path: cwd };\n"
+          "old": "      const workspace = await hub.ensureWorkspace(cwd);\n      id = randomUUID();",
+          "new": "      const workspace = { path: cwd };\n      id = randomUUID();"
         }
       ]
     },
@@ -448,8 +448,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "      const id = randomUUID();\n      sessions.set",
-          "new": "      const id = '00000000-0000-4000-8000-000000000000';\n      sessions.set"
+          "old": "      id = randomUUID();\n",
+          "new": "      id = '00000000-0000-4000-8000-000000000000';\n"
         }
       ]
     },
@@ -1159,7 +1159,7 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "      sessions.delete(idle.id);\n",
+          "old": "    sessions.delete(idle.id);\n",
           "new": ""
         }
       ]
@@ -1170,7 +1170,7 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "      log(`closed the oldest session without a turn, ${idle.id}, to make room (${MAX_SESSIONS} sessions at most)`);\n",
+          "old": "    log(`closed the oldest session without a turn, ${idle.id}, to make room (${MAX_SESSIONS} sessions at most)`);\n",
           "new": ""
         }
       ]

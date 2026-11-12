@@ -110,7 +110,7 @@ await runScenario({
   t.own(() => adapter.end({ graceMs: 3000 }));
   const initialized = await adapter.call('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { notices: {} } }, clientInfo: { name: 'datgold-acp-test-client', version: '0.0.0' } });
   t.check(initialized.result?.protocolVersion === 1 && initialized.result.agentInfo?.name === 'datgold' && initialized.result.agentInfo.title === 'DatGold' && Array.isArray(initialized.result.authMethods) && initialized.result.authMethods.length === 0, 'initialize: version 1, the agent says it is DatGold, no authentication methods', JSON.stringify(initialized));
-  t.equal(initialized.result?.agentCapabilities, { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: true }, mcpCapabilities: { http: false, sse: false }, sessionCapabilities: {} }, 'and exactly the capabilities it has');
+  t.equal(initialized.result?.agentCapabilities, { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: true }, mcpCapabilities: { http: false, sse: false }, sessionCapabilities: {} }, 'and exactly the capabilities it has');
 
   const created = await adapter.call('session/new', { cwd: projectB, mcpServers: [] });
   t.must(typeof created.result?.sessionId === 'string', 'session/new answers a session id', JSON.stringify(created));
