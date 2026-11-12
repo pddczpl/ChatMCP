@@ -145,6 +145,8 @@ NOT REDISTRIBUTED
    separate installations that the user provides.
  - node-pty (MIT) is optional and installed by the user from npm on request.
  - Build-time and test-only dependencies (Vite, Tailwind CSS, type packages, the Playwright test runner, lightningcss, caniuse-lite) are not in the installer.
+ - The test tools of the ACP agent (DATGOLD-HUB/tests/acp-tools, installed with `npm ci` for the tests and never in the installer): @agentclientprotocol/sdk 2.4.0 (Apache-2.0),
+   ajv 8.20.0 (MIT) with fast-deep-equal 3.1.3, json-schema-traverse 1.0.0 and require-from-string 2.0.2 (MIT) and fast-uri 3.1.9 (BSD-3-Clause), and zod 4.6.7 (MIT).
  - Agent Skills that the user imports keep their own licenses; a public repository does not by itself grant redistribution permission.
 
 EARLIER RELEASES

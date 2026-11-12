@@ -1,0 +1,258 @@
+{
+  "suite": "verify-acp-logic.mjs",
+  "mutations": [
+    {
+      "name": "stop-reason-name",
+      "what": "a stop reason is spelled another way than the schema",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "'refusal', 'cancelled']);",
+          "new": "'refusal', 'canceled']);"
+        }
+      ]
+    },
+    {
+      "name": "uncertain-not-resting",
+      "what": "uncertain is not a state at rest",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "['completed', 'failed', 'cancelled', 'paused', 'uncertain']",
+          "new": "['completed', 'failed', 'cancelled', 'paused']"
+        }
+      ]
+    },
+    {
+      "name": "running-ends-the-turn",
+      "what": "a task that is not at rest is judged as if it were",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "  if (!RESTING_STATES.includes(state)) {",
+          "new": "  if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "cancel-ignored",
+      "what": "a cancel the client asked for is not honoured",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "  if (cancelRequested) return { stopReason: 'cancelled', notice: null, error: null };\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "completed-stop-reason",
+      "what": "a completed task stops the turn with another reason",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "case 'completed': return { stopReason: 'end_turn'",
+          "new": "case 'completed': return { stopReason: 'max_tokens'"
+        }
+      ]
+    },
+    {
+      "name": "cancelled-stop-reason",
+      "what": "a cancelled task stops the turn with another reason",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "case 'cancelled': return { stopReason: 'cancelled'",
+          "new": "case 'cancelled': return { stopReason: 'end_turn'"
+        }
+      ]
+    },
+    {
+      "name": "paused-stop-reason",
+      "what": "a paused task stops the turn with another reason",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "stopReason: 'max_turn_requests', error: null,",
+          "new": "stopReason: 'end_turn', error: null,"
+        }
+      ]
+    },
+    {
+      "name": "paused-severity",
+      "what": "the notice of a paused task is a warning",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "notice: { severity: 'info', title: limit",
+          "new": "notice: { severity: 'warning', title: limit"
+        }
+      ]
+    },
+    {
+      "name": "limit-from-the-prototype",
+      "what": "an error code that every object has is a limit",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "typeof task.errorCode === 'string' && Object.hasOwn(LIMITS, task.errorCode) ? LIMITS[task.errorCode] : undefined",
+          "new": "typeof task.errorCode === 'string' ? LIMITS[task.errorCode] : undefined"
+        }
+      ]
+    },
+    {
+      "name": "limit-without-advice",
+      "what": "the notice of a limit does not say that another message continues",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "description: limit ? CONTINUE : `It stopped",
+          "new": "description: limit ? 'x' : `It stopped"
+        }
+      ]
+    },
+    {
+      "name": "time-limit-text",
+      "what": "the time limit is called the step limit",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "time_limit: 'The task reached its time limit'",
+          "new": "time_limit: 'The task reached its step limit'"
+        }
+      ]
+    },
+    {
+      "name": "step-limit-text",
+      "what": "the step limit is called the time limit",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "step_limit: 'The task reached its step limit'",
+          "new": "step_limit: 'The task reached its time limit'"
+        }
+      ]
+    },
+    {
+      "name": "context-limit-text",
+      "what": "the context limit is called the output limit",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "context_limit: 'The task filled the context window of the model'",
+          "new": "context_limit: 'The model reached its output limit'"
+        }
+      ]
+    },
+    {
+      "name": "output-limit-text",
+      "what": "the output limit is called the context limit",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "output_limit: 'The model reached its output limit'",
+          "new": "output_limit: 'The task filled the context window of the model'"
+        }
+      ]
+    },
+    {
+      "name": "uncertain-severity",
+      "what": "the notice of an uncertain task is not a warning",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "severity: 'warning', title: 'The task stopped while",
+          "new": "severity: 'info', title: 'The task stopped while"
+        }
+      ]
+    },
+    {
+      "name": "uncertain-stop-reason",
+      "what": "an uncertain task stops the turn with another reason",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "stopReason: 'end_turn', error: null,\n        notice: {\n          severity: 'warning'",
+          "new": "stopReason: 'max_turn_requests', error: null,\n        notice: {\n          severity: 'warning'"
+        }
+      ]
+    },
+    {
+      "name": "uncertain-words",
+      "what": "the notice does not say that the action may or may not have happened",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "it may or may not have.",
+          "new": "it did."
+        }
+      ]
+    },
+    {
+      "name": "uncertain-advice",
+      "what": "the notice does not say what to check",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "Check the changes (for example with git diff) before you continue;",
+          "new": "Carry on;"
+        }
+      ]
+    },
+    {
+      "name": "failure-reason-untrimmed",
+      "what": "the reason of a failure is not trimmed",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "typeof task.error === 'string' && task.error.trim() ? task.error.trim() : 'the Hub gave no reason'",
+          "new": "typeof task.error === 'string' && task.error.trim() ? task.error : 'the Hub gave no reason'"
+        }
+      ]
+    },
+    {
+      "name": "failure-without-reason-text",
+      "what": "a failure with no reason says nothing",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "'the Hub gave no reason'",
+          "new": "''"
+        }
+      ]
+    },
+    {
+      "name": "failure-code",
+      "what": "a failure is Invalid params",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "return { notice: null, error: { code: ERROR_CODES.INTERNAL, message: `The task failed: ${reason}` } };",
+          "new": "return { notice: null, error: { code: ERROR_CODES.INVALID_PARAMS, message: `The task failed: ${reason}` } };"
+        }
+      ]
+    },
+    {
+      "name": "failure-as-stop",
+      "what": "a failed task ends the turn as if it had completed",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "return { notice: null, error: { code: ERROR_CODES.INTERNAL, message: `The task failed: ${reason}` } };",
+          "new": "return { stopReason: 'end_turn', notice: null, error: null };"
+        }
+      ]
+    },
+    {
+      "name": "failure-message",
+      "what": "the sentence of a failure does not say it failed",
+      "patches": [
+        {
+          "file": "lib/acp/stop-reason.mjs",
+          "old": "message: `The task failed: ${reason}`",
+          "new": "message: `${reason}`"
+        }
+      ]
+    }
+  ]
+}

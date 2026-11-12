@@ -1,0 +1,185 @@
+{
+  "suite": "verify-e2e-acp-lifecycle.mjs",
+  "mutations": [
+    {
+      "name": "owned-hub-no-resume",
+      "what": "the Hub does not read its standard input",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "process.stdin.resume();\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-no-listeners",
+      "what": "the end of standard input does not stop the Hub",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "process.stdin.on('end', stop);\nprocess.stdin.on('close', stop);\nprocess.stdin.on('error', stop);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-end-listener",
+      "what": "the end of standard input does not stop the Hub (no end listener)",
+      "equivalent": "a pipe that ends also closes, and the close listener does the same; only the listener that comes first is lost",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "process.stdin.on('end', stop);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-close-listener",
+      "what": "the close of standard input does not stop the Hub (no close listener)",
+      "equivalent": "a pipe that ends first emits 'end', and that listener does the same; only the second of the two is lost",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "process.stdin.on('close', stop);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-error-listener",
+      "what": "an error of standard input does not stop the Hub (no error listener)",
+      "equivalent": "an error of the pipe is followed by its close, and the close listener does the same",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "process.stdin.on('error', stop);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-stop-too-early",
+      "what": "the stop is signalled before the Hub is up",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "if (started) process.emit('SIGTERM');\n  else ownerGone = true;",
+          "new": "process.emit('SIGTERM');"
+        }
+      ]
+    },
+    {
+      "name": "owned-hub-owner-gone-ignored",
+      "what": "an owner that went away during start-up is forgotten",
+      "patches": [
+        {
+          "file": "lib/acp/owned-hub.mjs",
+          "old": "  if (ownerGone) process.emit('SIGTERM');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-foreign-app",
+      "what": "a program that answers on the port as something else is taken for a Hub",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (running.app !== APP_ID) throw unavailable(`Port ${port} is used by another program (it answers, but not as a DatGold Hub). The agent does not stop it: choose another port with --port.`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-port-held",
+      "what": "a port that something holds is not noticed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (await portOpen(port)) throw unavailable(`Port ${port} is used by another program. The agent does not stop it: choose another port with --port.`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-no-start-ignored",
+      "what": "--no-start does not stop a Hub from being started",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (!start) throw unavailable(`No DatGold Hub is running on port ${port}, and --no-start was given. Start DatGold, or drop --no-start.`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "connect-listener-unchecked",
+      "what": "the secret is sent to whatever listens on the port",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    try { await assertSessionListener(session, { file: sessionFile(stateDir) }); }\n    catch (error) { throw unavailable(`Not sending the Hub's secret: ${error.message}`); }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cmd-echo-on",
+      "what": "the launcher prints every command",
+      "platforms": [
+        "win32"
+      ],
+      "patches": [
+        {
+          "file": "windows/chatmcp-acp.cmd",
+          "old": "@echo off",
+          "new": "@echo on"
+        }
+      ]
+    },
+    {
+      "name": "cmd-bundled-node-path",
+      "what": "the launcher looks for the bundled Node in the wrong folder",
+      "platforms": [
+        "win32"
+      ],
+      "patches": [
+        {
+          "file": "windows/chatmcp-acp.cmd",
+          "old": "set \"CHATMCP_NODE=%~dp0..\\..\\runtimes\\node\\node.exe\"",
+          "new": "set \"CHATMCP_NODE=%~dp0..\\runtimes\\node\\node.exe\""
+        }
+      ]
+    },
+    {
+      "name": "cmd-bundled-node-ignored",
+      "what": "the launcher never uses the bundled Node",
+      "platforms": [
+        "win32"
+      ],
+      "patches": [
+        {
+          "file": "windows/chatmcp-acp.cmd",
+          "old": "if not exist \"%CHATMCP_NODE%\" set \"CHATMCP_NODE=node\"",
+          "new": "set \"CHATMCP_NODE=node\""
+        }
+      ]
+    },
+    {
+      "name": "cmd-agent-path-unquoted",
+      "what": "the path of the agent is not quoted",
+      "platforms": [
+        "win32"
+      ],
+      "patches": [
+        {
+          "file": "windows/chatmcp-acp.cmd",
+          "old": "\"%CHATMCP_NODE%\" \"%~dp0..\\lib\\acp\\agent.mjs\" %*",
+          "new": "\"%CHATMCP_NODE%\" %~dp0..\\lib\\acp\\agent.mjs %*"
+        }
+      ]
+    }
+  ]
+}

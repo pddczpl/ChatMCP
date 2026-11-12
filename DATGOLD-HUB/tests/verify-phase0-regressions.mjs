@@ -17,6 +17,7 @@ import { StudioTerminal } from '../lib/studio-terminal.mjs';
 import { powerShell7ModuleStandIn, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-phase0-'));
+const failures = [];
 let checks = 0;
 const check = (condition, label) => { assert.ok(condition, label); checks++; console.log(`  ok - ${label}`); };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,9 +91,9 @@ try {
   await waitFor(() => record.child?.pid && record.status === 'running', 'long-running command to start');
   await sleep(300);
   const startedClosing = Date.now();
-  await closing.close();
+  const closeReport = await closing.close();
   const elapsed = Date.now() - startedClosing;
-  check(record.status === 'stopped', `close() returned only after the process exited (status: ${record.status})`);
+  check(record.status === 'stopped' && closeReport?.closed === true, `close() returned only after the process exited (status: ${record.status}, report: ${JSON.stringify(closeReport)})`);
   check(elapsed < 5000, `close() finished promptly (${elapsed} ms)`);
   await fs.rm(terminalRoot, { recursive: true, force: true });
   check(true, 'the workspace directory can be removed immediately after close()');
@@ -156,6 +157,11 @@ try {
   }
 
   console.log(`PASS: ${checks} Phase 0 regression checks (canonical checkpoint path, PTY fallback, awaited terminal close, module path of PowerShell 7)`);
+} catch (error) {
+  failures.push(error);
 } finally {
-  await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  // the first failure is the report: removing the folder is best effort and must never replace it (a process that a failing check
+  // left behind holds the folder, and EBUSY from here used to be all that the run printed)
+  await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch((error) => { if (!failures.length) console.warn(`  cleanup: ${error.message}`); });
 }
+if (failures.length) { console.error(failures[0]); process.exitCode = 1; }
