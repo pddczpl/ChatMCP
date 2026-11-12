@@ -1,0 +1,500 @@
+{
+  "suite": "verify-acp-logic.mjs",
+  "mutations": [
+    {
+      "name": "health-not-allowed",
+      "what": "GET /api/health is not allowed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'GET', path: '/api/health' },\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "state-not-allowed",
+      "what": "GET /api/state is not allowed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'GET', path: '/api/state' },\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "task-not-allowed",
+      "what": "GET /api/tasks/:id is not allowed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'GET', path: '/api/tasks/:id' },\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "workspace-add-not-allowed",
+      "what": "POST /api/workspaces/add is not allowed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/workspaces/add' },\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "start-not-allowed",
+      "what": "POST /api/tasks/start is not allowed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/tasks/start' },\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "continue-not-allowed",
+      "what": "POST /api/tasks/continue is not allowed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/tasks/continue' },\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancel-not-allowed",
+      "what": "POST /api/tasks/cancel is not allowed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/tasks/cancel' },\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "task-route-loose",
+      "what": "a task route may be any three characters",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "const TASK_ROUTE = /^\\/api\\/tasks\\/[0-9a-f-]{36}$/;",
+          "new": "const TASK_ROUTE = /^\\/api\\/tasks\\/[0-9a-f-]{3,}$/;"
+        }
+      ]
+    },
+    {
+      "name": "task-route-open-end",
+      "what": "a task route may be followed by more (/report)",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "const TASK_ROUTE = /^\\/api\\/tasks\\/[0-9a-f-]{36}$/;",
+          "new": "const TASK_ROUTE = /^\\/api\\/tasks\\/[0-9a-f-]{36}/;"
+        }
+      ]
+    },
+    {
+      "name": "method-ignored",
+      "what": "a route is allowed for any method",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "entry.method === method && (entry.path === '/api/tasks/:id'",
+          "new": "(entry.path === '/api/tasks/:id'"
+        }
+      ]
+    },
+    {
+      "name": "owned-ignored",
+      "what": "the shutdown of the Hub is allowed for every Hub",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "(owned === true && OWNED_ROUTES.some(matches))",
+          "new": "OWNED_ROUTES.some(matches)"
+        }
+      ]
+    },
+    {
+      "name": "owned-truthy",
+      "what": "the shutdown of the Hub is allowed for anything truthy",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "(owned === true && OWNED_ROUTES.some(matches))",
+          "new": "(owned && OWNED_ROUTES.some(matches))"
+        }
+      ]
+    },
+    {
+      "name": "owned-route-method",
+      "what": "the shutdown route is a GET",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "const OWNED_ROUTES = Object.freeze([{ method: 'POST', path: '/api/hub/shutdown' }]);",
+          "new": "const OWNED_ROUTES = Object.freeze([{ method: 'GET', path: '/api/hub/shutdown' }]);"
+        }
+      ]
+    },
+    {
+      "name": "select-allowed-and-deny-list-off",
+      "what": "the route that switches the workspace of the desktop app is allowed and the deny-list is not consulted",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/tasks/cancel' },\n]);",
+          "new": "  { method: 'POST', path: '/api/tasks/cancel' },\n  { method: 'POST', path: '/api/workspace/select' },\n]);"
+        },
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  if (FORBIDDEN_ROUTES.includes(route)) return false;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "permissions-allowed-and-deny-list-off",
+      "what": "the route that changes the permission mode is allowed and the deny-list is not consulted",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/tasks/cancel' },\n]);",
+          "new": "  { method: 'POST', path: '/api/tasks/cancel' },\n  { method: 'POST', path: '/api/studio/permissions/config' },\n]);"
+        },
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  if (FORBIDDEN_ROUTES.includes(route)) return false;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "select-in-allow-list",
+      "what": "the route that switches the workspace is added to the allow-list (the deny-list is still consulted)",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/tasks/cancel' },\n]);",
+          "new": "  { method: 'POST', path: '/api/tasks/cancel' },\n  { method: 'POST', path: '/api/workspace/select' },\n]);"
+        }
+      ]
+    },
+    {
+      "name": "select-off-the-deny-list",
+      "what": "the route that switches the workspace is taken off the deny-list (the allow-list does not have it either)",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  '/api/workspace/select', // switches the workspace of the desktop app, which is global to the Hub\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "type-guard",
+      "what": "a method or a route that is not a string reaches the comparison",
+      "equivalent": "a value that is not a string equals no method and no route of the lists, so the answer is false either way; the guard only says so first",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  if (typeof method !== 'string' || typeof route !== 'string') return false;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "provider-code",
+      "what": "a Hub with no model is not \"authentication required\"",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "return { code: ERROR_CODES.AUTH_REQUIRED, message: `DatGold has no model connected.",
+          "new": "return { code: ERROR_CODES.INTERNAL, message: `DatGold has no model connected."
+        }
+      ]
+    },
+    {
+      "name": "provider-sentence",
+      "what": "a Hub with no model does not say so",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "DatGold has no model connected. Open DatGold, connect a model in Settings, then send the message again.",
+          "new": "DatGold refused."
+        }
+      ]
+    },
+    {
+      "name": "busy-sentence",
+      "what": "a Hub that runs another task does not say so",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "internal(`DatGold is already running another task. Wait for it or stop it in DatGold, then try again.${tail}`)",
+          "new": "internal(`x${tail}`)"
+        }
+      ]
+    },
+    {
+      "name": "hub-busy-sentence",
+      "what": "a busy Hub does not say so",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "internal(`DatGold is busy with another operation. Try again in a moment.${tail}`)",
+          "new": "internal(`x${tail}`)"
+        }
+      ]
+    },
+    {
+      "name": "workspace-sentence",
+      "what": "an unknown workspace is not named",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "internal(`DatGold does not know this workspace folder.${tail}`)",
+          "new": "internal(`x${tail}`)"
+        }
+      ]
+    },
+    {
+      "name": "workspace-limit-sentence",
+      "what": "a full list of workspaces is not told",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "internal(`DatGold cannot take another workspace folder.${tail}`)",
+          "new": "internal(`x${tail}`)"
+        }
+      ]
+    },
+    {
+      "name": "git-sentence",
+      "what": "a missing Git repository is not told",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "internal(`This needs a Git repository with at least one commit (a second task in the same folder runs in its own Git worktree).${tail}`)",
+          "new": "internal(`x${tail}`)"
+        }
+      ]
+    },
+    {
+      "name": "shutting-down-sentence",
+      "what": "a Hub that is stopping does not say so",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "internal(`DatGold is shutting down.${tail}`)",
+          "new": "internal(`x${tail}`)"
+        }
+      ]
+    },
+    {
+      "name": "auth-sentence",
+      "what": "a Hub that no longer takes the session does not say what to do",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "The next request connects to it again.",
+          "new": "x"
+        }
+      ]
+    },
+    {
+      "name": "large-code",
+      "what": "a message that is too large is not Invalid params",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "if (status === 413) return { code: ERROR_CODES.INVALID_PARAMS,",
+          "new": "if (status === 413) return { code: ERROR_CODES.INTERNAL,"
+        }
+      ]
+    },
+    {
+      "name": "network-sentence",
+      "what": "a failure with no status does not say the Hub could not be reached",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "if (status === null) return internal(`Could not reach the DatGold Hub${tail}`);",
+          "new": "if (status === null) return internal(`x${tail}`);"
+        }
+      ]
+    },
+    {
+      "name": "default-sentence",
+      "what": "any other failure does not say the status",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "return internal(`DatGold refused the request (HTTP ${status})${tail}`);",
+          "new": "return internal(`DatGold refused the request${tail}`);"
+        }
+      ]
+    },
+    {
+      "name": "hub-words-first",
+      "what": "the message of the error comes before the Hub's own words",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "const said = String(failure?.hubMessage ?? failure?.message ?? '').trim();",
+          "new": "const said = String(failure?.message ?? failure?.hubMessage ?? '').trim();"
+        }
+      ]
+    },
+    {
+      "name": "hub-words-untrimmed",
+      "what": "the Hub's words are not trimmed",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "const said = String(failure?.hubMessage ?? failure?.message ?? '').trim();",
+          "new": "const said = String(failure?.hubMessage ?? failure?.message ?? '');"
+        }
+      ]
+    },
+    {
+      "name": "tail-always",
+      "what": "brackets are written even when the Hub said nothing",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "const tail = said ? ` (${said})` : '';",
+          "new": "const tail = ` (${said})`;"
+        }
+      ]
+    },
+    {
+      "name": "hub-error-status",
+      "what": "a HubError does not keep its status",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    this.status = status;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "hub-error-words",
+      "what": "a HubError does not keep the Hub's words",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    this.hubMessage = hubMessage;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "hub-error-message",
+      "what": "a HubError does not say its status",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "super(message ?? `HTTP ${status}${hubMessage ? `: ${hubMessage}` : ''}`);",
+          "new": "super(message ?? `HTTP`);"
+        }
+      ]
+    },
+    {
+      "name": "cli-no-start-twice",
+      "what": "--no-start may be given twice",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (word === '--no-start') { if (!start) throw new Error('--no-start was given twice'); start = false; continue; }",
+          "new": "    if (word === '--no-start') { start = false; continue; }"
+        }
+      ]
+    },
+    {
+      "name": "cli-unknown-word",
+      "what": "an unknown word is taken for a value",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (word !== '--port' && word !== '--state-dir') throw new Error(",
+          "new": "    if (false) throw new Error("
+        }
+      ]
+    },
+    {
+      "name": "cli-twice",
+      "what": "an option may be given twice",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (word in values) throw new Error(`${word} was given twice`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cli-no-value",
+      "what": "an option with no value is taken",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "    if (argv[i + 1] === undefined) throw new Error(`${word} needs a value`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cli-port-forwarded",
+      "what": "the port is not handed to the Hub's parser",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  if ('--port' in values) hubArguments.push('--port', values['--port']);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cli-state-forwarded",
+      "what": "the state folder is not handed to the Hub's parser",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  if ('--state-dir' in values) hubArguments.push('--state-dir', values['--state-dir']);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cli-start-flag",
+      "what": "--no-start does not stop a Hub from being started",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "return { port: parsed.port, stateDir: parsed.stateDir, start };",
+          "new": "return { port: parsed.port, stateDir: parsed.stateDir, start: true };"
+        }
+      ]
+    },
+    {
+      "name": "cli-hint",
+      "what": "the refusal of a port does not say the range",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": " (--port is a number from 1024 to 65535 except 3006)",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}
