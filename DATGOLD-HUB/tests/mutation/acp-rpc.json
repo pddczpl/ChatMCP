@@ -1,0 +1,999 @@
+{
+  "suite": "verify-acp-rpc.mjs",
+  "mutations": [
+    {
+      "name": "bom-not-skipped",
+      "what": "a byte order mark at the start of the stream is not skipped",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (atStart && line.length) {\n      atStart = false;",
+          "new": "    if (false && line.length) {\n      atStart = false;"
+        }
+      ]
+    },
+    {
+      "name": "bom-skipped-on-every-line",
+      "what": "a byte order mark is skipped at the start of every line, not only of the stream",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      atStart = false;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "bom-two-bytes-enough",
+      "what": "two of the three bytes are taken for a byte order mark",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": " && line[2] === BYTE_ORDER_MARK[2]) line = line.subarray(3);",
+          "new": ") line = line.subarray(3);"
+        }
+      ]
+    },
+    {
+      "name": "bom-eaten-by-decoder",
+      "what": "the decoder strips a byte order mark on every line",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "{ fatal: true, ignoreBOM: true }",
+          "new": "{ fatal: true, ignoreBOM: false }"
+        }
+      ]
+    },
+    {
+      "name": "cr-kept-in-limit",
+      "what": "the CR of a CRLF counts toward the limit of a line",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (line.length && line[line.length - 1] === CR) line = line.subarray(0, line.length - 1);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "oversize-not-checked",
+      "what": "a line over the limit is taken when it ends in a line end",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (line.length > maxLineBytes) { onOversize(); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "blank-lines-parsed",
+      "what": "a blank line is parsed (and is a parse error)",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (blank(line)) return;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "blank-only-spaces",
+      "what": "only spaces make a line blank, not tabs or a CR",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "byte === 0x20 || byte === 0x09 || byte === CR",
+          "new": "byte === 0x20"
+        }
+      ]
+    },
+    {
+      "name": "discard-not-counted",
+      "what": "the bytes dropped from a long line are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (discarding) stats.discardedBytes += length;",
+          "new": "if (discarding) stats.discardedBytes += 0;"
+        }
+      ]
+    },
+    {
+      "name": "slack-removed",
+      "what": "the room for the CR of a CRLF at the limit is taken away",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "size + length > maxLineBytes + 1",
+          "new": "size + length > maxLineBytes"
+        }
+      ]
+    },
+    {
+      "name": "slack-large",
+      "what": "a line is kept far beyond the limit before it is refused",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "size + length > maxLineBytes + 1",
+          "new": "size + length > maxLineBytes + 1000"
+        }
+      ]
+    },
+    {
+      "name": "oversize-answered-per-piece",
+      "what": "every piece of a long line is answered, not the line",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "          discarding = true;\n          onOversize();",
+          "new": "          onOversize();"
+        }
+      ]
+    },
+    {
+      "name": "discard-never-ends",
+      "what": "the line after a long one is dropped too",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (discarding) discarding = false; // the long line is over",
+          "new": "if (discarding) discarding = discarding;"
+        }
+      ]
+    },
+    {
+      "name": "buffered-not-measured",
+      "what": "the largest buffer is not recorded",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "          if (size > stats.maxBufferedBytes) stats.maxBufferedBytes = size;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "last-line-ignored",
+      "what": "a last line without a line end is dropped",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      if (!discarding && size > 0) finishLine();",
+          "new": "      if (false) finishLine();"
+        }
+      ]
+    },
+    {
+      "name": "last-line-guard",
+      "what": "the last line is read even while a long line is being dropped",
+      "equivalent": "while a long line is being dropped nothing is kept (size is 0), so the first condition is already false; the guard says so and removes nothing",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "!discarding && size > 0",
+          "new": "size > 0"
+        }
+      ]
+    },
+    {
+      "name": "newline-search-from-start",
+      "what": "the line end is searched from the start of the chunk, not from the offset",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "chunk.indexOf(LF, offset)",
+          "new": "chunk.indexOf(LF)"
+        }
+      ]
+    },
+    {
+      "name": "line-buffer-not-reset",
+      "what": "the pieces of a line stay in the buffer after the line",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    pieces = [];\n    size = 0;\n    if (line.length && line[line.length - 1] === CR)",
+          "new": "    if (line.length && line[line.length - 1] === CR)"
+        }
+      ]
+    },
+    {
+      "name": "write-not-awaited",
+      "what": "a write is not waited for before the next",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "output.write(line, (error) => { if (error) markBroken(error); resolve(); });",
+          "new": "output.write(line, (error) => { if (error) markBroken(error); }); resolve();"
+        }
+      ]
+    },
+    {
+      "name": "separators-not-escaped",
+      "what": "U+2028, U+2029 and U+0085 are written as themselves",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "text.replace(LINE_SEPARATORS, escapeSeparator)",
+          "new": "text"
+        }
+      ]
+    },
+    {
+      "name": "separator-escape-short",
+      "what": "the escape of a separator has three digits",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "padStart(4, '0')",
+          "new": "padStart(3, '0')"
+        }
+      ]
+    },
+    {
+      "name": "writes-after-finish",
+      "what": "a message is written after the peer has finished",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (finished) return;\n    const line",
+          "new": "    const line"
+        }
+      ]
+    },
+    {
+      "name": "undefined-result-sent",
+      "what": "a handler that returns nothing sends an answer without a result",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (result === undefined || typeof result === 'function' || typeof result === 'symbol') {",
+          "new": "if (typeof result === 'function' || typeof result === 'symbol') {"
+        }
+      ]
+    },
+    {
+      "name": "function-result-sent",
+      "what": "a function is sent as a result",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (result === undefined || typeof result === 'function' || typeof result === 'symbol') {",
+          "new": "if (result === undefined || typeof result === 'symbol') {"
+        }
+      ]
+    },
+    {
+      "name": "symbol-result-sent",
+      "what": "a symbol is sent as a result",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (result === undefined || typeof result === 'function' || typeof result === 'symbol') {",
+          "new": "if (result === undefined || typeof result === 'function') {"
+        }
+      ]
+    },
+    {
+      "name": "unserializable-result-sent",
+      "what": "a result that cannot be serialized is written",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (text === undefined) { sendError(id, ERROR_CODES.INTERNAL, 'Internal error'); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "duplicate-allowed",
+      "what": "an id that is in flight is taken again",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (inflight.has(id)) { sendError(null, ERROR_CODES.INVALID_REQUEST, 'Duplicate request id', { id }); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "duplicate-answered-with-its-id",
+      "what": "the refusal of a duplicate carries the id, so it can be taken for the answer of the first",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "sendError(null, ERROR_CODES.INVALID_REQUEST, 'Duplicate request id', { id })",
+          "new": "sendError(id, ERROR_CODES.INVALID_REQUEST, 'Duplicate request id', { id })"
+        }
+      ]
+    },
+    {
+      "name": "unknown-method-code",
+      "what": "an unknown method gets another code",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "sendError(id, ERROR_CODES.METHOD_NOT_FOUND, `Method not found: ${method}`)",
+          "new": "sendError(id, ERROR_CODES.INVALID_REQUEST, `Method not found: ${method}`)"
+        }
+      ]
+    },
+    {
+      "name": "rpc-error-flattened",
+      "what": "an RpcError is answered as an ordinary error",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "        if (error instanceof RpcError) { sendError(id, error.code, error.message, error.data); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "internal-error-leaks",
+      "what": "the message of an ordinary error goes to the client",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "        sendError(id, ERROR_CODES.INTERNAL, 'Internal error');\n      })",
+          "new": "        sendError(id, ERROR_CODES.INTERNAL, String(error?.message ?? 'Internal error'));\n      })"
+        }
+      ]
+    },
+    {
+      "name": "handler-error-not-logged",
+      "what": "the reason a handler failed is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "        log(`${method} failed: ${error?.stack ?? error?.message ?? error}`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "inflight-never-released",
+      "what": "an id stays in flight for ever",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      .finally(() => { if (inflight.get(id) === entry) inflight.delete(id); });",
+          "new": "      .finally(() => {});"
+        }
+      ]
+    },
+    {
+      "name": "release-guard",
+      "what": "an id is released without checking that the entry is this one",
+      "equivalent": "duplicates are refused before an entry is made, so the entry of an id is always the one that is finishing; the check can never be false",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (inflight.get(id) === entry) inflight.delete(id);",
+          "new": "inflight.delete(id);"
+        }
+      ]
+    },
+    {
+      "name": "handler-signal-missing",
+      "what": "a handler gets no abort signal",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "handler(params, { id, method, signal: controller.signal })",
+          "new": "handler(params, { id, method })"
+        }
+      ]
+    },
+    {
+      "name": "notification-error-swallowed",
+      "what": "a notification handler that throws is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": ".catch((error) => log(`the handler of the notification ${message.method} failed: ${error?.stack ?? error?.message ?? error}`));",
+          "new": ".catch(() => {});"
+        }
+      ]
+    },
+    {
+      "name": "dollar-notification-logged",
+      "what": "a $/ notification is logged like any unknown one",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (!message.method.startsWith('$/')) log(",
+          "new": "if (true) log("
+        }
+      ]
+    },
+    {
+      "name": "unknown-notification-not-logged",
+      "what": "an unknown notification leaves no trace",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "log(`ignored the notification ${message.method} (no handler)`)",
+          "new": "void 0"
+        }
+      ]
+    },
+    {
+      "name": "response-with-both-accepted",
+      "what": "a response with a result and an error is taken",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if ('result' in message && 'error' in message) { log(`ignored a response with a result and an error (id ${JSON.stringify(message.id)})`); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "unknown-response-crashes",
+      "what": "a response nobody waits for is not ignored",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (!entry) { log(`ignored a response to a request nobody is waiting for (id ${JSON.stringify(message.id)})`); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "error-shape-unchecked",
+      "what": "any error member is taken for an error object",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (isObject(error) && Number.isInteger(error.code) && typeof error.message === 'string') entry.reject",
+          "new": "if (true) entry.reject"
+        }
+      ]
+    },
+    {
+      "name": "error-data-dropped",
+      "what": "the data of an error response is dropped",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "entry.reject(new RpcError(error.code, error.message, error.data));",
+          "new": "entry.reject(new RpcError(error.code, error.message));"
+        }
+      ]
+    },
+    {
+      "name": "batch-wording-swapped",
+      "what": "a batch and an empty batch swap their sentences",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "message.length ? 'Batch requests are not supported' : 'Invalid Request'",
+          "new": "!message.length ? 'Batch requests are not supported' : 'Invalid Request'"
+        }
+      ]
+    },
+    {
+      "name": "scalar-accepted",
+      "what": "a number, a string or null is not refused",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (!isObject(message)) { sendError(null, ERROR_CODES.INVALID_REQUEST, 'Invalid Request'); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "version-not-checked",
+      "what": "the jsonrpc member is not checked",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (message.jsonrpc !== '2.0') {\n      if (isRequestShape && !hasId)",
+          "new": "    if (false) {\n      if (isRequestShape && !hasId)"
+        }
+      ]
+    },
+    {
+      "name": "notification-without-version-answered",
+      "what": "a notification without jsonrpc is answered",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (isRequestShape && !hasId) log(",
+          "new": "if (false) log("
+        }
+      ]
+    },
+    {
+      "name": "empty-method-accepted",
+      "what": "an empty method is accepted",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": " || typeof message.method !== 'string' || message.method === ''",
+          "new": " || typeof message.method !== 'string'"
+        }
+      ]
+    },
+    {
+      "name": "method-and-result-accepted",
+      "what": "a message with a method and a result is a request",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (isResponseShape || typeof message.method !== 'string'",
+          "new": "if (typeof message.method !== 'string'"
+        }
+      ]
+    },
+    {
+      "name": "params-unchecked",
+      "what": "params that are a number or a string are accepted",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "const paramsOk = params === undefined || params === null || typeof params === 'object';",
+          "new": "const paramsOk = true;"
+        }
+      ]
+    },
+    {
+      "name": "bad-id-echoed",
+      "what": "a bad id is echoed in the refusal",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (!isValidId(message.id)) { sendError(null, ERROR_CODES.INVALID_REQUEST, 'Invalid Request'); return; }",
+          "new": "if (!isValidId(message.id)) { sendError(message.id, ERROR_CODES.INVALID_REQUEST, 'Invalid Request'); return; }"
+        }
+      ]
+    },
+    {
+      "name": "id-fraction-accepted",
+      "what": "a fractional id is a valid id",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "typeof id === 'string' || Number.isSafeInteger(id)",
+          "new": "typeof id === 'string' || typeof id === 'number'"
+        }
+      ]
+    },
+    {
+      "name": "id-unsafe-accepted",
+      "what": "an integer beyond the safe ones is a valid id",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "typeof id === 'string' || Number.isSafeInteger(id)",
+          "new": "typeof id === 'string' || Number.isInteger(id)"
+        }
+      ]
+    },
+    {
+      "name": "invalid-params-code",
+      "what": "bad params get another code",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "sendError(message.id, ERROR_CODES.INVALID_PARAMS, 'Invalid params')",
+          "new": "sendError(message.id, ERROR_CODES.INVALID_REQUEST, 'Invalid params')"
+        }
+      ]
+    },
+    {
+      "name": "utf8-lenient",
+      "what": "invalid UTF-8 is replaced with U+FFFD",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })",
+          "new": "new TextDecoder('utf-8', { fatal: false, ignoreBOM: true })"
+        }
+      ]
+    },
+    {
+      "name": "parse-error-code",
+      "what": "invalid JSON gets another code",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "sendError(null, ERROR_CODES.PARSE, 'Parse error', { reason: 'invalid_json' })",
+          "new": "sendError(null, ERROR_CODES.INVALID_REQUEST, 'Parse error', { reason: 'invalid_json' })"
+        }
+      ]
+    },
+    {
+      "name": "utf8-reason-lost",
+      "what": "the reason of a UTF-8 refusal says invalid_json",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "{ reason: 'invalid_utf8' }",
+          "new": "{ reason: 'invalid_json' }"
+        }
+      ]
+    },
+    {
+      "name": "oversize-limit-not-told",
+      "what": "the refusal of a long line does not carry the limit",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "{ limitBytes: maxLineBytes }",
+          "new": "{}"
+        }
+      ]
+    },
+    {
+      "name": "parse-code-number",
+      "what": "the Parse error code is not -32700",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "PARSE: -32700,",
+          "new": "PARSE: -32701,"
+        }
+      ]
+    },
+    {
+      "name": "cancelled-code-number",
+      "what": "the code of a closed connection is not -32800",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "CANCELLED: -32800,",
+          "new": "CANCELLED: -32801,"
+        }
+      ]
+    },
+    {
+      "name": "close-without-abort",
+      "what": "requests in flight are not told that the connection closed",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    for (const { controller } of inflight.values()) controller.abort(reasonError);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "close-keeps-requests",
+      "what": "requests of our own stay waiting after a close",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    for (const entry of [...outgoing.values()]) { entry.cleanup(); entry.reject(reasonError); }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "close-callbacks-skipped",
+      "what": "the close callbacks are not run",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    for (const callback of closeCallbacks) {\n      try { callback(); }",
+          "new": "    for (const callback of []) {\n      try { callback(); }"
+        }
+      ]
+    },
+    {
+      "name": "callback-error-not-logged",
+      "what": "a close callback that fails leaves no trace",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "log(`a close callback failed: ${error?.message ?? error}`)",
+          "new": "void 0"
+        }
+      ]
+    },
+    {
+      "name": "close-reason-not-logged",
+      "what": "the reason of a close is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (reason) log(reason);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "close-not-idempotent",
+      "what": "closing twice runs the close twice",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (closing) return closed;\n    closing = true;",
+          "new": "    closing = true;"
+        }
+      ]
+    },
+    {
+      "name": "grace-ignored",
+      "what": "handlers that never finish hold the close for ever",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      new Promise((resolve) => { timer = setTimeout(resolve, graceMs); }),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "grace-timer-left",
+      "what": "the timer of the grace period is left running",
+      "equivalent": "a timer that is left only keeps the process alive for at most the grace period after the close; nothing the peer does depends on it",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    clearTimeout(timer);\n    await writing;",
+          "new": "    await writing;"
+        }
+      ]
+    },
+    {
+      "name": "flush-not-awaited",
+      "what": "the close does not wait for the queued output",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    await writing;\n    finished = true;",
+          "new": "    finished = true;"
+        }
+      ]
+    },
+    {
+      "name": "data-after-close-read",
+      "what": "bytes that arrive after our own close are read",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "const onData = (chunk) => { if (!closing) reader.push",
+          "new": "const onData = (chunk) => { if (true) reader.push"
+        }
+      ]
+    },
+    {
+      "name": "last-line-not-read-at-end",
+      "what": "the last line is not read when the input ends",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "const onEnd = () => { if (closing) return; reader.end(); void beginClose(); };",
+          "new": "const onEnd = () => { if (closing) return; void beginClose(); };"
+        }
+      ]
+    },
+    {
+      "name": "end-after-close-reads",
+      "what": "the end of the input after our own close still reads a last line",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "const onEnd = () => { if (closing) return;",
+          "new": "const onEnd = () => {"
+        }
+      ]
+    },
+    {
+      "name": "input-error-ignored",
+      "what": "an error on the input is not handled",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      input.on('error', (error) => { void beginClose(`input error (${error?.code ?? error?.message ?? 'unknown'})`); });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "input-close-ignored",
+      "what": "a destroyed input without an error does not close the peer",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      input.on('close', () => { if (!closing) void beginClose('input closed'); });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "start-twice",
+      "what": "a second start reads the input twice",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      if (started) return;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "request-after-close-sent",
+      "what": "a request made after the close is not rejected",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      if (closing) return Promise.reject(new RpcError(ERROR_CODES.CANCELLED, 'Connection closed'));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "request-ids-repeat",
+      "what": "the ids of requests of our own repeat",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      nextRequestId += 1;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "timeout-disabled",
+      "what": "a request never times out",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (timeoutMs > 0) timer",
+          "new": "if (timeoutMs < 0) timer"
+        }
+      ]
+    },
+    {
+      "name": "timeout-sentence",
+      "what": "the timeout does not say it timed out",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "reject(new RpcError(ERROR_CODES.INTERNAL, `Request ${method} timed out after ${timeoutMs} ms`))",
+          "new": "reject(new RpcError(ERROR_CODES.INTERNAL, `Request ${method} failed`))"
+        }
+      ]
+    },
+    {
+      "name": "abort-reason-lost",
+      "what": "an abort rejects without the reason of the signal",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "reject(signal.reason ?? new Error('aborted'))",
+          "new": "reject(new Error('aborted'))"
+        }
+      ]
+    },
+    {
+      "name": "aborted-before-made-sent",
+      "what": "a request with an aborted signal is still sent",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "          if (signal.aborted) { onAbort(); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "abort-listener-left",
+      "what": "the listener of an answered request stays on the signal",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "          if (signal && onAbort) signal.removeEventListener('abort', onAbort);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "request-not-forgotten",
+      "what": "an answered request stays in the table",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "          outgoing.delete(id);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "request-serialize-failure-hangs",
+      "what": "a request that cannot be serialized waits for ever",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "if (text === undefined) { cleanup(); reject(new RpcError(ERROR_CODES.INTERNAL, 'The request could not be serialized')); return; }",
+          "new": "if (text === undefined) { return; }"
+        }
+      ]
+    },
+    {
+      "name": "notify-unserializable-written",
+      "what": "a notification that cannot be serialized is written",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      if (text !== undefined) writeText(text);\n    },\n    /** A request of our own",
+          "new": "      writeText(text);\n    },\n    /** A request of our own"
+        }
+      ]
+    },
+    {
+      "name": "count-in",
+      "what": "the messages that came in are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    stats.messagesIn += 1;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "count-out",
+      "what": "the messages that went out are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    stats.messagesOut += 1;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "broken-logged-every-time",
+      "what": "a broken output is logged for every message",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "    if (outputBroken) return;\n    outputBroken = true;",
+          "new": "    outputBroken = true;"
+        }
+      ]
+    },
+    {
+      "name": "broken-output-written-to",
+      "what": "a broken output is written to",
+      "equivalent": "Node answers a write to a destroyed stream with an error in the callback, which markBroken ignores once the output is broken; the check only saves the call",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "      if (outputBroken) { resolve(); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "output-error-unhandled",
+      "what": "an error event of the output is not handled",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "  output.on?.('error', markBroken);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "write-throw-uncaught",
+      "what": "a write that throws is not caught",
+      "patches": [
+        {
+          "file": "lib/acp/rpc.mjs",
+          "old": "catch (error) { markBroken(error); resolve(); }\n    }));",
+          "new": "finally { resolve(); }\n    }));"
+        }
+      ]
+    }
+  ]
+}

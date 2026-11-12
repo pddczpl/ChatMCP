@@ -59,8 +59,10 @@ function Test-SafePath([string]$pathToCheck, [bool]$isWritable) {
 $safeInput = Test-SafePath -pathToCheck $InputDirectory -isWritable $false
 $safeExport = Test-SafePath -pathToCheck $ExportDirectory -isWritable $true
 
-$inputCmp = $safeInput.TrimEnd('\\') + '\\'
-$exportCmp = $safeExport.TrimEnd('\\') + '\\'
+# A single-quoted PowerShell string does not escape: '\' is ONE backslash. (Two were appended here before, so "C:\in\\" never
+# was the start of "C:\in\sub" and a nested folder passed the check below.)
+$inputCmp = $safeInput.TrimEnd('\') + '\'
+$exportCmp = $safeExport.TrimEnd('\') + '\'
 if ($safeInput -eq $safeExport -or $safeInput.StartsWith($exportCmp, [StringComparison]::OrdinalIgnoreCase) -or $safeExport.StartsWith($inputCmp, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Input and Export directories must be disjoint, including nested paths."
 }

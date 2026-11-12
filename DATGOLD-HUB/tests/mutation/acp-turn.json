@@ -1,0 +1,489 @@
+{
+  "suite": "verify-acp-turn.mjs",
+  "mutations": [
+    {
+      "name": "request-not-masked",
+      "what": "the question to the editor leaves unmasked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "return peer.request(method, masker.value(params), options); }",
+          "new": "return peer.request(method, params, options); }"
+        }
+      ]
+    },
+    {
+      "name": "request-options-lost",
+      "what": "the question to the editor loses its signal and its time",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "return peer.request(method, masker.value(params), options); }",
+          "new": "return peer.request(method, masker.value(params)); }"
+        }
+      ]
+    },
+    {
+      "name": "observe-skipped",
+      "what": "what is new in the record is not told",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        await observe(task).catch((error) => log(`could not tell the editor what the task did: ${error?.message ?? error}`));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "observe-failure-fatal",
+      "what": "a failure while the editor is told ends the wait as a loss of the Hub",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        await observe(task).catch((error) => log(`could not tell the editor what the task did: ${error?.message ?? error}`));",
+          "new": "        await observe(task);"
+        }
+      ]
+    },
+    {
+      "name": "observe-failure-silent",
+      "what": "a failure while the editor is told is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "await observe(task).catch((error) => log(`could not tell the editor what the task did: ${error?.message ?? error}`));",
+          "new": "await observe(task).catch(() => {});"
+        }
+      ]
+    },
+    {
+      "name": "observe-after-rest",
+      "what": "the record is told only after the task is at rest",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        await observe(task).catch((error) => log(`could not tell the editor what the task did: ${error?.message ?? error}`));\n        if (RESTING_STATES.includes(task.state)) {",
+          "new": "        if (RESTING_STATES.includes(task.state)) {\n          await observe(task).catch(() => {});"
+        }
+      ]
+    },
+    {
+      "name": "update-method",
+      "what": "the updates leave under another method name",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "for (const update of turn.mapper.next(task)) outbound.notify('session/update', { sessionId, update });",
+          "new": "for (const update of turn.mapper.next(task)) outbound.notify('session/updates', { sessionId, update });"
+        }
+      ]
+    },
+    {
+      "name": "update-session",
+      "what": "the updates leave without the session",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "for (const update of turn.mapper.next(task)) outbound.notify('session/update', { sessionId, update });",
+          "new": "for (const update of turn.mapper.next(task)) outbound.notify('session/update', { update });"
+        }
+      ]
+    },
+    {
+      "name": "approvals-skipped",
+      "what": "the approvals that wait are never looked at",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      await lookAtApprovals(turn, session, sessionId, task, askSignal);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "waiting-state-only",
+      "what": "a task is waiting only when its state says so",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const waiting = task.state === 'waiting_approval' || (task.pendingCall !== null && typeof task.pendingCall === 'object' && task.pendingCall.phase === 'awaiting_approval');",
+          "new": "const waiting = task.state === 'waiting_approval';"
+        }
+      ]
+    },
+    {
+      "name": "waiting-pending-only",
+      "what": "a task is waiting only when its pending call says so",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const waiting = task.state === 'waiting_approval' || (task.pendingCall !== null && typeof task.pendingCall === 'object' && task.pendingCall.phase === 'awaiting_approval');",
+          "new": "const waiting = (task.pendingCall !== null && typeof task.pendingCall === 'object' && task.pendingCall.phase === 'awaiting_approval');"
+        }
+      ]
+    },
+    {
+      "name": "waiting-always",
+      "what": "the approvals are looked at at every look",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!waiting) return;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "asked-once",
+      "what": "an approval is asked again at every look",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (typeof request?.id !== 'string' || turn.asked.has(request.id)) continue;",
+          "new": "if (typeof request?.id !== 'string') continue;"
+        }
+      ]
+    },
+    {
+      "name": "asked-id-type",
+      "what": "a request without a text id is asked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (typeof request?.id !== 'string' || turn.asked.has(request.id)) continue;",
+          "new": "if (turn.asked.has(request.id)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "asked-remembered",
+      "what": "the question to the editor is not remembered",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "turn.asked.set(request.id, askTheEditor(turn, session, sessionId, request, task.pendingCall?.callId, signal));",
+          "new": "askTheEditor(turn, session, sessionId, request, task.pendingCall?.callId, signal);"
+        }
+      ]
+    },
+    {
+      "name": "asked-call-id",
+      "what": "the call the editor was told about is not named in the question",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "askTheEditor(turn, session, sessionId, request, task.pendingCall?.callId, signal));",
+          "new": "askTheEditor(turn, session, sessionId, request, undefined, signal));"
+        }
+      ]
+    },
+    {
+      "name": "ask-method",
+      "what": "the editor is asked with another method",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "outbound.request('session/request_permission', params, { signal, timeoutMs })",
+          "new": "outbound.request('session/request_permissions', params, { signal, timeoutMs })"
+        }
+      ]
+    },
+    {
+      "name": "ask-signal",
+      "what": "a cancel does not reach a question that waits",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "outbound.request('session/request_permission', params, { signal, timeoutMs })",
+          "new": "outbound.request('session/request_permission', params, { timeoutMs })"
+        }
+      ]
+    },
+    {
+      "name": "ask-time-limit",
+      "what": "a question to the editor waits for ever",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "outbound.request('session/request_permission', params, { signal, timeoutMs })",
+          "new": "outbound.request('session/request_permission', params, { signal })"
+        }
+      ]
+    },
+    {
+      "name": "ask-failure-allows",
+      "what": "an editor that cannot be asked allows",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "decision = { approved: false, why: 'failed', error }; }",
+          "new": "decision = { approved: true, why: 'failed', error }; }"
+        }
+      ]
+    },
+    {
+      "name": "ask-failure-throws",
+      "what": "an editor that cannot be asked breaks the turn",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "catch (error) { decision = { approved: false, why: 'failed', error }; }",
+          "new": "catch (error) { throw error; }"
+        }
+      ]
+    },
+    {
+      "name": "ask-log",
+      "what": "the answer to an approval is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    log(`approval ${request.id}: ${decision.why}${decision.error ? ` (${decision.error.message ?? decision.error})` : ''}`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "ask-notice",
+      "what": "an editor that could not be asked is not told",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (decision.why === 'failed' && !signal.aborted) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "ask-notice-cancel",
+      "what": "an editor that is gone because of a cancel is told it could not be asked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (decision.why === 'failed' && !signal.aborted) {",
+          "new": "if (decision.why === 'failed') {"
+        }
+      ]
+    },
+    {
+      "name": "ask-notice-always",
+      "what": "every answer is followed by a notice",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (decision.why === 'failed' && !signal.aborted) {",
+          "new": "if (!signal.aborted) {"
+        }
+      ]
+    },
+    {
+      "name": "decide-always-no",
+      "what": "every approval is answered no",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "turn.hub.decide(request.id, decision.approved)",
+          "new": "turn.hub.decide(request.id, false)"
+        }
+      ]
+    },
+    {
+      "name": "decide-always-yes",
+      "what": "every approval is answered yes",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "turn.hub.decide(request.id, decision.approved)",
+          "new": "turn.hub.decide(request.id, true)"
+        }
+      ]
+    },
+    {
+      "name": "decide-id",
+      "what": "the answer names another request",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "turn.hub.decide(request.id, decision.approved)",
+          "new": "turn.hub.decide(request.taskId, decision.approved)"
+        }
+      ]
+    },
+    {
+      "name": "decide-gone-log",
+      "what": "a request the Hub no longer has is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (!(await turn.hub.decide(request.id, decision.approved))) log(`the Hub no longer had the approval ${request.id}`);",
+          "new": "await turn.hub.decide(request.id, decision.approved);"
+        }
+      ]
+    },
+    {
+      "name": "decide-error-log",
+      "what": "an answer the Hub does not take is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "} catch (error) { log(`could not answer the approval ${request.id}: ${error?.message ?? error}`); }",
+          "new": "} catch (error) { }"
+        }
+      ]
+    },
+    {
+      "name": "decide-error-fatal",
+      "what": "an answer the Hub does not take breaks the turn",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "} catch (error) { log(`could not answer the approval ${request.id}: ${error?.message ?? error}`); }",
+          "new": "} catch (error) { throw error; }"
+        }
+      ]
+    },
+    {
+      "name": "turn-cursor-from",
+      "what": "a turn that continues a task tells its whole record again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "mapper: createTurnMapper({ cwd: session.cwd, from: session.eventCursor, usageMark: session.usageMark }) };",
+          "new": "mapper: createTurnMapper({ cwd: session.cwd, from: 0, usageMark: session.usageMark }) };"
+        }
+      ]
+    },
+    {
+      "name": "turn-usage-from",
+      "what": "a turn that continues a task counts the use of the turns before",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "mapper: createTurnMapper({ cwd: session.cwd, from: session.eventCursor, usageMark: session.usageMark }) };",
+          "new": "mapper: createTurnMapper({ cwd: session.cwd, from: session.eventCursor, usageMark: null }) };"
+        }
+      ]
+    },
+    {
+      "name": "turn-cwd",
+      "what": "the files of a call are placed in another folder",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "createTurnMapper({ cwd: session.cwd,",
+          "new": "createTurnMapper({ cwd: '',"
+        }
+      ]
+    },
+    {
+      "name": "turn-cursor-saved",
+      "what": "the cursor of a turn is not kept for the next one",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      session.eventCursor = turn.mapper.cursor;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "turn-usage-saved",
+      "what": "the use of a turn is not kept for the next one",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      session.usageMark = turn.mapper.usageMark;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "turn-answer-whole",
+      "what": "the answer at the end is always told whole",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const rest = turn.mapper.finalText(finished);\n      if (rest)",
+          "new": "const rest = typeof finished.finalText === 'string' ? finished.finalText : '';\n      if (rest.trim())"
+        }
+      ]
+    },
+    {
+      "name": "turn-answer-lost",
+      "what": "the answer at the end is never told",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (rest) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: rest } } });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "turn-answer-kind",
+      "what": "the answer at the end is told as a thought",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: rest } }",
+          "new": "update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: rest } }"
+        }
+      ]
+    },
+    {
+      "name": "session-new-cursor",
+      "what": "a new session starts reading the record after the first events",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "taskId: null, turn: null, eventCursor: 0, usageMark: null });",
+          "new": "taskId: null, turn: null, eventCursor: 1, usageMark: null });"
+        }
+      ]
+    },
+    {
+      "name": "questions-closed-at-the-end",
+      "what": "a question still open when the turn ends is left open",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      turn.questions.abort();\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "questions-signal-lost",
+      "what": "the end of the turn does not reach the questions",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const askSignal = AbortSignal.any([context.signal, turn.questions.signal]);",
+          "new": "const askSignal = context.signal;"
+        }
+      ]
+    },
+    {
+      "name": "ask-window-unused",
+      "what": "the time the editor is given is not the one of the request",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const timeoutMs = answerWindowMs(request);",
+          "new": "const timeoutMs = 600000;"
+        }
+      ]
+    },
+    {
+      "name": "source-bypassed",
+      "what": "the record of a task is read past the one source the agent was given",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        const task = await readTask(hub, turn.taskId);",
+          "new": "        const task = await hub.getTask(turn.taskId);"
+        }
+      ]
+    }
+  ]
+}

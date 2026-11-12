@@ -67,7 +67,11 @@ jobs:
         run: python -m unittest discover -s ../scripts/tests -p test_release_source.py -v
       - name: Syntax check
         run: |
-          for f in hub.mjs lib/*.mjs tests/*.mjs; do node --check "$f"; done
+          for f in hub.mjs lib/*.mjs lib/acp/*.mjs tests/*.mjs tests/support/*.mjs; do node --check "$f"; done
+      # The ACP suites (docs/ACP.md) need the official client library and the schema checker, which are kept in a folder of their own so that they never reach the Hub
+      # (tests/acp-tools/package.json: devDependencies only, one lock file). A suite that cannot find them is skipped, and --no-skip below turns a skip into a failure.
+      - name: Install the ACP test tools
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix tests/acp-tools
       # --retry-failed-once runs a suite that failed a second time. One that passes then is FLAKY: never PASS, a ::warning annotation, a line in
       # the step summary and a count in summary.json (docs/CI-HEALTH.md). The run is still red for a suite that fails twice.
       - name: Run all suites
@@ -224,17 +228,12 @@ jobs:
           $actual = (Get-FileHash .\dist\DatGoldSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = ((Get-Content .\dist\DatGoldSetup.exe.sha256 -Raw).Trim() -split '\s+')[0]
           if ($actual -ne $expected) { throw 'Installer checksum verification failed' }
-          # The Companion is built under its new name and, as a copy, under the old one that every installed version links to.
-          $extensionDigests = @()
-          foreach ($extensionZip in @('.\dist\DatGold-Browser-Companion.zip', '.\dist\ChatMCP-Browser-Companion.zip')) {
-            $extensionChecksum = "$extensionZip.sha256"
-            if (-not (Test-Path $extensionZip) -or -not (Test-Path $extensionChecksum)) { throw "Companion ZIP or checksum missing: $extensionZip" }
-            $extensionExpected = ((Get-Content $extensionChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-            $extensionActual = (Get-FileHash $extensionZip -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($extensionActual -ne $extensionExpected) { throw "Companion ZIP checksum verification failed: $extensionZip" }
-            $extensionDigests += $extensionActual
-          }
-          if (@($extensionDigests | Select-Object -Unique).Count -ne 1) { throw 'The Companion under its two names is not the same file' }
+          $extensionZip = '.\dist\DatGold-Browser-Companion.zip'
+          $extensionChecksum = "$extensionZip.sha256"
+          if (-not (Test-Path $extensionZip) -or -not (Test-Path $extensionChecksum)) { throw "Companion ZIP or checksum missing: $extensionZip" }
+          $extensionExpected = ((Get-Content $extensionChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $extensionActual = (Get-FileHash $extensionZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($extensionActual -ne $extensionExpected) { throw "Companion ZIP checksum verification failed: $extensionZip" }
       - name: Upload Windows installer build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

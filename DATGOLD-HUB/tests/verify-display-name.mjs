@@ -48,7 +48,13 @@ const TECHNICAL = [
   /Local\\+ChatMCP\.Update\./g,                                                         // the name of the lock that keeps two installers apart
   /\b(?:LegacyAppName|LegacyStartMenuFolder) = "ChatMCP(?: Studio)?";/g,                // the names versions up to 3.10.1 gave the shortcuts, which setup finds and removes
   /"Programs", "ChatMCP"|"ChatMCP", "logs"|GetProcessesByName\("ChatMCP"\)|Contains\("ChatMCP"|\.ChatMCP-update-/g, // the folders, the process and the update folder the installer works with
+  // The old name in capitals is an identifier, never the product's name, in these three shapes only (docs/NAMING.md, "Source tree"):
+  /\bCHATMCP_[A-Z0-9_]+/g,                                                             // environment variables and the skip marker of the suites
+  /\b(?:START|STOP)-CHATMCP-(?:HUB|DESKTOP)\b/g,                                       // the launchers
+  /\bLegacyHubFolder = "CHATMCP-HUB"|\bwas called CHATMCP-HUB\b|gọi thư mục này là `CHATMCP-HUB`|`CHATMCP-HUB\\extension`/g, // the Hub folder of installations up to 3.11.0, which setup renames
 ];
+// The old name as a person reads it: ChatMCP, or in capitals CHATMCP ("CHATMCP STUDIO", "CHATMCP HUB COMPANION"). Other spellings (chatmcp-logo.png, .chatmcp/) are file names.
+const OLD_NAME = /ChatMCP|CHATMCP/;
 const isComment = (line) => /^\s*(?:\/\/|\/\*|\*|\{\/\*|<!--|#)/.test(line);
 
 /** `files` is {path: text}. Returns "path:line: text" for every line that still names the product ChatMCP. `comments` lets a comment line pass (code comments are not read by a person using the product). */
@@ -56,10 +62,10 @@ function scan(files, { comments = false } = {}) {
   const found = [];
   for (const [file, text] of Object.entries(files)) {
     text.split('\n').forEach((line, index) => {
-      if (!line.includes('ChatMCP')) return;
+      if (!OLD_NAME.test(line)) return;
       if (comments && isComment(line) && !/\.(md|txt)$/.test(file) && file !== 'NOTICE') return;
       const rest = TECHNICAL.reduce((left, pattern) => left.replace(pattern, ''), line);
-      if (rest.includes('ChatMCP')) found.push(`${file}:${index + 1}: ${line.trim().slice(0, 160)}`);
+      if (OLD_NAME.test(rest)) found.push(`${file}:${index + 1}: ${line.trim().slice(0, 160)}`);
     });
   }
   return found;
@@ -73,7 +79,8 @@ const INSTALLER = ['InstallerEngine.cs', 'InstallTransaction.cs', 'Program.cs', 
 const LIVING_DOCUMENTS = [
   'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'NOTICE', 'HUONG-DAN.txt', 'THIRD-PARTY-NOTICES.md', 'DATGOLD-HUB/README.md', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt',
   ...['AGENT-TOOL-CAPABILITIES', 'ARCHITECTURE', 'COMPANION-PRIVACY', 'DEPLOYMENT', 'DESKTOP-APP', 'DEVELOPMENT', 'EVALUATION', 'HOOKS', 'HUB-AUTH', 'INDEX', 'LICENSE-SCAN',
-    'TESTING-WITH-REAL-MODELS', 'THREAT-MODEL', 'USER-GUIDE', 'WINDOWS-SETUP', 'TROUBLESHOOTING', 'CI-HEALTH'].map((name) => `docs/${name}.md`),
+    'TESTING-WITH-REAL-MODELS', 'THREAT-MODEL', 'USER-GUIDE', 'WINDOWS-SETUP', 'TROUBLESHOOTING', 'CI-HEALTH', 'CODE-INTELLIGENCE-RUNTIME', 'GIT-PUSH', 'REVIEW-API', 'CLAIMS'].map((name) => `docs/${name}.md`),
+  'AGENTS.md', 'CLAUDE.md',
   'design/DESIGN-DIRECTION.md', 'design/ADR-001-frontend-stack.md',
 ];
 const SCHEMA = ['DATGOLD-HUB/schemas/hooks.schema.json'];
@@ -142,6 +149,10 @@ for (const [surface, files] of Object.entries(real)) {
     ['the old name in a sentence of the uninstaller', { 'installer/UninstallForm.cs': 'Text = "Remove ChatMCP and all associated shortcuts from this computer",' }, { comments: true }],
     ['the old name as the name of the shortcuts', { 'installer/InstallerEngine.cs': 'public const string AppName = "ChatMCP Studio";' }, { comments: true }],
     ['the old name in the file properties of the setup', { 'installer/ChatMCP.Installer.csproj': '<Product>ChatMCP Studio Setup</Product>' }, { comments: true }],
+    ['the old name in capitals as the title of a guide', { 'HUONG-DAN.txt': 'CHATMCP STUDIO — HƯỚNG DẪN LOCAL-ONLY' }, { comments: false }],
+    ['the old name in capitals in the Companion guide', { 'DATGOLD-HUB/extension/HUONG-DAN.txt': 'CHATMCP HUB COMPANION 1.5.2' }, { comments: false }],
+    ['the old Hub folder named as if it still were the folder', { 'NOTICE': '  - CHATMCP-HUB/THIRD-PARTY-NOTICES.txt' }, { comments: false }],
+    ['an environment variable does not excuse the name beside it', { 'docs/x.md': 'CHATMCP_STATE_DIR is read by CHATMCP Studio' }, { comments: false }],
   ];
   for (const [label, files, options] of defects) assert.equal(scan(files, options).length, 1, `reported: ${label}`);
   const allowed = [
@@ -155,6 +166,10 @@ for (const [surface, files] of Object.entries(real)) {
     ['a code comment in a source file', '// the page was opened without ChatMCP'],
     ['the old names the installer finds and removes', 'internal const string LegacyAppName = "ChatMCP Studio"; internal const string LegacyStartMenuFolder = "ChatMCP";'],
     ['the folders, the process and the update folder of the installer', 'Path.Combine(local, "Programs", "ChatMCP"); Path.Combine(local, "ChatMCP", "logs"); Process.GetProcessesByName("ChatMCP"); name.Contains("ChatMCP", x); ".ChatMCP-update-"'],
+    ['environment variables in capitals', 'Set CHATMCP_STATE_DIR, CHATMCP_HUB_SECRET and CHATMCP_TEST_SKIP: before the run'],
+    ['the launchers', '.\\DATGOLD-HUB\\START-CHATMCP-HUB.cmd, STOP-CHATMCP-HUB.cmd and START-CHATMCP-DESKTOP.cmd'],
+    ['the Hub folder of an old installation', 'internal const string LegacyHubFolder = "CHATMCP-HUB"; Up to 3.11.0 that folder was called CHATMCP-HUB: an extension'],
+    ['file names in lower case', 'chatmcp-logo.png, .chatmcp/hooks.json and chatmcp-studio-local'],
   ];
   for (const [label, line] of allowed) assert.deepEqual(scan({ 'DATGOLD-HUB/ui/src/x.tsx': line }, { comments: true }), [], `allowed: ${label}`);
   assert.equal(scan({ 'docs/x.md': '# ChatMCP' }, { comments: false }).length, 1, 'a heading of a document is read as a sentence, not skipped as a comment');
@@ -164,9 +179,10 @@ for (const [surface, files] of Object.entries(real)) {
 
 // ------------------------------------------------------------------------------------------------------------------------------- 4. the names of the downloads
 // What a person downloads from a release is called DatGold too: DatGoldSetup.exe with its .sha256, and DatGold-Browser-Companion.zip. Releases up to 3.10.2 published ChatMCPSetup.exe and
-// ChatMCP-Browser-Companion.zip, and two things still depend on those names: every installed version links to
-// https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip, so every release keeps publishing that file as a COPY of the new one; and the upgrade test
-// downloads the published 3.9.0 by its file name. The names inside the installed program (ChatMCP.exe, the folders, the registry key) are the identifier step of docs/NAMING.md.
+// ChatMCP-Browser-Companion.zip; 3.11.0 published the Companion under both names, as a copy. From 3.11.1 the old-named copy is NOT published (the owner's decision of 2026-10-28; v3.11.1 and v3.11.2
+// carry DatGold-Browser-Companion.zip alone), so the build must not make it and the package workflow must not upload it: a file that the build makes is a file that the next release step attaches.
+// One thing still depends on an old name: the upgrade test downloads the published 3.9.0 by its file name. The names inside the installed program (ChatMCP.exe, the folders, the registry key) are
+// the identifier step of docs/NAMING.md.
 {
   /** A script or a workflow without its comments (PowerShell `<# ... #>` blocks and whole comment lines): a comment may say what a file used to be called. */
   const code = (text) => text.replace(/<#[\s\S]*?#>/g, '').split('\n').filter((line) => !/^\s*(?:#|\/\/)/.test(line)).join('\n');
@@ -188,22 +204,26 @@ for (const [surface, files] of Object.entries(real)) {
     need(!/ChatMCPSetup/.test(build), `${DOWNLOAD_FILES.build}: still names ChatMCPSetup outside a comment`);
     const companion = code(at('companion'));
     need(/\$filename = 'DatGold-Browser-Companion\.zip'/.test(companion), `${DOWNLOAD_FILES.companion}: the Browser Companion is not built as DatGold-Browser-Companion.zip`);
-    need(/\$legacyFilename = 'ChatMCP-Browser-Companion\.zip'/.test(companion) && /Copy-Item/.test(companion), `${DOWNLOAD_FILES.companion}: the old name is not published as a copy (installed versions link to it)`);
+    need(!/ChatMCP-Browser-Companion/.test(companion), `${DOWNLOAD_FILES.companion}: the Browser Companion is built under its old name again, which no release publishes since 3.11.1`);
     for (const key of ['ci', 'package']) {
       const text = at(key);
       const listed = (name) => new RegExp(`^\\s+dist/${name.replace(/[.]/g, '\\.')}$`, 'm').test(text);
-      for (const name of ['DatGold-Browser-Companion.zip', 'DatGold-Browser-Companion.zip.sha256', 'ChatMCP-Browser-Companion.zip', 'ChatMCP-Browser-Companion.zip.sha256'])
+      for (const name of ['DatGold-Browser-Companion.zip', 'DatGold-Browser-Companion.zip.sha256'])
         need(listed(name), `${DOWNLOAD_FILES[key]}: the uploaded artifact does not list dist/${name}`);
     }
+    // The package workflow is the one that makes the archive of a release: it neither checks nor uploads a file under the old name. In ci.yml the CHECK of the build must not ask for the old name (the
+    // build would fail on a file that is no longer made); its artifact list is not held to this here (see the pull request that removed the copy).
+    need(!/ChatMCP-Browser-Companion/.test(code(at('package'))), `${DOWNLOAD_FILES.package}: the package workflow still names the old file of the Companion`);
+    need(!/Test-Path[^\n]*ChatMCP-Browser-Companion|foreach \(\$extensionZip in[^\n]*ChatMCP-Browser-Companion/.test(at('ci')), `${DOWNLOAD_FILES.ci}: the check of the build still asks for the Companion under its old name, which the build no longer makes`);
     need(/^\s+dist\/DatGoldSetup\.exe$/m.test(at('ci')) && /^\s+dist\/DatGoldSetup\.exe\.sha256$/m.test(at('ci')) && /name: DatGoldSetup-win-x64/.test(at('ci')), `${DOWNLOAD_FILES.ci}: the installer artifact is not DatGoldSetup-win-x64 with dist/DatGoldSetup.exe`);
     const oldNameLines = at('ci').split('\n').filter((line) => /ChatMCPSetup/.test(line) && !/^\s*#/.test(line));
     need(oldNameLines.length > 0 && oldNameLines.every((line) => /native-baseline/.test(line)), `${DOWNLOAD_FILES.ci}: ChatMCPSetup is named outside the download of the published 3.9.0 (its file name cannot change): ${oldNameLines.filter((line) => !/native-baseline/.test(line)).map((line) => line.trim().slice(0, 80)).join(' | ')}`);
     need(/'dist\/DatGoldSetup\.exe'/.test(at('gate')) && !/ChatMCPSetup/.test(at('gate')), `${DOWNLOAD_FILES.gate}: the provenance gate does not read dist/DatGoldSetup.exe`);
     need(/'DatGoldSetup\.dll'/.test(at('upgrade')) && /'DatGoldSetup\.exe'/.test(at('upgrade')), `${DOWNLOAD_FILES.upgrade}: the upgrade test does not copy the files of DatGoldSetup`);
     for (const name of TELL_A_PERSON) need(/DatGoldSetup\.exe/.test(files[name] ?? ''), `${name}: does not tell a person to get DatGoldSetup.exe`);
-    // The link inside the app must name a file that every release publishes: the new name, or the old one that is kept as a copy.
+    // The link inside the app must name the file that a release publishes.
     const linked = /releases\/latest\/download\/([A-Za-z0-9._-]+)/.exec(at('link'))?.[1];
-    const published = [/\$filename = '([^']+)'/.exec(companion)?.[1], /\$legacyFilename = '([^']+)'/.exec(companion)?.[1]];
+    const published = [/\$filename = '([^']+)'/.exec(companion)?.[1]];
     need(linked !== undefined && published.includes(linked), `${DOWNLOAD_FILES.link}: the app links ${linked ?? 'nothing'}, which the Companion build does not publish (${published.join(', ')})`);
     return found;
   }
@@ -215,15 +235,17 @@ for (const [surface, files] of Object.entries(real)) {
     ['the setup built under the old file name', mutate(DOWNLOAD_FILES.project, '<AssemblyName>DatGoldSetup</AssemblyName>', '<AssemblyName>ChatMCPSetup</AssemblyName>')],
     ['the old installer name in the build script', mutate(DOWNLOAD_FILES.build, "$setupExe = Join-Path $distDir 'DatGoldSetup.exe'", "$setupExe = Join-Path $distDir 'ChatMCPSetup.exe'")],
     ['the checksum line naming the old file', mutate(DOWNLOAD_FILES.build, '"$checksum  DatGoldSetup.exe"', '"$checksum  ChatMCPSetup.exe"')],
-    ['the Companion without its old-named copy', mutate(DOWNLOAD_FILES.companion, "$legacyFilename = 'ChatMCP-Browser-Companion.zip'", "$legacyFilename = 'DatGold-Browser-Companion.zip'")],
-    ['the artifact without the old-named Companion', mutate(DOWNLOAD_FILES.ci, '            dist/ChatMCP-Browser-Companion.zip\n', '')],
+    ['the Companion built under its old name again', mutate(DOWNLOAD_FILES.companion, "$output = Join-Path $dist $filename", "$output = Join-Path $dist $filename\n$legacyOutput = Join-Path $dist 'ChatMCP-Browser-Companion.zip'")],
+    ['the package workflow uploading the Companion under its old name', mutate(DOWNLOAD_FILES.package, '            dist/DatGold-Browser-Companion.zip.sha256\n', '            dist/DatGold-Browser-Companion.zip.sha256\n            dist/ChatMCP-Browser-Companion.zip\n')],
+    ['the check of the build asking for the old-named Companion', mutate(DOWNLOAD_FILES.ci, "$extensionZip = '.\\dist\\DatGold-Browser-Companion.zip'", "foreach ($extensionZip in @('.\\dist\\DatGold-Browser-Companion.zip', '.\\dist\\ChatMCP-Browser-Companion.zip')) {")],
+    ['the artifact without the Companion', mutate(DOWNLOAD_FILES.ci, '            dist/DatGold-Browser-Companion.zip\n', '')],
     ['the old installer name beside the checks of the new build', mutate(DOWNLOAD_FILES.ci, 'if (-not (Test-Path .\\dist\\DatGoldSetup.exe))', 'if (-not (Test-Path .\\dist\\ChatMCPSetup.exe))')],
     ['the provenance gate reading the old file', mutate(DOWNLOAD_FILES.gate, "'dist/DatGoldSetup.exe'", "'dist/ChatMCPSetup.exe'")],
     ['the README without the new file name', mutate('README.md', 'DatGoldSetup.exe', 'the installer')],
     ['the app linking a file no release publishes', mutate(DOWNLOAD_FILES.link, 'DatGold-Browser-Companion.zip', 'Companion.zip')],
   ];
   for (const [label, files] of downloadDefects) assert.ok(downloadProblems(files).length >= 1, `reported: ${label}`);
-  ok(`the downloads are DatGoldSetup.exe and DatGold-Browser-Companion.zip, the old-named Companion is published as a copy, and ${downloadDefects.length} defects are reported`);
+  ok(`the downloads are DatGoldSetup.exe and DatGold-Browser-Companion.zip, the Companion is not built under its old name any more, and ${downloadDefects.length} defects are reported`);
 }
 
 console.log(`\nPASS: ${checks} display-name checks`);

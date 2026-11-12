@@ -124,7 +124,7 @@ if (!existsSync(path.join(REPO, 'docs', 'ARCHITECTURE.md')) || !existsSync(path.
   process.exit(0);
 }
 
-const DOC_FILES = ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'THIRD-PARTY-NOTICES.md']
+const DOC_FILES = ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'THIRD-PARTY-NOTICES.md', 'AGENTS.md']
   .filter((name) => existsSync(path.join(REPO, name)))
   .concat(readdirSync(path.join(REPO, 'docs')).filter((name) => name.endsWith('.md')).map((name) => `docs/${name}`));
 const docs = Object.fromEntries(DOC_FILES.map((name) => [name, read(path.join(REPO, name)).normalize('NFC')]));

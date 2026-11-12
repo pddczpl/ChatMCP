@@ -9,11 +9,37 @@ export const PRIVATE_FILE = new RegExp(
   + `\\.env(?!\\.${EXAMPLE}$)(?:\\..*)?`
   + '|id_(?:rsa|dsa|ecdsa|ed25519)(?:\\..*)?'
   + '|.*\\.(?:pem|p12|pfx|key|keystore|jks|ppk)'
-  + '|credentials(?:\\.json)?'
-  + '|secrets?\\.(?:json|ya?ml|toml)'
-  + '|\\.(?:npmrc|pypirc|netrc|git-credentials|htpasswd)'
+  + '|credentials(?:\\.(?:json|toml))?'
+  + '|secrets?\\.(?:json|ya?ml|toml|(?:auto\\.)?tfvars)'
+  + '|\\.(?:npmrc|pypirc|netrc|git-credentials|htpasswd|pgpass|dockercfg|vault-token|terraformrc)'
+  + '|_netrc'
+  // Terraform: the tokens of its command line, and state, which holds every secret a resource was created with, in clear text.
+  + '|terraform\\.rc'
+  + '|credentials\\.tfrc\\.json'
+  + '|.*\\.tfstate(?:\\.[0-9]+)?(?:\\.backup)?'
+  // Google Cloud: a service-account key under its usual names, and the login gcloud keeps for client libraries.
+  + '|service[-_]?account(?:[-_]?key)?(?:[-_.].*)?\\.json'
+  + '|application_default_credentials\\.json'
+  + '|kubeconfig(?:\\.ya?ml)?'
+  + '|.*\\.kubeconfig'
   + ')$', 'i');
 export const PRIVATE_DIRECTORIES = new Set(['.git', '.ssh', '.aws', '.gnupg', '.kube']);
+// Files that are secret only where they are: `config.json` and `hosts.yml` are ordinary names, `.docker/config.json` holds registry
+// logins and `gh/hosts.yml` (below `.config`) the GitHub token. A row is consecutive names of a path, in lower case: the path is
+// protected when it ends with them, and also when it goes on below them (`gcloud/legacy_credentials` is a folder of key files).
+export const PRIVATE_LOCATIONS = [
+  ['.docker', 'config.json'],
+  ['gh', 'hosts.yml'],
+  ['.azure', 'accesstokens.json'],
+  ['.azure', 'msal_token_cache.json'],
+  ['.azure', 'msal_token_cache.bin'],
+  ['.azure', 'service_principal_entries.json'],
+  ['gcloud', 'credentials.db'],
+  ['gcloud', 'access_tokens.db'],
+  ['gcloud', 'legacy_credentials'],
+  ['.m2', 'settings.xml'],
+  ['.m2', 'settings-security.xml'],
+];
 
 const components = (value) => String(value).split(/[\\/]+/).filter((part) => part && part !== '.');
 
@@ -32,13 +58,23 @@ function nameOf(part) {
   return name.slice(0, end);
 }
 
+/** Whether the names of a path hold a row of PRIVATE_LOCATIONS: at its end (the file) or before it (something below a folder of that name). */
+function atLocation(names, parts) {
+  for (let start = 0; start + parts.length <= names.length; start += 1) {
+    if (parts.every((part, index) => names[start + index] === part)) return true;
+  }
+  return false;
+}
+
 /** True when a workspace-relative path names a secret file or sits inside a protected directory. */
 export function isProtectedPath(relative) {
   const parts = components(relative);
   if (!parts.length) return false;
   if (parts.some((part) => PRIVATE_DIRECTORIES.has(part.toLowerCase()))) return true;
   if (parts.length >= 2 && nameOf(parts.at(-1)) === HOOKS_FILE && nameOf(parts.at(-2)) === HOOKS_FOLDER) return true;
-  return PRIVATE_FILE.test(parts.at(-1));
+  if (PRIVATE_FILE.test(parts.at(-1))) return true;
+  const names = parts.map(nameOf);
+  return PRIVATE_LOCATIONS.some((row) => atLocation(names, row));
 }
 
 /**
@@ -72,6 +108,18 @@ export function mayExpandToProtected(value) {
   const segments = text.split(/[\\/:]+/).filter(Boolean);
   for (let index = 0; index + 1 < segments.length; index += 1) {
     if (segmentMayBe(segments[index], HOOKS_FOLDER) && segmentMayBe(segments[index + 1], HOOKS_FILE)) return true;
+  }
+  // Terraform state through a wildcard ("*.tfstate", "terraform.tfstate*")
+  if (/[*?[]/.test(text) && text.includes('.tfstate')) return true;
+  // A file that is secret where it is (".docker/*", ".config/gh/*.yml"). A row without a dot-folder needs one segment written out in
+  // full: "gh/*" and "*/hosts.yml" are refused, star-slash-star is not.
+  for (const parts of PRIVATE_LOCATIONS) {
+    const anchored = parts.some((part) => part.startsWith('.'));
+    for (let index = 0; index + parts.length <= segments.length; index += 1) {
+      const window = segments.slice(index, index + parts.length);
+      if (!window.every((segment, at) => segmentMayBe(segment, parts[at]))) continue;
+      if (anchored || window.some((segment, at) => nameOf(segment) === parts[at])) return true;
+    }
   }
   return false;
 }

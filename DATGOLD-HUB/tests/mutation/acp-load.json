@@ -1,0 +1,453 @@
+{
+  "suite": "verify-acp-load.mjs",
+  "mutations": [
+    {
+      "name": "store-not-reread",
+      "what": "the store does not read the file again: what another agent process wrote is not seen",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "      const entry = (await read())[id];",
+          "new": "      const entry = undefined;"
+        }
+      ]
+    },
+    {
+      "name": "store-not-whole",
+      "what": "the store writes the file in place, not through a temporary file",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "        await fs.writeFile(temporary, ",
+          "new": "        await fs.writeFile(file, "
+        },
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "        await fs.rename(temporary, file);\n",
+          "new": ""
+        }
+      ],
+      "equivalent": "what the rename protects against is a write cut in the middle (a crash, a full disk), which a test process cannot be cut at; the suite checks that the whole file is there and that no temporary file is left"
+    },
+    {
+      "name": "store-mode",
+      "what": "the file of sessions can be read by others (Windows has no Unix file modes: the folder of the user protects it there)",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": ", { mode: 0o600 });",
+          "new": ", { mode: 0o644 });"
+        }
+      ],
+      "platforms": [
+        "linux",
+        "darwin"
+      ]
+    },
+    {
+      "name": "store-unbounded",
+      "what": "the store keeps every session",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": ".slice(-MAX_STORED_SESSIONS);",
+          "new": ";"
+        }
+      ]
+    },
+    {
+      "name": "store-newest-dropped",
+      "what": "the store drops the newest sessions instead of the oldest",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": ".slice(-MAX_STORED_SESSIONS);",
+          "new": ".slice(0, MAX_STORED_SESSIONS);"
+        }
+      ]
+    },
+    {
+      "name": "store-version",
+      "what": "a file of another version is read",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "parsed.version === 1 && isObject(parsed.sessions)",
+          "new": "isObject(parsed.sessions)"
+        }
+      ]
+    },
+    {
+      "name": "store-entry-unchecked",
+      "what": "an entry without a task is taken",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "const isEntry = (value) => isObject(value) && typeof value.taskId === 'string' && typeof value.cwd === 'string' && typeof value.workspacePath === 'string';",
+          "new": "const isEntry = (value) => isObject(value);"
+        }
+      ]
+    },
+    {
+      "name": "store-broken-throws",
+      "what": "a file that is not JSON is an error",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "    } catch { /* below */ }",
+          "new": "    } catch (error) { throw error; }"
+        }
+      ]
+    },
+    {
+      "name": "store-broken-silent",
+      "what": "a file that cannot be read is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "    log(`could not read ${file}: it is not a store of sessions; it is taken as empty`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "store-at-lost",
+      "what": "the time of a session is not kept",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "{ ...shapeOf(entry), at: new Date().toISOString() }",
+          "new": "{ ...shapeOf(entry) }"
+        }
+      ]
+    },
+    {
+      "name": "store-shape-leaks",
+      "what": "the store keeps whatever it is given",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "sessions[id] = { ...shapeOf(entry), at:",
+          "new": "sessions[id] = { ...entry, at:"
+        }
+      ]
+    },
+    {
+      "name": "memory-unbounded",
+      "what": "the store in memory keeps every session",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": " while (sessions.size > MAX_STORED_SESSIONS) sessions.delete(sessions.keys().next().value);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "stored-limit",
+      "what": "the limit of the store is another number",
+      "patches": [
+        {
+          "file": "lib/acp/session-store.mjs",
+          "old": "export const MAX_STORED_SESSIONS = 256;",
+          "new": "export const MAX_STORED_SESSIONS = 255;"
+        }
+      ]
+    },
+    {
+      "name": "replay-not-ordered",
+      "what": "the replay is not put in the order of time",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "].sort((a, b) => a.at.localeCompare(b.at) || a.rank - b.rank || a.index - b.index);",
+          "new": "];"
+        }
+      ]
+    },
+    {
+      "name": "replay-user-lost",
+      "what": "the messages of the person are not replayed",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "      updates.push({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: item.entry.text } });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "replay-said-twice",
+      "what": "an answer that a message already said is told again",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "      if (said && rest.startsWith(said)) rest = rest.slice(said.length).trim();\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "replay-said-not-reset",
+      "what": "what the model said in an earlier run takes words off a later answer",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "      saidInRun = [];\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "replay-plan-lost",
+      "what": "the plan is not replayed",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "  updates.push(...mapper.next({ events: seen, eventCount: seen.length, goalPlan: task.goalPlan }).filter((update) => update.sessionUpdate === 'plan'));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "replay-usage-kept",
+      "what": "the use of the context is replayed",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": ".filter((update) => update.sessionUpdate !== 'usage_update'));",
+          "new": ");"
+        },
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "  const usage = task.usage;",
+          "new": "  const usage = task.usage; task.contextPolicy ??= null;"
+        }
+      ],
+      "equivalent": "the records the replay hands to the mapper hold events, never the usage of the task, so the mapper has no use of the context to tell; the filter only says so"
+    },
+    {
+      "name": "replay-cursor-short",
+      "what": "the next turn starts at the events that were kept, not after all of them",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "const total = wholeCount(task.eventCount) && task.eventCount >= events.length ? task.eventCount : events.length;",
+          "new": "const total = events.length;"
+        }
+      ]
+    },
+    {
+      "name": "replay-usage-mark-lost",
+      "what": "the next turn counts the use of the context from zero",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "    ? { requests: usage.httpRequests, input: usage.inputTokens, output: usage.outputTokens } : null;",
+          "new": "    ? null : null;"
+        }
+      ]
+    },
+    {
+      "name": "replay-dialogue-unfiltered",
+      "what": "an empty message or another role is replayed",
+      "patches": [
+        {
+          "file": "lib/acp/replay.mjs",
+          "old": "(entry.role === 'user' || entry.role === 'assistant') && typeof entry.text === 'string' && entry.text.trim()",
+          "new": "typeof entry.text === 'string'"
+        }
+      ]
+    },
+    {
+      "name": "load-not-handled",
+      "what": "session/load is not answered",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      peer.handle('session/load', guard(requireInitialized(loadSession)));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "load-twice",
+      "what": "a session already open is loaded again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (sessions.has(sessionId)) throw fail(",
+          "new": "    if (false) throw fail("
+        }
+      ]
+    },
+    {
+      "name": "load-other-folder",
+      "what": "a session is loaded in another folder",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!samePlace(kept.cwd, cwd)) throw fail(",
+          "new": "    if (false) throw fail("
+        }
+      ]
+    },
+    {
+      "name": "load-unknown",
+      "what": "an unknown session is loaded as an empty one",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!kept) throw fail(ERROR_CODES.NOT_FOUND,",
+          "new": "    if (false) throw fail(ERROR_CODES.NOT_FOUND,"
+        }
+      ]
+    },
+    {
+      "name": "load-task-gone",
+      "what": "a session whose task the Hub no longer has is loaded",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (!task) throw fail(ERROR_CODES.NOT_FOUND,",
+          "new": "      if (false) throw fail(ERROR_CODES.NOT_FOUND,"
+        }
+      ]
+    },
+    {
+      "name": "load-no-folder-check",
+      "what": "a folder that does not exist is loaded",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    await requireFolder(cwd);\n    const kept",
+          "new": "    const kept"
+        }
+      ]
+    },
+    {
+      "name": "load-no-replay",
+      "what": "nothing is replayed",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      for (const update of replay.updates) outbound.notify('session/update', { sessionId, update });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "load-cursor-zero",
+      "what": "the next turn tells the whole record again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "eventCursor: replay.cursor, usageMark: replay.usageMark });",
+          "new": "eventCursor: 0, usageMark: replay.usageMark });"
+        }
+      ]
+    },
+    {
+      "name": "load-task-lost",
+      "what": "the next prompt starts a new task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "workspacePath: workspace.path, taskId: kept.taskId, turn: null,",
+          "new": "workspacePath: workspace.path, taskId: null, turn: null,"
+        }
+      ]
+    },
+    {
+      "name": "load-not-registered",
+      "what": "the folder is not put in the list of workspaces again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      const workspace = await hub.ensureWorkspace(cwd);\n      const task = await readTask(hub, kept.taskId);",
+          "new": "      const workspace = { path: cwd };\n      const task = await readTask(hub, kept.taskId);"
+        }
+      ]
+    },
+    {
+      "name": "session-not-kept",
+      "what": "the session and its task are not kept for session/load",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      void store.put(sessionId, { taskId: task.id, cwd: session.cwd, workspacePath: session.workspacePath })",
+          "new": "      void Promise.resolve()"
+        }
+      ]
+    },
+    {
+      "name": "mcp-notice-lost",
+      "what": "the person is not told that the MCP servers are not started",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!servers.length) return;\n",
+          "new": "    return;\n"
+        }
+      ]
+    },
+    {
+      "name": "mcp-notice-always",
+      "what": "the person is told about MCP servers when there are none",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!servers.length) return;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "mcp-notice-load-lost",
+      "what": "session/load does not tell about the MCP servers",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    tellAboutMcpServers(sessionId, mcpServers);\n    return {};",
+          "new": "    return {};"
+        }
+      ]
+    },
+    {
+      "name": "mcp-notice-plural",
+      "what": "one server is told as many",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "${servers.length === 1 ? '' : 's'}",
+          "new": "s"
+        }
+      ]
+    },
+    {
+      "name": "load-params-id",
+      "what": "session/load takes any session id",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  const body = requireObject(params, 'session/load');\n  const sessionId = sessionIdOf(body);",
+          "new": "  const body = requireObject(params, 'session/load');\n  const sessionId = String(body.sessionId);"
+        }
+      ]
+    },
+    {
+      "name": "same-place-case",
+      "what": "Windows compares folders with regard to case",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right",
+          "new": "left === right"
+        }
+      ],
+      "platforms": [
+        "win32"
+      ]
+    }
+  ]
+}

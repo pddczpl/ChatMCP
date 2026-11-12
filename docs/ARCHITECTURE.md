@@ -133,7 +133,7 @@ CodingWorktreeOrchestrator chạy tối đa bốn worker trên Git worktrees ri�
 
 Skills Hub duyệt SKILL.md lồng sâu theo Git tree được pin, kiểm tra blob SHA của tài nguyên text/binary, quản lý nguồn/update và ghi thông tin license evidence. Mặc định skills bên thứ ba tắt; không tự chạy script.
 
-## 16. Multi-Agent Orchestrator và GitHub Skills Hub (giai đoạn đầu)
+## 18. Multi-Agent Orchestrator và GitHub Skills Hub (giai đoạn đầu)
 
 StudioDelegates là read-only DAG phục vụ research/planning/review, không có tools thực thi. Chức năng này độc lập với các coding workers có worktree riêng.
 

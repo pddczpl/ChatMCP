@@ -750,6 +750,17 @@ const rowsOf = (file) => file.hunks.flatMap((hunk) => hunk.rows);
   assert.deepEqual(leaks(blocked.events), []);
   assert.deepEqual(leaks(gate1.state()), [], 'the history of a refused write to a protected file does not keep what the model tried to write');
   assert.equal(gate1.state().recent.at(-1).decision, 'blocked');
+  // the same for a file that is secret where it is (P42), and its ordinary twin is asked about with its content shown
+  for (const store of ['.docker/config.json', '.config/gh/hosts.yml', 'terraform.tfstate', 'service-account.json']) {
+    const gateStore = newGate();
+    const refused = await ask(gateStore, 'local.write_file', { path: store, content: `${ENV_MARKER}=1\n` });
+    assert.equal(refused.kind, 'unasked', `${store} is refused without a question`);
+    assert.equal(refused.result.allowed, false, store);
+    assert.deepEqual([leaks(refused.events), leaks(gateStore.state())], [[], []], `${store}: what the model tried to write is nowhere`);
+  }
+  const twin = await ask(newGate(), 'local.write_file', { path: 'app/config.json', content: '{"plain":true}\n' });
+  assert.equal(twin.kind, 'prompt', 'an ordinary config.json is a question like any other write');
+  assert.ok(JSON.stringify(twin.request.detail).includes('plain'), 'and the card shows what would be written');
   const blockedEdit = await ask(gate1, 'local.edit_file', { path: 'secrets/id_rsa', old_string: ENV_MARKER, new_string: `${ENV_MARKER}2` });
   assert.equal(blockedEdit.result.allowed, false);
   assert.deepEqual(leaks(gate1.state()), [], 'nor does the history of a refused edit');

@@ -2748,8 +2748,8 @@
    "patches": [
     {
      "file": "installer/InstallerEngine.cs",
-     "old": "            if (plan.Desktop)\n                CreateShortcut(",
-     "new": "            if (true)\n                CreateShortcut("
+     "old": "            if (plan.Desktop)\n                Try(() => CreateShortcut(",
+     "new": "            if (true)\n                Try(() => CreateShortcut("
     }
    ]
   },
@@ -2759,8 +2759,8 @@
    "patches": [
     {
      "file": "installer/InstallerEngine.cs",
-     "old": "            if (plan.StartMenuLauncher)\n                CreateShortcut(",
-     "new": "            if (true)\n                CreateShortcut("
+     "old": "                if (plan.StartMenuLauncher)\n                    Try(() => CreateShortcut(",
+     "new": "                if (true)\n                    Try(() => CreateShortcut("
     }
    ]
   },
@@ -2770,8 +2770,8 @@
    "patches": [
     {
      "file": "installer/InstallerEngine.cs",
-     "old": "            if (plan.StartMenuUninstall)\n                CreateShortcut(",
-     "new": "            if (true)\n                CreateShortcut("
+     "old": "                if (plan.StartMenuUninstall)\n                    Try(() => CreateShortcut(",
+     "new": "                if (true)\n                    Try(() => CreateShortcut("
     }
    ]
   },
@@ -5095,8 +5095,8 @@
    "patches": [
     {
      "file": "installer/InstallRecovery.cs",
-     "old": "^\\.ChatMCP-update-[0-9a-f]{32}\\z",
-     "new": "^\\.ChatMCP-update-[0-9a-f]+\\z"
+     "old": "@\"[0-9a-f]{32}\\z\"",
+     "new": "@\"[0-9a-f]+\\z\""
     }
    ]
   },
@@ -5106,8 +5106,8 @@
    "patches": [
     {
      "file": "installer/InstallRecovery.cs",
-     "old": "@\"^\\.ChatMCP-update-[0-9a-f]{32}\\z\"",
-     "new": "@\"\\.ChatMCP-update-[0-9a-f]{32}\\z\""
+     "old": "\"^\" + Regex.Escape(InstalledCopy.UpdateFolderPrefix) + @\"[0-9a-f]{32}\\z\"",
+     "new": "\"\" + Regex.Escape(InstalledCopy.UpdateFolderPrefix) + @\"[0-9a-f]{32}\\z\""
     }
    ]
   },
@@ -6271,8 +6271,8 @@
    "patches": [
     {
      "file": "desktop-shell/MainWindow.cs",
-     "old": "if (File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")))\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway",
-     "new": "if (File.Exists(Path.Combine(_repoRoot, \"DATGOLD-HUB\", \"package.json\")) && File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")) && false)\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway"
+     "old": "if (File.Exists(Path.Combine(_repoRoot, InstalledCopy.PendingName)))\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway",
+     "new": "if (File.Exists(Path.Combine(_repoRoot, \"DATGOLD-HUB\", \"package.json\")) && File.Exists(Path.Combine(_repoRoot, InstalledCopy.PendingName)) && false)\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway"
     }
    ]
   },
@@ -6973,6 +6973,149 @@
      "file": "installer/InstallerEngine.cs",
      "old": "receipt = RenameHubKeys(receipt);",
      "new": ""
+    }
+   ]
+  },
+  {
+   "name": "uninstall-held-file-ignored",
+   "what": "a file that cannot be removed does not stop the uninstall: the shortcuts and the entry go although files are left",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "catch (Exception error) when (error is IOException or UnauthorizedAccessException) { held.Add(item.Key); }",
+     "new": "catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }"
+    }
+   ]
+  },
+  {
+   "name": "uninstall-entry-first",
+   "what": "the entry in Installed apps is removed before the files, as it was",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "reportProgress(30, \"Removing application files...\");",
+     "new": "unregister(); reportProgress(30, \"Removing application files...\");"
+    }
+   ]
+  },
+  {
+   "name": "uninstall-shortcuts-before-files",
+   "what": "the shortcuts are removed before the files, as they were",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "reportProgress(30, \"Removing application files...\");",
+     "new": "RemoveShortcuts(installDir, desktopDir, programsDir, null); reportProgress(30, \"Removing application files...\");"
+    }
+   ]
+  },
+  {
+   "name": "uninstall-receipt-removed-with-held-file",
+   "what": "the receipt is removed although a file could not be",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "            if (held.Count > 0)\n                throw new IOException(",
+     "new": "            if (held.Count > 0) File.Delete(SafePath(installDir, ManifestName));\n            if (held.Count > 0)\n                throw new IOException("
+    }
+   ]
+  },
+  {
+   "name": "uninstall-stops-at-first-held-file",
+   "what": "the files after one that cannot be removed are not tried",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "{ held.Add(item.Key); }",
+     "new": "{ held.Add(item.Key); break; }"
+    }
+   ]
+  },
+  {
+   "name": "uninstall-entry-failure-fatal",
+   "what": "an entry that cannot be removed fails the uninstall",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "            try { unregister(); }\n            catch (Exception error) { Note(90, ",
+     "new": "            unregister();\n            try { }\n            catch (Exception error) { Note(90, "
+    }
+   ]
+  },
+  {
+   "name": "uninstall-entry-failure-silent",
+   "what": "an entry that cannot be removed is not reported",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "catch (Exception error) { Note(90, \"Could not remove DatGold from Windows Installed apps (\" + error.GetType().Name + \")",
+     "new": "catch (Exception error) { _ = (90, \"Could not remove DatGold from Windows Installed apps (\" + error.GetType().Name + \")"
+    }
+   ]
+  },
+  {
+   "name": "uninstall-shortcut-note-not-returned",
+   "what": "a shortcut that cannot be removed is said on the progress line only, which the next line replaces",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "RemoveShortcuts(installDir, desktopDir, programsDir, note => Note(70, note));",
+     "new": "RemoveShortcuts(installDir, desktopDir, programsDir, note => reportProgress(70, note));"
+    }
+   ]
+  },
+  {
+   "name": "shortcut-failure-swallowed",
+   "what": "a shortcut that cannot be saved is swallowed again",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "void Try(Action make) { try { make(); } catch (Exception error) { failure ??= error; } }",
+     "new": "void Try(Action make) { try { make(); } catch (Exception) { } }"
+    }
+   ]
+  },
+  {
+   "name": "shortcut-failure-stops-the-others",
+   "what": "a shortcut that cannot be saved costs the ones after it",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "void Try(Action make) { try { make(); } catch (Exception error) { failure ??= error; } }",
+     "new": "void Try(Action make) { make(); }"
+    }
+   ]
+  },
+  {
+   "name": "shortcut-save-failure-silent",
+   "what": "one shortcut that cannot be saved is not an error",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "            shortcut.Save();\n        }\n\n        /// <summary>Writes the entry",
+     "new": "            try { shortcut.Save(); } catch (Exception) { }\n        }\n\n        /// <summary>Writes the entry"
+    }
+   ]
+  },
+  {
+   "name": "register-failure-silent",
+   "what": "an entry in Installed apps that cannot be written is not reported",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "catch (Exception error) { note(\"Could not register DatGold in Windows Installed apps (\" + error.GetType().Name + \")",
+     "new": "catch (Exception error) { _ = (\"Could not register DatGold in Windows Installed apps (\" + error.GetType().Name + \")"
+    }
+   ]
+  },
+  {
+   "name": "register-failure-says-the-text",
+   "what": "the report of an entry that cannot be written holds the text of the failure, which may hold a path",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "note(\"Could not register DatGold in Windows Installed apps (\" + error.GetType().Name + \")",
+     "new": "note(\"Could not register DatGold in Windows Installed apps (\" + error.GetType().Name + error.Message + \")"
     }
    ]
   }
