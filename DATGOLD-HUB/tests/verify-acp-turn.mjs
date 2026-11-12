@@ -351,6 +351,17 @@ try {
     await second.answer();
     ok('the use of the context is counted from where the turn before stopped (the Hub keeps sums), and the answer at the end is told when no message of the model carried it');
   }
+  {
+    // The record of a task is read in ONE place, the option readTask (by default GET /api/tasks/<id>, polled): the Hub's own stream of events can take its place once it works.
+    const seen = [];
+    const { c, sessionId, first, taskId } = await begin({ options: { readTask: async (hub, id) => { seen.push(id); const task = await hub.getTask(id); return task && { ...task, events: [toolStart('s1', 'local.read_file', { path: 'from-the-source.js' })], eventCount: 1 }; } } });
+    await eventually(() => c.updates(sessionId).some((u) => u.toolCallId === 's1'), 'what the source gives is what the editor is told');
+    assert.ok(seen.length > 0 && seen.every((id) => id === taskId), 'the source is asked about the task of the turn');
+    assert.equal(c.hub.of('getTask').length, seen.length, 'and the agent reads the task nowhere else');
+    done(c, taskId, 'Done.');
+    await first.answer();
+    ok('the record of a task is read in one place (the option readTask), so the source of the events can be switched from polling to the stream of the Hub');
+  }
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }

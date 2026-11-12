@@ -104,7 +104,7 @@ Stops the Hub task (once, however many cancels come), and the prompt answers `ca
 
 ## What the editor is told while a task runs
 
-The Hub's own streams of events send nothing in this build (see `session/prompt`), so the agent reads the record of the task (`GET /api/tasks/<id>`: its `events`, `usage`, `goalPlan`, `pendingCall`) every 500 ms and says what is new in it. The mapping is a pure function of the record (`createTurnMapper` in `lib/acp/event-map.mjs`). A turn that continues a task starts after the events the earlier turn read. If the Hub has dropped events from the record before they were read, the ones it kept are told.
+The Hub's own streams of events send nothing in this build (see `session/prompt`), so the agent reads the record of the task (`GET /api/tasks/<id>`: its `events`, `usage`, `goalPlan`, `pendingCall`) every 500 ms and says what is new in it. The mapping is a pure function of the record (`createTurnMapper` in `lib/acp/event-map.mjs`), and the record is read in one place, the option `readTask` of `createAcpAgent` (polling by default): once the Hub's stream of events works, that is the one function to replace. Test: `tests/verify-acp-turn.mjs`. A turn that continues a task starts after the events the earlier turn read. If the Hub has dropped events from the record before they were read, the ones it kept are told.
 
 | In the record | The editor is told | Tests |
 | --- | --- | --- |

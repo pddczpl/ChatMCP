@@ -473,6 +473,17 @@
           "new": "const timeoutMs = 600000;"
         }
       ]
+    },
+    {
+      "name": "source-bypassed",
+      "what": "the record of a task is read past the one source the agent was given",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        const task = await readTask(hub, turn.taskId);",
+          "new": "        const task = await hub.getTask(turn.taskId);"
+        }
+      ]
     }
   ]
 }

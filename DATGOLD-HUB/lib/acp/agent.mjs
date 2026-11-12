@@ -47,8 +47,10 @@ const SETTLE_POLL_MS = 50; // the Hub turns a task "completed" a moment before i
  * @param {string} [options.version]
  * @param {number} [options.pollMs]  how often the Hub is asked about the task of a running turn
  * @param {number} [options.lostContactMs]  how long a Hub that does not answer is waited for before the turn fails
+ * @param {(hub: object, taskId: string) => Promise<object|null>} [options.readTask]  THE source of what a running task does: by default its record, read again every pollMs
+ *   (GET /api/tasks/<id>), because the Hub's streams of events send nothing in this build; once the Hub's stream works, this is the one function to replace
  */
-export function createAcpAgent({ peer, connectHub, masker, log: sink, version = VERSION, pollMs = 500, lostContactMs = 30_000 }) {
+export function createAcpAgent({ peer, connectHub, masker, log: sink, version = VERSION, pollMs = 500, lostContactMs = 30_000, readTask = (hub, taskId) => hub.getTask(taskId) }) {
   let connector = connectHub;
   const state = { initialized: false, supportsNotices: false, client: null, hubPromise: null, hubConnection: null, shutdown: null };
   const sessions = new Map();
@@ -170,7 +172,7 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
       if (hubGone) throw fail(ERROR_CODES.INTERNAL, `The DatGold Hub stopped while the task was running (exit code ${hubGone.code ?? 'none'}${hubGone.signal ? `, signal ${hubGone.signal}` : ''}).`);
       let napMs = pollMs;
       try {
-        const task = await hub.getTask(turn.taskId);
+        const task = await readTask(hub, turn.taskId);
         if (!task) throw fail(ERROR_CODES.INTERNAL, 'The Hub no longer has this task.');
         // What is new in the record is told to the editor, and an approval that waits is asked of it. A failure here (the editor, or the Hub when the approvals are looked at) is not a loss of contact with the Hub.
         await observe(task).catch((error) => log(`could not tell the editor what the task did: ${error?.message ?? error}`));
