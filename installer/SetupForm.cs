@@ -337,7 +337,7 @@ namespace ChatMCP.Installer
             {
                 if (_chkLaunch.Checked)
                 {
-                    var exePath = Path.Combine(targetDir, "ChatMCP.exe");
+                    var exePath = Path.Combine(targetDir, ChatMCP.Native.InstalledCopy.ProgramName);
                     if (File.Exists(exePath))
                     {
                         Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });

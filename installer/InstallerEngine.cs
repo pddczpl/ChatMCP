@@ -154,7 +154,7 @@ namespace ChatMCP.Installer
             InstallFiles(targetDir, previousFiles, legacyUpgrade, reportProgress);
             var uninstallerPath = SafePath(targetDir, "Uninstall.exe");
 
-            var mainExePath = Path.Combine(targetDir, "ChatMCP.exe");
+            var mainExePath = Path.Combine(targetDir, InstalledCopy.ProgramName);
             var iconPath = Path.Combine(targetDir, "assets", "icons", "chatmcp.ico");
             if (!File.Exists(iconPath))
             {
@@ -168,7 +168,7 @@ namespace ChatMCP.Installer
 
             // Register in Windows Registry
             reportProgress(95, "Registering in Windows Installed Apps...");
-            RegisterUninstall(targetDir, uninstallerPath, iconPath);
+            RegisterUninstallBestEffort(() => RegisterUninstall(targetDir, uninstallerPath, iconPath), note => reportProgress(95, note));
 
             reportProgress(100, "Installation complete!");
             }
@@ -206,7 +206,7 @@ namespace ChatMCP.Installer
             using (var package = JsonDocument.Parse(File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/package.json"))))
                 if (package.RootElement.GetProperty("version").GetString() != AppVersion)
                     throw new IOException("Installer and embedded Hub package versions differ.").Tag("payload_invalid");
-            var desktopVersion = FileVersionInfo.GetVersionInfo(transaction.StagedPath("ChatMCP.exe")).ProductVersion?.Split('+')[0];
+            var desktopVersion = FileVersionInfo.GetVersionInfo(transaction.StagedPath(InstalledCopy.ProgramName)).ProductVersion?.Split('+')[0];
             if (desktopVersion != AppVersion) throw new IOException("Embedded desktop version differs from the installer.").Tag("payload_invalid");
             var manager = File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/lib/manager.mjs"));
             var hub = File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/hub.mjs"));
@@ -377,16 +377,23 @@ namespace ChatMCP.Installer
 
         internal static void CreateShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, ShortcutPlan plan)
         {
-            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var launcher = Path.Combine(installDir, InstalledCopy.ProgramName);
+            // Each shortcut of the plan is tried, whatever happened to the one before it: a Desktop folder that refuses does not cost the Start menu its two. The first failure is thrown once all were tried
+            // (setup reports it and goes on, see ReplaceShortcutsBestEffort).
+            Exception? failure = null;
+            void Try(Action make) { try { make(); } catch (Exception error) { failure ??= error; } }
             if (plan.Desktop)
-                CreateShortcut(Path.Combine(desktopDir, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription);
-            if (!plan.StartMenuLauncher && !plan.StartMenuUninstall) return;
-            var folder = Path.Combine(programsDir, StartMenuFolder);
-            Directory.CreateDirectory(folder);
-            if (plan.StartMenuLauncher)
-                CreateShortcut(Path.Combine(folder, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription);
-            if (plan.StartMenuUninstall)
-                CreateShortcut(Path.Combine(folder, $"Uninstall {AppName}.lnk"), Path.Combine(installDir, "Uninstall.exe"), installDir, iconPath, $"Uninstall {AppName}");
+                Try(() => CreateShortcut(Path.Combine(desktopDir, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription));
+            if (plan.StartMenuLauncher || plan.StartMenuUninstall)
+            {
+                var folder = Path.Combine(programsDir, StartMenuFolder);
+                Try(() => Directory.CreateDirectory(folder));
+                if (plan.StartMenuLauncher)
+                    Try(() => CreateShortcut(Path.Combine(folder, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription));
+                if (plan.StartMenuUninstall)
+                    Try(() => CreateShortcut(Path.Combine(folder, $"Uninstall {AppName}.lnk"), Path.Combine(installDir, "Uninstall.exe"), installDir, iconPath, $"Uninstall {AppName}"));
+            }
+            if (failure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         /// <summary>
@@ -396,7 +403,7 @@ namespace ChatMCP.Installer
         /// </summary>
         internal static ShortcutPlan DetectShortcuts(string installDir, string desktopDir, string programsDir)
         {
-            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var launcher = Path.Combine(installDir, InstalledCopy.ProgramName);
             var uninstaller = Path.Combine(installDir, "Uninstall.exe");
             bool Has(string folder, string appName, bool uninstall, string target) => PointsInto(Path.Combine(folder, uninstall ? $"Uninstall {appName}.lnk" : $"{appName}.lnk"), target);
             return new ShortcutPlan(
@@ -452,7 +459,7 @@ namespace ChatMCP.Installer
 
         private static void RemoveShortcutSet(string installDir, string desktopDir, string programsDir, string appName, string startMenuFolder, Action<string>? note)
         {
-            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var launcher = Path.Combine(installDir, InstalledCopy.ProgramName);
             var folder = Path.Combine(programsDir, startMenuFolder);
             TryRemoveOwnedShortcut(Path.Combine(desktopDir, $"{appName}.lnk"), launcher, note);
             TryRemoveOwnedShortcut(Path.Combine(folder, $"{appName}.lnk"), launcher, note);
@@ -471,58 +478,59 @@ namespace ChatMCP.Installer
             catch (Exception error) { note?.Invoke($"Could not remove the shortcut {shortcutPath}: {error.Message}"); }
         }
 
+        /// <summary>
+        /// Makes one shortcut. Whatever goes wrong is THROWN (a folder that is not there, a file that Windows refuses to write, a computer without Windows Script Host): it used to be swallowed here, so the
+        /// "Could not make every shortcut" of <see cref="ReplaceShortcutsBestEffort"/> could be said for a Start menu folder that cannot be made and for nothing else.
+        /// </summary>
         public static void CreateShortcut(string shortcutPath, string targetPath, string workingDir, string iconPath, string description)
         {
-            try
+            var shellType = Type.GetTypeFromProgID("WScript.Shell")
+                ?? throw new InvalidOperationException("Windows Script Host (WScript.Shell) is not available on this computer, so a shortcut cannot be made.");
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            dynamic shortcut = shell.CreateShortcut(shortcutPath);
+            shortcut.TargetPath = targetPath;
+            shortcut.WorkingDirectory = workingDir;
+            shortcut.WindowStyle = 1; // Normal window
+            shortcut.Description = description;
+            if (File.Exists(iconPath))
             {
-                var shellType = Type.GetTypeFromProgID("WScript.Shell");
-                if (shellType != null)
-                {
-                    dynamic shell = Activator.CreateInstance(shellType)!;
-                    dynamic shortcut = shell.CreateShortcut(shortcutPath);
-                    shortcut.TargetPath = targetPath;
-                    shortcut.WorkingDirectory = workingDir;
-                    shortcut.WindowStyle = 1; // Normal window
-                    shortcut.Description = description;
-                    if (File.Exists(iconPath))
-                    {
-                        shortcut.IconLocation = $"{iconPath},0";
-                    }
-                    shortcut.Save();
-                }
+                shortcut.IconLocation = $"{iconPath},0";
             }
-            catch
-            {
-                // Fallback: ignore shortcut failure
-            }
+            shortcut.Save();
         }
 
+        /// <summary>Writes the entry of Windows Settings > Apps > Installed apps. Throws what the registry throws; setup calls it through <see cref="RegisterUninstallBestEffort"/>.</summary>
         public static void RegisterUninstall(string installDir, string uninstallerPath, string iconPath)
         {
-            try
-            {
-                using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
-                if (key != null)
-                {
-                    key.SetValue("DisplayName", AppName);
-                    key.SetValue("DisplayVersion", AppVersion);
-                    key.SetValue("Publisher", Publisher);
-                    key.SetValue("InstallLocation", installDir);
-                    key.SetValue("UninstallString", $"\"{uninstallerPath}\"");
-                    key.SetValue("DisplayIcon", $"{iconPath},0");
-                    key.SetValue("URLInfoAbout", "https://github.com/pddczpl/ChatMCP");
-                    key.SetValue("HelpLink", "https://github.com/pddczpl/ChatMCP/tree/main/docs");
-                    key.SetValue("NoModify", 1, RegistryValueKind.DWord);
-                    key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-                }
-            }
-            catch
-            {
-                // Ignore registry errors
-            }
+            using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath)
+                ?? throw new IOException("Windows did not open the registry key of the Installed apps entry.");
+            key.SetValue("DisplayName", AppName);
+            key.SetValue("DisplayVersion", AppVersion);
+            key.SetValue("Publisher", Publisher);
+            key.SetValue("InstallLocation", installDir);
+            key.SetValue("UninstallString", $"\"{uninstallerPath}\"");
+            key.SetValue("DisplayIcon", $"{iconPath},0");
+            key.SetValue("URLInfoAbout", "https://github.com/pddczpl/ChatMCP");
+            key.SetValue("HelpLink", "https://github.com/pddczpl/ChatMCP/tree/main/docs");
+            key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+            key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
         }
 
-        public static void Uninstall(string installDir, Action<int, string> reportProgress)
+        /// <summary>
+        /// The entry in Installed apps is not worth failing an installation for, for the reason <see cref="ReplaceShortcutsBestEffort"/> gives: the files are in place and the transaction is committed. A registry that
+        /// refuses is reported through <paramref name="note"/> (the kind of failure, not its text, which may hold a path) instead of being swallowed, so the installer log says why the entry is missing.
+        /// </summary>
+        internal static void RegisterUninstallBestEffort(Action register, Action<string> note)
+        {
+            try { register(); }
+            catch (Exception error) { note("Could not register DatGold in Windows Installed apps (" + error.GetType().Name + "). The installation itself is complete; Uninstall.exe in its folder removes it."); }
+        }
+
+        /// <summary>
+        /// Removes the installation. Returns what could not be done and is not worth failing for (a shortcut that stays, the entry in Installed apps), one sentence each, for the caller to show. Throws when
+        /// the Hub or the app cannot be stopped or when a file cannot be removed; the receipt, the shortcuts and the entry in Installed apps are then still there, so the uninstaller can be run again.
+        /// </summary>
+        public static IReadOnlyList<string> Uninstall(string installDir, Action<int, string> reportProgress)
         {
             installDir = NormalizeInstallDirectory(installDir);
             var manifestPath = SafePath(installDir, ManifestName);
@@ -538,32 +546,8 @@ namespace ChatMCP.Installer
             HubLifecycle.StopInstalledHub(installDir).GetAwaiter().GetResult();
             CloseRunningProcesses(installDir);
 
-            reportProgress(30, "Removing Desktop and Start Menu shortcuts...");
-            RemoveShortcuts(installDir, Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                Environment.GetFolderPath(Environment.SpecialFolder.Programs), note => reportProgress(50, note));
-
-            reportProgress(70, "Unregistering from Windows...");
-            using (var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath))
-            {
-                var registeredDirectory = key?.GetValue("InstallLocation") as string;
-                if (string.Equals(registeredDirectory, installDir, StringComparison.OrdinalIgnoreCase))
-                    Registry.CurrentUser.DeleteSubKeyTree(RegistryKeyPath, throwOnMissingSubKey: false);
-            }
-
-            reportProgress(90, "Cleaning application files...");
-            // Remove only unchanged owned files. Never recursively delete a directory:
-            // it may contain settings or documents created after installation.
-            if (Directory.Exists(installDir))
-            {
-                var currentExe = Environment.ProcessPath ?? "";
-                foreach (var item in installedFiles)
-                {
-                    var file = SafePath(installDir, item.Key);
-                    if (!file.Equals(currentExe, StringComparison.OrdinalIgnoreCase) && File.Exists(file) &&
-                        string.Equals(FileDigest(file), item.Value, StringComparison.OrdinalIgnoreCase)) File.Delete(file);
-                }
-                File.Delete(manifestPath);
-            }
+            var notes = RemoveInstallation(installDir, installedFiles, Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs), () => Unregister(installDir), reportProgress);
 
             // The running uninstaller cannot remove its own image. A narrowly scoped
             // helper waits for this process and deletes that one unchanged file only.
@@ -581,9 +565,58 @@ namespace ChatMCP.Installer
                 Process.Start(helper);
             }
 
-            reportProgress(100, "Uninstall completed successfully!");
+            reportProgress(100, notes.Count == 0 ? "Uninstall completed successfully!" : "Uninstall completed; " + notes.Count + " step(s) could not be done.");
+            return notes;
             }
             finally { updateLock.ReleaseMutex(); }
+        }
+
+        /// <summary>The entry in Installed apps goes when it is this installation's (a second installation in another folder keeps the entry that names it).</summary>
+        private static void Unregister(string installDir)
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath);
+            var registeredDirectory = key?.GetValue("InstallLocation") as string;
+            if (string.Equals(registeredDirectory, installDir, StringComparison.OrdinalIgnoreCase))
+                Registry.CurrentUser.DeleteSubKeyTree(RegistryKeyPath, throwOnMissingSubKey: false);
+        }
+
+        /// <summary>
+        /// What an uninstall removes once the Hub and the app are stopped, in the order that leaves a way back: the files first, the receipt after them, the shortcuts next and the entry in Installed apps LAST.
+        /// The files are the step that fails for a reason outside the uninstaller (a program holds one open). It used to be the last step, after the shortcuts and the entry were gone: a held file then left
+        /// files on the disk and nothing in Windows to start the uninstaller again with. Now every file is tried, and when one could not be removed the run stops there with a sentence that names it; the
+        /// receipt, the shortcuts and the entry are untouched and a second run finishes the work. A shortcut or an entry that cannot be removed does not stop anything: it is reported through
+        /// <paramref name="reportProgress"/> and returned, one sentence each. <paramref name="unregister"/> removes the entry (the registry of the person in the uninstaller, a stand-in in the tests).
+        /// </summary>
+        internal static IReadOnlyList<string> RemoveInstallation(string installDir, Dictionary<string, string> installedFiles, string desktopDir, string programsDir,
+            Action unregister, Action<int, string> reportProgress)
+        {
+            var notes = new List<string>();
+            void Note(int percent, string text) { notes.Add(text); reportProgress(percent, text); }
+
+            reportProgress(30, "Removing application files...");
+            // Remove only unchanged owned files. Never recursively delete a directory:
+            // it may contain settings or documents created after installation.
+            var currentExe = Environment.ProcessPath ?? "";
+            var held = new List<string>();
+            foreach (var item in installedFiles)
+            {
+                var file = SafePath(installDir, item.Key);
+                if (file.Equals(currentExe, StringComparison.OrdinalIgnoreCase) || !File.Exists(file)) continue;
+                try { if (string.Equals(FileDigest(file), item.Value, StringComparison.OrdinalIgnoreCase)) File.Delete(file); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { held.Add(item.Key); }
+            }
+            if (held.Count > 0)
+                throw new IOException((held.Count == 1 ? "A file of DatGold could not be removed: " + held[0] : held.Count + " files of DatGold could not be removed (the first: " + held[0] + ")") +
+                    ". Another program has it open, or Windows refused. Close that program and run the uninstaller again: the shortcuts and the entry in Windows Installed apps were kept for that. User data has not been deleted.");
+            File.Delete(SafePath(installDir, ManifestName));
+
+            reportProgress(70, "Removing Desktop and Start Menu shortcuts...");
+            RemoveShortcuts(installDir, desktopDir, programsDir, note => Note(70, note));
+
+            reportProgress(90, "Unregistering from Windows...");
+            try { unregister(); }
+            catch (Exception error) { Note(90, "Could not remove DatGold from Windows Installed apps (" + error.GetType().Name + "). Its files and shortcuts are removed; the entry that is left does nothing, and Windows offers to remove it."); }
+            return notes;
         }
 
         private static void RemoveOwnedShortcut(string shortcutPath, string expectedTarget)
@@ -608,7 +641,7 @@ namespace ChatMCP.Installer
         /// </summary>
         internal static void CloseRunningProcesses(string installDir, int waitMilliseconds = 5000, Func<IEnumerable<IRunningProgram>>? running = null)
         {
-            var expected = Path.Combine(installDir, "ChatMCP.exe");
+            var expected = Path.Combine(installDir, InstalledCopy.ProgramName);
             foreach (var proc in (running ?? (() => Programs(Process.GetProcessesByName("ChatMCP"))))())
             {
                 using (proc)

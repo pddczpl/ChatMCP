@@ -29,7 +29,7 @@ npm run build --prefix .\DATGOLD-HUB\ui
 
 ~~~powershell
 .\DATGOLD-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
-# Hoặc mở native desktop
+# Hoặc mở app desktop (nếu thư mục này có ChatMCP.exe; chưa có thì lệnh này mở dashboard trong trình duyệt qua launcher của Hub)
 .\START-CHATMCP-DESKTOP.cmd
 ~~~
 

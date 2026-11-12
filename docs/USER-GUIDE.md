@@ -27,7 +27,7 @@ Dành cho người dùng cuối: bạn đã cài và chạy được Hub (xem [W
 **Không làm**:
 
 - Công cụ file của agent không đọc hay sửa file nằm ngoài thư mục dự án (đường dẫn tuyệt đối, `..`, symlink/junction trỏ ra ngoài đều bị từ chối). Với **lệnh shell**, Hub phân tích từng đường dẫn trong lệnh: lệnh có đường dẫn trỏ ra ngoài dự án hoặc tới file nhạy cảm không được tự chạy (luôn hỏi bạn, hoặc bị từ chối ở chế độ Chỉ đọc). Đây là phân tích lệnh, **không phải sandbox hệ điều hành**.
-- Không đụng vào file nhạy cảm bằng công cụ file: `.env*`, khóa riêng (`id_*`, `*.pem`, `*.key`, `*.pfx`…), `credentials`, `.npmrc`, `.git-credentials`, thư mục `.git`, `.ssh`, `.aws`… Các thao tác này bị từ chối thẳng (không hỏi) ở **cả ba chế độ** và cả khi bật Full Access.
+- Không đụng vào file nhạy cảm bằng công cụ file: `.env*`, khóa riêng (`id_*`, `*.pem`, `*.key`, `*.pfx`…), `credentials`, `.npmrc`, `.git-credentials`, trạng thái Terraform (`*.tfstate`), khóa service account (`service-account*.json`), nơi các công cụ dòng lệnh giữ đăng nhập (`.docker/config.json`, `.config/gh/hosts.yml`, `.azure/accessTokens.json`…), thư mục `.git`, `.ssh`, `.aws`… Các thao tác này bị từ chối thẳng (không hỏi) ở **cả ba chế độ** và cả khi bật Full Access.
 - Công cụ `git_commit` của agent từ chối commit khi vùng stage đang chứa file bí mật (`protected_staged`).
 - Không đẩy code lên GitHub thay bạn một cách âm thầm: `git push` luôn bị coi là thao tác nguy hiểm và luôn hỏi bạn (ở chế độ Chỉ đọc thì bị từ chối). Hub không có công cụ riêng để tạo Pull Request; nếu agent thử `gh`, `curl`… qua shell thì đó là lệnh truy cập mạng và phải được bạn duyệt.
 - Công cụ `git_push` của agent chỉ đẩy **một nhánh** lên remote đã cấu hình, không bao giờ ép (`--force`), từ chối `main`, `master` và nhánh mặc định của remote (hãy dùng nhánh tính năng rồi mở Pull Request), và từ chối khi các commit sắp đẩy có bí mật hoặc file được bảo vệ. Mỗi lần đều hiện danh sách commit sẽ được gửi và hỏi bạn, **kể cả khi bật Full Access**; ở chế độ `sandbox-only` thì bị từ chối. Chi tiết: [GIT-PUSH.md](GIT-PUSH.md).
@@ -42,7 +42,7 @@ Dành cho người dùng cuối: bạn đã cài và chạy được Hub (xem [W
 | **Thanh trên cùng** | Tên thư mục dự án; "Hub đã kết nối"; **Lệnh · Ctrl K** (bảng lệnh); Làm mới; Sáng/Tối; **Ẩn công cụ / Hiện công cụ**; **Cài đặt** |
 | **Cột trái — HỘI THOẠI** | **Hội thoại mới**, ô "Tìm hội thoại…", danh sách các phiên (mỗi dòng có thư mục và trạng thái). Phiên được lưu tự động trên máy bạn |
 | **Giữa** | Tiêu đề phiên, thẻ trạng thái, nút **Dừng tác vụ**, **Xóa phiên**, **Báo cáo ↗**; nội dung hội thoại; khung duyệt; ô nhập yêu cầu |
-| **Cột phải — CÔNG CỤ DỰ ÁN** | Các tab: **Hoạt động**, **Files**, **Git**, **Terminal**, **Code / LSP**, **Preview**, **Plan**, **Skills**, **Cài đặt** |
+| **Cột phải — CÔNG CỤ DỰ ÁN** | Các tab: **Tiến độ**, **Thay đổi**, **Xem lại thay đổi**, **Tệp**, **Terminal**, **Tác nhân**; trong **⋯**: **Hoạt động**, **Xem trước** |
 
 Phím tắt: `Ctrl+K` mở bảng lệnh · `Enter` gửi · `Shift+Enter` xuống dòng · `Esc` đóng bảng lệnh hoặc hướng dẫn.
 
@@ -66,7 +66,7 @@ Mở ở Cài đặt → **Nhà cung cấp AI** (cùng một form với bước 
 | Trường | Ý nghĩa |
 |---|---|
 | **Nhà cung cấp** | Preset điền sẵn giao thức, địa chỉ và model: Anthropic (Claude), OpenAI, Google Gemini, OpenRouter, DeepSeek, xAI (Grok), Z.ai (GLM), Alibaba (Qwen), MiniMax, Moonshot (Kimi), Groq, Mistral, Ollama (máy cục bộ), LM Studio (máy cục bộ), và các tùy chọn "Khác" cho dịch vụ tương thích OpenAI / Anthropic / Gemini (mọi nhà cung cấp còn lại: nhập địa chỉ gốc và API key). Chọn **Tự nhập thủ công** nếu không có preset phù hợp |
-| **Giao thức** | Anthropic Messages · OpenAI-compatible (chat completions) · Gemini generateContent |
+| **Giao thức** | Anthropic Messages · OpenAI-compatible (chat completions) · OpenAI Responses · Gemini generateContent |
 | **Base URL** | Phải bắt đầu bằng `https://` (hoặc `http://localhost…` cho máy chủ cục bộ) |
 | **Model** | Gõ tên model (tên nào cũng được), hoặc bấm mũi tên ▾ bên phải ô để chọn từ danh sách model của nhà cung cấp này. Danh sách là của Hub (đọc từ danh mục model, không gọi mạng); mỗi model kèm điều danh mục biết về nó: cửa sổ ngữ cảnh (và giới hạn đầu vào nếu thấp hơn cửa sổ), giá mỗi 1 triệu token (vào / ra), giá theo bậc, có suy luận, dùng công cụ, đọc ảnh, ngừng hỗ trợ. Gõ để lọc, ↑ ↓ để di chuyển, Enter để chọn, Esc để đóng. Gõ một tên danh mục không có (tên tự đặt, thẻ Ollama, máy chủ riêng) thì không hiện hộp nào. Dưới ô, một dòng nói danh mục biết gì về model đang gõ; nếu tên chỉ *giống* một model trong danh mục, dòng nói rõ Hub không dựa vào đó để lập kế hoạch hay tính giá. **Chỉ hiện model của tài khoản** (trong danh sách; chỉ có khi form đang là cấu hình đã lưu) hỏi nhà cung cấp, bằng key đã lưu, tài khoản này dùng được model nào (danh sách ấy thuộc kết nối đã hỏi: đổi nhà cung cấp hay địa chỉ trong form thì bộ chọn quay về danh sách của nhà cung cấp mới) |
 | **API key** | Chỉ gửi tới Base URL ở trên. Để trống = giữ key đang lưu. Máy chủ cục bộ (Ollama, LM Studio) không cần key |

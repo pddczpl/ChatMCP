@@ -163,8 +163,13 @@ try {
   // the repair finds it. The marker is "there" for anything on the disk with that name, and when the disk cannot say.
   {
     assert.equal(PENDING_MARKER, '.chatmcp-update-pending.json', 'the marker is named as the installer names it');
-    const installer = path.resolve(HUB, '..', 'installer', 'InstallTransaction.cs');
-    if (fs.existsSync(installer)) assert.equal(/internal const string PendingName = "([^"]+)";/.exec(fs.readFileSync(installer, 'utf8'))?.[1], PENDING_MARKER, 'and it is the one the installer writes (InstallTransaction.PendingName)');
+    // (the setup and the shell take the name from native-shared/InstalledCopy.cs; InstallTransaction.PendingName is that constant)
+    const shared = path.resolve(HUB, '..', 'native-shared', 'InstalledCopy.cs');
+    const transaction = path.resolve(HUB, '..', 'installer', 'InstallTransaction.cs');
+    if (fs.existsSync(shared) && fs.existsSync(transaction)) {
+      assert.equal(/internal const string PendingName = "([^"]+)";/.exec(fs.readFileSync(shared, 'utf8'))?.[1], PENDING_MARKER, 'and it is the one the installer writes (InstalledCopy.PendingName)');
+      assert.match(fs.readFileSync(transaction, 'utf8'), /internal const string PendingName = InstalledCopy\.PendingName;/, 'which is the name the transaction uses (InstallTransaction.PendingName)');
+    }
     const newer = vectors.written[0].text;
     const fresh = () => { const directory = freshDirectory(); const installation = freshDirectory(); fs.writeFileSync(path.join(directory, RESULT_FILE), newer); return { directory, installation, file: path.join(directory, RESULT_FILE), marker: path.join(installation, PENDING_MARKER) }; };
     {

@@ -191,7 +191,7 @@ function Get-InstallerPayloadFiles {
         # Only runtime sources are shipped. Personal state, imported skills,
         # test output, build helpers and UI development dependencies stay out.
         $include = $relative -match '^assets/' -or
-            $relative -match '^scripts/(Start-DesktopApp|install-desktop|uninstall-desktop)\.ps1$' -or
+            $relative -eq 'scripts/Start-DesktopApp.ps1' -or
             $relative -eq 'START-CHATMCP-DESKTOP.cmd' -or
             $relative -match '^(LICENSE|NOTICE|THIRD-PARTY-NOTICES\.md)$' -or
             $relative -match '^DATGOLD-HUB/(lib|workers|extension|windows)/' -or
