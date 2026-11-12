@@ -6,6 +6,7 @@
 //   session/prompt   the content of the prompt becomes the text the Hub gets (lib/acp/content.mjs); the first prompt starts a task in the folder of the session, the next ones continue it;
 //                    the turn ends when the Hub says the task is at rest, with the stop reason of the table in lib/acp/stop-reason.mjs
 //   session/cancel   stops the task; the prompt of that session answers `cancelled` whatever the task did in the race
+//   session/load     a session of an earlier connection (lib/acp/session-store.mjs keeps which session is which task) is replayed (lib/acp/replay.mjs) and goes on with the same task
 //
 // The Hub decides what the agent may do (the permission mode, the protected files, the workspace boundary): this program adds no authority. It is a local client of the Hub with the same
 // trust as the launcher (lib/acp/hub-client.mjs). stdout is the protocol and nothing else: the one function that writes to it masks every message first (lib/acp/mask.mjs), and main() points
@@ -22,17 +23,21 @@ import { createMasker } from './mask.mjs';
 import { answerWindowMs, decisionFrom, permissionRequestFor } from './permission-map.mjs';
 import { ERROR_CODES, RpcError, createRpcPeer } from './rpc.mjs';
 import { RESTING_STATES, outcomeOf } from './stop-reason.mjs';
-import { parseCancel, parseInitialize, parseNewSession, parsePrompt } from './validate.mjs';
+import { parseCancel, parseInitialize, parseLoadSession, parseNewSession, parsePrompt } from './validate.mjs';
+import { createMemoryStore, createSessionStore } from './session-store.mjs';
+import { replayUpdates } from './replay.mjs';
 
 export const PROTOCOL_VERSION = 1;
 /** What this agent can do, and no more. Every entry is covered by a test (tests/verify-acp-*.mjs). */
 export const AGENT_CAPABILITIES = Object.freeze({
-  loadSession: false,
+  loadSession: true,
   promptCapabilities: Object.freeze({ image: false, audio: false, embeddedContext: true }),
   mcpCapabilities: Object.freeze({ http: false, sse: false }),
   sessionCapabilities: Object.freeze({}),
 });
 const MAX_SESSIONS = 256;
+/** Whether two folders are the same one (Windows compares without regard to case). */
+const samePlace = (a, b) => { const left = path.resolve(a); const right = path.resolve(b); return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right; };
 const isAuthLoss = (error) => error instanceof HubError && (error.status === 401 || error.code === 'hub_auth_required');
 const isUnreachable = (error) => error instanceof HubError && error.status === null;
 const SHUTDOWN_CANCEL_MS = 5000;
@@ -47,10 +52,11 @@ const SETTLE_POLL_MS = 50; // the Hub turns a task "completed" a moment before i
  * @param {string} [options.version]
  * @param {number} [options.pollMs]  how often the Hub is asked about the task of a running turn
  * @param {number} [options.lostContactMs]  how long a Hub that does not answer is waited for before the turn fails
+ * @param {{get: (id: string) => Promise<object|null>, put: (id: string, entry: object) => Promise<void>}} [options.store]  which session is which task, for session/load (lib/acp/session-store.mjs)
  * @param {(hub: object, taskId: string) => Promise<object|null>} [options.readTask]  THE source of what a running task does: by default its record, read again every pollMs
  *   (GET /api/tasks/<id>), because the Hub's streams of events send nothing in this build; once the Hub's stream works, this is the one function to replace
  */
-export function createAcpAgent({ peer, connectHub, masker, log: sink, version = VERSION, pollMs = 500, lostContactMs = 30_000, readTask = (hub, taskId) => hub.getTask(taskId) }) {
+export function createAcpAgent({ peer, connectHub, masker, log: sink, version = VERSION, pollMs = 500, lostContactMs = 30_000, readTask = (hub, taskId) => hub.getTask(taskId), store = createMemoryStore() }) {
   let connector = connectHub;
   const state = { initialized: false, supportsNotices: false, client: null, hubPromise: null, hubConnection: null, shutdown: null };
   const sessions = new Map();
@@ -124,27 +130,67 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
     };
   }
 
-  async function newSession(params) {
-    const { cwd } = parseNewSession(params);
+  async function requireFolder(cwd) {
     let stat;
     try { stat = await fs.stat(cwd); } catch { throw fail(ERROR_CODES.INVALID_PARAMS, `The folder does not exist: ${cwd}`); }
     if (!stat.isDirectory()) throw fail(ERROR_CODES.INVALID_PARAMS, `The path is not a folder: ${cwd}`);
-    // The limit counts the sessions that are still being made too: requests that arrive in one chunk of the pipe all get here before the first of them has its session.
-    // A full connection makes room by closing its oldest session that has no turn running; when every session has one, the request is refused.
-    if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {
-      const idle = [...sessions.values()].find((session) => !session.turn);
-      if (!idle) throw fail(ERROR_CODES.INVALID_REQUEST, `Too many sessions on this connection (${MAX_SESSIONS}), and every one of them has a turn running.`);
-      sessions.delete(idle.id);
-      log(`closed the oldest session without a turn, ${idle.id}, to make room (${MAX_SESSIONS} sessions at most)`);
-    }
+  }
+  // The limit counts the sessions that are still being made too: requests that arrive in one chunk of the pipe all get here before the first of them has its session.
+  // A full connection makes room by closing its oldest session that has no turn running; when every session has one, the request is refused.
+  function makeRoom() {
+    if (sessions.size + sessionsBeingMade < MAX_SESSIONS) return;
+    const idle = [...sessions.values()].find((session) => !session.turn);
+    if (!idle) throw fail(ERROR_CODES.INVALID_REQUEST, `Too many sessions on this connection (${MAX_SESSIONS}), and every one of them has a turn running.`);
+    sessions.delete(idle.id);
+    log(`closed the oldest session without a turn, ${idle.id}, to make room (${MAX_SESSIONS} sessions at most)`);
+  }
+  // The Hub has no MCP client yet: the servers an editor passes are not started, and the person is told so rather than left to wonder why their tools are missing.
+  function tellAboutMcpServers(sessionId, servers) {
+    if (!servers.length) return;
+    tell(sessionId, { severity: 'info', title: 'MCP servers are not used', description: `The editor passed ${servers.length} MCP server${servers.length === 1 ? '' : 's'} (${servers.map((server) => server.name).join(', ')}); they were not started: DatGold has no MCP client yet, so the model has the Hub's own tools only.` });
+  }
+
+  async function newSession(params) {
+    const { cwd, mcpServers } = parseNewSession(params);
+    await requireFolder(cwd);
+    makeRoom();
+    sessionsBeingMade += 1;
+    let id;
+    try {
+      const hub = await getHub();
+      const workspace = await hub.ensureWorkspace(cwd);
+      id = randomUUID();
+      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null, eventCursor: 0, usageMark: null });
+    } finally { sessionsBeingMade -= 1; }
+    // After the answer: the protocol wants the id known to the client before an update names it.
+    setImmediate(() => tellAboutMcpServers(id, mcpServers));
+    return { sessionId: id };
+  }
+
+  /**
+   * A session of an earlier connection: the store says which task it drove; the task is read from the Hub and replayed as updates BEFORE the answer (the protocol asks for that), and
+   * the next prompt continues it. Only in the folder it was made for, and not while it is open on this connection.
+   */
+  async function loadSession(params) {
+    const { sessionId, cwd, mcpServers } = parseLoadSession(params);
+    if (sessions.has(sessionId)) throw fail(ERROR_CODES.INVALID_REQUEST, `The session ${JSON.stringify(sessionId)} is already open on this connection.`);
+    await requireFolder(cwd);
+    const kept = await store.get(sessionId);
+    if (!kept) throw fail(ERROR_CODES.NOT_FOUND, `The session ${JSON.stringify(sessionId)} is not known to DatGold (it was never made, or it is older than the sessions that are kept).`);
+    if (!samePlace(kept.cwd, cwd)) throw fail(ERROR_CODES.INVALID_PARAMS, `The session ${JSON.stringify(sessionId)} belongs to another folder.`);
+    makeRoom();
     sessionsBeingMade += 1;
     try {
       const hub = await getHub();
       const workspace = await hub.ensureWorkspace(cwd);
-      const id = randomUUID();
-      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null, eventCursor: 0, usageMark: null });
-      return { sessionId: id };
+      const task = await readTask(hub, kept.taskId);
+      if (!task) throw fail(ERROR_CODES.NOT_FOUND, `The Hub no longer has the task of the session ${JSON.stringify(sessionId)}: start a new session.`);
+      const replay = replayUpdates(task, { cwd });
+      for (const update of replay.updates) outbound.notify('session/update', { sessionId, update });
+      sessions.set(sessionId, { id: sessionId, cwd, workspacePath: workspace.path, taskId: kept.taskId, turn: null, eventCursor: replay.cursor, usageMark: replay.usageMark });
     } finally { sessionsBeingMade -= 1; }
+    tellAboutMcpServers(sessionId, mcpServers);
+    return {};
   }
 
   /** Asks the Hub to stop the task of a turn, once. */
@@ -246,6 +292,7 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
       const task = session.taskId === null ? await hub.startTask({ prompt: text, workspacePath: session.workspacePath }) : await hub.continueTask({ id: session.taskId, prompt: text });
       session.taskId = task.id;
       turn.taskId = task.id;
+      void store.put(sessionId, { taskId: task.id, cwd: session.cwd, workspacePath: session.workspacePath }).catch((error) => log(`could not keep the session ${sessionId} for session/load: ${error?.message ?? error}`));
       if (turn.cancelRequested || context.signal.aborted) await cancelHubTask(turn); // the client cancelled before the Hub had answered the start: the task is stopped the moment its id is known
       const finished = await waitForRest(turn, context.signal, observe);
       const outcome = outcomeOf(finished, { cancelRequested: turn.cancelRequested });
@@ -287,6 +334,7 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
       peer.handle('initialize', guard(initialize));
       peer.handle('session/new', guard(requireInitialized(newSession)));
       peer.handle('session/prompt', guard(requireInitialized(prompt)));
+      peer.handle('session/load', guard(requireInitialized(loadSession)));
       peer.onNotification('session/cancel', cancel);
     },
     /**
@@ -336,6 +384,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const peer = createRpcPeer({ input: process.stdin, output, log: stderr });
   const agent = createAcpAgent({
     peer, masker, log: stderr, ...timing,
+    // which session is which task, for session/load: a file of its own in the state folder of the Hub
+    store: createSessionStore({ file: path.join(options.stateDir, 'acp-sessions.json'), log: stderr }),
     connectHub: async () => { const connection = await connectToHub({ ...options, log: stderr }); credentials.connection = connection; return connection; },
   });
   agent.attach();
