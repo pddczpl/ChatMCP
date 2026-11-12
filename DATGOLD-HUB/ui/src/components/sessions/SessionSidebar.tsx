@@ -171,7 +171,7 @@ export function SessionSidebar() {
         className="mx-1 mb-2 space-y-2 rounded-xl border border-line bg-surface p-3">
         <label className="block text-[12px] leading-4 text-muted">{t('agents_side_manual')}</label>
         <input aria-label={t('agents_side_manual_label')} value={manualFolder}
-          onChange={e=>setManualFolder(e.target.value)} placeholder="F:\\Personal_Project\\Vin\\ChatMCP"
+          onChange={e=>setManualFolder(e.target.value)} placeholder="C:\Projects\my-app"
           className="h-8 w-full rounded-lg border border-line bg-panel px-2.5 font-mono text-[12px] text-fg focus:border-primary focus:outline-none"/>
         <div className="flex gap-2">
           <button type="submit" disabled={!manualFolder.trim()||choosing}

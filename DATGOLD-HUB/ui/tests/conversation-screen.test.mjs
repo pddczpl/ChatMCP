@@ -284,7 +284,7 @@ for (const [lang, label] of LANGS) {
     const input = byTag(form, 'input')[0];
     assert.equal(accessibleName(form, input), t.manualLabel);
     assert.equal(input.attrs.value, '/work/typed');
-    assert.equal(input.attrs.placeholder, 'F:\\\\Personal_Project\\\\Vin\\\\ChatMCP', 'the example path was never a translated word');
+    assert.equal(input.attrs.placeholder, 'C:\\Projects\\my-app', 'the example path is a neutral folder, written as Windows shows it, and never a translated word');
     assert.deepEqual(byTag(form, 'button').map((node) => node.text), [t.add, t.cancel]);
     assert.ok(byTag(shot.root, 'button').some((node) => accessibleName(shot.root, node) === t.open('beta')), `a collapsed group can be opened: ${t.open('beta')}`);
     assert.ok(byTag(shot.root, 'button').some((node) => accessibleName(shot.root, node) === t.shut('alpha')));

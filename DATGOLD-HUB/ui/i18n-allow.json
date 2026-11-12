@@ -38,6 +38,6 @@
     {"file":"src/components/inspector/SkillsTab.tsx","rule":"jsx-attribute","text":"skills","reason":"An example value shown in an empty field to show the shape of what to type; it is code, not prose."},
     {"file":"src/components/inspector/SkillsTab.tsx","rule":"jsx-attribute","text":"https://…/SKILL.md","reason":"An example value shown in an empty field to show the shape of what to type; it is code, not prose."},
     {"file":"src/components/inspector/SkillsTab.tsx","rule":"jsx-attribute","text":"my-skill","reason":"An example value shown in an empty field to show the shape of what to type; it is code, not prose."},
-    {"file":"src/components/sessions/SessionSidebar.tsx","rule":"jsx-attribute","text":"F:\\\\Personal_Project\\\\Vin\\\\ChatMCP","reason":"An example value shown in an empty field to show the shape of what to type; it is code, not prose."}
+    {"file":"src/components/sessions/SessionSidebar.tsx","rule":"jsx-attribute","text":"C:\\Projects\\my-app","reason":"An example value shown in an empty field to show the shape of what to type; it is code, not prose."}
   ]
 }

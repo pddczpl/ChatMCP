@@ -391,6 +391,17 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   assert.equal(expired.allowed, false);
   assert.equal(quick.state().recent.at(-1).decision, 'expired');
 
+  // A request that expired is over. A stop of its task afterwards must not write it into the audit trail a second time (as "cancelled")
+  // or announce a cancellation of a request that no longer exists.
+  const late = new AbortController();
+  const lapsed = await quick.authorize({ name: 'local.write_file', args: { path: 'src/z.py', content: 'x' }, taskId: 'task-9', signal: late.signal });
+  assert.equal(lapsed.allowed, false);
+  const rowsAfterExpiry = quick.state().recent.length;
+  late.abort(new Error('user stop'));
+  await delay(20);
+  assert.equal(quick.state().recent.length, rowsAfterExpiry, 'a stop after the expiry adds no row to the audit trail');
+  assert.equal(quick.state().recent.at(-1).decision, 'expired', 'the last word on that request stays "expired"');
+
   const third = await newGate();
   const pendingA = third.authorize({ name: 'local.write_file', args: { path: 'a.txt', content: 'x' }, taskId: 'task-A' });
   const pendingB = third.authorize({ name: 'local.write_file', args: { path: 'b.txt', content: 'x' }, taskId: 'task-B' });
