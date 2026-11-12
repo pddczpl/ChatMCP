@@ -1,0 +1,38 @@
+{
+  "suite": "verify-e2e-acp-load.mjs",
+  "mutations": [
+    {
+      "name": "e2e-store-memory",
+      "what": "the program keeps the sessions in memory only, so a new agent process cannot load them",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    store: createSessionStore({ file: path.join(options.stateDir, 'acp-sessions.json'), log: stderr }),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "e2e-load-not-handled",
+      "what": "session/load is not answered",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      peer.handle('session/load', guard(requireInitialized(loadSession)));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "e2e-task-lost",
+      "what": "the next prompt starts a new task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "workspacePath: workspace.path, taskId: kept.taskId, turn: null,",
+          "new": "workspacePath: workspace.path, taskId: null, turn: null,"
+        }
+      ]
+    }
+  ]
+}

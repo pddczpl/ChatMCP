@@ -2,7 +2,7 @@
 
 An editor that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) can start DatGold and drive the Hub through it: you write the request in the editor, the Hub does the work with its own tools, its permission mode and its protections. This page says what the agent does in this version, what it does not do yet, how it behaves as a process, and which test pins each statement. A statement that no test covers says **not tested**.
 
-> **Status: the core and the events (plan tasks ux-19 and ux-20).** Sessions, prompts, cancel, the end of a turn, the lifecycle of the process and the Hub, and what the editor is told while a task runs: tool calls, the plan, the use of the context, and the approvals the Hub asks, answered in the editor with the change the Hub worked out. What is *not* here yet is listed under [Not in this version](#not-in-this-version): `session/load`, editor set-up guides. No editor has been run against it (the evidence kit for that is a later change); the client used by the tests is the official TypeScript SDK.
+> **Status: the core, the events and session/load (plan tasks ux-19, ux-20 and ux-21).** Sessions, prompts, cancel, the end of a turn, the lifecycle of the process and the Hub, and what the editor is told while a task runs: tool calls, the plan, the use of the context, and the approvals the Hub asks, answered in the editor with the change the Hub worked out. Also `session/load` (a session of an earlier connection goes on with the same task) and [guides for each editor](#set-it-up-in-an-editor), read from the vendors' own pages. **No editor has been run against it**: the evidence kit is empty, "not run yet" ([evidence/acp-zed](evidence/acp-zed/README.md), [evidence/acp-jetbrains](evidence/acp-jetbrains/README.md)); the client used by the tests is the official TypeScript SDK. What is *not* here is listed under [Not in this version](#not-in-this-version).
 
 ## Start it
 
@@ -43,7 +43,7 @@ Protocol version **1**. `initialize` answers the version it speaks to a client t
 
 ```json
 {
-  "loadSession": false,
+  "loadSession": true,
   "promptCapabilities": { "image": false, "audio": false, "embeddedContext": true },
   "mcpCapabilities": { "http": false, "sse": false },
   "sessionCapabilities": {}
@@ -54,7 +54,7 @@ Protocol version **1**. `initialize` answers the version it speaks to a client t
 
 ### `session/new`
 
-`cwd` must be the absolute path of an existing folder; `mcpServers` may be missing or `null`, and is **not used** (see below). The folder is put in the Hub's list of workspaces (`POST /api/workspaces/add`, idempotent) and is **not selected**: the workspace the Hub has selected, which is the desktop app's, is left where it was. The answer is a session id of the agent's own; no task is started until the first prompt. Tests: `tests/verify-acp-logic.mjs`, `tests/verify-e2e-acp.mjs` (a Hub with project A selected, a session in project B: B is in the list, A is still selected after a whole turn, and the task, its edits and its Git checkpoint are B's).
+`cwd` must be the absolute path of an existing folder; `mcpServers` may be missing or `null`; the servers are **not started** (the Hub has no MCP client yet), and when the editor passed any, the person is told how many, by name. The folder is put in the Hub's list of workspaces (`POST /api/workspaces/add`, idempotent) and is **not selected**: the workspace the Hub has selected, which is the desktop app's, is left where it was. The answer is a session id of the agent's own; no task is started until the first prompt. Tests: `tests/verify-acp-logic.mjs`, `tests/verify-e2e-acp.mjs` (a Hub with project A selected, a session in project B: B is in the list, A is still selected after a whole turn, and the task, its edits and its Git checkpoint are B's).
 
 Two things the person may notice in the desktop app: the folder of every session appears in its list of workspaces, and **a Hub that had no workspace at all takes the folder of the first session as its workspace** (the same as adding a folder there). Test: `tests/verify-e2e-acp-lifecycle.mjs`.
 
@@ -98,9 +98,24 @@ When the client has sent `session/cancel`, the answer is `cancelled` **whatever 
 
 Stops the Hub task (once, however many cancels come), and the prompt answers `cancelled`. A cancel that arrives before the Hub has answered the start, or the continue of an earlier task, waits for the id of the **new run** and then stops it (a cancel is never spent on the run that had ended). The same holds for a connection that closes, and for the end of the agent by a signal, while the Hub is still making the task: the task is stopped the moment it exists. A cancel for no turn, before `initialize`, with parameters that do not fit, or for a session nobody made, does nothing (it is logged). A task that is waiting for an approval is stopped by the Hub, which drops its requests; nothing is written; the question the editor was asked about it is closed when the turn ends and answered to the Hub as a refusal (see [Approvals](#approvals)). Tests: `tests/verify-acp-logic.mjs`, `tests/verify-acp-turn.mjs`, `tests/verify-e2e-acp.mjs` and `tests/verify-e2e-acp-events.mjs` (a real Hub, a real pending approval, nothing on disk).
 
+### `session/load`
+
+A session of an earlier connection (the editor was closed, or started the agent again) goes on where it was. When the first prompt of a session has started its task, the agent keeps
+the pair "session, task" in a file of its own, `acp-sessions.json` in the state folder of the Hub (ids and folders only, never what was said; written whole, readable by the owner
+only, the 256 most recent). `session/load` with that id and the same folder:
+
+- puts the folder in the Hub's list of workspaces again (never selects it), reads the task from the Hub, and **replays the conversation before it answers**: the messages of the
+  person (`user_message_chunk`), the calls with their results and the messages of the model as they happened (the same mapping as a live turn), an answer only for what no message
+  said, then the plan. The use of the context is not replayed (it was the size at a moment that has passed);
+- answers `{}`; the next prompt continues the same task and tells only what is new.
+
+Refused with a sentence: an id the agent does not know (`Not found`), another folder (`Invalid params`), a folder that does not exist, a session that is open on this connection
+(`Invalid Request`), a task the Hub no longer has (`Not found`: start a new session). A file of sessions that cannot be read is taken as empty and logged. Tests:
+`tests/verify-acp-load.mjs` (the store, the replay, the agent on a Hub that is a script), `tests/verify-e2e-acp-load.mjs` (a real Hub, the official SDK, two processes of the agent).
+
 ### Methods the agent does not offer
 
-`authenticate`, `logout`, `session/load`, `session/list`, `session/resume`, `session/close`, `session/delete`, `session/set_mode`, `session/set_config_option` and every other method answer `Method not found` (-32601). `$/cancel_request` is ignored (the protocol lets an agent ignore it; `session/cancel` is the cancel of ACP).
+`authenticate`, `logout`, `session/list`, `session/resume`, `session/close`, `session/delete`, `session/set_mode`, `session/set_config_option` and every other method answer `Method not found` (-32601). `$/cancel_request` is ignored (the protocol lets an agent ignore it; `session/cancel` is the cancel of ACP).
 
 ## What the editor is told while a task runs
 
@@ -167,18 +182,111 @@ The mechanism for a Hub the agent started is `launchOwned` in `lib/launch.mjs` a
 
 Each of these has a defined answer and the next request is served ([lib/acp/rpc.mjs](../DATGOLD-HUB/lib/acp/rpc.mjs), `tests/verify-acp-rpc.mjs`, and over a real process `tests/verify-e2e-acp.mjs`): invalid JSON or invalid UTF-8 (`Parse error` -32700, id `null`); a batch, a number, a wrong envelope, a bad id (`Invalid Request`, id `null` unless the id is a string or a safe integer); a line over **32 MiB** (`Invalid Request` "Message too large" the moment the limit is passed; the rest of the line is dropped as it arrives, never kept — so the agent holds at most the limit plus one chunk of input); an id that is already in flight (refused with id `null`, so it cannot be taken for the answer of the first); an unknown method (`Method not found`); an unknown notification (ignored in silence on stdout, logged). A byte order mark at the start of the stream, CRLF and blank lines are tolerated. Whatever the Hub or a library prints can never reach standard output: from the start, every other write to it is sent to standard error. Requests that arrive in one chunk of the pipe are served in order and nothing runs between them: 300 `session/new` in one chunk make 256 sessions (the limit counts the ones still being made) and 44 refusals. Beyond that, the number of concurrent requests is **not limited and not tested at scale**.
 
+## Set it up in an editor
+
+**None of this has been run in a real editor yet** (the evidence kit is in [evidence/acp-zed](evidence/acp-zed/README.md) and [evidence/acp-jetbrains](evidence/acp-jetbrains/README.md), both "not run yet"). Each fact below was read on the vendor's own page or in the project's own repository on 2026-11-07, unless it is marked **derived** (a reading of the vendor's source code or release tags, not a vendor statement) or **not verified**.
+
+Every editor below starts the agent as a program with arguments. The guides use the Node.js that the installation ships, `<install>\runtimes\node\node.exe`, and the script `<install>\DATGOLD-HUB\lib\acp\agent.mjs`; `<install>` is written `C:\Program Files\DatGold`: replace it with the real folder. Plain `node` works where Node.js 22 or later is on `PATH`. Write literal absolute paths: no source shows `~`, `%LOCALAPPDATA%` or `${...}` being expanded in these files (**not verified**). Launching `windows\chatmcp-acp.cmd` as the command is shown by no vendor page (**not verified**). Options (`--port`, `--no-start`, `--state-dir`) go into the same list of arguments.
+
+### Zed
+
+Entries under `agent_servers` in `settings.json` (command palette: `zed: open settings file`), each with `"type": "custom"`, `command`, `args` and `env` ([zed.dev/docs/ai/external-agents](https://zed.dev/docs/ai/external-agents)). Pick the agent in the Agent Panel (the agent selector or the New Thread menu); `dev: open acp logs` shows the messages. Windows is supported, ACP agents included ([zed.dev/blog/zed-for-windows-is-here](https://zed.dev/blog/zed-for-windows-is-here)). The vendor states no minimum version; the `"type": "custom"` form needs a build from December 2025 or later (**derived** from release tags: v0.215.3).
+
+```json
+{
+  "agent_servers": {
+    "DatGold": {
+      "type": "custom",
+      "command": "C:\\Program Files\\DatGold\\runtimes\\node\\node.exe",
+      "args": ["C:\\Program Files\\DatGold\\DATGOLD-HUB\\lib\\acp\\agent.mjs"],
+      "env": {}
+    }
+  }
+}
+```
+
+### JetBrains IDEs (AI Assistant)
+
+The file `~/.jetbrains/acp.json` (on Windows `C:\Users\<username>\.jetbrains\acp.json`), created by "Add Custom Agent" in the menu of the AI Chat tool window; a top-level `agent_servers` object, each value with `command` (a full path), `args`, `env`, and **no** `type` key ([jetbrains.com/help/ai-assistant/acp.html](https://www.jetbrains.com/help/ai-assistant/acp.html)). ACP agents are in AI Assistant since 2025.3 (the registry since 2025.3.2), not only from 2026.2. No JetBrains AI subscription is needed for ACP agents. ACP agents are **not supported in WSL** in AI Assistant (the separate "Air" surface documents a WSL option: not covered here). Whether a free JetBrains Account sign-in is still needed: **not verified**.
+
+```json
+{
+  "agent_servers": {
+    "DatGold": {
+      "command": "C:\\Program Files\\DatGold\\runtimes\\node\\node.exe",
+      "args": ["C:\\Program Files\\DatGold\\DATGOLD-HUB\\lib\\acp\\agent.mjs"]
+    }
+  }
+}
+```
+
+### Neovim
+
+Three plugins document a custom command ([agentclientprotocol.com/get-started/clients](https://agentclientprotocol.com/get-started/clients.md)); none shows a Windows example, so the paths are ours.
+
+- **avante.nvim**: `acp_providers` maps a name to `command`, `args`, `env`; choose it with `:AvanteSwitchProvider` ([github.com/yetone/avante.nvim](https://github.com/yetone/avante.nvim)).
+- **agentic.nvim**: `acp_providers` with `name`, `command` (on `PATH` or absolute), `args`, `env`; `provider = "<key>"` ([github.com/carlos-algms/agentic.nvim](https://github.com/carlos-algms/agentic.nvim)).
+- **CodeCompanion**: a custom adapter under `adapters.acp` returning `commands.default` (the program, then its arguments) ([codecompanion.olimorris.dev](https://codecompanion.olimorris.dev/configuration/adapters-acp.md)). It sends `authenticate` only when the agent lists a method, so the empty list of DatGold is fine.
+
+```lua
+-- avante.nvim
+acp_providers = {
+  ["datgold"] = {
+    command = "C:/Program Files/DatGold/runtimes/node/node.exe",
+    args = { "C:/Program Files/DatGold/DATGOLD-HUB/lib/acp/agent.mjs" },
+  },
+},
+```
+
+### Emacs
+
+**agent-shell** (on MELPA, built on acp.el, which calls itself "in the very early stages") is the client the ACP site lists ([github.com/xenodium/agent-shell](https://github.com/xenodium/agent-shell)). Its README has no recipe for an agent it does not bundle. The form below follows the package's own source and is **derived and untested**; it uses an internal function (two dashes) that may change.
+
+```elisp
+(defun my/agent-shell-datgold-config ()
+  (agent-shell-make-agent-config
+   :identifier 'datgold :mode-line-name "DatGold" :buffer-name "DatGold"
+   :shell-prompt "DatGold> " :shell-prompt-regexp "DatGold> "
+   :client-maker (lambda (buffer)
+                   (agent-shell--make-acp-client
+                    :command "C:/Program Files/DatGold/runtimes/node/node.exe"
+                    :command-params '("C:/Program Files/DatGold/DATGOLD-HUB/lib/acp/agent.mjs")
+                    :environment-variables (agent-shell-make-environment-variables :inherit-env t)
+                    :context-buffer buffer))))
+(add-to-list 'agent-shell-agent-configs #'my/agent-shell-datgold-config)
+```
+
+### VS Code
+
+VS Code has **no built-in ACP client** (the request microsoft/vscode#265496 is open; VS Code's own "Agent Host Protocol" is a different protocol). The community extension **ACP Client** (formulahendry, MIT, last updated 2026-05-16) reads the user setting `acp.agents` (each value with `command`, `args`, `env`); "ACP: Add Agent Configuration" writes it ([github.com/formulahendry/vscode-acp](https://github.com/formulahendry/vscode-acp)). Whether that setting replaces or adds to the extension's default agents: **not verified**.
+
+```json
+{
+  "acp.agents": {
+    "DatGold": {
+      "command": "C:\\Program Files\\DatGold\\runtimes\\node\\node.exe",
+      "args": ["C:\\Program Files\\DatGold\\DATGOLD-HUB\\lib\\acp\\agent.mjs"],
+      "env": {}
+    }
+  }
+}
+```
+
+### The ACP Registry
+
+DatGold is **not** in the registry and nothing was submitted. Its CI refuses an agent whose `initialize` answers an empty `authMethods`, and asks for an npm, PyPI or binary distribution that starts without an installed Hub, a 16x16 monochrome `icon.svg` and a reachable `license_url` ([github.com/agentclientprotocol/registry](https://github.com/agentclientprotocol/registry), CONTRIBUTING.md). What would have to change, and the text prepared for the day it does, are in [ACP-REGISTRY.md](ACP-REGISTRY.md).
+
 ## Not in this version
 
 - **Diffs after a write**, and a diff at all where nothing is asked (Autonomous, Full Access): the update of a finished call carries the words of its result. The Hub's review routes serve only the workspace the desktop app has selected; reading them for the folder of a session would mean selecting it, which this agent never does.
 - **The plan the model writes with `update_plan`** (the Studio plan of the workspace) and **the thinking of the model**: the editor is told the plan of the task (`goalPlan`) only.
 - **A word-by-word stream**: the record is read every 500 ms, so what the model says arrives one response at a time, until the Hub's own stream works (see `session/prompt`).
-- **`session/load`** (`loadSession` is `false`), session lists, modes, config options.
-- **MCP servers** passed in `session/new` are ignored without a word to the person (the Hub has no MCP client yet; a later change says so with a notice).
+- Session lists, modes, config options.
+- **MCP servers** passed in `session/new` or `session/load` are not started (the Hub has no MCP client yet); the person is told.
 - **Images and audio** in a prompt.
-- **A guide for each editor** (Zed, JetBrains, Neovim, Emacs, VS Code through a community extension) and the evidence from running them. The configuration an editor needs is the command above.
+- **A run in a real editor**: the guides above are read from the vendors' pages, and the evidence kit is empty (not run yet).
 - **The connection to the Hub is made again when it can no longer be used**: an attached Hub that no longer takes the session of the agent (the desktop app was restarted: a new secret) ends the running turn at once with a sentence, and the next request reads the session file again and checks the listener again; so does an attached Hub that cannot be reached. A Hub that the agent started and that has ended is started again by the next request. A Hub that answers with a refusal of its own (a limit, a busy Hub) is kept. Tests: `tests/verify-acp-logic.mjs`.
 - **256 sessions on one connection**: when it is full, the oldest session without a running turn is closed (and logged) to make room; when every session has a turn, `session/new` is refused with the number. Test: `tests/verify-acp-logic.mjs`.
-- Sessions live in the agent's memory: when the editor starts the agent again, `session/new` is a new conversation (the Hub keeps the old tasks, which the desktop app shows).
 
 ## Verified, and not
 
@@ -190,4 +298,4 @@ Each of these has a defined answer and the next request is served ([lib/acp/rpc.
 
 ## Tests and mutation lists
 
-`tests/verify-acp-rpc.mjs` (the wire), `tests/verify-acp-logic.mjs` (masking, stop reasons, content, parameters, the Hub client's routes and sentences, the agent on a scripted Hub), `tests/verify-e2e-acp.mjs` (a real Hub with a scripted model and the official SDK), `tests/verify-e2e-acp-lifecycle.mjs` (the agent as a process: how it ends, and what that does to its Hub) and `tests/verify-e2e-acp-connection.mjs` (how it finds, starts and loses a Hub: launchOwned, the refusals, the program, a Hub that is a script, the two methods that read and answer the approvals). The events: `tests/verify-acp-events.mjs` (the mapping of a record to updates, with a real record), `tests/verify-acp-permissions.mjs` (the approval request, the answer, the time), `tests/verify-acp-turn.mjs` (updates and approvals on a Hub that is a script) and `tests/verify-e2e-acp-events.mjs` (a real Hub in Review mode); and the pinned schema: `tests/verify-acp-schema.mjs`. The suites that need the SDK print `CHATMCP_TEST_SKIP` when it is not installed, which the CI runs (`--no-skip all`) count as a failure. Mutation lists (`node tests/mutation/run-mutations.mjs tests/mutation/<list>.json`): `acp-rpc.json`, `acp-mask.json`, `acp-stop-reason.json`, `acp-content.json`, `acp-validate.json`, `acp-hub-client.json`, `acp-agent.json`, `acp-lifecycle.json`, `acp-connection.json`, `acp-e2e.json`, and for the events `acp-events.json`, `acp-permissions.json`, `acp-turn.json`, `acp-hub-client-approvals.json` and `acp-schema.json`.
+`tests/verify-acp-rpc.mjs` (the wire), `tests/verify-acp-logic.mjs` (masking, stop reasons, content, parameters, the Hub client's routes and sentences, the agent on a scripted Hub), `tests/verify-e2e-acp.mjs` (a real Hub with a scripted model and the official SDK), `tests/verify-e2e-acp-lifecycle.mjs` (the agent as a process: how it ends, and what that does to its Hub) and `tests/verify-e2e-acp-connection.mjs` (how it finds, starts and loses a Hub: launchOwned, the refusals, the program, a Hub that is a script, the two methods that read and answer the approvals). The events: `tests/verify-acp-events.mjs` (the mapping of a record to updates, with a real record), `tests/verify-acp-permissions.mjs` (the approval request, the answer, the time), `tests/verify-acp-turn.mjs` (updates and approvals on a Hub that is a script) and `tests/verify-e2e-acp-events.mjs` (a real Hub in Review mode); the pinned schema: `tests/verify-acp-schema.mjs`; and session/load: `tests/verify-acp-load.mjs` and `tests/verify-e2e-acp-load.mjs`. The suites that need the SDK print `CHATMCP_TEST_SKIP` when it is not installed, which the CI runs (`--no-skip all`) count as a failure. Mutation lists (`node tests/mutation/run-mutations.mjs tests/mutation/<list>.json`): `acp-rpc.json`, `acp-mask.json`, `acp-stop-reason.json`, `acp-content.json`, `acp-validate.json`, `acp-hub-client.json`, `acp-agent.json`, `acp-lifecycle.json`, `acp-connection.json`, `acp-e2e.json`, and for the events `acp-events.json`, `acp-permissions.json`, `acp-turn.json`, `acp-hub-client-approvals.json` and `acp-schema.json`, and for session/load `acp-load.json` and `acp-e2e-load.json`.
