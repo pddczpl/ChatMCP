@@ -60,6 +60,7 @@ The DatGold code is Apache-2.0. A component is marked compatible when it may be 
 | UI bundle (`DATGOLD-HUB/web/dist/assets/*.js`, `*.css`) | see [UI production packages](#ui-production-packages-compiled-into-webdist) | MIT (161), OFL-1.1 (2), ISC (2), BSD-3-Clause (1), 0BSD (1) | Yes | Finding 4. The Tailwind CSS banner and the `@license` comments of React and lucide-react survive the build. |
 | Inter variable and JetBrains Mono 400 web fonts (`web/dist/assets/*.woff2`, `*.woff`) | 5.3.0 and 5.3.0 (Fontsource packages) | OFL-1.1 | Yes, as separate font files | Finding 3. Inter: Copyright 2016 The Inter Project Authors. JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors. |
 | Icons and logo (`assets/icons`, `DATGOLD-HUB/ui/public/chatmcp-logo.png`, `DATGOLD-HUB/ui/public/favicon.ico`) | - | Apache-2.0 (own work) | - | Finding 7. |
+| Pinned copy of the ACP protocol JSON Schema (`DATGOLD-HUB/lib/acp/schema/schema.json`, with its `LICENSE`) | `@agentclientprotocol/sdk` 2.4.0, `schema/v1/schema.json` | Apache-2.0 (Copyright 2025 Zed Industries, Inc. and contributors) | Yes, as data; the agent does not read it at run time, the ACP test suites validate against it | Origin, sha256 and size in [SOURCE.json](../DATGOLD-HUB/lib/acp/schema/SOURCE.json). |
 
 ## Not redistributed
 
