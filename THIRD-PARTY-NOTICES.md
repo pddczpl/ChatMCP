@@ -111,7 +111,7 @@ What that means here, as facts and not as a conclusion:
 
 These are the gaps that remain after this change. None of them is hidden by the build.
 
-1. **WebView2, .NET runtime, OFL font texts and the MIT/ISC/BSD notices of the UI libraries** (findings 2 to 4 of the license scan) are outside this change and still open. The Browser Companion archive `DatGold-Browser-Companion.zip` (and its copy `ChatMCP-Browser-Companion.zip`) also does not contain `LICENSE` or `NOTICE` yet.
+1. **WebView2, .NET runtime, OFL font texts and the MIT/ISC/BSD notices of the UI libraries** (findings 2 to 4 of the license scan) are outside this change and still open. The Browser Companion archive `DatGold-Browser-Companion.zip` also does not contain `LICENSE` or `NOTICE` yet.
 
 ## UI libraries compiled into the dashboard
 
