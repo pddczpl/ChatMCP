@@ -317,11 +317,14 @@ const FAKE_CSRF = 'c5rf0123456789abcdef0123456789abcdef0123456789abcdef012345678
     ['a file name with %0A, embedded, inside the project, on Linux', [embeddedOf(`file:///home/me/proj/a%0A${INJECTED}.md`)], '/home/me/proj', 'linux'],
     ['a file name with %0A outside the project, on Linux', [linkOf(`file:///home/other/a%0A${INJECTED}.md`)], '/home/me/proj', 'linux'],
     ['a protected file whose name holds %0A, outside the project, on Linux', [linkOf(`file:///home/other/.ssh/a%0A${INJECTED}`)], '/home/me/proj', 'linux'],
+    ['a title with DEL and U+2029', [{ type: 'resource_link', uri: 'https://example.com/b', name: 'b', title: `doc${String.fromCharCode(0x7f)}${String.fromCharCode(0x2029)}${INJECTED}` }]],
     ['a type with a line break', [{ type: 'resource', resource: { uri: 'file:///C:/proj/x.bin', blob: 'AAAA', mimeType: `a/b\n${INJECTED}` } }]],
   ];
   for (const [label, blocks, cwd = 'C:\\proj', platform = 'win32'] of CASES) {
     const out = run(blocks, cwd, platform);
     assert.ok(!out.prompt.split('\n').some((line) => line.startsWith(INJECTED)), `${label}: no line of the prompt starts with the injected words`);
+    const separators = [0x7f, 0x85, 0x2028, 0x2029].map((code) => String.fromCharCode(code));
+    assert.ok(!separators.some((separator) => out.prompt.includes(separator) || out.notes.some((note) => note.includes(separator))), `${label}: no DEL, U+0085, U+2028 or U+2029 is left in the prompt or a note (a reader that breaks lines on them would see a new line)`);
     assert.ok(out.notes.every((note) => !/[\n\r\u0085\u2028\u2029]/.test(note) && !note.includes(`\n${INJECTED}`)), `${label}: nor does a note carry a line break`);
   }
   const shown = run([{ type: 'resource_link', uri: 'https://example.com/a', name: 'a', title: `doc\n${INJECTED}` }], 'C:\\proj', 'win32').prompt;
