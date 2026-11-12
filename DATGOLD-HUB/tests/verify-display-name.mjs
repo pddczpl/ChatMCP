@@ -48,7 +48,13 @@ const TECHNICAL = [
   /Local\\+ChatMCP\.Update\./g,                                                         // the name of the lock that keeps two installers apart
   /\b(?:LegacyAppName|LegacyStartMenuFolder) = "ChatMCP(?: Studio)?";/g,                // the names versions up to 3.10.1 gave the shortcuts, which setup finds and removes
   /"Programs", "ChatMCP"|"ChatMCP", "logs"|GetProcessesByName\("ChatMCP"\)|Contains\("ChatMCP"|\.ChatMCP-update-/g, // the folders, the process and the update folder the installer works with
+  // The old name in capitals is an identifier, never the product's name, in these three shapes only (docs/NAMING.md, "Source tree"):
+  /\bCHATMCP_[A-Z0-9_]+/g,                                                             // environment variables and the skip marker of the suites
+  /\b(?:START|STOP)-CHATMCP-(?:HUB|DESKTOP)\b/g,                                       // the launchers
+  /\bLegacyHubFolder = "CHATMCP-HUB"|\bwas called CHATMCP-HUB\b|gọi thư mục này là `CHATMCP-HUB`|`CHATMCP-HUB\\extension`/g, // the Hub folder of installations up to 3.11.0, which setup renames
 ];
+// The old name as a person reads it: ChatMCP, or in capitals CHATMCP ("CHATMCP STUDIO", "CHATMCP HUB COMPANION"). Other spellings (chatmcp-logo.png, .chatmcp/) are file names.
+const OLD_NAME = /ChatMCP|CHATMCP/;
 const isComment = (line) => /^\s*(?:\/\/|\/\*|\*|\{\/\*|<!--|#)/.test(line);
 
 /** `files` is {path: text}. Returns "path:line: text" for every line that still names the product ChatMCP. `comments` lets a comment line pass (code comments are not read by a person using the product). */
@@ -56,10 +62,10 @@ function scan(files, { comments = false } = {}) {
   const found = [];
   for (const [file, text] of Object.entries(files)) {
     text.split('\n').forEach((line, index) => {
-      if (!line.includes('ChatMCP')) return;
+      if (!OLD_NAME.test(line)) return;
       if (comments && isComment(line) && !/\.(md|txt)$/.test(file) && file !== 'NOTICE') return;
       const rest = TECHNICAL.reduce((left, pattern) => left.replace(pattern, ''), line);
-      if (rest.includes('ChatMCP')) found.push(`${file}:${index + 1}: ${line.trim().slice(0, 160)}`);
+      if (OLD_NAME.test(rest)) found.push(`${file}:${index + 1}: ${line.trim().slice(0, 160)}`);
     });
   }
   return found;
@@ -73,7 +79,8 @@ const INSTALLER = ['InstallerEngine.cs', 'InstallTransaction.cs', 'Program.cs', 
 const LIVING_DOCUMENTS = [
   'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'NOTICE', 'HUONG-DAN.txt', 'THIRD-PARTY-NOTICES.md', 'DATGOLD-HUB/README.md', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt',
   ...['AGENT-TOOL-CAPABILITIES', 'ARCHITECTURE', 'COMPANION-PRIVACY', 'DEPLOYMENT', 'DESKTOP-APP', 'DEVELOPMENT', 'EVALUATION', 'HOOKS', 'HUB-AUTH', 'INDEX', 'LICENSE-SCAN',
-    'TESTING-WITH-REAL-MODELS', 'THREAT-MODEL', 'USER-GUIDE', 'WINDOWS-SETUP', 'TROUBLESHOOTING', 'CI-HEALTH'].map((name) => `docs/${name}.md`),
+    'TESTING-WITH-REAL-MODELS', 'THREAT-MODEL', 'USER-GUIDE', 'WINDOWS-SETUP', 'TROUBLESHOOTING', 'CI-HEALTH', 'CODE-INTELLIGENCE-RUNTIME', 'GIT-PUSH', 'REVIEW-API', 'CLAIMS'].map((name) => `docs/${name}.md`),
+  'AGENTS.md', 'CLAUDE.md',
   'design/DESIGN-DIRECTION.md', 'design/ADR-001-frontend-stack.md',
 ];
 const SCHEMA = ['DATGOLD-HUB/schemas/hooks.schema.json'];
@@ -142,6 +149,10 @@ for (const [surface, files] of Object.entries(real)) {
     ['the old name in a sentence of the uninstaller', { 'installer/UninstallForm.cs': 'Text = "Remove ChatMCP and all associated shortcuts from this computer",' }, { comments: true }],
     ['the old name as the name of the shortcuts', { 'installer/InstallerEngine.cs': 'public const string AppName = "ChatMCP Studio";' }, { comments: true }],
     ['the old name in the file properties of the setup', { 'installer/ChatMCP.Installer.csproj': '<Product>ChatMCP Studio Setup</Product>' }, { comments: true }],
+    ['the old name in capitals as the title of a guide', { 'HUONG-DAN.txt': 'CHATMCP STUDIO — HƯỚNG DẪN LOCAL-ONLY' }, { comments: false }],
+    ['the old name in capitals in the Companion guide', { 'DATGOLD-HUB/extension/HUONG-DAN.txt': 'CHATMCP HUB COMPANION 1.5.2' }, { comments: false }],
+    ['the old Hub folder named as if it still were the folder', { 'NOTICE': '  - CHATMCP-HUB/THIRD-PARTY-NOTICES.txt' }, { comments: false }],
+    ['an environment variable does not excuse the name beside it', { 'docs/x.md': 'CHATMCP_STATE_DIR is read by CHATMCP Studio' }, { comments: false }],
   ];
   for (const [label, files, options] of defects) assert.equal(scan(files, options).length, 1, `reported: ${label}`);
   const allowed = [
@@ -155,6 +166,10 @@ for (const [surface, files] of Object.entries(real)) {
     ['a code comment in a source file', '// the page was opened without ChatMCP'],
     ['the old names the installer finds and removes', 'internal const string LegacyAppName = "ChatMCP Studio"; internal const string LegacyStartMenuFolder = "ChatMCP";'],
     ['the folders, the process and the update folder of the installer', 'Path.Combine(local, "Programs", "ChatMCP"); Path.Combine(local, "ChatMCP", "logs"); Process.GetProcessesByName("ChatMCP"); name.Contains("ChatMCP", x); ".ChatMCP-update-"'],
+    ['environment variables in capitals', 'Set CHATMCP_STATE_DIR, CHATMCP_HUB_SECRET and CHATMCP_TEST_SKIP: before the run'],
+    ['the launchers', '.\\DATGOLD-HUB\\START-CHATMCP-HUB.cmd, STOP-CHATMCP-HUB.cmd and START-CHATMCP-DESKTOP.cmd'],
+    ['the Hub folder of an old installation', 'internal const string LegacyHubFolder = "CHATMCP-HUB"; Up to 3.11.0 that folder was called CHATMCP-HUB: an extension'],
+    ['file names in lower case', 'chatmcp-logo.png, .chatmcp/hooks.json and chatmcp-studio-local'],
   ];
   for (const [label, line] of allowed) assert.deepEqual(scan({ 'DATGOLD-HUB/ui/src/x.tsx': line }, { comments: true }), [], `allowed: ${label}`);
   assert.equal(scan({ 'docs/x.md': '# ChatMCP' }, { comments: false }).length, 1, 'a heading of a document is read as a sentence, not skipped as a comment');
