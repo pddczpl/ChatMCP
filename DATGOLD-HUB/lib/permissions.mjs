@@ -51,7 +51,9 @@ const LONG_FLAG = String.raw`(?<!\S)--(?!(?:no|skip|ask|prompt|disable|enable|wi
 // COMMAND that holds the flag, which has no curl and no URL before it and starts outside every quote), a numeric pair and a drive and a path (judged by their shape alone, so they need no curl and no URL
 // anywhere in the TEXT before the flag). See readableUserFlag. A secret fails safe: what is not known to be a user and a group is masked. ctr (containerd) is not one of the four: it takes -u/--user as the user and the password of a
 // registry; skopeo, kubectl, oc, crictl, lxc and incus are not exempted either: their flag takes one name or number, so nothing readable is lost when a pair after it is masked.
-const USER_FLAG = String.raw`(?<!\S)(?:-u|--user|--proxy-user)[ \t=]+`;
+// A flag counts when a blank, a quote or the start of the text comes before it (CURL_OPTS='-u a:b', echo "-u a:b", and the JSON text of a call, where every string value starts after a quote), and -u may
+// have its user glued to it (-uadmin:secret; the long flags need a blank or an equals sign: --userid:x is not --user).
+const USER_FLAG = String.raw`(?<![^\s"'])(?:-u[ \t=]*|(?:--user|--proxy-user)[ \t=]+)`;
 /** diff -u C:\a\old.txt C:\a\new.txt: a letter and a colon before a slash is a drive, not a user and a password (with a curl or a URL before the flag it is: see readableUserFlag). */
 const isDrivePath = (user, password) => user.length === 1 && /[A-Za-z]/.test(user) && (password[0] === '\\' || password[0] === '/');
 const NUMBER = /^\d{1,10}$/;
@@ -59,10 +61,19 @@ const isNumericPair = (user, password) => NUMBER.test(user) && NUMBER.test(passw
 const CONTAINER_CLIENT = /^(?:docker|podman|nerdctl|buildah)(?:-compose)?(?:\.exe)?$/i;
 const WRAPPERS = new Set(['sudo', 'doas', 'env', 'time', 'nohup']);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+// The subcommands of a container client whose -u / --user is a user and a group, the words that can stand in front of one of them (docker compose run, docker container exec, docker service create), and what tells
+// which word is the value of a flag. A long flag takes the word after it unless it is one of those that take none; a short flag takes it only if its letter is one of those of the clients (-e, -v, -p, -n ...), so a
+// flag that is none of theirs (-k, -s) does not swallow the image. The value can be glued to the flag (-p80:80, --name=web).
+const USER_SUBCOMMANDS = new Set(['run', 'exec', 'create', 'config']);
+const SUBCOMMAND_GROUPS = new Set(['compose', 'container', 'service']);
+const NO_VALUE_FLAGS = new Set(['--rm', '--init', '--privileged', '--read-only', '--detach', '--interactive', '--tty', '--publish-all', '--quiet', '--no-healthcheck', '--no-deps', '--build', '--service-ports', '--remove-orphans', '--help']);
+const VALUE_LETTERS = 'evpwlhmcafun';
 const COMMAND_WINDOW = 200;
 const isWordCharacter = (code) => (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95;
-/** Whether the word curl starts at `index` (as a whole word, in any case). */
-const curlStartsAt = (text, index) => (text[index] === 'c' || text[index] === 'C') && text.slice(index, index + 4).toLowerCase() === 'curl' && !isWordCharacter(text.charCodeAt(index - 1)) && !isWordCharacter(text.charCodeAt(index + 4));
+/** Whether a backslash and n, r or t stand right before `index`: the escape of a line break or a tab in the text of a string (JSON, a script written as a string), which glues to the word after it. */
+const followsEscape = (text, index) => (text[index - 1] === 'n' || text[index - 1] === 'r' || text[index - 1] === 't') && text[index - 2] === '\\';
+/** Whether the word curl starts at `index` (as a whole word, in any case; after \n, \r or \t of a string it is one too). */
+const curlStartsAt = (text, index) => (text[index] === 'c' || text[index] === 'C') && text.slice(index, index + 4).toLowerCase() === 'curl' && (!isWordCharacter(text.charCodeAt(index - 1)) || followsEscape(text, index)) && !isWordCharacter(text.charCodeAt(index + 4));
 const isBlank = (character) => character === ' ' || character === '\t';
 /** Where the continuation of a line that starts at `at` ends (a backslash, a caret or a backtick, blanks, a carriage return, the line ending), or -1 when there is none. */
 function continuationEnd(text, at) {
@@ -124,7 +135,7 @@ function skipBlanks(text, cursor) {
     else return cursor;
   }
 }
-/** Whether the first word of the command text[from, to) is docker, podman, nerdctl or buildah (a path and .exe on it), after sudo, doas, env, time or nohup, their flags and VAR=x. */
+/** Where the first word of the command text[from, to) ends when it is docker, podman, nerdctl or buildah (a path and .exe on it), after sudo, doas, env, time or nohup, their flags and VAR=x; -1 when it is not. */
 function startsWithContainerClient(text, from, to) {
   let cursor = from;
   let wrapped = false;
@@ -133,9 +144,9 @@ function startsWithContainerClient(text, from, to) {
     let end = cursor; // at `to` the word is empty, and an empty word is no client and no wrapper: the loop ends there
     while (end < to && !isBlank(text[end]) && continuationEnd(text, end) === -1) end += 1;
     const word = text.slice(cursor, end);
-    if (CONTAINER_CLIENT.test(word.slice(Math.max(word.lastIndexOf('/'), word.lastIndexOf('\\')) + 1))) return true;
+    if (CONTAINER_CLIENT.test(word.slice(Math.max(word.lastIndexOf('/'), word.lastIndexOf('\\')) + 1))) return end;
     if (WRAPPERS.has(word.toLowerCase())) wrapped = true;
-    else if (!ASSIGNMENT.test(word) && !(wrapped && word.startsWith('-'))) return false;
+    else if (!ASSIGNMENT.test(word) && !(wrapped && word.startsWith('-'))) return -1;
     cursor = end;
   }
 }
@@ -160,6 +171,9 @@ function startsAfterEscapedSeparator(text, from) {
  * before the command, and the quote of a string of the form $'...' can be taken for the end of a string. Nobody can tell where those end, so a backtick (anywhere), a backslash before a single quote and a $
  * before a single quote (outside a quote) fail the reading; a backtick that continues a line is not one: the continuation of a line, a backslash, a caret or a backtick, then the line ending, is skipped before
  * a character is taken for a quote or an escape. It is a reading of the text, not a shell: a contrived mix of quotes and escapes can still fool it.
+ * A command that is written inside a string of another language, in a file the card shows (JSON, YAML, Python, PowerShell, SQL), leaves two more things behind, and both fail the reading: a backslash and a
+ * double quote that can close something (it is followed by a blank, ) } ] , : or the end of the stretch; one that opens a word, A=\"b, is an escaped character as before), and a doubled quote glued to the
+ * word before it (`ps''`, the way a quote is written inside a string of the same kind). An empty string after a blank (`--entrypoint ''`) is an empty argument and stays.
  */
 function startsOutsideQuotes(text, from, to) {
   if (startsAfterEscapedSeparator(text, from)) return false;
@@ -176,6 +190,8 @@ function startsOutsideQuotes(text, from, to) {
     }
     if (character === '`') return false;
     if (quote === '' && (character === '\\' || character === '$') && text[index + 1] === "'") return false;
+    if (quote === '' && character === '\\' && text[index + 1] === '"' && (index + 2 >= to || /[\s)}\],:]/.test(text[index + 2]))) return false;
+    if (quote === '' && (character === "'" || character === '"') && text[index + 1] === character && !isBlank(text[index - 1])) return false;
     if (character === '\\' && quote !== "'") {
       index += 1;
       continue;
@@ -193,6 +209,66 @@ function startsOutsideQuotes(text, from, to) {
   }
   return quote === '' && depth[0] === 0 && depth[1] === 0;
 }
+/** The words of text[from, to): what stands between blanks and continued line ends, outside quotes and outside ( ) and { } (startsOutsideQuotes has proven that the quotes and the groups of the command pair up). */
+function wordsOf(text, from, to) {
+  const words = [];
+  let quote = '';
+  let depth = 0;
+  let begin = -1;
+  const finish = (index) => {
+    if (begin !== -1) words.push(text.slice(begin, index));
+    begin = -1;
+  };
+  for (let index = from; index < to; index += 1) {
+    const character = text[index];
+    if (quote === '' && depth === 0) {
+      const next = continuationEnd(text, index);
+      if (next !== -1) {
+        finish(index);
+        index = next - 1;
+        continue;
+      }
+      if (isBlank(character)) {
+        finish(index);
+        continue;
+      }
+    }
+    if (begin === -1) begin = index;
+    if (character === '\\' && quote !== "'") {
+      index += 1;
+      continue;
+    }
+    if (quote !== '') {
+      if (character === quote) quote = '';
+    } else if (character === "'" || character === '"') quote = character;
+    else if (character === '(' || character === '{') depth += 1;
+    else if (character === ')' || character === '}') depth -= 1;
+  }
+  finish(to);
+  return words;
+}
+/** Whether a flag takes the word after it as its value: not when the value is glued to it (--name=web, -p80:80), not when it is one of the flags that take none (--rm), and, for a short flag, not when its letters are not those of a flag with a value (-d, -it, -k). */
+function takesTheNextWord(flag) {
+  if (flag.startsWith('--')) return !flag.includes('=') && !NO_VALUE_FLAGS.has(flag);
+  for (let index = 1; index < flag.length; index += 1) if (VALUE_LETTERS.includes(flag[index])) return index === flag.length - 1;
+  return false;
+}
+/**
+ * Whether the words of a container command between the client (which ends at `from`) and the flag at `to` are the subcommand and flags with their values, and no more: `docker run --rm -v /a:/b -w /a -u ...`.
+ * `docker run [flags] IMAGE [COMMAND] [ARGS]`: a word that is none of them is the image (for exec the container, for compose the service), and what follows it is the program that runs in the container, so a flag
+ * after it is that program's and not the client's (`docker run img tool -u admin:secret`). The subcommand has to be one whose -u is a user and a group (run, exec, create, config; docker login's is a user
+ * name), alone or after compose, container or service.
+ */
+function flagComesBeforeTheImage(text, from, to) {
+  const words = wordsOf(text, from, to);
+  const bare = [];
+  for (let index = 0; index < words.length; index += 1) {
+    if (words[index][0] !== '-') bare.push(words[index].toLowerCase());
+    else if (takesTheNextWord(words[index]) && index + 1 < words.length && words[index + 1][0] !== '-') index += 1;
+  }
+  if (bare.length === 1) return USER_SUBCOMMANDS.has(bare[0]);
+  return bare.length === 2 && SUBCOMMAND_GROUPS.has(bare[0]) && USER_SUBCOMMANDS.has(bare[1]);
+}
 /**
  * Whether the flag at `at`, with the `user` and the `password` after it, is no user and password. A user and a group is decided on the COMMAND that holds the flag: it starts with docker, podman, nerdctl
  * or buildah, holds no curl and no URL before the flag and starts outside every quote and substitution (docker exec web curl -u user:secret is a curl; docker pull x; tool -u user:secret is another command). A numeric
@@ -203,14 +279,18 @@ function readableUserFlag(text, at, user, password) {
   const start = commandStart(text, at);
   if (start < 0 || holdsNetworkClient(text, start, at)) return false;
   if ((isNumericPair(user, password) || isDrivePath(user, password)) && firstNetworkIndex(text) >= at) return true;
-  return startsWithContainerClient(text, start, at) && startsOutsideQuotes(text, start, at);
+  const client = startsWithContainerClient(text, start, at);
+  return client !== -1 && startsOutsideQuotes(text, start, at) && flagComesBeforeTheImage(text, client, at);
 }
 // The -p of the clients of MySQL has its password glued to it (-psecret); in sshpass and in the login of a container client it is a word of its own (-p secret). Their letters are small and so is
 // the -p: a capital -P is the port of mysql (-P3306), so these two do not ignore the case.
 const MYSQL_P = String.raw`\b(?:mysql|mysqldump|mysqladmin|mysqlimport|mysqlcheck|mysqlshow|mysqlpump|mariadb)\b[^\r\n]{0,200}?(?<!\S)-p`;
 const SPACED_P = String.raw`(?:\bsshpass[ \t]+-p[ \t]*|\b(?:docker|podman|nerdctl|buildah|skopeo)[ \t]+login\b[^\r\n]{0,200}?(?<!\S)-p[ \t]+)`;
-const quotedValue = (head, flags = 'gi') => new RegExp(String.raw`(${head})(["'])(?![$%])(?:(?!\2)[^\r\n]){1,2000}\2`, flags);
-const bareValue = (head, least, flags = 'gi') => new RegExp(String.raw`(${head})(?![$%-])[^\s"'|;&<>()]{${least},}`, flags);
+// A quote of a value, or the quote of a string that escapes its quotes (\" in the text of a JSON string, a package.json script, a YAML or a Python string): in a file the card draws the text as it is, and a value in
+// double quotes inside such a string is written \"S\". A bare value does not start with one: \"S\" is a quoted value, whatever matched it first.
+const QUOTE = String.raw`(\\?["'])`;
+const quotedValue = (head, flags = 'gi') => new RegExp(String.raw`(${head})${QUOTE}(?![$%])(?:(?!\2)[^\r\n]){1,2000}\2`, flags);
+const bareValue = (head, least, flags = 'gi') => new RegExp(String.raw`(${head})(?![$%-]|\\["'])[^\s"'|;&<>()]{${least},}`, flags);
 // XML: <password>secret</password>, <db-password encrypted="false">secret</db-password>, <add key="ApiKey" value="secret" />, <property name="password" value="secret"/>.
 const XML_NAME = String.raw`[A-Za-z0-9_.:-]{0,40}${SECRET_WORD}${SECRET_ENDING}`;
 const TOKEN_PATTERNS = [
@@ -236,7 +316,14 @@ const TOKEN_PATTERNS = [
   // A secret given to a command: --password secret, --github-token secret, curl -u user:secret, mysql -psecret, sshpass -p secret, docker login -p secret.
   [quotedValue(`${LONG_FLAG}[ \\t]+`), '$1$2[REDACTED]$2'],
   [bareValue(`${LONG_FLAG}[ \\t]+`, 4), '$1[REDACTED]'],
-  [new RegExp(String.raw`(${USER_FLAG}(["'])([^\r\n"':]{1,100}):)(?!//|[$%])((?:(?!\2)[^\r\n]){1,2000})\2`, 'gi'),
+  // A secret assigned to a name: in quotes (up to the closing quote, spaces included, but for the words of fetch's credentials option), or bare (not a number, not a regular expression, not a call, not a
+  // ${placeholder} or <placeholder>, and none of the values that are no secret: a type, a read of the environment or of a variable, a placeholder). These two rules run BEFORE the ones of the flag of the user:
+  // the password of -u runs up to the next blank, and in the text of a file a line break is the two characters \n, so a password at the end of a line took the NAME of the next secret with it (napi_key=)
+  // and left the value behind it in view.
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)${QUOTE}(?!(?:include|omit|same-origin)\2)(?:(?!\2)[^\r\n]){4,}\2`, 'gi'), '$1$2[REDACTED]$2'],
+  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(?!["'/]|[0-9]+(?![\w.@/+=-])|${VALUE_CHAR}*\(|${WHOLE_VALUES}|${READS_OF_THE_ENVIRONMENT})${VALUE_CHAR}{6,}`, 'gi'), '$1[REDACTED]'],
+  // The user and the password of the flag of the user, then the -p of mysql, of sshpass and of the login of a container client.
+  [new RegExp(String.raw`(${USER_FLAG}${QUOTE}([^\r\n"':]{1,100}):)(?!//|[$%])((?:(?!\2)[^\r\n]){1,2000})\2`, 'gi'),
     (all, head, quote, user, password, at, source) => (readableUserFlag(source, at, user, password) ? all : `${head}[REDACTED]${quote}`)],
   [new RegExp(String.raw`(${USER_FLAG}([^\s:"']{1,100}):)(?!//|[$%])([^\s"'|;&<>()]+)`, 'gi'),
     (all, head, user, password, at, source) => (readableUserFlag(source, at, user, password) ? all : `${head}[REDACTED]`)],
@@ -247,10 +334,6 @@ const TOKEN_PATTERNS = [
   // A secret in XML: the text of an element named like a secret, and the value of an entry (<add key=".." value=".."/>) whose key is named like one. A read (${env.X}, %X%) and a placeholder are not.
   [new RegExp(String.raw`(<(${XML_NAME})(?:[ \t][^<>\r\n]{0,200})?>)(?![ \t]*(?:[$%]|(?:${PLACEHOLDER_WORDS.join('|')})[ \t]*<))[^<\r\n]{4,}?(?=<\/\2[ \t]*>)`, 'gi'), '$1[REDACTED]'],
   [new RegExp(String.raw`(\b(?:key|name)=(["'])[^"'\r\n]{0,60}${SECRET_WORD}[^"'\r\n]{0,20}\2\s+value=)(["'])(?![$%])(?:(?!\3)[^\r\n<>]){4,}\3`, 'gi'), '$1$3[REDACTED]$3'],
-  // A secret assigned to a name: in quotes (up to the closing quote, spaces included, but for the words of fetch's credentials option), or bare (not a number, not a regular expression, not a call, not a
-  // ${placeholder} or <placeholder>, and none of the values that are no secret: a type, a read of the environment or of a variable, a placeholder).
-  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(["'])(?!(?:include|omit|same-origin)\2)(?:(?!\2)[^\r\n]){4,}\2`, 'gi'), '$1$2[REDACTED]$2'],
-  [new RegExp(String.raw`(${SECRET_NAME}\s*[=:]\s*)(?!["'/]|[0-9]+(?![\w.@/+=-])|${VALUE_CHAR}*\(|${WHOLE_VALUES}|${READS_OF_THE_ENVIRONMENT})${VALUE_CHAR}{6,}`, 'gi'), '$1[REDACTED]'],
   [/(\/\/[^\s/:@]+:)[^\s/@]{3,}(@)/g, '$1[REDACTED]$2'],
 ];
 export function maskSecrets(value, secrets = []) {
@@ -277,7 +360,16 @@ function safePreview(value,length=1800,secrets=[]){
     if(x&&typeof x==='object')return Object.fromEntries(Object.entries(x).slice(0,50).map(([k,v])=>[k,redact(v,k)]));
     return x;
   };
-  return redactSecrets(JSON.stringify(redact(value)).slice(0,length),secrets);
+  // The strings are masked as the text they are, BEFORE they are written as JSON: in the JSON a double quote is \", a doubled quote may be '' and a line break is \n, and a rule that reads that text
+  // does not decode any of it (a double-quoted credential matched no rule; a container word behind a cut inside a string looked as if it stood outside it; curl after \n was no word).
+  return redactSecrets(JSON.stringify(maskDeep(redact(value),secrets)).slice(0,length),secrets);
+}
+/**
+ * The arguments of a call as the approval card prints them: the JSON of safePreview, masked once more as the text it is. The second pass sees what the first cannot: the names of the keys next to
+ * their values (`"passwd":"..."`) and the other fields (a `curl` in one field and a pair of numbers in the next).
+ */
+export function previewArguments(value,length=1800,secrets=[]){
+  return maskSecrets(safePreview(value,length,secrets),secrets);
 }
 function error(code,message,statusCode=403){return Object.assign(new Error(message),{code,statusCode});}
 const cut = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit)}… [+${text.length - limit} ký tự nữa]` : text; };
@@ -407,7 +499,7 @@ export class PermissionGate {
     const secrets=this.manager?.secrets??[];
     // The summary and the reason can quote the command, so they are masked like the preview.
     const words={summary:maskSecrets(verdict.summary??name,secrets),reason:maskSecrets(verdict.reason??'',secrets)};
-    if(!verdict.local)return {...words,preview:maskSecrets(safePreview(args,1800,secrets),secrets),detail:null};
+    if(!verdict.local)return {...words,preview:previewArguments(args,1800,secrets),detail:null};
     const input=isObject(args)?args:{};
     const op=String(name).replace(/^local\./i,'');
     const secret=(typeof input.path==='string'&&isProtectedPath(input.path))||changes?.privateKeys===true;
