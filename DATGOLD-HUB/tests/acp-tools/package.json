@@ -1,0 +1,16 @@
+{
+  "name": "datgold-acp-test-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "The official Agent Client Protocol SDK (the test client) and a JSON Schema validator, used only by the ACP test suites. Never shipped: the installer takes nothing from tests/.",
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "2.4.0",
+    "ajv": "8.20.0",
+    "zod": "4.6.7"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

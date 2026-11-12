@@ -294,6 +294,7 @@ These are the gaps that remain after this change. None of them is hidden by the 
 - Git for Windows (GPL-2.0), Microsoft Edge or Chromium, the Microsoft Edge WebView2 Runtime, Ollama, LM Studio and the model providers' services are separate installations that the user provides; DatGold does not bundle them. If a release ever bundles Git or another GPL or LGPL component, the license scan has to be redone first.
 - `node-pty` (MIT) is optional and installed by the user from npm on request.
 - Build-time and test-only dependencies stay out of the installer, among them Vite, Tailwind CSS, the UI type packages, the Playwright test runner, `lightningcss` (MPL-2.0, file-level copyleft) and `caniuse-lite` (CC-BY-4.0 data). Shipping `node_modules` would add duties for those two.
+- The test tools of the ACP agent (`DATGOLD-HUB/tests/acp-tools`, installed with `npm ci` for the tests, never in the installer): `@agentclientprotocol/sdk` 2.4.0 (Apache-2.0), `ajv` 8.20.0 (MIT) with `fast-deep-equal` 3.1.3, `json-schema-traverse` 1.0.0 and `require-from-string` 2.0.2 (MIT) and `fast-uri` 3.1.9 (BSD-3-Clause), and `zod` 4.6.7 (MIT).
 
 ## Agent Skills and external tools
 
