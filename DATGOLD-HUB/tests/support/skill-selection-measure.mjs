@@ -175,9 +175,11 @@ export async function measureSkillSelection({ hubRoot = HUB_ROOT } = {}) {
       const base = { id: row.id, set: row.set, lang: row.lang, category: row.category, prompt: row.prompt, ...(row.earlier ? { earlier: row.earlier } : {}), ...(row.project ? { project: row.project } : {}) };
       for (const group of groups) {
         if (group.selected) continue;
-        // The scorer's own account of the run's prompt for each skill that would have done: its score and the words that counted, or nothing at all.
-        const nearest = group.ids.map((id) => candidateOf(id)).filter(Boolean).sort((a, b) => b.score - a.score)[0] ?? null;
-        missed.push({ ...base, expected: group.ids, score: nearest?.score ?? 0, why: nearest?.why ?? [], concepts: trace.calls[0]?.concepts ?? [], selected, catalog: group.catalog });
+        // The scorer's own account for each skill that would have done: its best score over the prompts read (the run's own, then the earlier ones), the words that counted,
+        // and which prompt that was (0 = the run's own); or nothing at all.
+        const nearest = trace.calls.flatMap((_, call) => group.ids.map((id) => ({ call, candidate: candidateOf(id, call) }))).filter((entry) => entry.candidate)
+          .sort((a, b) => b.candidate.score - a.candidate.score || a.call - b.call)[0] ?? null;
+        missed.push({ ...base, expected: group.ids, score: nearest?.candidate.score ?? 0, why: nearest?.candidate.why ?? [], fromCall: nearest?.call ?? null, concepts: trace.calls[0]?.concepts ?? [], selected, catalog: group.catalog });
       }
       for (const id of extra) {
         const pick = trace.picks.find((entry) => entry.id === id);
