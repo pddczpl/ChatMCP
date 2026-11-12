@@ -5095,8 +5095,8 @@
    "patches": [
     {
      "file": "installer/InstallRecovery.cs",
-     "old": "^\\.ChatMCP-update-[0-9a-f]{32}\\z",
-     "new": "^\\.ChatMCP-update-[0-9a-f]+\\z"
+     "old": "@\"[0-9a-f]{32}\\z\"",
+     "new": "@\"[0-9a-f]+\\z\""
     }
    ]
   },
@@ -5106,8 +5106,8 @@
    "patches": [
     {
      "file": "installer/InstallRecovery.cs",
-     "old": "@\"^\\.ChatMCP-update-[0-9a-f]{32}\\z\"",
-     "new": "@\"\\.ChatMCP-update-[0-9a-f]{32}\\z\""
+     "old": "\"^\" + Regex.Escape(InstalledCopy.UpdateFolderPrefix) + @\"[0-9a-f]{32}\\z\"",
+     "new": "\"\" + Regex.Escape(InstalledCopy.UpdateFolderPrefix) + @\"[0-9a-f]{32}\\z\""
     }
    ]
   },
@@ -6271,8 +6271,8 @@
    "patches": [
     {
      "file": "desktop-shell/MainWindow.cs",
-     "old": "if (File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")))\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway",
-     "new": "if (File.Exists(Path.Combine(_repoRoot, \"DATGOLD-HUB\", \"package.json\")) && File.Exists(Path.Combine(_repoRoot, \".chatmcp-update-pending.json\")) && false)\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway"
+     "old": "if (File.Exists(Path.Combine(_repoRoot, InstalledCopy.PendingName)))\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway",
+     "new": "if (File.Exists(Path.Combine(_repoRoot, \"DATGOLD-HUB\", \"package.json\")) && File.Exists(Path.Combine(_repoRoot, InstalledCopy.PendingName)) && false)\n                    throw new InvalidOperationException(\"An update of DatGold stopped halfway"
     }
    ]
   },

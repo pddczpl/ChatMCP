@@ -154,7 +154,7 @@ namespace ChatMCP.Installer
             InstallFiles(targetDir, previousFiles, legacyUpgrade, reportProgress);
             var uninstallerPath = SafePath(targetDir, "Uninstall.exe");
 
-            var mainExePath = Path.Combine(targetDir, "ChatMCP.exe");
+            var mainExePath = Path.Combine(targetDir, InstalledCopy.ProgramName);
             var iconPath = Path.Combine(targetDir, "assets", "icons", "chatmcp.ico");
             if (!File.Exists(iconPath))
             {
@@ -206,7 +206,7 @@ namespace ChatMCP.Installer
             using (var package = JsonDocument.Parse(File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/package.json"))))
                 if (package.RootElement.GetProperty("version").GetString() != AppVersion)
                     throw new IOException("Installer and embedded Hub package versions differ.").Tag("payload_invalid");
-            var desktopVersion = FileVersionInfo.GetVersionInfo(transaction.StagedPath("ChatMCP.exe")).ProductVersion?.Split('+')[0];
+            var desktopVersion = FileVersionInfo.GetVersionInfo(transaction.StagedPath(InstalledCopy.ProgramName)).ProductVersion?.Split('+')[0];
             if (desktopVersion != AppVersion) throw new IOException("Embedded desktop version differs from the installer.").Tag("payload_invalid");
             var manager = File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/lib/manager.mjs"));
             var hub = File.ReadAllText(transaction.StagedPath(HubLifecycle.HubFolder + "/hub.mjs"));
@@ -377,7 +377,7 @@ namespace ChatMCP.Installer
 
         internal static void CreateShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, ShortcutPlan plan)
         {
-            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var launcher = Path.Combine(installDir, InstalledCopy.ProgramName);
             // Each shortcut of the plan is tried, whatever happened to the one before it: a Desktop folder that refuses does not cost the Start menu its two. The first failure is thrown once all were tried
             // (setup reports it and goes on, see ReplaceShortcutsBestEffort).
             Exception? failure = null;
@@ -403,7 +403,7 @@ namespace ChatMCP.Installer
         /// </summary>
         internal static ShortcutPlan DetectShortcuts(string installDir, string desktopDir, string programsDir)
         {
-            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var launcher = Path.Combine(installDir, InstalledCopy.ProgramName);
             var uninstaller = Path.Combine(installDir, "Uninstall.exe");
             bool Has(string folder, string appName, bool uninstall, string target) => PointsInto(Path.Combine(folder, uninstall ? $"Uninstall {appName}.lnk" : $"{appName}.lnk"), target);
             return new ShortcutPlan(
@@ -459,7 +459,7 @@ namespace ChatMCP.Installer
 
         private static void RemoveShortcutSet(string installDir, string desktopDir, string programsDir, string appName, string startMenuFolder, Action<string>? note)
         {
-            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var launcher = Path.Combine(installDir, InstalledCopy.ProgramName);
             var folder = Path.Combine(programsDir, startMenuFolder);
             TryRemoveOwnedShortcut(Path.Combine(desktopDir, $"{appName}.lnk"), launcher, note);
             TryRemoveOwnedShortcut(Path.Combine(folder, $"{appName}.lnk"), launcher, note);
@@ -641,7 +641,7 @@ namespace ChatMCP.Installer
         /// </summary>
         internal static void CloseRunningProcesses(string installDir, int waitMilliseconds = 5000, Func<IEnumerable<IRunningProgram>>? running = null)
         {
-            var expected = Path.Combine(installDir, "ChatMCP.exe");
+            var expected = Path.Combine(installDir, InstalledCopy.ProgramName);
             foreach (var proc in (running ?? (() => Programs(Process.GetProcessesByName("ChatMCP"))))())
             {
                 using (proc)

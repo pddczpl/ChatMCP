@@ -29,6 +29,9 @@ const PLACES = Object.freeze([
   { file: 'DATGOLD-HUB/ui/src/lib/api.ts', find: new RegExp(String.raw`(const UI_BUILD = ')${NUMBER}(-react-agent')`, 'g'), count: 1, name: 'UI_BUILD the page sends' },
   { file: 'desktop-shell/ChatMCP.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the desktop shell' },
   { file: 'installer/ChatMCP.Installer.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the setup' },
+  // The two test projects that build the shared native code: their assembly version is what HubLifecycle.Version says in the test, which the native tests hold to the shell's (Program.cs).
+  { file: 'scripts/tests/native-lifecycle/NativeLifecycle.Tests.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the native lifecycle tests' },
+  { file: 'scripts/tests/legacy-hub-upgrade/StopProbe.csproj', find: new RegExp(String.raw`(<Version>)${NUMBER}(</Version>)`, 'g'), count: 1, name: 'the version of the stop probe of the legacy upgrade test' },
 ]);
 
 /** The files that hold the version, once each, with / in their paths. */

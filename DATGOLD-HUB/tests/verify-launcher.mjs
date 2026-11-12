@@ -18,6 +18,7 @@ import { defaultDataDirectory } from '../lib/manager.mjs';
 import { parseArguments } from '../hub.mjs';
 import { readSession, sessionFile } from '../lib/hub-session.mjs';
 import { powerShellChildEnvironment } from './support/powershell-environment.mjs';
+import { RUNNING } from './support/running-version.mjs';
 
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -166,7 +167,7 @@ try {
     const legacy = http.createServer((request, response) => {
       requested.push(request.url);
       response.setHeader('Content-Type', 'application/json');
-      response.end(request.url === '/api/health' ? JSON.stringify({ app: 'chatmcp-local-hub', version: '3.11.2', uiBuild: '3.11.2-react-agent', initialized: true, backend: 'local' }) : JSON.stringify({ csrfToken: 'x'.repeat(64) }));
+      response.end(request.url === '/api/health' ? JSON.stringify({ app: 'chatmcp-local-hub', version: RUNNING, uiBuild: `${RUNNING}-react-agent`, initialized: true, backend: 'local' }) : JSON.stringify({ csrfToken: 'x'.repeat(64) }));
     });
     await new Promise((resolve) => legacy.listen(legacyPort, '127.0.0.1', resolve));
     servers.push(legacy);
