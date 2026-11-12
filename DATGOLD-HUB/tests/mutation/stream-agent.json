@@ -1,40 +1,104 @@
 {
   "suite": "verify-stream-agent.mjs",
-  "description": "What the agent does with the text a provider streams: token and token_reset events for the task.",
+  "description": "What the agent does with the text a provider streams: token and token_reset events for the task, the pieces masked like the answer the task keeps.",
   "mutations": [
     {
       "name": "AG1",
       "what": "the agent does not hand a reset callback to the provider",
       "patches": [
-        { "file": "lib/agent.mjs", "old": "onStreamReset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },", "new": "" }
+        {
+          "file": "lib/agent.mjs",
+          "old": "onStreamReset: () => { tokens.reset(); },",
+          "new": ""
+        }
       ]
     },
     {
       "name": "AG2",
       "what": "a reset is announced as another kind of event",
       "patches": [
-        { "file": "lib/agent.mjs", "old": "onStreamReset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },", "new": "onStreamReset: () => { this.#emit({ type: 'reset', taskId: task.id }); }," }
+        {
+          "file": "lib/agent.mjs",
+          "old": "reset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },",
+          "new": "reset: () => { this.#emit({ type: 'reset', taskId: task.id }); },"
+        }
       ]
     },
     {
       "name": "AG3",
       "what": "a reset does not say which task it is for",
       "patches": [
-        { "file": "lib/agent.mjs", "old": "onStreamReset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },", "new": "onStreamReset: () => { this.#emit({ type: 'token_reset' }); }," }
+        {
+          "file": "lib/agent.mjs",
+          "old": "reset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },",
+          "new": "reset: () => { this.#emit({ type: 'token_reset' }); },"
+        }
       ]
     },
     {
       "name": "AG4",
       "what": "the text of an answer is not forwarded to the watchers",
       "patches": [
-        { "file": "lib/agent.mjs", "old": "onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },", "new": "onToken: () => {}," }
+        {
+          "file": "lib/agent.mjs",
+          "old": "onToken: (token) => { tokens.push(token); },",
+          "new": "onToken: () => {},"
+        }
       ]
     },
     {
       "name": "AG5",
       "what": "the pieces of text are announced as another kind of event",
       "patches": [
-        { "file": "lib/agent.mjs", "old": "onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },", "new": "onToken: (token) => { this.#emit({ type: 'text', taskId: task.id, token }); }," }
+        {
+          "file": "lib/agent.mjs",
+          "old": "emit: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },",
+          "new": "emit: (token) => { this.#emit({ type: 'text', taskId: task.id, token }); },"
+        }
+      ]
+    },
+    {
+      "name": "AG6",
+      "what": "the pieces are sent as the model sent them, unmasked",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "onToken: (token) => { tokens.push(token); },",
+          "new": "onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },"
+        }
+      ]
+    },
+    {
+      "name": "AG7",
+      "what": "the held end of the answer is never sent",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "        tokens.flush();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AG8",
+      "what": "the pieces are masked without the secrets the Hub knows",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "secrets: () => this.manager.secrets ?? [],",
+          "new": "secrets: () => [],"
+        }
+      ]
+    },
+    {
+      "name": "AG9",
+      "what": "the pieces are not masked at all",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "redact: (text) => this.#redact(text),",
+          "new": "redact: (text) => text,"
+        }
       ]
     }
   ]

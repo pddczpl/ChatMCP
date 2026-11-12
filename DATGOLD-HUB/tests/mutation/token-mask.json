@@ -1,0 +1,97 @@
+{
+  "suite": "verify-token-mask.mjs",
+  "description": "The hold-back mask of the pieces of a streamed answer: what is sent is the start of the masked whole, and nothing of a secret is sent before it can be masked.",
+  "mutations": [
+    {
+      "name": "TM1",
+      "what": "the last word is not held",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "let cut = text.length - LAST_WORD.exec(text)[0].length;", "new": "let cut = text.length;" }
+      ]
+    },
+    {
+      "name": "TM2",
+      "what": "the start of a secret is not held",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "cut = Math.min(cut, text.length - heldSecretStart(text, secrets));", "new": "" }
+      ]
+    },
+    {
+      "name": "TM3",
+      "what": "only the start of a secret one character shorter than the secret is looked for",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "for (let length = Math.min(secret.length - 1, text.length); length > held; length -= 1) {", "new": "for (let length = Math.min(secret.length - 1, text.length); length > held && length === secret.length - 1; length -= 1) {" }
+      ]
+    },
+    {
+      "name": "TM4",
+      "what": "the whole-text check is skipped",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "while (cut > 0 && !whole.startsWith(redact(text.slice(0, cut)))) {", "new": "while (false) {" }
+      ]
+    },
+    {
+      "name": "TM5",
+      "what": "the held end is never flushed",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "flush() { if (text) send(redact(text)); },", "new": "flush() {}," }
+      ]
+    },
+    {
+      "name": "TM6",
+      "what": "the flush sends the end unmasked",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "flush() { if (text) send(redact(text)); },", "new": "flush() { if (text) send(text); }," }
+      ]
+    },
+    {
+      "name": "TM7",
+      "what": "what is sent is not masked",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "send(redact(text.slice(0, safeCut(text, { redact, secrets: [...(secrets() ?? [])] }))));", "new": "send(text.slice(0, safeCut(text, { redact, secrets: [...(secrets() ?? [])] })));" }
+      ]
+    },
+    {
+      "name": "TM8",
+      "what": "a reset keeps the text of the cut stream",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "reset() { text = ''; sent = ''; reset(); },", "new": "reset() { sent = ''; reset(); }," }
+      ]
+    },
+    {
+      "name": "TM9",
+      "what": "a reset is not told to the watchers",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "reset() { text = ''; sent = ''; reset(); },", "new": "reset() { text = ''; sent = ''; }," }
+      ]
+    },
+    {
+      "name": "TM10",
+      "what": "when the masked whole stops agreeing with what was sent, nothing is done",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "    } else if (!sent.startsWith(masked)) {\n      reset();\n      sent = masked;\n      if (masked) emit(masked);\n    }", "new": "    }" }
+      ]
+    },
+    {
+      "name": "TM11",
+      "what": "what was already sent is sent again",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "if (masked.length > sent.length) emit(masked.slice(sent.length));", "new": "if (masked.length > sent.length) emit(masked);" }
+      ]
+    },
+    {
+      "name": "TM12",
+      "what": "the list of secrets is read once, when the mask is made",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "export function createTokenMask({ redact, secrets = () => [], emit, reset }) {\n  let text = '';", "new": "export function createTokenMask({ redact, secrets = () => [], emit, reset }) {\n  const first = [...(secrets() ?? [])]; secrets = () => first;\n  let text = '';" }
+      ]
+    },
+    {
+      "name": "TM13",
+      "what": "the whole-text check gives up at once instead of backing off to an earlier space",
+      "patches": [
+        { "file": "lib/token-mask.mjs", "old": "    cut = space < 0 ? 0 : space + 1;", "new": "    cut = 0;" }
+      ]
+    }
+  ]
+}

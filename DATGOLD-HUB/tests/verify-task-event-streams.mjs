@@ -206,7 +206,8 @@ try {
     check(fromApi.length > 0 && fromApi.every((event) => event.transport === 'api'), 'the events of the API task say transport "api"');
     check(fromWeb.length > 0 && fromWeb.every((event) => event.transport === 'chatgpt-web'), 'the events of the web task say transport "chatgpt-web"');
     same(plain(fromApi.filter((event) => event.type === 'event').map((event) => event.event)), plain(api.get(apiId).events), 'the API task: the entries of its record, in order');
-    same(fromApi.filter((event) => event.type === 'token').map((event) => event.token), ['The project ', 'is a calculator.'], 'and the pieces of its answer, in order');
+    // The mask of the pieces (lib/token-mask.mjs) holds the last word of a piece until the next one shows it ends.
+    same(fromApi.filter((event) => event.type === 'token').map((event) => event.token), ['The project ', 'is a ', 'calculator.'], 'and the pieces of its answer, in order');
     same(fromApi.filter((event) => event.type === 'state').at(-1)?.state, 'completed', 'and its state changes, the last one "completed"');
     same(fromWeb.map((event) => event.event), web.get(webId).events, 'the web task: the entries of its record, in order');
     same(dual.get(apiId).transport, 'api', 'the transport of an event is the one the task route says');

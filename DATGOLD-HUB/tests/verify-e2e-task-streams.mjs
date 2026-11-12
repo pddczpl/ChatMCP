@@ -6,7 +6,7 @@
 //   - the events of the task arrive on /api/tasks/events, in the order of the task's record, and each one is exactly the entry `GET /api/tasks/<id>` returns (so the stream tells an
 //     authenticated client nothing the task route does not: the same masking, the same clipping);
 //   - the state changes arrive too, and the last one is the state the task rests in;
-//   - the pieces of the answer arrive as `token` events and add up to the answer (they are NOT masked like the record: see the BLOCKED part in the scenario);
+//   - the pieces of the answer arrive as `token` events and add up to the answer, masked as the record masks it;
 //   - the stream of ONE task starts with its snapshot and carries that task only, while another task runs;
 //   - both routes refuse a request without the bearer.
 // Only the Model API engine runs here: the ChatGPT Web engine needs the Companion in a browser. Its events are covered with the real BrowserRunner in verify-task-event-streams.mjs.
@@ -78,11 +78,9 @@ await runScenario({
   // What a client is told: the record masks a key-shaped string wherever it keeps one. The events equal the record (above), so they are masked alike.
   t.check(!JSON.stringify(record).includes(KEY_SHAPED), 'the record holds no key-shaped string');
   t.check(!JSON.stringify(all.events.filter((event) => event.type !== 'token')).includes(KEY_SHAPED), 'nor does any event of the stream, the answer pieces aside');
-  // OPEN, for the owner to decide: the pieces of an answer are forwarded as the model sent them (lib/agent.mjs, onToken), before the answer is masked for the record. Masking a
-  // text that arrives in pieces needs a hold-back (a secret can be cut between two pieces), which is a change of the Model API engine, not of the streams. Until then this is
-  // reported as BLOCKED, never as a pass; the day the pieces are masked it becomes a check.
-  if (pieces.includes(KEY_SHAPED)) t.blocked('the answer pieces masked like the record', 'a token event carried the key-shaped string of the answer, which the record shows as [REDACTED]');
-  else t.check(true, 'nor do the answer pieces: a client is shown what the record keeps');
+  // The pieces go through a hold-back mask (lib/token-mask.mjs) before they are sent: a secret cut between two pieces is held until it can be masked whole.
+  t.check(!pieces.includes(KEY_SHAPED) && !pieces.includes(KEY_SHAPED.slice(0, 8)), 'nor do the answer pieces: a client is shown what the record keeps', pieces.slice(-80));
+  t.check(pieces.includes('A key looks like [REDACTED].'), 'the pieces end with the answer as the record masks it', pieces.slice(-80));
 
   // ---- one task ------------------------------------------------------------------------------------------------------------------------------------
   t.equal((await openTaskEventStream(hub.origin, `/api/tasks/${first.id}/stream`)).status, 401, '/api/tasks/<id>/stream without the bearer: 401');
