@@ -119,6 +119,23 @@ export class BrowserRunner {
     this.lastTaskId = null;
     this.pairBusy = false;
     this.writes = new Map();
+    this.listeners = new Set();
+  }
+
+  /** Watch the tasks: `listener` gets every entry event() adds to a task's record. Returns the function that removes it. */
+  subscribe(listener) {
+    if (typeof listener !== 'function') return () => {};
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+  // What a watcher is told is what get() returns for that entry (publicTask cleans the record the same way), with the status of the task at that moment. A listener that throws
+  // must not stop the task or keep the next listener from hearing.
+  emit(task, entry) {
+    if (!this.listeners.size) return;
+    const event = { type: 'event', taskId: task.id, event: this.clean(structuredClone(entry)), status: task.status };
+    for (const listener of [...this.listeners]) {
+      try { listener(event); } catch (error) { this.log('Task listener error: ' + String(this.clean(String(error?.message ?? error))).slice(0, 300)); }
+    }
   }
 
   date() { return new Date(this.now()).toISOString(); }
@@ -393,7 +410,9 @@ export class BrowserRunner {
   }
   async event(task, type, message, extra = {}, detail = null) {
     task.updatedAt = this.date();
-    task.events.push({ at: task.updatedAt, type, message: this.clean(message).slice(0, 3000), ...extra });
+    const entry = { at: task.updatedAt, type, message: this.clean(message).slice(0, 3000), ...extra };
+    task.events.push(entry);
+    this.emit(task, entry);
     await this.persist(task, detail);
   }
   check(context) {

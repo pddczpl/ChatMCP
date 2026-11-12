@@ -1,0 +1,215 @@
+{
+  "suite": "verify-task-event-streams.mjs",
+  "description": "The task events from the two engines to the two stream routes: DualAgent.subscribe, the announcements of the ChatGPT Web engine, the filter of the stream of one task.",
+  "mutations": [
+    {
+      "name": "D1",
+      "what": "the events of the Model API engine are not forwarded",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "for (const [engine, transport] of [[this.api, 'api'], [this.browser, 'chatgpt-web']]) {",
+          "new": "for (const [engine, transport] of [[this.browser, 'chatgpt-web']]) {"
+        }
+      ]
+    },
+    {
+      "name": "D2",
+      "what": "the events of the ChatGPT Web engine are not forwarded",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "for (const [engine, transport] of [[this.api, 'api'], [this.browser, 'chatgpt-web']]) {",
+          "new": "for (const [engine, transport] of [[this.api, 'api']]) {"
+        }
+      ]
+    },
+    {
+      "name": "D3",
+      "what": "the dispose function does nothing",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "return () => { for (const dispose of disposers.splice(0)) dispose(); };",
+          "new": "return () => {};"
+        }
+      ]
+    },
+    {
+      "name": "D4",
+      "what": "the dispose function removes the listener of one engine only",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "return () => { for (const dispose of disposers.splice(0)) dispose(); };",
+          "new": "return () => { for (const dispose of disposers.splice(0, 1)) dispose(); };"
+        }
+      ]
+    },
+    {
+      "name": "D5",
+      "what": "an event does not say which engine it came from",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "try { listener(event && typeof event === 'object' ? { ...event, transport } : event); }",
+          "new": "try { listener(event); }"
+        }
+      ]
+    },
+    {
+      "name": "D6",
+      "what": "the events of the ChatGPT Web engine say they came from the Model API engine",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "for (const [engine, transport] of [[this.api, 'api'], [this.browser, 'chatgpt-web']]) {",
+          "new": "for (const [engine, transport] of [[this.api, 'api'], [this.browser, 'api']]) {"
+        }
+      ]
+    },
+    {
+      "name": "D7",
+      "what": "the transport is written into the engine's own event object",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "try { listener(event && typeof event === 'object' ? { ...event, transport } : event); }",
+          "new": "try { listener(event && typeof event === 'object' ? Object.assign(event, { transport }) : event); }"
+        }
+      ]
+    },
+    {
+      "name": "D8",
+      "what": "what a listener throws goes back to the engine",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "catch { /* the watcher's own fault: nobody else pays for it */ }",
+          "new": "catch (error) { throw error; }"
+        }
+      ]
+    },
+    {
+      "name": "D9",
+      "what": "an engine without subscribe is not passed over",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "if (typeof engine?.subscribe !== 'function') continue;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "D10",
+      "what": "what is not a function is registered as a listener",
+      "patches": [
+        {
+          "file": "lib/dual-agent.mjs",
+          "old": "if (typeof listener !== 'function') return () => {};",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H1",
+      "what": "the stream of one task carries the events of every task",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "if (event.taskId === taskRoute[1] && !res.destroyed) {",
+          "new": "if (!res.destroyed) {"
+        }
+      ]
+    },
+    {
+      "name": "H2",
+      "what": "the stream of every task writes no event",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "if (!res.destroyed) res.write(`data: ${JSON.stringify(event)}",
+          "new": "if (false) res.write(`data: ${JSON.stringify(event)}"
+        }
+      ]
+    },
+    {
+      "name": "B1",
+      "what": "the ChatGPT Web engine does not announce what it records",
+      "patches": [
+        {
+          "file": "lib/browser-runner.mjs",
+          "old": "    this.emit(task, entry);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "B2",
+      "what": "the ChatGPT Web engine hands a watcher the record's own entry, not a cleaned copy",
+      "patches": [
+        {
+          "file": "lib/browser-runner.mjs",
+          "old": "event: this.clean(structuredClone(entry)), status: task.status };",
+          "new": "event: entry, status: task.status };"
+        }
+      ]
+    },
+    {
+      "name": "B3",
+      "what": "an announcement of the ChatGPT Web engine does not carry the status of the task",
+      "patches": [
+        {
+          "file": "lib/browser-runner.mjs",
+          "old": "event: this.clean(structuredClone(entry)), status: task.status };",
+          "new": "event: this.clean(structuredClone(entry)) };"
+        }
+      ]
+    },
+    {
+      "name": "B4",
+      "what": "what a listener throws stops the ChatGPT Web task",
+      "patches": [
+        {
+          "file": "lib/browser-runner.mjs",
+          "old": "try { listener(event); } catch (error) { this.log('Task listener error: '",
+          "new": "try { listener(event); } catch (error) { throw error; this.log('Task listener error: '"
+        }
+      ]
+    },
+    {
+      "name": "B5",
+      "what": "the dispose function of the ChatGPT Web engine does nothing",
+      "patches": [
+        {
+          "file": "lib/browser-runner.mjs",
+          "old": "return () => { this.listeners.delete(listener); };",
+          "new": "return () => {};"
+        }
+      ]
+    },
+    {
+      "name": "B6",
+      "what": "the ChatGPT Web engine announces an entry under another kind",
+      "patches": [
+        {
+          "file": "lib/browser-runner.mjs",
+          "old": "const event = { type: 'event', taskId: task.id,",
+          "new": "const event = { type: 'browser_event', taskId: task.id,"
+        }
+      ]
+    },
+    {
+      "name": "B7",
+      "what": "what is not a function is registered as a listener of the ChatGPT Web engine",
+      "patches": [
+        {
+          "file": "lib/browser-runner.mjs",
+          "old": "if (typeof listener !== 'function') return () => {};",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}
