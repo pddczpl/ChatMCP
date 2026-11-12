@@ -29,6 +29,7 @@ export const ROUTES = Object.freeze([
   { method: 'POST', path: '/api/tasks/start' },
   { method: 'POST', path: '/api/tasks/continue' },
   { method: 'POST', path: '/api/tasks/cancel' },
+  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)
 ]);
 const OWNED_ROUTES = Object.freeze([{ method: 'POST', path: '/api/hub/shutdown' }]);
 
@@ -196,6 +197,18 @@ class HubConnection {
     const state = await this.#send('GET', '/api/state');
     const active = state.agent?.activeTaskIds ?? (state.agent?.activeTaskId ? [state.agent.activeTaskId] : []);
     return active.includes(id);
+  }
+
+  /** The approval requests the Hub holds for one task (the list its dashboard shows), as it publishes them: the change it worked out is in `detail.preview` (docs/APPROVAL-PREVIEW.md). */
+  async pendingApprovals(taskId) {
+    const state = await this.#send('GET', '/api/state');
+    const list = state.studio?.permissions?.pending;
+    return Array.isArray(list) ? list.filter((request) => request !== null && typeof request === 'object' && request.taskId === taskId) : [];
+  }
+  /** Answers one request. False when the Hub no longer has it (answered in the desktop app, expired, or dropped with a task that was stopped). */
+  async decide(id, approved) {
+    try { await this.#send('POST', '/api/studio/permissions/decide', { id, approved: approved === true }); return true; }
+    catch (error) { if (error instanceof HubError && error.status === 404) return false; throw error; }
   }
 
   // There is no stream of the Hub's events here on purpose: GET /api/tasks/events sends nothing in this build (the object the Hub keeps for it has no `subscribe`), so the task is polled.

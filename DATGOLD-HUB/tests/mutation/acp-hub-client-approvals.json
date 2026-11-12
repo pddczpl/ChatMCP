@@ -1,0 +1,137 @@
+{
+  "suite": "verify-e2e-acp-connection.mjs",
+  "mutations": [
+    {
+      "name": "route-decide-lost",
+      "what": "the agent may not answer an approval",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "pending-task-filter",
+      "what": "the requests of every task are given to the editor",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "request !== null && typeof request === 'object' && request.taskId === taskId)",
+          "new": "request !== null && typeof request === 'object')"
+        }
+      ]
+    },
+    {
+      "name": "pending-task-id",
+      "what": "the requests of any task whose id is falsy are given",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "request.taskId === taskId) : [];",
+          "new": "request.taskId == taskId) : [];"
+        }
+      ]
+    },
+    {
+      "name": "pending-not-array",
+      "what": "a list that is not a list is read",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "return Array.isArray(list) ? list.filter(",
+          "new": "return list.filter("
+        }
+      ]
+    },
+    {
+      "name": "pending-path",
+      "what": "the requests are read from another place of the state",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "state.studio?.permissions?.pending;",
+          "new": "state.studio?.pending;"
+        }
+      ]
+    },
+    {
+      "name": "decide-body-id",
+      "what": "the answer to an approval names no request",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "'/api/studio/permissions/decide', { id, approved: approved === true })",
+          "new": "'/api/studio/permissions/decide', { approved: approved === true })"
+        }
+      ]
+    },
+    {
+      "name": "decide-body-truthy",
+      "what": "a value that is only truthy allows",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "{ id, approved: approved === true }",
+          "new": "{ id, approved: !!approved }"
+        }
+      ]
+    },
+    {
+      "name": "decide-body-always",
+      "what": "the answer to an approval always allows",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "{ id, approved: approved === true }",
+          "new": "{ id, approved: true }"
+        }
+      ]
+    },
+    {
+      "name": "decide-404-true",
+      "what": "a request the Hub no longer has is told as answered",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "if (error instanceof HubError && error.status === 404) return false; throw error;",
+          "new": "if (error instanceof HubError && error.status === 404) return true; throw error;"
+        }
+      ]
+    },
+    {
+      "name": "decide-404-throws",
+      "what": "a request the Hub no longer has breaks the turn",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "if (error instanceof HubError && error.status === 404) return false; throw error;",
+          "new": "throw error;"
+        }
+      ]
+    },
+    {
+      "name": "decide-other-error",
+      "what": "every error of the Hub is told as a request that is gone",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "if (error instanceof HubError && error.status === 404) return false; throw error;",
+          "new": "return false;"
+        }
+      ]
+    },
+    {
+      "name": "decide-true-result",
+      "what": "an answer the Hub took is told as not taken",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "{ id, approved: approved === true }); return true; }",
+          "new": "{ id, approved: approved === true }); return false; }"
+        }
+      ]
+    }
+  ]
+}

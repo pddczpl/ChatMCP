@@ -1,0 +1,1152 @@
+{
+  "suite": "verify-acp-permissions.mjs",
+  "mutations": [
+    {
+      "name": "input-detail-path",
+      "what": "the path the Hub names is not used",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (first) input.path = first;\n  else if",
+          "new": "  if (false) input.path = first;\n  else if"
+        }
+      ]
+    },
+    {
+      "name": "input-single-file",
+      "what": "the one file of the preview does not name the call",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  else if (files.length === 1 && text(files[0].path)) input.path = files[0].path;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "input-single-file-always",
+      "what": "the one file of the preview replaces the path the Hub names",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (first) input.path = first;\n  else if (files.length === 1",
+          "new": "  if (first && files.length !== 1) input.path = first;\n  else if (files.length === 1"
+        }
+      ]
+    },
+    {
+      "name": "input-paths-two",
+      "what": "two files are not listed as paths",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (files.length > 1) input.paths",
+          "new": "if (files.length > 2) input.paths"
+        }
+      ]
+    },
+    {
+      "name": "input-paths-one",
+      "what": "one file is listed as paths",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (files.length > 1) input.paths",
+          "new": "if (files.length > 0) input.paths"
+        }
+      ]
+    },
+    {
+      "name": "input-paths-limit",
+      "what": "the list of paths has no limit",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": ".filter((value) => text(value) !== null).slice(0, MAX_DIFF_FILES);",
+          "new": ".filter((value) => text(value) !== null);"
+        }
+      ]
+    },
+    {
+      "name": "input-paths-filter",
+      "what": "a path that is empty is listed",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": ".filter((value) => text(value) !== null).slice(0, MAX_DIFF_FILES);",
+          "new": ".slice(0, MAX_DIFF_FILES);"
+        }
+      ]
+    },
+    {
+      "name": "input-source",
+      "what": "the source of a move is not named",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (text(detail.source)) input.source = detail.source;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "input-destination",
+      "what": "the destination of a move is not named",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (text(detail.destination)) input.destination = detail.destination;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "input-command",
+      "what": "the command is not named",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (text(detail.command)) input.command = detail.command;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "texts-context-old-only",
+      "what": "a line that did not change is only on the old side",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (row.kind === 'context') { oldSide += line; newSide += line; }",
+          "new": "if (row.kind === 'context') { oldSide += line; }"
+        }
+      ]
+    },
+    {
+      "name": "texts-context-new-only",
+      "what": "a line that did not change is only on the new side",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (row.kind === 'context') { oldSide += line; newSide += line; }",
+          "new": "if (row.kind === 'context') { newSide += line; }"
+        }
+      ]
+    },
+    {
+      "name": "texts-removed-new",
+      "what": "a removed line is on the new side",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "else if (row.kind === 'removed') oldSide += line;",
+          "new": "else if (row.kind === 'removed') newSide += line;"
+        }
+      ]
+    },
+    {
+      "name": "texts-added-old",
+      "what": "an added line is on the old side",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "else if (row.kind === 'added') newSide += line;",
+          "new": "else if (row.kind === 'added') oldSide += line;"
+        }
+      ]
+    },
+    {
+      "name": "texts-other-kind",
+      "what": "a row of another kind is on both sides",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "else if (row.kind === 'added') newSide += line;",
+          "new": "else newSide += line;"
+        }
+      ]
+    },
+    {
+      "name": "texts-omitted-mark",
+      "what": "a row that was cut does not say so",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const line = Number.isFinite(row.omitted) && row.omitted > 0 ? `${row.text}…` : row.text;",
+          "new": "const line = row.text;"
+        }
+      ]
+    },
+    {
+      "name": "texts-omitted-zero",
+      "what": "a row with nothing cut says it was cut",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "row.omitted > 0 ? `${row.text}…`",
+          "new": "row.omitted >= 0 ? `${row.text}…`"
+        }
+      ]
+    },
+    {
+      "name": "texts-omitted-nan",
+      "what": "a row with an omitted count that is not a number says it was cut",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "Number.isFinite(row.omitted) && row.omitted > 0 ? `${row.text}…`",
+          "new": "row.omitted > 0 ? `${row.text}…`"
+        }
+      ]
+    },
+    {
+      "name": "texts-separator",
+      "what": "the hunks of a file are run together",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (any) { before += '…\\n'; after += '…\\n'; }",
+          "new": "if (any) { }"
+        }
+      ]
+    },
+    {
+      "name": "texts-separator-one-side",
+      "what": "the separator is only on the old side",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (any) { before += '…\\n'; after += '…\\n'; }",
+          "new": "if (any) { before += '…\\n'; }"
+        }
+      ]
+    },
+    {
+      "name": "texts-empty-hunk",
+      "what": "a hunk with no text adds a separator",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (oldSide === '' && newSide === '') continue;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "texts-bounded",
+      "what": "the text of a side has no limit",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const bounded = (value) => (value.length <= MAX_SIDE_CHARS ? value : `${value.slice(0, MAX_SIDE_CHARS)}…`);",
+          "new": "const bounded = (value) => value;"
+        }
+      ]
+    },
+    {
+      "name": "texts-bounded-edge",
+      "what": "text of exactly the limit is cut",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "value.length <= MAX_SIDE_CHARS ? value",
+          "new": "value.length < MAX_SIDE_CHARS ? value"
+        }
+      ]
+    },
+    {
+      "name": "texts-bounded-mark",
+      "what": "a cut text does not say so",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "`${value.slice(0, MAX_SIDE_CHARS)}…`",
+          "new": "value.slice(0, MAX_SIDE_CHARS)"
+        }
+      ]
+    },
+    {
+      "name": "texts-hunk-not-object",
+      "what": "a hunk that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (!isObject(hunk) || !Array.isArray(hunk.rows)) continue;",
+          "new": "if (!Array.isArray(hunk.rows)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "texts-row-text",
+      "what": "a row without text is read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (!isObject(row) || typeof row.text !== 'string') continue;",
+          "new": "if (!isObject(row)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "texts-no-hunks",
+      "what": "a file without hunks has a diff of nothing",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "return any ? { before: bounded(before), after: bounded(after) } : null;",
+          "new": "return { before: bounded(before), after: bounded(after) };"
+        }
+      ]
+    },
+    {
+      "name": "texts-hunks-not-array",
+      "what": "hunks that are not a list are read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const hunks = Array.isArray(entry.hunks) ? entry.hunks : [];",
+          "new": "const hunks = entry.hunks;"
+        }
+      ]
+    },
+    {
+      "name": "abs-no-folder",
+      "what": "a call without a folder of the session makes a path of the working directory",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (typeof cwd !== 'string' || cwd === '') return value;",
+          "new": "if (typeof cwd !== 'string') return value;"
+        }
+      ]
+    },
+    {
+      "name": "abs-outside",
+      "what": "a path above the folder becomes an absolute path",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) ? value : absolute;",
+          "new": "relative === '' || relative === '..' || path.isAbsolute(relative) ? value : absolute;"
+        }
+      ]
+    },
+    {
+      "name": "abs-folder-itself",
+      "what": "the folder itself becomes an absolute path",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "relative === '' || relative === '..' ||",
+          "new": "relative === '..' ||"
+        }
+      ]
+    },
+    {
+      "name": "abs-other-drive",
+      "what": "a path on another drive becomes an absolute path",
+      "equivalent": "a path on another drive is already absolute, so the path the Hub wrote and the path resolved from it are the same string; only a path relative to a drive (D:x), which the Hub never writes, would differ",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "|| path.isAbsolute(relative) ? value : absolute;",
+          "new": "? value : absolute;"
+        }
+      ]
+    },
+    {
+      "name": "content-summary",
+      "what": "a call without a preview does not say what the Hub says about it",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const words = text(request.summary) ?? text(request.reason);",
+          "new": "const words = text(request.reason);"
+        }
+      ]
+    },
+    {
+      "name": "content-reason",
+      "what": "a call without a preview and a summary does not give its reason",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const words = text(request.summary) ?? text(request.reason);",
+          "new": "const words = text(request.summary);"
+        }
+      ]
+    },
+    {
+      "name": "content-no-preview-note",
+      "what": "a call without a preview says nothing",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "return words ? [note(words)] : [];",
+          "new": "return [];"
+        }
+      ]
+    },
+    {
+      "name": "content-files-filter",
+      "what": "a file without a path is shown",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "preview.files.filter((entry) => isObject(entry) && text(entry.path) !== null)",
+          "new": "preview.files.filter((entry) => isObject(entry))"
+        }
+      ]
+    },
+    {
+      "name": "content-files-not-array",
+      "what": "files that are not a list are read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const files = Array.isArray(preview.files) ? preview.files.filter(",
+          "new": "const files = preview.files.filter("
+        }
+      ]
+    },
+    {
+      "name": "content-diff-limit",
+      "what": "every file of the preview is shown as a diff",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "for (const entry of files.slice(0, MAX_DIFF_FILES)) {",
+          "new": "for (const entry of files) {"
+        }
+      ]
+    },
+    {
+      "name": "content-diff-limit-edge",
+      "what": "one file too many is shown",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "files.slice(0, MAX_DIFF_FILES)) {",
+          "new": "files.slice(0, MAX_DIFF_FILES + 1)) {"
+        }
+      ]
+    },
+    {
+      "name": "content-create-old",
+      "what": "a new file has an old text",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "oldText: entry.action === 'create' ? null : sides.before",
+          "new": "oldText: sides.before"
+        }
+      ]
+    },
+    {
+      "name": "content-edit-old",
+      "what": "a changed file has no old text",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "oldText: entry.action === 'create' ? null : sides.before",
+          "new": "oldText: null"
+        }
+      ]
+    },
+    {
+      "name": "content-diff-path",
+      "what": "the path of a diff is not made absolute",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "path: absoluteInside(cwd, entry.path), oldText",
+          "new": "path: entry.path, oldText"
+        }
+      ]
+    },
+    {
+      "name": "content-diff-new",
+      "what": "the new text of a diff is the old one",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "newText: sides.after }",
+          "new": "newText: sides.before }"
+        }
+      ]
+    },
+    {
+      "name": "content-no-sides",
+      "what": "a file with no text still has a diff",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (sides !== null) content.push(",
+          "new": "if (true) content.push("
+        }
+      ]
+    },
+    {
+      "name": "content-unreadable",
+      "what": "a file that is not text is not said to be one",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (entry.oldUnreadable === true) content.push(note(",
+          "new": "if (false) content.push(note("
+        }
+      ]
+    },
+    {
+      "name": "content-unreadable-truthy",
+      "what": "a file whose flag is only truthy is said not to be text",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "entry.oldUnreadable === true",
+          "new": "entry.oldUnreadable"
+        }
+      ]
+    },
+    {
+      "name": "content-hidden-rows",
+      "what": "the rows that were left out are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (Number.isFinite(entry.hiddenRows) && entry.hiddenRows > 0) hiddenRows += entry.hiddenRows;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "content-hidden-key-rows",
+      "what": "the key rows that were left out are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (Number.isFinite(entry.hiddenKeyRows) && entry.hiddenKeyRows > 0) keyRows += entry.hiddenKeyRows;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "content-hidden-rows-negative",
+      "what": "a negative count of rows is added",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "entry.hiddenRows > 0) hiddenRows += entry.hiddenRows;",
+          "new": "entry.hiddenRows !== 0) hiddenRows += entry.hiddenRows;"
+        }
+      ]
+    },
+    {
+      "name": "content-invisible",
+      "what": "a change of line ends only is not said",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "isObject(hunk) && hunk.invisibleOnly === true",
+          "new": "isObject(hunk) && false"
+        }
+      ]
+    },
+    {
+      "name": "content-invisible-note",
+      "what": "the note of a change of line ends is not sent",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (invisible) content.push(note('Only the line endings (or the byte order mark) of a file change; the lines look the same.'));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "content-error",
+      "what": "a call the Hub would refuse is not said to be one",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (isObject(preview.error)) content.push(note(`This call would be refused when it runs: ${text(preview.error.message) ?? text(preview.error.code) ?? 'the Hub gave no reason'}`));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "content-error-code",
+      "what": "the code of a refusal is not used when it has no words",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "text(preview.error.message) ?? text(preview.error.code) ??",
+          "new": "text(preview.error.message) ??"
+        }
+      ]
+    },
+    {
+      "name": "content-error-no-reason",
+      "what": "a refusal with no reason says nothing of it",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "?? 'the Hub gave no reason'}`",
+          "new": "?? ''}`"
+        }
+      ]
+    },
+    {
+      "name": "content-error-words",
+      "what": "a refusal does not say the words of the Hub",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "${text(preview.error.message) ?? text(preview.error.code)",
+          "new": "${text(preview.error.code) ?? text(preview.error.message)"
+        }
+      ]
+    },
+    {
+      "name": "content-hidden-rows-note",
+      "what": "the rows that are not shown are not mentioned",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (hiddenRows > 0) content.push(note(`${plural(hiddenRows, 'more row is', 'more rows are')} not shown.`));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "content-plural",
+      "what": "one row is told as many",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "plural(hiddenRows, 'more row is', 'more rows are')",
+          "new": "plural(hiddenRows, 'more rows are', 'more row is')"
+        }
+      ]
+    },
+    {
+      "name": "content-plural-count",
+      "what": "a count of one is told as many",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "${count} ${count === 1 ? one : many}",
+          "new": "${count} ${count === 1 ? many : one}"
+        }
+      ]
+    },
+    {
+      "name": "content-keys-flag",
+      "what": "private key material the Hub flags is not mentioned",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (preview.privateKeys === true || keyRows > 0) content.push(",
+          "new": "if (keyRows > 0) content.push("
+        }
+      ]
+    },
+    {
+      "name": "content-keys-rows",
+      "what": "private key rows that were left out are not mentioned",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (preview.privateKeys === true || keyRows > 0) content.push(",
+          "new": "if (preview.privateKeys === true) content.push("
+        }
+      ]
+    },
+    {
+      "name": "content-keys-note",
+      "what": "the note on private keys is not sent",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (preview.privateKeys === true || keyRows > 0) content.push(note('This call touches private key material: what the model wrote of it is not shown.'));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "content-left-files",
+      "what": "the files after the limit are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const left = Math.max(0, files.length - MAX_DIFF_FILES) + (",
+          "new": "const left = 0 + ("
+        }
+      ]
+    },
+    {
+      "name": "content-left-hidden",
+      "what": "the files the Hub left out are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const left = Math.max(0, files.length - MAX_DIFF_FILES) + (Number.isFinite(preview.hiddenFiles) && preview.hiddenFiles > 0 ? preview.hiddenFiles : 0);",
+          "new": "const left = Math.max(0, files.length - MAX_DIFF_FILES);"
+        }
+      ]
+    },
+    {
+      "name": "content-left-note",
+      "what": "the files that are not shown are not mentioned",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (left > 0) content.push(note(",
+          "new": "if (false) content.push(note("
+        }
+      ]
+    },
+    {
+      "name": "content-left-plural",
+      "what": "one file is told as many",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "plural(left, 'more file is', 'more files are')",
+          "new": "plural(left, 'more files are', 'more file is')"
+        }
+      ]
+    },
+    {
+      "name": "content-preview-not-object",
+      "what": "a preview that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const preview = isObject(detail.preview) ? detail.preview : null;",
+          "new": "const preview = detail.preview ?? null;"
+        }
+      ]
+    },
+    {
+      "name": "request-callid",
+      "what": "the call the editor was told about is not the one named",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "typeof callId === 'string' && callId !== '' ? callId :",
+          "new": "false ? callId :"
+        }
+      ]
+    },
+    {
+      "name": "request-callid-empty",
+      "what": "an empty call id names the call",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "typeof callId === 'string' && callId !== '' ? callId",
+          "new": "typeof callId === 'string' ? callId"
+        }
+      ]
+    },
+    {
+      "name": "request-callid-type",
+      "what": "a call id that is not a string names the call",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "typeof callId === 'string' && callId !== '' ? callId",
+          "new": "callId !== '' ? callId"
+        }
+      ]
+    },
+    {
+      "name": "request-unknown-id",
+      "what": "a request without an id is named undefined",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "String(asked.id ?? 'unknown')",
+          "new": "String(asked.id)"
+        }
+      ]
+    },
+    {
+      "name": "request-title",
+      "what": "the title does not say what the call is about",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "title: titleOf(asked.toolName, input),",
+          "new": "title: titleOf(asked.toolName, {}),"
+        }
+      ]
+    },
+    {
+      "name": "request-kind",
+      "what": "the kind is always other",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "kind: kindOf(asked.toolName),",
+          "new": "kind: 'other',"
+        }
+      ]
+    },
+    {
+      "name": "request-status",
+      "what": "the call is told as running",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "status: 'pending',",
+          "new": "status: 'in_progress',"
+        }
+      ]
+    },
+    {
+      "name": "request-locations",
+      "what": "the files of the call are not sent",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "      ...(locations.length ? { locations } : {}),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "request-rawinput",
+      "what": "the input of the call is not sent",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "      ...(Object.keys(input).length ? { rawInput: input } : {}),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "request-content",
+      "what": "the change is not sent",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "      ...(content.length ? { content } : {}),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "request-options-shared",
+      "what": "the options are the frozen objects themselves",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "options: PERMISSION_OPTIONS.map((option) => ({ ...option })),",
+          "new": "options: PERMISSION_OPTIONS,"
+        }
+      ]
+    },
+    {
+      "name": "request-reject-kind",
+      "what": "the rejection is told as a rejection for always",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "{ optionId: 'reject_once', name: 'Reject', kind: 'reject_once' }",
+          "new": "{ optionId: 'reject_once', name: 'Reject', kind: 'reject_always' }"
+        }
+      ]
+    },
+    {
+      "name": "request-allow-kind",
+      "what": "the permission is told as a permission for always",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }",
+          "new": "{ optionId: 'allow_once', name: 'Allow', kind: 'allow_always' }"
+        }
+      ]
+    },
+    {
+      "name": "request-allow-name",
+      "what": "the permission is called another word",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }",
+          "new": "{ optionId: 'allow_once', name: 'Yes', kind: 'allow_once' }"
+        }
+      ]
+    },
+    {
+      "name": "request-reject-id",
+      "what": "the rejection has the id of the permission",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "{ optionId: 'reject_once', name: 'Reject', kind: 'reject_once' }",
+          "new": "{ optionId: 'allow_once', name: 'Reject', kind: 'reject_once' }"
+        }
+      ]
+    },
+    {
+      "name": "request-detail-not-object",
+      "what": "a detail that is not an object is read",
+      "equivalent": "every property of a string, a number or a list reads as undefined, exactly as it does on an empty object, and null is caught by the ??",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const detail = isObject(asked.detail) ? asked.detail : {};",
+          "new": "const detail = asked.detail ?? {};"
+        }
+      ]
+    },
+    {
+      "name": "request-preview-files",
+      "what": "the files of the preview are not read for the input",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const files = isObject(detail.preview) && Array.isArray(detail.preview.files) ? detail.preview.files.filter((entry) => isObject(entry)) : [];",
+          "new": "const files = [];"
+        }
+      ]
+    },
+    {
+      "name": "window-min-constant",
+      "what": "the shortest time is nothing",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "export const MIN_ANSWER_MS = 1000;",
+          "new": "export const MIN_ANSWER_MS = 0;"
+        }
+      ]
+    },
+    {
+      "name": "window-max-constant",
+      "what": "the longest time is a day",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "export const MAX_ANSWER_MS = 15 * 60 * 1000;",
+          "new": "export const MAX_ANSWER_MS = 24 * 60 * 60 * 1000;"
+        }
+      ]
+    },
+    {
+      "name": "window-floor",
+      "what": "a request about to expire gives the editor no time",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "Math.min(Math.max(left, MIN_ANSWER_MS), MAX_ANSWER_MS)",
+          "new": "Math.min(left, MAX_ANSWER_MS)"
+        }
+      ]
+    },
+    {
+      "name": "window-ceiling",
+      "what": "the editor may be asked for as long as the Hub says",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "Math.min(Math.max(left, MIN_ANSWER_MS), MAX_ANSWER_MS)",
+          "new": "Math.max(left, MIN_ANSWER_MS)"
+        }
+      ]
+    },
+    {
+      "name": "window-unusable",
+      "what": "a request that says nothing usable gets the shortest time",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": ": MAX_ANSWER_MS;\n}",
+          "new": ": MIN_ANSWER_MS;\n}"
+        }
+      ]
+    },
+    {
+      "name": "window-nan",
+      "what": "an expiry that is not a date is taken for one",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "return Number.isFinite(left) ?",
+          "new": "return true ?"
+        }
+      ]
+    },
+    {
+      "name": "window-string-only",
+      "what": "an expiry that is not a string is read as a date",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "typeof request.expiresAt === 'string' ? Date.parse(request.expiresAt) : Number.NaN",
+          "new": "Date.parse(request.expiresAt)"
+        }
+      ]
+    },
+    {
+      "name": "window-request-object",
+      "what": "a request that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "(isObject(request) && typeof request.expiresAt === 'string' ?",
+          "new": "(typeof request.expiresAt === 'string' ?"
+        }
+      ]
+    },
+    {
+      "name": "window-clock",
+      "what": "the clock is not the one of the system",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "export function answerWindowMs(request, now = Date.now()) {",
+          "new": "export function answerWindowMs(request, now = 0) {"
+        }
+      ]
+    },
+    {
+      "name": "window-sign",
+      "what": "the time left is counted the wrong way",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "Date.parse(request.expiresAt) : Number.NaN) - now;",
+          "new": "Date.parse(request.expiresAt) : Number.NaN) + now;"
+        }
+      ]
+    },
+    {
+      "name": "decision-null-outcome",
+      "what": "an answer with no outcome is read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (outcome === null) return { approved: false, why: 'unreadable' };\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "decision-cancelled",
+      "what": "a cancellation is not told as one",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  if (outcome.outcome === 'cancelled') return { approved: false, why: 'cancelled' };\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "decision-cancelled-allows",
+      "what": "a cancellation allows",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (outcome.outcome === 'cancelled') return { approved: false, why: 'cancelled' };",
+          "new": "if (outcome.outcome === 'cancelled') return { approved: true, why: 'cancelled' };"
+        }
+      ]
+    },
+    {
+      "name": "decision-allow-denied",
+      "what": "the permission refuses",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "optionId === 'allow_once') return { approved: true, why: 'allowed' };",
+          "new": "optionId === 'allow_once') return { approved: false, why: 'allowed' };"
+        }
+      ]
+    },
+    {
+      "name": "decision-allow-any",
+      "what": "any option that is selected allows",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (outcome.outcome === 'selected' && outcome.optionId === 'allow_once') return { approved: true, why: 'allowed' };",
+          "new": "if (outcome.outcome === 'selected') return { approved: true, why: 'allowed' };"
+        }
+      ]
+    },
+    {
+      "name": "decision-allow-unselected",
+      "what": "an outcome that is not a selection allows",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (outcome.outcome === 'selected' && outcome.optionId === 'allow_once') return { approved: true, why: 'allowed' };",
+          "new": "if (outcome.optionId === 'allow_once') return { approved: true, why: 'allowed' };"
+        }
+      ]
+    },
+    {
+      "name": "decision-reject-allows",
+      "what": "the rejection allows",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "optionId === 'reject_once') return { approved: false, why: 'rejected' };",
+          "new": "optionId === 'reject_once') return { approved: true, why: 'rejected' };"
+        }
+      ]
+    },
+    {
+      "name": "decision-reject-unreadable",
+      "what": "the rejection is told as unreadable",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "outcome.outcome === 'selected' && outcome.optionId === 'reject_once') return { approved: false, why: 'rejected' };\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "decision-unreadable-allows",
+      "what": "an answer nobody offered allows",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "  return { approved: false, why: 'unreadable' };\n}",
+          "new": "  return { approved: true, why: 'unreadable' };\n}"
+        }
+      ]
+    },
+    {
+      "name": "decision-response-not-object",
+      "what": "an answer that is not an object is read",
+      "equivalent": "a value that is not an object has no outcome, or an outcome that is a plain value whose own .outcome reads as undefined; both end at the last line of the function, which refuses",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "const outcome = isObject(response) && isObject(response.outcome) ? response.outcome : null;",
+          "new": "const outcome = response?.outcome ?? null;"
+        }
+      ]
+    },
+    {
+      "name": "decision-outcome-not-object",
+      "what": "an outcome that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "isObject(response) && isObject(response.outcome) ?",
+          "new": "isObject(response) ?"
+        }
+      ]
+    }
+  ]
+}

@@ -200,6 +200,14 @@ await runScenario({
       "  const json = (status, body) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify(body)); };",
       "  if (request.url === '/api/health') return json(200, { app: 'chatmcp-local-hub', initialized: published && Date.now() >= readyAt, auth: 'bearer', version: '0.0.0-fake', backend: 'local' });",
       "  if (request.headers.authorization !== `Bearer ${secret}`) return json(401, { error: 'no' });",
+      // The approvals of two tasks (and two entries that are not requests), and the route that answers one: it keeps the body it was sent; "gone" is a request the Hub no longer has, "broken" is a failure.
+      "  if (kind === 'approvals' && request.url === '/api/state') return json(200, { csrfToken: 'csrf', agent: { activeTaskIds: [] }, studio: { permissions: { pending: [{ id: 'r1', taskId: 't1' }, { id: 'r2', taskId: 't2' }, { id: 'r3', taskId: 't1' }, { id: 'r5', taskId: 5 }, null, 'junk'] } } });",
+      "  if (kind === 'approvals' && request.method === 'POST' && request.url === '/api/studio/permissions/decide') {",
+      "    let body = '';",
+      "    request.on('data', (chunk) => { body += chunk; });",
+      "    request.on('end', () => { fs.appendFileSync(path.join(stateDir, 'decisions.log'), `${body}\\n`); const id = JSON.parse(body).id; json(id === 'gone' ? 404 : id === 'broken' ? 500 : 200, id === 'gone' ? { error: 'no such request' } : id === 'broken' ? { error: 'broken' } : { ok: true }); });",
+      '    return;',
+      '  }',
       "  if (request.url === '/api/state') return kind === 'state-500' ? json(500, { error: 'broken' }) : json(200, { csrfToken: 'csrf', agent: { activeTaskIds: [] } });",
       "  if (kind === 'leaky' && request.url === '/api/workspaces/add') return json(500, { error: 'refused for ' + secret });", // an error that repeats the secret
       "  if (request.url === '/api/hub/shutdown') return json(200, {});", // asked to stop, and does not
@@ -280,6 +288,21 @@ await runScenario({
     leakyAdapter.end();
     await Promise.race([leakyAdapter.exited, sleep(15_000)]);
     t.check(!leakyAdapter.stdoutText().includes(fakeSecret) && !leakyAdapter.stderrText().includes(fakeSecret), 'and the secret is on neither standard output nor standard error of the agent');
+
+    // The approvals of the Hub (plan task ux-20): only the requests of the task that is asked about, and the answer as the Hub takes it.
+    const approvals = await spawnFake('approvals', 'fake-approvals');
+    const asking = await connectToHub({ port: approvals.port, stateDir: approvals.stateDir, start: false, timeoutMs: 10_000 });
+    t.check(JSON.stringify((await asking.pendingApprovals('t1')).map((request) => request.id)) === '["r1","r3"]', 'only the requests of the task that is asked about are given, and the entries that are not requests are left out');
+    t.check(JSON.stringify((await asking.pendingApprovals('t2')).map((request) => request.id)) === '["r2"]', 'the other task has its own');
+    t.check((await asking.pendingApprovals('t3')).length === 0 && (await asking.pendingApprovals(undefined)).length === 0, 'a task without a request, and no task at all, have none');
+    t.check((await asking.pendingApprovals('5')).length === 0 && JSON.stringify((await asking.pendingApprovals(5)).map((request) => request.id)) === '["r5"]', 'a task id is compared as it is: the number 5 is not the text "5"');
+    t.check((await asking.decide('r1', true)) === true && (await asking.decide('r1', 'yes')) === true && (await asking.decide('r2', false)) === true, 'an answer the Hub takes is told as taken');
+    const bodies = fs.readFileSync(path.join(approvals.stateDir, 'decisions.log'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    t.check(JSON.stringify(bodies) === JSON.stringify([{ id: 'r1', approved: true }, { id: 'r1', approved: false }, { id: 'r2', approved: false }]), 'the answer names the request, and only the value true allows', JSON.stringify(bodies));
+    t.check((await asking.decide('gone', true)) === false, 'a request the Hub no longer has is told as not answered, and breaks nothing');
+    await asking.decide('broken', true).then(
+      () => t.check(false, 'a failure of the Hub is thrown'),
+      (error) => t.check(error.status === 500, 'a failure of the Hub other than "no such request" is thrown, with its status', error.message));
 
     // Attached: stop() sends nothing and stops nothing.
     const attached = await connectToHub({ port: hub5.port, stateDir: hub5.stateDir, start: false });

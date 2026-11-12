@@ -1,0 +1,160 @@
+{
+  "suite": "verify-e2e-acp-events.mjs",
+  "mutations": [
+    {
+      "name": "approvals-never-looked-at",
+      "what": "the approvals that wait are never put to the editor",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      await lookAtApprovals(turn, session, sessionId, task, askSignal);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "every-approval-refused",
+      "what": "every approval is answered no",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "turn.hub.decide(request.id, decision.approved)",
+          "new": "turn.hub.decide(request.id, false)"
+        }
+      ]
+    },
+    {
+      "name": "every-approval-allowed",
+      "what": "every approval is answered yes",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "turn.hub.decide(request.id, decision.approved)",
+          "new": "turn.hub.decide(request.id, true)"
+        }
+      ]
+    },
+    {
+      "name": "question-not-masked",
+      "what": "the question to the editor leaves unmasked",
+      "equivalent": "a real Hub masks the secrets of its own preview before it publishes it, so the request that reaches the agent is already clean; the second layer is judged on a Hub that is a script, with a key in the request (verify-acp-turn.mjs, mutation request-not-masked of acp-turn.json)",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "return peer.request(method, masker.value(params), options); }",
+          "new": "return peer.request(method, params, options); }"
+        }
+      ]
+    },
+    {
+      "name": "update-not-masked",
+      "what": "the updates leave unmasked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "peer.notify(method, masker.value(params)); },",
+          "new": "peer.notify(method, params); },"
+        }
+      ]
+    },
+    {
+      "name": "second-turn-tells-all",
+      "what": "a turn that continues a task tells its whole record again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "from: session.eventCursor, usageMark: session.usageMark }) };",
+          "new": "from: 0, usageMark: session.usageMark }) };"
+        }
+      ]
+    },
+    {
+      "name": "decide-route-not-allowed",
+      "what": "the agent may not answer an approval",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "decide-body-without-id",
+      "what": "the answer to an approval names no request",
+      "patches": [
+        {
+          "file": "lib/acp/hub-client.mjs",
+          "old": "'/api/studio/permissions/decide', { id, approved: approved === true })",
+          "new": "'/api/studio/permissions/decide', { approved: approved === true })"
+        }
+      ]
+    },
+    {
+      "name": "any-selected-option-allows",
+      "what": "any option that is selected allows",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "if (outcome.outcome === 'selected' && outcome.optionId === 'allow_once') return { approved: true, why: 'allowed' };",
+          "new": "if (outcome.outcome === 'selected') return { approved: true, why: 'allowed' };"
+        }
+      ]
+    },
+    {
+      "name": "diff-not-sent",
+      "what": "the change is not sent with the question",
+      "patches": [
+        {
+          "file": "lib/acp/permission-map.mjs",
+          "old": "      ...(content.length ? { content } : {}),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "call-kind-lost",
+      "what": "the kind of a call is always other",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "kind: kindOf(event.toolName),\n      status,",
+          "new": "kind: 'other',\n      status,"
+        }
+      ]
+    },
+    {
+      "name": "call-places-lost",
+      "what": "the files of a call are not told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "      ...(locations.length ? { locations } : {}),\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "failed-result-completed",
+      "what": "a call that failed is told as completed",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "const status = result.failed || event.type === 'tool_error' ? 'failed' : 'completed';",
+          "new": "const status = 'completed';"
+        }
+      ]
+    },
+    {
+      "name": "plan-never-told",
+      "what": "the plan of the task is not told",
+      "patches": [
+        {
+          "file": "lib/acp/event-map.mjs",
+          "old": "if (key !== lastPlan) { lastPlan = key; updates.push({ sessionUpdate: 'plan', entries }); }",
+          "new": "if (false) { lastPlan = key; }"
+        }
+      ]
+    }
+  ]
+}
