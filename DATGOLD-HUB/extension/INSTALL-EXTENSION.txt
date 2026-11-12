@@ -18,8 +18,8 @@ HOW TO INSTALL OR RESTORE AFTER REMOVING IT
    folder was called CHATMCP-HUB: an extension you loaded from there stops working
    when the installation is updated, because the folder is gone. Load it again from
    DATGOLD-HUB\extension, or from the extracted ZIP.)
-   Do NOT select the repository-root manifest.json: that is an obsolete
-   "ChatMCP Button Fix" helper, not DatGold Hub Companion.
+   From a clone of the source repository, select its DATGOLD-HUB\extension
+   folder (the older "ChatMCP Button Fix" helper is no longer in the repository).
 6. Pin "DatGold Hub Companion" if desired and refresh https://chatgpt.com.
 7. Open DatGold Studio, choose a registered workspace, go to Settings,
    select ChatGPT Web mode, and generate a NEW temporary pairing code.
