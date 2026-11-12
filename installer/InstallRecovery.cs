@@ -50,7 +50,7 @@ internal static class InstallRecovery
 
     private const long MarkerLimit = 4096;
     private const long JournalLimit = 128L * 1024 * 1024;
-    private static readonly Regex UpdateFolder = new(@"^\.ChatMCP-update-[0-9a-f]{32}\z", RegexOptions.CultureInvariant); // exactly as the transaction names it (Guid "N" is lower case)
+    private static readonly Regex UpdateFolder = new("^" + Regex.Escape(InstalledCopy.UpdateFolderPrefix) + @"[0-9a-f]{32}\z", RegexOptions.CultureInvariant); // exactly as the transaction names it (Guid "N" is lower case)
     private static readonly Regex BackupName = new(@"^[0-9]{6}\z", RegexOptions.CultureInvariant);
     private static readonly Regex Sha256 = new(@"^[0-9A-Fa-f]{64}\z", RegexOptions.CultureInvariant);
 
@@ -59,7 +59,7 @@ internal static class InstallRecovery
     /// <see cref="NewHash"/> is the bytes the update wrote (null for a file it removed), which the file is looked at against again right before it is touched.
     /// </summary>
     private sealed record Step(string Relative, string? Backup, string? Hash, string? NewHash);
-    private const string UpdateFolderPrefix = ".ChatMCP-update-";
+    private const string UpdateFolderPrefix = InstalledCopy.UpdateFolderPrefix;
     private sealed record Plan(string Root, string Workspace, string Marker, IReadOnlyList<Step> Steps);
 
     private static RecoveryException Refuse(string code, string message, Exception? inner = null) => new(code, message, touched: false, inner);

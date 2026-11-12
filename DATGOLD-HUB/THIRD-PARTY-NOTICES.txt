@@ -137,7 +137,7 @@ MICROSOFT C/C++ RUNTIME COMPONENTS
 PENDING NOTICES
 
  - Items 11, 12, 13 and 15 above.
- - The Browser Companion archive DatGold-Browser-Companion.zip (and its copy ChatMCP-Browser-Companion.zip) does not contain LICENSE or NOTICE yet.
+ - The Browser Companion archive DatGold-Browser-Companion.zip does not contain LICENSE or NOTICE yet.
 
 NOT REDISTRIBUTED
 

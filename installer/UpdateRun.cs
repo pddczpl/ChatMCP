@@ -118,7 +118,7 @@ internal static class UpdateRun
         Target = ReadVersion(InstallerEngine.AppVersion) ?? throw new InvalidOperationException("The version of this setup is not a release version."),
         InstalledVersion = directory =>
         {
-            var program = Path.Combine(directory, "ChatMCP.exe");
+            var program = Path.Combine(directory, InstalledCopy.ProgramName);
             return File.Exists(program) ? ReadVersion(FileVersionInfo.GetVersionInfo(program).ProductVersion) : null;
         },
         FreeBytes = FreeBytesOf,
@@ -177,7 +177,7 @@ internal static class UpdateRun
     internal static UpdateEnd RunToEnd(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress)
     {
         var directory = command.InstallDir ?? throw new ArgumentException("An update needs the installation directory.");
-        var program = Path.Combine(directory, "ChatMCP.exe");
+        var program = Path.Combine(directory, InstalledCopy.ProgramName);
         ReleaseVersion? previous = null;
         try { previous = environment.InstalledVersion(directory); } catch (Exception) { /* no installation that can be read */ }
         var outcome = Execute(command, environment, progress, directory, program, previous);
@@ -232,7 +232,7 @@ internal static class UpdateRun
     private static UpdateEnd Conclude(InstallerCommand command, UpdateEnvironment environment, UpdateOutcome outcome, bool repaired, string? refusal, bool writeResult)
     {
         var directory = command.InstallDir ?? throw new ArgumentException("An update needs the installation directory.");
-        var program = Path.Combine(directory, "ChatMCP.exe");
+        var program = Path.Combine(directory, InstalledCopy.ProgramName);
         // The Hub reads the result file ONCE, when it starts. A note left while a Hub is already up (the refusal stopped nothing, or a program holds the port) is read by nobody until some later start, and would then
         // tell the person about an update they have forgotten; the window already said why. So it is left only when no program listens on the port: the Hub that starts next reads it.
         if (writeResult && command.ResultFile != null && !HubListens(environment))

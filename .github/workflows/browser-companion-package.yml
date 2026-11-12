@@ -39,18 +39,12 @@ jobs:
       - name: Validate ZIP and checksum
         shell: powershell
         run: |
-          # The archive under its new name and, as a copy, under the old name that every installed version links to.
-          $digests = @()
-          foreach ($zip in @('.\dist\DatGold-Browser-Companion.zip', '.\dist\ChatMCP-Browser-Companion.zip')) {
-            if (-not (Test-Path $zip)) { throw "Missing standalone extension ZIP: $zip" }
-            if (-not (Test-Path "$zip.sha256")) { throw "Missing extension checksum: $zip" }
-            $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-            $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-            if ($sha -ne $expected) { throw "Extension checksum does not match: $zip" }
-            $digests += $sha
-          }
-          if (@($digests | Select-Object -Unique).Count -ne 1) { throw 'The archive under its two names is not the same file' }
           $zip = '.\dist\DatGold-Browser-Companion.zip'
+          if (-not (Test-Path $zip)) { throw "Missing standalone extension ZIP: $zip" }
+          if (-not (Test-Path "$zip.sha256")) { throw "Missing extension checksum: $zip" }
+          $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($sha -ne $expected) { throw "Extension checksum does not match: $zip" }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [IO.Compression.ZipFile]::OpenRead($zip)
           try {
@@ -64,6 +58,4 @@ jobs:
           path: |
             dist/DatGold-Browser-Companion.zip
             dist/DatGold-Browser-Companion.zip.sha256
-            dist/ChatMCP-Browser-Companion.zip
-            dist/ChatMCP-Browser-Companion.zip.sha256
           if-no-files-found: error

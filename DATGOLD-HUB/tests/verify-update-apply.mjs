@@ -156,11 +156,11 @@ const setupProgram = strip(read('installer/Program.cs'));
 check(/case InstallerMode\.Recover:\s*Environment\.ExitCode = RunRecover\(command\);\s*return;/.test(setupProgram) && /InstallerEngine\.Recover\(command\.InstallDir!/.test(setupProgram) && /UpdateRun\.RunToEnd\(command, environment/.test(setupProgram) && /UpdateRun\.RepairNow\(command, environment, failed/.test(setupProgram) && /form\.Finish\(end, Repair\)/.test(setupProgram), 'the setup runs the explicit form through the engine, the update through RunToEnd (which repairs by itself once), and the button of the window through RepairNow');
 const launcher = strip(read('desktop-shell/MainWindow.cs'));
 const initialize = launcher.slice(launcher.indexOf('private async Task InitializeStudioAsync()'), launcher.indexOf('private void HandleWebMessage'));
-const launcherSaysWhatToRun = (text) => ordered(text, '.chatmcp-update-pending.json', 'DatGoldSetup.exe', 'InstallerCommandLine.RecoverCommandText(_repoRoot)', 'different versions');
+const launcherSaysWhatToRun = (text) => ordered(text, 'File.Exists(Path.Combine(_repoRoot, InstalledCopy.PendingName))', 'DatGoldSetup.exe', 'InstallerCommandLine.RecoverCommandText(_repoRoot)', 'different versions');
 check(launcherSaysWhatToRun(initialize), 'the launcher looks for the marker of an update that stopped halfway BEFORE it compares versions (a mix of two versions is not "different versions, run the installer again", which refuses behind the marker), and says to run DatGoldSetup.exe or its --recover form');
 check(!/--install-dir/.test(initialize) && /public static string RecoverCommandText|internal static string RecoverCommandText/.test(strip(read('native-shared/UpdateContract.cs'))), 'and the command it prints is built by the contract that reads it (it quotes the folder so that a backslash at its end does not escape the closing quote), not spelled out by hand in the launcher');
 {
-  const markerFrom = initialize.indexOf('if (File.Exists(Path.Combine(_repoRoot, ".chatmcp-update-pending.json")))');
+  const markerFrom = initialize.indexOf('if (File.Exists(Path.Combine(_repoRoot, InstalledCopy.PendingName)))');
   const versionsFrom = initialize.indexOf('using (var manifest');
   const versionsTo = initialize.indexOf('_statusLabel.Text = "Connecting');
   const swapped = markerFrom > 0 && versionsFrom > markerFrom && versionsTo > versionsFrom
@@ -272,5 +272,21 @@ check(staleOnes({ mutations: [{ name: 'x', patches: [{ file: 'native-shared/Open
 check(staleOnes({ mutations: [{ name: 'x', patches: [{ file: 'native-shared/OpenLink.cs', old: 'internal', new: '' }] }] }, sourceOf).length === 1, 'and so is one that is in it more than once');
 check(staleOnes({ mutations: [{ name: 'x', patches: [{ file: 'native-shared/NoSuchFile.cs', old: 'x', new: '' }] }] }, sourceOf).length === 1, 'and a file that is not there');
 check(staleOnes({ mutations: [{ name: 'x', patches: [] }, { name: 'x', patches: [] }] }, sourceOf).length === 1, 'and a name used twice');
+
+// The names that the shell and the setup must agree on (the file of the app, the marker of an update that stopped halfway, the start of the name of an update's folder) are written once, in
+// native-shared/InstalledCopy.cs, and used by name everywhere else. A sentence for a person may spell one out; a string literal that IS one of the names, outside that file, is a second copy that can drift.
+{
+  const NAMES = ['ChatMCP.exe', '.chatmcp-update-pending.json', '.ChatMCP-update-'];
+  const NATIVE = ['desktop-shell', 'installer', 'native-shared'];
+  const sourcesOf = (folder) => fs.readdirSync(path.join(repo, folder)).filter((name) => name.endsWith('.cs')).map((name) => `${folder}/${name}`);
+  const copies = (text) => NAMES.filter((name) => strip(text).includes(`"${name}"`) || strip(text).includes(`@"^\\${name}`));
+  const found = NATIVE.flatMap(sourcesOf).filter((file) => file !== 'native-shared/InstalledCopy.cs').flatMap((file) => copies(read(file)).map((name) => `${file}: "${name}"`));
+  check(found.length === 0, 'the names that the shell and the setup share are written once, in native-shared/InstalledCopy.cs', found.join('; '));
+  const shared = strip(read('native-shared/InstalledCopy.cs'));
+  check(shared.includes('internal const string ProgramName = "ChatMCP.exe";') && shared.includes('internal const string PendingName = ".chatmcp-update-pending.json";') && shared.includes('internal const string UpdateFolderPrefix = ".ChatMCP-update-";'),
+    'and there they keep the values that installations made by earlier versions have on disk');
+  check(copies('var x = Path.Combine(dir, "ChatMCP.exe");').length === 1 && copies('new Regex(@"^\\.ChatMCP-update-[0-9a-f]{32}\\z")').length === 1 && copies('throw new X("Close ChatMCP.exe first.");').length === 0,
+    '(the rule finds a literal and a pattern that spell a name, and lets a sentence that mentions one pass)');
+}
 
 console.log(`verify-update-apply: ${checks} checks PASS`);

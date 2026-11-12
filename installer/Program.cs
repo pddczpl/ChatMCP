@@ -25,7 +25,8 @@ namespace ChatMCP.Installer
                 // Explicit unattended mode uses exactly the same engine, ownership,
                 // active-task checks and rollback as the wizard. It is not a test bypass.
                 case InstallerMode.QuietUninstall:
-                    try { InstallerEngine.Uninstall(AppDomain.CurrentDomain.BaseDirectory, (_, _) => { }); }
+                    // What could not be done and did not stop the uninstall (a shortcut, the entry in Installed apps) is said, one line each; the exit code stays 0.
+                    try { foreach (var note in InstallerEngine.Uninstall(AppDomain.CurrentDomain.BaseDirectory, (_, _) => { })) Console.Error.WriteLine(note); }
                     catch (Exception error) { Console.Error.WriteLine(error.Message); Environment.ExitCode = 1; }
                     return;
                 case InstallerMode.QuietInstall:
