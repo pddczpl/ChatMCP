@@ -1,0 +1,33 @@
+{
+  "what": "The JSON Schema of the Agent Client Protocol (protocol version 1, the stable messages only, not the unstable variant), copied unchanged. The ACP test suites check every message the agent sends against it; the agent does not read it at run time.",
+  "file": "schema.json",
+  "sha256": "0d0b1ca83c4872e5473f68926a894c7a8203b59b118e2a79bfe43dd76fbcbc1a",
+  "bytes": 256258,
+  "protocolVersion": 1,
+  "copiedFrom": {
+    "package": "@agentclientprotocol/sdk",
+    "version": "2.4.0",
+    "path": "schema/v1/schema.json",
+    "npmTarball": "https://registry.npmjs.org/@agentclientprotocol/sdk/-/sdk-2.4.0.tgz",
+    "npmIntegrity": "sha512-7qJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg==",
+    "packageRepository": "https://github.com/agentclientprotocol/typescript-sdk",
+    "note": "The package ships this file; the lock file of tests/acp-tools holds the integrity above."
+  },
+  "upstream": {
+    "repository": "https://github.com/agentclientprotocol/agent-client-protocol",
+    "tag": "schema-v1.29.1",
+    "path": "schema/v1/schema.json",
+    "rawUrl": "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/schema-v1.29.1/schema/v1/schema.json",
+    "sameBytes": true,
+    "checked": "2026-11-11",
+    "how": "curl -sL <rawUrl> | sha256sum prints the sha256 above. The licence of that repository was not read; the licence kept here is the one the package ships with the file."
+  },
+  "license": {
+    "spdx": "Apache-2.0",
+    "file": "LICENSE",
+    "sha256": "6ed4f049cce59e05197d585bdf8a39980b45d546d6ea718ee344555f3a867c3a",
+    "copyright": "Copyright 2025 Zed Industries, Inc. and contributors",
+    "note": "LICENSE is the licence file of the package, byte for byte."
+  },
+  "update": "Raise @agentclientprotocol/sdk in tests/acp-tools (package.json and package-lock.json, then npm ci --ignore-scripts --prefix DATGOLD-HUB/tests/acp-tools), copy node_modules/@agentclientprotocol/sdk/schema/v1/schema.json and LICENSE over the two files here, and write the new version, npmTarball, npmIntegrity, sha256, bytes, and the upstream tag and date of the check in this file (and the entries of THIRD-PARTY-NOTICES.md, DATGOLD-HUB/THIRD-PARTY-NOTICES.txt and docs/LICENSE-SCAN.md). tests/verify-acp-schema.mjs fails until the copy, the record and the installed package agree."
+}

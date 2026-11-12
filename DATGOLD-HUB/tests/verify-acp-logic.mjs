@@ -12,7 +12,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PassThrough, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createMasker } from '../lib/acp/mask.mjs';
 import { RESTING_STATES, STOP_REASONS, outcomeOf } from '../lib/acp/stop-reason.mjs';
@@ -21,12 +20,10 @@ import { parseCancel, parseInitialize, parseNewSession, parsePrompt } from '../l
 import { ERROR_CODES, RpcError } from '../lib/acp/rpc.mjs';
 import { loadAcpTools } from './support/acp-tools.mjs';
 import { createAcpSchemaValidator } from './support/acp-schema.mjs';
+import { FAKE_BEARER, FAKE_CSRF, FAKE_KEY, connect, eventually, scriptedHub, sleep } from './support/acp-scripted.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
-const FAKE_KEY = 'sk-ABCDEFGHIJKLMNOPQRSTUVWX0123456789';
-const FAKE_BEARER = 'b3a1c0ffee00112233445566778899aabbccddeeff00112233445566778899aa';
-const FAKE_CSRF = 'c5rf0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab';
 
 // ---- A. masking ------------------------------------------------------------------------------------------------------------------------------------------
 {
@@ -143,7 +140,7 @@ const FAKE_CSRF = 'c5rf0123456789abcdef0123456789abcdef0123456789abcdef012345678
   const tools = await loadAcpTools();
   if (tools) {
     const { readFileSync } = await import('node:fs');
-    const schema = JSON.parse(readFileSync(tools.sdkSchemaFile, 'utf8'));
+    const schema = JSON.parse(readFileSync(tools.schemaFile, 'utf8'));
     const names = schema.$defs.StopReason.oneOf.map((entry) => entry.const);
     assert.deepEqual([...STOP_REASONS].sort(), [...names].sort(), 'the stop reasons are exactly those of the schema');
     for (const state of ['completed', 'cancelled', 'paused', 'uncertain']) assert.ok(names.includes(stop(state).stopReason), state);
@@ -374,9 +371,9 @@ const FAKE_CSRF = 'c5rf0123456789abcdef0123456789abcdef0123456789abcdef012345678
 const hubClient = await import('../lib/acp/hub-client.mjs');
 {
   const { ROUTES, routeAllowed, describeHubFailure, parseCliArguments, FORBIDDEN_ROUTES } = hubClient;
-  const allowed = [['GET', '/api/health'], ['GET', '/api/state'], ['GET', '/api/tasks/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f'], ['POST', '/api/workspaces/add'], ['POST', '/api/tasks/start'], ['POST', '/api/tasks/continue'], ['POST', '/api/tasks/cancel']];
+  const allowed = [['GET', '/api/health'], ['GET', '/api/state'], ['GET', '/api/tasks/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f'], ['POST', '/api/workspaces/add'], ['POST', '/api/tasks/start'], ['POST', '/api/tasks/continue'], ['POST', '/api/tasks/cancel'], ['POST', '/api/studio/permissions/decide']];
   for (const [method, route] of allowed) assert.equal(routeAllowed(method, route), true, `${method} ${route}`);
-  assert.equal(routeAllowed('GET', '/api/tasks/events'), false, 'the stream of events sends nothing in this build of the Hub, so the agent does not open it');
+  assert.equal(routeAllowed('GET', '/api/tasks/events'), false, 'the agent does not open the stream of events: it polls the task (the stream works since the Hub got subscribe, a later change may use it)');
   assert.equal(ROUTES.length, allowed.length, 'and the list holds nothing the test does not name');
   ok(`the agent may call exactly these routes of the Hub: ${ROUTES.map((r) => `${r.method} ${r.path}`).join(', ')}`);
 
@@ -426,84 +423,6 @@ const hubClient = await import('../lib/acp/hub-client.mjs');
 
 // ---- F. the agent on a scripted Hub ---------------------------------------------------------------------------------------------------------------------------
 const { createAcpAgent, PROTOCOL_VERSION, AGENT_CAPABILITIES } = await import('../lib/acp/agent.mjs');
-const { createRpcPeer } = await import('../lib/acp/rpc.mjs');
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const eventually = async (check, label, timeoutMs = 4000) => {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) { const value = await check(); if (value) return value; if (Date.now() > deadline) assert.fail(`timed out: ${label}`); await sleep(5); }
-};
-
-/** A Hub that is a script: the agent calls it as it would call the real one; the test says what the tasks do. */
-function scriptedHub({ owned = false } = {}) {
-  let closeHub;
-  const closedPromise = new Promise((resolve) => { closeHub = resolve; });
-  const hub = {
-    owned,
-    calls: [],
-    tasks: new Map(),
-    active: new Set(),
-    secrets: [FAKE_BEARER, FAKE_CSRF],
-    stopped: 0,
-    registered: [],
-    startDelay: 0,
-    failOn: new Map(),
-    closeHub,
-    get closed() { return closedPromise; },
-    async ensureWorkspace(cwd) { hub.calls.push(['ensureWorkspace', cwd]); if (hub.failOn.has('ensureWorkspace')) throw hub.failOn.get('ensureWorkspace'); const canonical = `${cwd}#canonical`; hub.registered.push(canonical); return { path: canonical }; },
-    async startTask(input) {
-      hub.calls.push(['startTask', input]);
-      if (hub.failOn.has('startTask')) throw hub.failOn.get('startTask');
-      if (hub.startDelay) await sleep(hub.startDelay);
-      const id = `00000000-0000-4000-8000-${String(hub.tasks.size + 1).padStart(12, '0')}`;
-      const task = { id, state: 'running', status: 'running', finalText: '', error: null, errorCode: null, runs: [{}], workspacePath: input.workspacePath };
-      hub.tasks.set(id, task); hub.active.add(id);
-      return structuredClone(task);
-    },
-    async continueTask(input) {
-      hub.calls.push(['continueTask', input]);
-      if (hub.failOn.has('continueTask')) throw hub.failOn.get('continueTask');
-      const task = hub.tasks.get(input.id);
-      Object.assign(task, { state: 'running', status: 'running', finalText: '', error: null, errorCode: null });
-      task.runs.push({}); hub.active.add(task.id);
-      return structuredClone(task);
-    },
-    async cancelTask(id) { hub.calls.push(['cancelTask', id]); const task = hub.tasks.get(id); if (task && task.state === 'running') hub.finish(id, { state: 'cancelled', status: 'cancelled', error: 'stopped' }); return structuredClone(task ?? null); },
-    async getTask(id) { hub.calls.push(['getTask', id]); if (hub.failOn.get('getTask')) throw hub.failOn.get('getTask'); const task = hub.tasks.get(id); return task ? structuredClone(task) : null; },
-    async isActive(id) { return hub.active.has(id); },
-    finish(id, patch) { Object.assign(hub.tasks.get(id), patch); hub.active.delete(id); },
-    async stop() { hub.stopped += 1; hub.calls.push(['stop']); },
-    of(name) { return hub.calls.filter(([call]) => call === name); },
-  };
-  return hub;
-}
-
-/** The agent on in-memory streams, with a client that is this test. */
-function connect({ hub = scriptedHub(), options = {} } = {}) {
-  const input = new PassThrough();
-  const written = [];
-  const logs = [];
-  const output = new Writable({ write(chunk, _encoding, callback) { written.push(chunk.toString('utf8')); callback(); } });
-  const peer = createRpcPeer({ input, output, log: (line) => logs.push(line), graceMs: 200 });
-  const masker = createMasker({ secrets: () => hub.secrets });
-  const agent = createAcpAgent({ peer, connectHub: async () => hub, masker, log: (line) => logs.push(line), version: '9.9.9', pollMs: 5, lostContactMs: 120, ...options });
-  agent.attach();
-  peer.start();
-  let nextId = 1;
-  const messages = () => written.join('').split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  const send = (message) => input.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
-  const waiting = new Map();
-  const request = (method, params) => {
-    const id = nextId; nextId += 1;
-    send({ id, method, params });
-    return eventually(() => messages().find((m) => m.id === id), `${method} answered`).then((m) => { waiting.delete(id); return m; });
-  };
-  const requestLater = (method, params) => { const id = nextId; nextId += 1; send({ id, method, params }); return { id, answer: () => eventually(() => messages().find((m) => m.id === id), `${method} answered`) }; };
-  const notify = (method, params) => send({ method, params });
-  const updates = (sessionId) => messages().filter((m) => m.method === 'session/update' && (sessionId === undefined || m.params.sessionId === sessionId)).map((m) => m.params.update);
-  const initialize = (extra = {}) => request('initialize', { protocolVersion: 1, clientInfo: { name: 'test', version: '0' }, ...extra });
-  return { hub, agent, peer, input, logs, written, messages, request, requestLater, notify, updates, initialize, raw: () => written.join('') };
-}
-
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-agent-logic-'));
 try {
   // initialize
@@ -881,7 +800,8 @@ try {
   {
     const source = fs.readFileSync(new URL('../lib/acp/agent.mjs', import.meta.url), 'utf8');
     const sends = source.split('\n').filter((line) => /peer\.(notify|request)\(/.test(line) && !line.trim().startsWith('//'));
-    assert.equal(sends.length, 1, `peer.notify is called once, in the one function that masks (saw ${sends.length}): ${sends.join(' | ')}`);
+    assert.equal(sends.length, 2, `peer.notify and peer.request are each called once, in the one object that masks (saw ${sends.length}): ${sends.join(' | ')}`);
+    assert.ok(sends.every((line) => line.includes('masker.value(params)')), 'and each masks the decoded value of what it sends');
     assert.ok(source.includes('masker.value('), 'and that function masks the decoded value');
     assert.ok(!/safePreview/.test(source), 'safePreview stringifies before it masks and is never used');
     ok('in the source of the agent a message can leave in one place only, where it is masked on the decoded value; safePreview is not used');

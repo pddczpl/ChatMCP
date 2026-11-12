@@ -33,7 +33,7 @@ await runScenario({
 }, async (t) => {
   const tools = await loadAcpTools();
   if (!tools) t.skip(missingToolsReason());
-  const schema = JSON.parse(fs.readFileSync(tools.sdkSchemaFile, 'utf8'));
+  const schema = JSON.parse(fs.readFileSync(tools.schemaFile, 'utf8'));
   const validator = createAcpSchemaValidator({ Ajv2020: tools.Ajv2020, schema });
   t.note(`client: @agentclientprotocol/sdk ${tools.sdkVersion}; validator: ajv ${tools.ajvVersion}; the ${validator.definitionNames().length} definitions of the schema, ${validator.methods('agent').length} methods the agent handles, ${validator.methods('client').length} the client handles`);
 
@@ -103,7 +103,10 @@ await runScenario({
   t.equal(stateBefore.studio.workspace, projectA, 'the Hub has selected the folder of the desktop app (A)');
 
   // ---- B. the protocol through the SDK ---------------------------------------------------------------------------------------------------------------
-  const adapter = await startAdapter({ tools, validator, scratch: t.scratch, hub });
+  // The client of this suite does not answer an approval until it is told to, like an editor whose person has not looked yet; when it is told, it answers "cancelled", as the protocol makes a client do on a cancel.
+  const gate = {};
+  gate.promise = new Promise((resolve) => { gate.release = resolve; });
+  const adapter = await startAdapter({ tools, validator, scratch: t.scratch, hub, handlers: { permission: () => gate.promise } });
   t.own(() => adapter.end({ graceMs: 3000 }));
   const initialized = await adapter.call('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { notices: {} } }, clientInfo: { name: 'datgold-acp-test-client', version: '0.0.0' } });
   t.check(initialized.result?.protocolVersion === 1 && initialized.result.agentInfo?.name === 'datgold' && initialized.result.agentInfo.title === 'DatGold' && Array.isArray(initialized.result.authMethods) && initialized.result.authMethods.length === 0, 'initialize: version 1, the agent says it is DatGold, no authentication methods', JSON.stringify(initialized));
@@ -171,17 +174,20 @@ await runScenario({
   const updatesBeforeWait = adapter.updates.length;
   const waiting = adapter.call('session/prompt', { sessionId: waitSession, prompt: text('[[WAIT]] Create waited.txt') });
   const pending = await eventually(async () => { const list = await pendingApprovals(hub); return list.length ? list : null; }, { label: 'the approval request' });
-  t.check(pending.length === 1 && pending[0].toolName.includes('write_file'), 'in Review mode the write waits for the person: one approval is pending on the Hub (an ACP client cannot answer it yet; this is the limit of this milestone)');
-  t.check(adapter.updates.length === updatesBeforeWait, 'and nothing was invented meanwhile');
+  t.check(pending.length === 1 && pending[0].toolName.includes('write_file'), 'in Review mode the write waits for the person: one approval is pending on the Hub');
+  await eventually(() => adapter.permissionRequests.length === 1, { label: 'the editor is asked' });
+  t.check(adapter.permissionRequests[0].toolCall?.kind === 'edit' && /waited\.txt/.test(JSON.stringify(adapter.permissionRequests[0].toolCall)), 'and the editor is asked about it (the client has not answered yet)');
 
   // Somebody works in the desktop app on the Hub's own folder meanwhile (reads only: nothing to approve).
   const direct = await startTask(hub, '[[DIRECT]] Hello from the desktop app', { workspacePath: projectA });
   await waitForState(hub, direct.id, ['completed']);
   await new Promise((resolve) => setTimeout(resolve, 400));
-  t.check(adapter.updates.length === updatesBeforeWait && !adapter.stdoutText().includes('DIRECT-TASK-ANSWER') && !adapter.stdoutText().includes(direct.id), 'a task that was started on the Hub meanwhile (not by the editor) neither reaches the client nor ends its turn');
+  const sinceWait = adapter.updates.slice(updatesBeforeWait);
+  t.check(sinceWait.every((update) => JSON.stringify(update).includes('waited.txt')) && !adapter.stdoutText().includes('DIRECT-TASK-ANSWER') && !adapter.stdoutText().includes(direct.id) && (await Promise.race([waiting.then(() => 'ended'), new Promise((resolve) => setTimeout(resolve, 0, 'running'))])) === 'running', 'a task that was started on the Hub meanwhile (not by the editor) neither reaches the client nor ends its turn: the client was told of the editor\'s own call and of nothing else');
   t.check((await adapter.call('session/prompt', { sessionId: waitSession, prompt: text('too soon') })).error?.code === -32600, 'and a second prompt in a session whose turn is running is refused');
 
   await adapter.notify('session/cancel', { sessionId: waitSession });
+  gate.release({ outcome: { outcome: 'cancelled' } });
   const cancelled = await waiting;
   t.equal(cancelled.result, { stopReason: 'cancelled' }, 'session/cancel: the turn that waited for an approval ends with cancelled');
   t.equal(await pendingApprovals(hub), [], 'the request that was waiting is gone');
@@ -257,7 +263,7 @@ await runScenario({
     const mortal = await t.hub({ project: projectC, stateDir, logName: 'hub-two.log' });
     await connectModel(mortal, mock);
     await setMode(mortal, 'review');
-    const dying = await startAdapter({ tools, validator, scratch: t.scratch, hub: mortal, env: { CHATMCP_ACP_LOST_CONTACT_MS: '3000', CHATMCP_ACP_POLL_MS: '100' } });
+    const dying = await startAdapter({ tools, validator, scratch: t.scratch, hub: mortal, env: { CHATMCP_ACP_LOST_CONTACT_MS: '3000', CHATMCP_ACP_POLL_MS: '100' }, handlers: { permission: () => new Promise(() => {}) } });
     t.own(() => dying.end({ graceMs: 3000 }));
     await dying.call('initialize', { protocolVersion: 1 });
     const session = (await dying.call('session/new', { cwd: projectC, mcpServers: [] })).result.sessionId;

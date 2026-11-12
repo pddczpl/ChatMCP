@@ -15,6 +15,9 @@ const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..
 
 export const INSTALL_COMMAND = 'npm ci --ignore-scripts --prefix DATGOLD-HUB/tests/acp-tools';
 
+/** The pinned copy of the official schema (lib/acp/schema/, with its record SOURCE.json): what every ACP suite validates the messages of the agent against. tests/verify-acp-schema.mjs says it is the schema of the installed SDK. */
+export const PINNED_SCHEMA_FILE = path.join(HUB, 'lib', 'acp', 'schema', 'schema.json');
+
 /** The folder whose node_modules holds the tools, or null. */
 export function toolsFolder() {
   const candidates = [path.join(HUB, 'tests', 'acp-tools')];
@@ -26,7 +29,7 @@ export function toolsFolder() {
 export const missingToolsReason = () => `the ACP test tools are not installed (run: ${INSTALL_COMMAND})`;
 
 /**
- * @returns {Promise<null | {folder: string, sdk: object, Ajv2020: Function, sdkVersion: string, sdkSchemaFile: string, ajvVersion: string}>}
+ * @returns {Promise<null | {folder: string, sdk: object, Ajv2020: Function, sdkVersion: string, sdkSchemaFile: string, schemaFile: string, ajvVersion: string}>}
  */
 export async function loadAcpTools() {
   const folder = toolsFolder();
@@ -42,7 +45,9 @@ export async function loadAcpTools() {
     sdk,
     Ajv2020,
     sdkVersion: read(path.join(packageRoot, 'package.json')).version,
+    // The copy inside the installed SDK: only verify-acp-schema.mjs reads it, to compare it with the pinned one.
     sdkSchemaFile: path.join(packageRoot, 'schema', 'v1', 'schema.json'),
+    schemaFile: PINNED_SCHEMA_FILE,
     ajvVersion: read(path.join(path.dirname(require.resolve('ajv/package.json')), 'package.json')).version,
   };
 }

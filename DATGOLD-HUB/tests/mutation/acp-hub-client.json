@@ -150,8 +150,8 @@
       "patches": [
         {
           "file": "lib/acp/hub-client.mjs",
-          "old": "  { method: 'POST', path: '/api/tasks/cancel' },\n]);",
-          "new": "  { method: 'POST', path: '/api/tasks/cancel' },\n  { method: 'POST', path: '/api/workspace/select' },\n]);"
+          "old": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n]);",
+          "new": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n  { method: 'POST', path: '/api/workspace/select' },\n]);"
         },
         {
           "file": "lib/acp/hub-client.mjs",
@@ -166,8 +166,8 @@
       "patches": [
         {
           "file": "lib/acp/hub-client.mjs",
-          "old": "  { method: 'POST', path: '/api/tasks/cancel' },\n]);",
-          "new": "  { method: 'POST', path: '/api/tasks/cancel' },\n  { method: 'POST', path: '/api/studio/permissions/config' },\n]);"
+          "old": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n]);",
+          "new": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n  { method: 'POST', path: '/api/studio/permissions/config' },\n]);"
         },
         {
           "file": "lib/acp/hub-client.mjs",
@@ -182,8 +182,8 @@
       "patches": [
         {
           "file": "lib/acp/hub-client.mjs",
-          "old": "  { method: 'POST', path: '/api/tasks/cancel' },\n]);",
-          "new": "  { method: 'POST', path: '/api/tasks/cancel' },\n  { method: 'POST', path: '/api/workspace/select' },\n]);"
+          "old": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n]);",
+          "new": "  { method: 'POST', path: '/api/studio/permissions/decide' }, // the answer of the editor to an approval request of its own task (the mode itself, /api/studio/permissions/config, is forbidden below)\n  { method: 'POST', path: '/api/workspace/select' },\n]);"
         }
       ]
     },
