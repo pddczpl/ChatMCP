@@ -1,0 +1,114 @@
+{
+  "suite": "verify-studio-terminal-close.mjs",
+  "description": "StudioTerminal.stop()/close() end the whole process tree of a session and close() says when it could not: lib/studio-terminal.mjs (processTreeLeft, the Windows reaper, the output cap, close()'s report), judged by tests/verify-studio-terminal-close.mjs (a fake process table on every platform, real orphaned node.exe on Windows).",
+  "mutations": [
+    {
+      "name": "TC-tree-no-age",
+      "what": "a process older than the shell that has the same parent pid is taken as the shell's child",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "if(seen.has(row.pid)||row.created<parent.created||row.created>=parent.until)continue;", "new": "if(seen.has(row.pid)||row.created>=parent.until)continue;" }]
+    },
+    {
+      "name": "TC-tree-no-until",
+      "what": "the children of a new process that got the shell's pid are taken as the shell's",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "if(seen.has(row.pid)||row.created<parent.created||row.created>=parent.until)continue;", "new": "if(seen.has(row.pid)||row.created<parent.created)continue;" }]
+    },
+    {
+      "name": "TC-tree-root-always-ours",
+      "what": "a process that got the shell's pid later is taken for the shell",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "const rootIsOurs=Boolean(rootRow)&&Math.abs(rootRow.created-spawnedAt)<=slackMs;", "new": "const rootIsOurs=Boolean(rootRow);" }]
+    },
+    {
+      "name": "TC-tree-root-never",
+      "what": "a shell that is still alive is not part of what is left",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "const left=rootIsOurs?[rootRow]:[];", "new": "const left=[];" }]
+    },
+    {
+      "name": "TC-tree-one-level",
+      "what": "only the direct children of the shell are found, not their children",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "seen.add(row.pid);left.push(row);queue.push({pid:row.pid,created:row.created,until:Infinity});", "new": "seen.add(row.pid);left.push(row);" }]
+    },
+    {
+      "name": "TC-tree-null-is-empty",
+      "what": "an unreadable process table is read as 'nothing left'",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "  if(!Array.isArray(rows))return null;", "new": "  if(!Array.isArray(rows))return [];" }]
+    },
+    {
+      "name": "TC-reap-no-sweep",
+      "what": "after taskkill nothing that is left of the tree is killed (the code before the fix)",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "      for(const row of x.left??[])await this.processTree.kill(row.pid);", "new": "" }]
+    },
+    {
+      "name": "TC-reap-no-deadline",
+      "what": "the reaper never gives up",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "      if(Date.now()>=deadline)return false;", "new": "" }]
+    },
+    {
+      "name": "TC-reap-no-fallback",
+      "what": "when taskkill cannot be started the child is not killed directly",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "    if(await this.processTree.kill(pid)===null){try{x.child.kill();}catch{}}", "new": "    await this.processTree.kill(pid);" }]
+    },
+    {
+      "name": "TC-reap-sweeps-brokered",
+      "what": "the process table of this account is swept for a brokered command too",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "      if(x.child.brokered)continue;", "new": "" }]
+    },
+    {
+      "name": "TC-stop-no-reaper",
+      "what": "stop() on Windows does not start the reaper",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "else if(this.platform==='win32'&&x.child?.pid)x.reaping=this.#reapWindows(x);", "new": "else if(this.platform==='win32'&&x.child?.pid)this.processTree.kill(x.child.pid);" }]
+    },
+    {
+      "name": "TC-cap-status-first",
+      "what": "the output cap sets 'stopping' before stop(), which then kills nothing (the code before the fix)",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "if(session.bytes>OUTPUT_CAP){if(session.status==='running')this.stop(id);return;}", "new": "if(session.bytes>OUTPUT_CAP){session.status='stopping';this.stop(id);return;}" }]
+    },
+    {
+      "name": "TC-cap-records",
+      "what": "output past the cap stops the session but is still recorded",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "if(session.bytes>OUTPUT_CAP){if(session.status==='running')this.stop(id);return;}", "new": "if(session.bytes>OUTPUT_CAP){if(session.status==='running')this.stop(id);}" }]
+    },
+    {
+      "name": "TC-close-always-closed",
+      "what": "close() reports closed whatever happened",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "return {closed:pending.length===0,", "new": "return {closed:true," }]
+    },
+    {
+      "name": "TC-close-no-pending",
+      "what": "close() does not name the sessions it could not end",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "pending:pending.map(x=>({id:x.id,pid:x.child?.pid??null,command:x.command}))};", "new": "pending:[]};" }]
+    },
+    {
+      "name": "TC-close-no-log",
+      "what": "the session log does not say which processes were still running",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "      x.logs.push({seq:++x.sequence,at:stamp(),type:'system',message});if(x.logs.length>300)x.logs.shift();", "new": "" }]
+    },
+    {
+      "name": "TC-close-log-no-table",
+      "what": "the log does not tell an unreadable process table from a process that is still running",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "const message=x.left===null?'Terminal not closed: the process table could not be read to find what is left of the stopped command.':", "new": "const message=" }]
+    },
+    {
+      "name": "TC-close-returns-nothing",
+      "what": "close() returns nothing (the code before the fix)",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "    return {closed:pending.length===0,", "new": "    return;({closed:pending.length===0," }, { "file": "lib/studio-terminal.mjs", "old": "pending:pending.map(x=>({id:x.id,pid:x.child?.pid??null,command:x.command}))};", "new": "pending:pending.map(x=>({id:x.id,pid:x.child?.pid??null,command:x.command}))});" }]
+    },
+    {
+      "name": "TC-list-null",
+      "platforms": ["win32"],
+      "what": "the real process table is never read (Windows)",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "        resolve(rows.length?rows:null);", "new": "        resolve(null);" }]
+    },
+    {
+      "name": "TC-list-no-ppid",
+      "platforms": ["win32"],
+      "what": "the real process table loses the parent pid (Windows)",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "if(m)rows.push({pid:Number(m[1]),ppid:Number(m[2]),created:Date.parse(m[3])});", "new": "if(m)rows.push({pid:Number(m[1]),ppid:Number(m[1]),created:Date.parse(m[3])});" }]
+    },
+    {
+      "name": "TC-list-no-time",
+      "platforms": ["win32"],
+      "what": "the real process table loses the creation time (Windows)",
+      "patches": [{ "file": "lib/studio-terminal.mjs", "old": "if(m)rows.push({pid:Number(m[1]),ppid:Number(m[2]),created:Date.parse(m[3])});", "new": "if(m)rows.push({pid:Number(m[1]),ppid:Number(m[2]),created:NaN});" }]
+    }
+  ]
+}
