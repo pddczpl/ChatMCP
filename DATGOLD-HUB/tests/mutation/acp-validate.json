@@ -1,0 +1,313 @@
+{
+  "suite": "verify-acp-logic.mjs",
+  "mutations": [
+    {
+      "name": "params-any-type",
+      "what": "params that are not an object are taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  if (!isObject(params)) throw invalid(`${method} needs its params as an object`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "array-params",
+      "what": "an array is taken for params",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);",
+          "new": "const isObject = (value) => value !== null && typeof value === 'object';"
+        }
+      ]
+    },
+    {
+      "name": "null-params",
+      "what": "null is taken for params",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);",
+          "new": "const isObject = (value) => typeof value === 'object' && !Array.isArray(value);"
+        }
+      ]
+    },
+    {
+      "name": "invalid-code",
+      "what": "an invalid value is another error",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "const invalid = (message) => new RpcError(ERROR_CODES.INVALID_PARAMS, message);",
+          "new": "const invalid = (message) => new RpcError(ERROR_CODES.INVALID_REQUEST, message);"
+        }
+      ]
+    },
+    {
+      "name": "id-empty",
+      "what": "an empty session id is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > MAX_ID_CHARS",
+          "new": "typeof sessionId !== 'string' || sessionId.length > MAX_ID_CHARS"
+        }
+      ]
+    },
+    {
+      "name": "id-long",
+      "what": "a session id of any length is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > MAX_ID_CHARS",
+          "new": "typeof sessionId !== 'string' || sessionId.length === 0"
+        }
+      ]
+    },
+    {
+      "name": "id-not-string",
+      "what": "a session id that is not a string is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > MAX_ID_CHARS",
+          "new": "sessionId === undefined || sessionId.length === 0 || sessionId.length > MAX_ID_CHARS"
+        }
+      ]
+    },
+    {
+      "name": "version-integer",
+      "what": "a fractional protocol version is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "if (!Number.isInteger(protocolVersion) || protocolVersion < 0 || protocolVersion > 65535)",
+          "new": "if (typeof protocolVersion !== 'number' || protocolVersion < 0 || protocolVersion > 65535)"
+        }
+      ]
+    },
+    {
+      "name": "version-negative",
+      "what": "a negative protocol version is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "if (!Number.isInteger(protocolVersion) || protocolVersion < 0 || protocolVersion > 65535)",
+          "new": "if (!Number.isInteger(protocolVersion) || protocolVersion > 65535)"
+        }
+      ]
+    },
+    {
+      "name": "version-large",
+      "what": "a protocol version beyond 65535 is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "if (!Number.isInteger(protocolVersion) || protocolVersion < 0 || protocolVersion > 65535)",
+          "new": "if (!Number.isInteger(protocolVersion) || protocolVersion < 0)"
+        }
+      ]
+    },
+    {
+      "name": "version-zero-refused",
+      "what": "protocol version 0 is refused",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "protocolVersion < 0 || protocolVersion > 65535",
+          "new": "protocolVersion < 1 || protocolVersion > 65535"
+        }
+      ]
+    },
+    {
+      "name": "capabilities-type",
+      "what": "client capabilities of any type are taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  if (clientCapabilities !== undefined && clientCapabilities !== null && !isObject(clientCapabilities)) throw invalid('clientCapabilities must be an object');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "client-info-type",
+      "what": "client info of any type is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  if (clientInfo !== undefined && clientInfo !== null && !isObject(clientInfo)) throw invalid('clientInfo must be an object');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "notices-null",
+      "what": "a null notices capability counts as supported",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "const supportsNotices = isObject(session) && isObject(session.notices);",
+          "new": "const supportsNotices = isObject(session) && session.notices !== undefined;"
+        }
+      ]
+    },
+    {
+      "name": "notices-always",
+      "what": "every client is taken to show notices",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "const supportsNotices = isObject(session) && isObject(session.notices);",
+          "new": "const supportsNotices = true;"
+        }
+      ]
+    },
+    {
+      "name": "client-info-dropped",
+      "what": "the client info is not kept",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "return { protocolVersion, clientInfo: clientInfo ?? null, supportsNotices };",
+          "new": "return { protocolVersion, clientInfo: null, supportsNotices };"
+        }
+      ]
+    },
+    {
+      "name": "cwd-missing",
+      "what": "a missing folder is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  if (typeof cwd !== 'string' || cwd.length === 0) throw invalid('cwd must be the absolute path of the project folder');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cwd-long",
+      "what": "a path of any length is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "if (cwd.length > MAX_PATH_CHARS || cwd.includes('\\0'))",
+          "new": "if (cwd.includes('\\0'))"
+        }
+      ]
+    },
+    {
+      "name": "cwd-nul",
+      "what": "a path with a NUL is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "if (cwd.length > MAX_PATH_CHARS || cwd.includes('\\0'))",
+          "new": "if (cwd.length > MAX_PATH_CHARS)"
+        }
+      ]
+    },
+    {
+      "name": "cwd-relative",
+      "what": "a relative path is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  if (!path.isAbsolute(cwd)) throw invalid('cwd must be an absolute path');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "servers-type",
+      "what": "mcpServers of any type are taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "    if (!Array.isArray(mcpServers) || mcpServers.some((server) => !isObject(server) || typeof server.name !== 'string')) throw invalid('mcpServers must be a list of servers that each have a name');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "servers-without-name",
+      "what": "a server without a name is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "!isObject(server) || typeof server.name !== 'string'",
+          "new": "!isObject(server)"
+        }
+      ]
+    },
+    {
+      "name": "servers-null-refused",
+      "what": "mcpServers: null is refused",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "if (mcpServers !== undefined && mcpServers !== null) {",
+          "new": "if (mcpServers !== undefined) {"
+        }
+      ]
+    },
+    {
+      "name": "servers-default",
+      "what": "a missing mcpServers is not an empty list",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "mcpServers: mcpServers ?? [],",
+          "new": "mcpServers: mcpServers,"
+        }
+      ]
+    },
+    {
+      "name": "directories-type",
+      "what": "additionalDirectories of any type are taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  if (additionalDirectories !== undefined && additionalDirectories !== null && (!Array.isArray(additionalDirectories) || additionalDirectories.some((entry) => typeof entry !== 'string'))) throw invalid('additionalDirectories must be a list of paths');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "directories-count",
+      "what": "the additional folders are not counted",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "additionalDirectories: additionalDirectories?.length ?? 0",
+          "new": "additionalDirectories: 0"
+        }
+      ]
+    },
+    {
+      "name": "prompt-not-array",
+      "what": "a prompt that is not an array is taken",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "  if (!Array.isArray(body.prompt)) throw invalid('prompt must be an array of content blocks');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancel-id",
+      "what": "a cancel takes any session id",
+      "patches": [
+        {
+          "file": "lib/acp/validate.mjs",
+          "old": "return { sessionId: sessionIdOf(requireObject(params, 'session/cancel')) };",
+          "new": "return { sessionId: requireObject(params, 'session/cancel').sessionId };"
+        }
+      ]
+    }
+  ]
+}

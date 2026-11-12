@@ -5,11 +5,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertBearerHub, parseArguments } from '../hub.mjs';
 import { assertSessionListener, attachToRunningHub, dashboardUrl, readSession, requestTicket, sessionFile } from './hub-session.mjs';
 import { powerShellChildEnvironment } from './powershell-environment.mjs';
-import { delay, portOpen, redact } from './runtime.mjs';
+import { delay, portOpen, redact, stopOwned } from './runtime.mjs';
 
 const bundle = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-async function health(url) {
+/** What /api/health answers (null when nothing answers it, or not with JSON). */
+export async function health(url) {
   try {
     const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1500), redirect: 'error' });
     if (!r.ok) return null;
@@ -154,6 +155,45 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
   const recent = await fs.readFile(logFile, 'utf8').catch(() => '');
   for (const line of recent.split(/\r?\n/).slice(-8)) if (line) warn(redact(line));
   throw new Error(`Hub chua mo duoc. Xem nhat ky ${logFile}`);
+}
+
+/**
+ * Start the Hub as a CHILD of the caller, for a caller whose life the Hub must not outlive: the ACP agent of an editor. Editors end the process tree of the agent they started, and a Hub
+ * that outlived it would be an orphan that holds a port and a state folder. `launch()` does the opposite on purpose (its Hub is detached and holds none of the launcher's handles).
+ *
+ * The child is lib/acp/owned-hub.mjs: the Hub itself, plus a watch on its standard input. The caller holds the other end of that pipe, so the Hub shuts down (by the graceful path of
+ * SIGTERM and /api/hub/shutdown) when the caller ends however it ends: the end of a process closes its handles. The only output of the Hub that is kept is its own log, hub.log in the
+ * state folder.
+ *
+ * @returns {Promise<{url: string, child: import('node:child_process').ChildProcess, pid: number, logFile: string, exited: Promise<{code: number|null, signal: string|null}>}>}
+ */
+export async function launchOwned(args, { env = process.env, timeoutMs = 30000, hubEntry = path.join(bundle, 'lib', 'acp', 'owned-hub.mjs'), stop = stopOwned } = {}) {
+  const options = parseArguments(args, env);
+  const url = `http://127.0.0.1:${options.port}`;
+  if (await portOpen(options.port)) throw new Error(`Port ${options.port} is used by another program. It is not stopped.`);
+  const directory = hubDirectoryFor(options);
+  await fs.mkdir(directory, { recursive: true });
+  const logFile = path.join(directory, 'hub.log');
+  try { if ((await fs.stat(logFile)).size > 4_000_000) await fs.rename(logFile, path.join(directory, 'hub.previous.log')); }
+  catch (error) { if (!['ENOENT', 'EEXIST'].includes(error.code)) throw error; }
+  const child = spawn(process.execPath, [hubEntry, ...args, '--log-file', logFile], { cwd: bundle, env, shell: false, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
+  await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+  child.stdin.on('error', () => {}); // the Hub is gone: a write or an end then finds a broken pipe
+  const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
+  let gone = false;
+  void exited.then(() => { gone = true; });
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until && !gone) {
+    const ready = await health(url);
+    if (ready?.app === 'chatmcp-local-hub' && ready.initialized) return { url, child, pid: child.pid, logFile, exited };
+    await delay(150);
+  }
+  // Whether the Hub ended by itself is read BEFORE it is stopped: stopping it ends it, and where the stop returns only after the exit (a signal, on Linux and macOS) it would always read as "exited".
+  const exitedByItself = gone;
+  const recent = await fs.readFile(logFile, 'utf8').catch(() => '');
+  await stop(child).catch(() => {});
+  const tail = recent.split(/\r?\n/).filter(Boolean).slice(-6).map((line) => redact(line)).join(' | ');
+  throw new Error(`The Hub did not start${exitedByItself ? ' (it exited)' : ` within ${timeoutMs / 1000} s`}. Log ${logFile}: ${tail || '(empty)'}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
