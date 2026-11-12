@@ -1,10 +1,10 @@
 # DatGold Agent Tools & Token Optimization
 
-> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **100 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
+> The tool families of the agent as they are on `main`, added from v3.2.0 on. **100 LocalTools + 17 declared StudioTools** (`lib/local-tools.mjs`, `STUDIO_TOOLS` of `lib/studio-tools.mjs`; `tests/verify-docs.mjs` fails when either number differs from the code); the agent catalog may suppress redundant Studio entries. A tool being in the catalog does not prove that a model uses it well.
 
 ## Scope
 
-This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and PermissionGate. It does **not** add Hooks or an External MCP Client. Existing permissions, workspace boundaries and per-action approvals remain mandatory. The normal model can discover all tools; an expanded tool list alone does not prove autonomous success.
+The tools run in process: LocalTools, StudioTools, the Skills Hub and PermissionGate. Hooks are programs the owner configures around a tool call ([HOOKS.md](HOOKS.md)); there is no client for external MCP servers. Existing permissions, workspace boundaries and per-action approvals remain mandatory. The normal model can discover all tools; an expanded tool list alone does not prove autonomous success.
 
 ## New tool families
 

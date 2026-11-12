@@ -9,7 +9,6 @@ Comprehensive documentation across all architecture, implementation, and verific
 ### System Architecture and Guides
 - [Naming: DatGold, formerly ChatMCP](NAMING.md) — what the new name covers, what still has the old name and why, and the step that changes each
 - [Reproducible evaluation harness](EVALUATION.md) — deterministic external-process evaluation and explicit live-model limits
-- [Upgrade implementation checkpoint](UPGRADE-IMPLEMENTATION-STATUS.md) — shipped-source changes, outstanding acceptance work and restart handoff
 - [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
 - [Architecture](ARCHITECTURE.md) — System components, security model, and task state machine
 - [Hub authentication](HUB-AUTH.md) — Per-launch bearer secret, session file, dashboard sign-in ticket, and what it does not protect
@@ -61,5 +60,6 @@ Comprehensive documentation across all architecture, implementation, and verific
 ### Phase 4: Extended Planning & Optimization
 - [Phase 4 Design](PHASE4-DESIGN.md) — Long-horizon agent planning and autonomous optimization design
 - [Phase 4 Report](PHASE4-REPORT.md) — Experimental evaluation and future milestone documentation
+- [Upgrade implementation checkpoint](UPGRADE-IMPLEMENTATION-STATUS.md) — shipped-source changes, outstanding acceptance work and restart handoff (historical)
 
 ---

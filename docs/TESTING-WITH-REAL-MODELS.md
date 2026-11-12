@@ -127,7 +127,20 @@ Chỉ sau khi phép 1–4 đạt với một mô hình thật, mới có cơ s�
 2. **Thu hồi key** ở trang của nhà cung cấp.
 3. Xóa `C:\tmp\chatmcp-trial-state` và `C:\tmp\trial-project` khi bạn chắc không cần (đây là dữ liệu bỏ đi của chính bạn; Hub không tự xóa gì).
 
-## Chưa có: chạy tự động với mô hình thật
+## Các phép kiểm chạy tay trong `DATGOLD-HUB/tests/live/`
+
+Sáu script, không script nào chạy trong CI (CI chỉ chạy chúng offline với máy chủ giả để chúng không hỏng âm thầm). Mỗi script nói ở đầu tệp nó làm gì và cần gì:
+
+| Script | Cần gì | Tốn tiền? |
+|---|---|---|
+| `check-anthropic-thinking.mjs` | `ANTHROPIC_API_KEY` | có, vài yêu cầu |
+| `check-anthropic-hub-adapter.mjs` | `ANTHROPIC_API_KEY` | có, vài yêu cầu |
+| `skill-load-live.mjs --preset <preset>` | key của preset trong biến môi trường (hoặc gõ ẩn khi được hỏi); chạy một Hub riêng với thư mục tạm | có: in chi phí theo giá danh mục |
+| `check-skill-manifests.mjs` | mạng tới api.github.com và raw.githubusercontent.com | không |
+| `check-update-feed.mjs` | mạng tới github.com (một GET manifest, hai lần chuyển hướng) | không |
+| `check-update-download.mjs [--expect valid\|missing\|invalid]` | mạng tới github.com: manifest và chữ ký của bản mới nhất; không bao giờ tải installer | không |
+
+### Chưa có: chạy tự động với mô hình thật
 
 Dự án **chưa có** bộ test tự động chạy với nhà cung cấp thật (cần key và tốn tiền, nên không phù hợp để chạy trong CI mặc định). Nếu bạn muốn, có thể thêm một bộ `verify-real-model.mjs` đọc key và nhà cung cấp từ biến môi trường và tự bỏ qua (`CHATMCP_TEST_SKIP:`) khi thiếu — đây là việc tiếp theo hợp lý sau khi bạn cho phép dùng key, không phải thứ đã có.
 
@@ -146,6 +159,10 @@ Remove-Item Env:ANTHROPIC_API_KEY
 - Kết quả đã ghi: 2026-10-25, `claude-sonnet-5-5` (xem ARCHITECTURE.md). `DATGOLD-HUB/tests/verify-live-checks.mjs` chạy cả hai script offline với máy chủ giả (kể cả bốn lỗi cấy vào bản sao của Hub, phải bị báo) để chúng không hỏng âm thầm.
 
 Một phép kiểm **chạy tay khác, chỉ đọc, không cần key và không tốn tiền**, không liên quan tới mô hình: `node DATGOLD-HUB/tests/live/check-skill-manifests.mjs` (thêm `--source all --verbose` cho cả năm danh mục kỹ năng). Màn hình Kỹ năng chỉ liệt kê từ cây Git, còn `SKILL.md` chỉ được đọc khi bấm Cài đặt, nên một kỹ năng Hub không đọc được vẫn trông bình thường cho tới lúc đó (`claude-api` của `anthropics/skills` từng báo "Unsupported or malformed SKILL.md YAML on line 3"). Lệnh này hỏi GitHub đúng danh sách mà màn hình đó hiện, tải từng `SKILL.md` đúng cách nút Cài đặt làm (tối đa 128 KiB, UTF-8), cho `parseSkillManifest` đọc và nói kỹ năng nào không đọc được, vì sao, bằng đúng câu mà thẻ sẽ hiện. Không cài gì, chỉ ghi một thư mục tạm rồi xóa; mỗi danh mục tốn hai yêu cầu tới api.github.com (giới hạn ẩn danh là 60 mỗi giờ). Mã thoát: 0 là đọc được hết, 1 là có tệp không đọc được, 2 là dùng sai hoặc không liệt kê được danh mục. `verify-phase4-features.mjs` chạy script này offline với máy chủ giả.
+
+`skill-load-live.mjs` hỏi một mô hình thật xem nó có tự gọi `skill_load` không: cài một kỹ năng riêng chứa một từ mã, hỏi một câu tiếng Việt chỉ kỹ năng đó trả lời được, và đạt khi mô hình tự nạp kỹ năng (Hub không nạp sẵn) và câu trả lời chứa từ mã. Mã thoát: 0 đạt, 1 mô hình không làm (hoặc Hub đã nạp sẵn: không chứng minh được gì), 2 không chạy được.
+
+`check-update-feed.mjs` và `check-update-download.mjs` đọc nguồn cập nhật thật bằng chính mã của Hub và nói Hub sẽ hiểu ra sao: manifest của bản mới nhất, rồi (script thứ hai) chữ ký của bản đó, hợp lệ, thiếu hay sai. Chúng gửi đúng những gì Hub gửi (`User-Agent: DatGold/<version>`), không ghi tệp nào. Mã thoát: 0 khi Hub đi tới được một quyết định, 1 khi không, 2 khi dùng sai.
 
 ## Long-task autonomy acceptance (v3.0.3 runtime follow-up)
 

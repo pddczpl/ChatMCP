@@ -155,6 +155,8 @@ Mỗi lần hỏng **một chỗ** của mã trong bản sao tạm, chạy bộ 
 | `fastapi.json` (4): lệnh nào được tính là bằng chứng kiểm tra | `verify-e2e-fastapi` | 4 KILLED | không chạy được: bộ test SKIP vì không có Python với `fastapi` |
 | **Cộng (44)** | | **41 KILLED · 1 EQUIVALENT · 2 N/A · 0 SURVIVED** | **38 KILLED · 1 EQUIVALENT · 1 N/A · 0 SURVIVED** (4 chưa chạy) |
 
+> **Ghi chú 2026-11-12:** bảng trên là kết quả của ngày báo cáo và không được sửa. Danh sách hôm nay khác: `isolation.json` có 23 đột biến, và đột biến M1 của `task-state.json` sống sót trên cây hiện tại (`node tests/mutation/run-mutations.mjs tests/mutation/task-state.json --only M1`: 0 killed, 1 survived, chạy trên `main` 8a2fa55a, Windows 11, Node 24.19.0).
+
 **0 đột biến sống sót** ở cả hai hệ điều hành; hợp hai bên, 43 trong 44 đột biến bị phát hiện ít nhất một lần và 1 là tương đương (`task-state` M15, ghi lý do trong danh sách).
 
 **`N/A` không phải là "bỏ qua cho dễ".** Lần chạy đầu của `isolation.json` trên Windows cho 18 `KILLED` và **2 `SURVIVED`** (M06 và M13). Phân tích: cả hai nhắm vào kho khóa AES-GCM và chế độ tệp `0600` của Linux/macOS, đoạn mã mà Windows không bao giờ chạy (Windows dùng DPAPI), nên không có test nào trên Windows *có thể* phát hiện chúng; đó là đột biến không áp dụng chứ không phải lỗ hổng của bộ test. Công cụ được bổ sung trường `platforms` (đột biến chỉ chạy ở hệ điều hành nó có nghĩa, ở nơi khác báo `N/A`, không bao giờ coi là "sống sót" hay "bị giết") và thêm **M06w**, bản đột biến tương ứng cho DPAPI (lưu khóa dạng văn bản thường): trên Windows nó bị phát hiện (`KILLED`), nên lỗi "khóa nằm trơ trên đĩa" được bắt ở cả hai nền tảng bằng hai đột biến khác nhau. Chế độ tệp `0600` của M13 không có tương đương trên NTFS và **chưa được thử** ở đó.
