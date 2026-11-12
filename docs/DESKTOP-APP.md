@@ -68,7 +68,8 @@ Sau khi thành công:
 ~~~text
 dist\DatGoldSetup.exe
 dist\DatGoldSetup.exe.sha256
-dist\DatGold-Browser-Companion.zip (và bản sao ChatMCP-Browser-Companion.zip, cùng checksum riêng)
+dist\DatGold-Browser-Companion.zip
+dist\DatGold-Browser-Companion.zip.sha256
 ~~~
 
 Kiểm tra SHA-256:
@@ -106,7 +107,7 @@ git rev-parse HEAD
 git tag -a vX.Y.Z -m "DatGold vX.Y.Z"
 git push origin vX.Y.Z
 gh auth status
-gh release create vX.Y.Z .\dist\DatGoldSetup.exe .\dist\DatGoldSetup.exe.sha256 .\dist\DatGold-Browser-Companion.zip .\dist\DatGold-Browser-Companion.zip.sha256 .\dist\ChatMCP-Browser-Companion.zip .\dist\ChatMCP-Browser-Companion.zip.sha256 --draft --title "DatGold vX.Y.Z" --generate-notes
+gh release create vX.Y.Z .\dist\DatGoldSetup.exe .\dist\DatGoldSetup.exe.sha256 .\dist\DatGold-Browser-Companion.zip .\dist\DatGold-Browser-Companion.zip.sha256 --draft --title "DatGold vX.Y.Z" --generate-notes
 ~~~
 
 Xem lại nội dung và file checksum trên Draft Release rồi publish thủ công. Chưa chọn version / chưa test máy sạch thì không tạo tag hay release.
@@ -123,6 +124,8 @@ npm ci --prefix .\DATGOLD-HUB\ui
 npm run build --prefix .\DATGOLD-HUB\ui
 .\START-CHATMCP-DESKTOP.cmd
 ~~~
+
+`START-CHATMCP-DESKTOP.cmd` mở app desktop khi thư mục có `ChatMCP.exe` (bản cài đặt) hoặc `desktop-shellin\dist\ChatMCP.exe`; app không nhận tham số nên thư mục dự án được chọn trong app. Trong một bản source chưa có app, lệnh này nói rõ điều đó rồi giao cho launcher của Hub (`DATGOLD-HUB\Start-ChatMcpHub.ps1`), launcher mở dashboard trong trình duyệt mặc định bằng vé đăng nhập một lần.
 
 Chỉ cần Hub qua browser:
 

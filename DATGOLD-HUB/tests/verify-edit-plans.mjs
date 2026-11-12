@@ -65,6 +65,10 @@ const errorCode = (result) => result.structuredContent?.error?.code;
   assert.equal(planEdit({ path: 'x', old_string: 'Việt', new_string: 'Việt Nam 😀' }, buf('Tiếng Việt\n'), at).newText, 'Tiếng Việt Nam 😀\n');
   // replace_all, and a list of edits applied in order, each to the text the one before left
   assert.equal(planEdit({ path: 'x', old_string: 'a', new_string: 'b', replace_all: true }, buf('a a a\n'), at).newText, 'b b b\n');
+  // replace_all reports as many places as it replaced, also above the 5000 places that the search for an ambiguous match stops at
+  const many = planEdit({ path: 'x', old_string: 'a', new_string: 'b', replace_all: true }, buf(`${'a '.repeat(6000)}\n`), at);
+  assert.equal(many.newText, `${'b '.repeat(6000)}\n`);
+  assert.equal(many.replacements, 6000, 'the count of a replace_all is the number of places replaced');
   const listed = planEdit({ path: 'x', edits: [{ old_string: 'one', new_string: 'ONE' }, { old_string: 'ONE\ntwo', new_string: 'both' }] }, lf, at);
   assert.equal(listed.newText, 'both\nthree\n');
   assert.equal(listed.edits, 2);

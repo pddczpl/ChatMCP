@@ -27,7 +27,7 @@ DatGold Studio hiện tại:
 
 | Lớp | Thư viện / Công nghệ | Phiên bản | License | Lý do & Đánh giá CSP |
 |---|---|---|---|---|
-| **Build Tool** | **Vite** | 6.x | MIT | Build cực nhanh, module ESM tối ưu, sinh output tĩnh sạch sẽ vào `CHATMCP-HUB/web/dist/`. |
+| **Build Tool** | **Vite** | 6.x | MIT | Build cực nhanh, module ESM tối ưu, sinh output tĩnh sạch sẽ vào `DATGOLD-HUB/web/dist/`. |
 | **Language** | **TypeScript** | 5.7+ | Apache-2.0 | Strict mode, bảo đảm type safety cho mọi API schema, loại bỏ lỗi runtime null/undefined. |
 | **Framework** | **React** | 19.x | MIT | Hooks, Server Components-ready, Concurrent features, tối ưu hóa render. |
 | **Styling** | **Tailwind CSS v4** | 4.x | MIT | Khai báo token qua `@theme`, biên dịch toàn bộ class thành file CSS tĩnh lúc build. **Hoàn toàn tuân thủ CSP `style-src 'self'`**, 0 runtime style injection. |
@@ -77,18 +77,18 @@ Ngân sách đặt ra trong yêu cầu:
 ## 4. Chiến lược Phân phối & Triển khai (Build Strategy)
 
 Chúng tôi lựa chọn **Chiến lược A (Khuyên dùng)**:
-1. **Mã nguồn UI mới** đặt tại thư mục: `CHATMCP-HUB/ui/`.
-2. **Build output** xuất ra: `CHATMCP-HUB/web/dist/`.
+1. **Mã nguồn UI mới** đặt tại thư mục: `DATGOLD-HUB/ui/`.
+2. **Build output** xuất ra: `DATGOLD-HUB/web/dist/`.
 3. **Commit thư mục build `dist/` vào repo:**
-   - Cập nhật `.gitignore` để un-ignore: `!CHATMCP-HUB/web/dist/**`.
-   - Trong CI GitHub Actions: thêm bước kiểm tra `npm run build` trong `CHATMCP-HUB/ui/` và sau đó chạy `git diff --exit-code CHATMCP-HUB/web/dist` để cam đoan bản build đã commit luôn trùng khớp 100% với mã nguồn TypeScript.
+   - Cập nhật `.gitignore` để un-ignore: `!DATGOLD-HUB/web/dist/**`.
+   - Trong CI GitHub Actions: thêm bước kiểm tra `npm run build` trong `DATGOLD-HUB/ui/` và sau đó chạy `git diff --exit-code DATGOLD-HUB/web/dist` để cam đoan bản build đã commit luôn trùng khớp 100% với mã nguồn TypeScript.
    - **Lợi ích tối thượng:** Người dùng cuối tải `ChatMCPSetup.exe`, người clone repo, người chạy Docker hay VPS Render **không cần phải chạy `npm install` hay `npm run build` cho frontend**. Mọi thứ sẵn sàng chạy ngay bằng Node.js như trước.
 
 ---
 
 ## 5. Cơ chế Phục vụ File An toàn trong `hub.mjs`
 
-Sửa đổi `hub.mjs` để phục vụ thư mục build `CHATMCP-HUB/web/dist/`:
+Sửa đổi `hub.mjs` để phục vụ thư mục build `DATGOLD-HUB/web/dist/`:
 1. **Bảo vệ Path Traversal:**
    - Chuẩn hóa đường dẫn bằng `path.normalize()`.
    - Kiểm tra `path.resolve(distPath).startsWith(distRoot)`. Chặn đứng mọi nỗ lực `../`, `%2e%2e`, `%00`.
@@ -108,5 +108,5 @@ Sửa đổi `hub.mjs` để phục vụ thư mục build `CHATMCP-HUB/web/dist/
 1. **Giao diện mới mặc định:** Đường dẫn `/` và `/index.html` sẽ phục vụ UI mới từ `web/dist/index.html`.
 2. **Giao diện cũ (`/classic`):** UI React cũ (`react-app.js`, `react.css`) vẫn được giữ nguyên và truy cập được tại `/classic` hoặc `/legacy` trong phiên bản này để dự phòng rủi ro.
 3. **Bảo toàn Test:**
-   - Port `web/ui-logic.js` và `web/onboarding.js` sang TypeScript trong `CHATMCP-HUB/ui/src/lib/`, giữ nguyên file gốc để suite test hiện có `verify-ui-logic.mjs` tiếp tục PASS 100%.
+   - Port `web/ui-logic.js` và `web/onboarding.js` sang TypeScript trong `DATGOLD-HUB/ui/src/lib/`, giữ nguyên file gốc để suite test hiện có `verify-ui-logic.mjs` tiếp tục PASS 100%.
    - Đặt các thuộc tính `data-testid` ổn định trên các thành phần UI mới để các bộ test Python (`verify-react-ui.py`, `verify-v2-ui.py`) hoặc Playwright mới kiểm thử chính xác hành vi tương đương.

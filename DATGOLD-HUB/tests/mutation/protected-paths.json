@@ -1,0 +1,512 @@
+{
+  "suite": "verify-command-analysis.mjs",
+  "description": "the protected names of lib/protected-paths.mjs that were added for the credential stores of command-line tools and for cloud state (P42): every name, every location, and the wildcard rules, in both directions",
+  "mutations": [
+    {
+      "name": "PP1",
+      "what": "the registry logins of Docker are an ordinary config.json",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['.docker', 'config.json'],",
+          "new": "  ['.docker-off', 'config.json'],"
+        }
+      ]
+    },
+    {
+      "name": "PP2",
+      "what": "the GitHub token of gh is an ordinary hosts.yml",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['gh', 'hosts.yml'],",
+          "new": "  ['gh-off', 'hosts.yml'],"
+        }
+      ]
+    },
+    {
+      "name": "PP3",
+      "what": "the access tokens of the Azure CLI are readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['.azure', 'accesstokens.json'],",
+          "new": "  ['.azure', 'accesstokens-off.json'],"
+        }
+      ]
+    },
+    {
+      "name": "PP4",
+      "what": "the MSAL token cache (json) is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['.azure', 'msal_token_cache.json'],",
+          "new": "  ['.azure', 'msal_token_cache-off.json'],"
+        }
+      ]
+    },
+    {
+      "name": "PP5",
+      "what": "the MSAL token cache (bin) is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['.azure', 'msal_token_cache.bin'],",
+          "new": "  ['.azure', 'msal_token_cache-off.bin'],"
+        }
+      ]
+    },
+    {
+      "name": "PP6",
+      "what": "the service principals of the Azure CLI are readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['.azure', 'service_principal_entries.json'],",
+          "new": "  ['.azure', 'service_principal_entries-off.json'],"
+        }
+      ]
+    },
+    {
+      "name": "PP7",
+      "what": "the credential database of gcloud is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['gcloud', 'credentials.db'],",
+          "new": "  ['gcloud', 'credentials-off.db'],"
+        }
+      ]
+    },
+    {
+      "name": "PP8",
+      "what": "the access-token database of gcloud is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['gcloud', 'access_tokens.db'],",
+          "new": "  ['gcloud', 'access_tokens-off.db'],"
+        }
+      ]
+    },
+    {
+      "name": "PP9",
+      "what": "the per-account key files of gcloud are readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['gcloud', 'legacy_credentials'],",
+          "new": "  ['gcloud', 'legacy_credentials-off'],"
+        }
+      ]
+    },
+    {
+      "name": "PP10",
+      "what": "the Maven settings with server passwords are readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['.m2', 'settings.xml'],",
+          "new": "  ['.m2', 'settings-off.xml'],"
+        }
+      ]
+    },
+    {
+      "name": "PP11",
+      "what": "the Maven master password is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  ['.m2', 'settings-security.xml'],",
+          "new": "  ['.m2', 'settings-security-off.xml'],"
+        }
+      ]
+    },
+    {
+      "name": "PP12",
+      "what": "no location rule at all",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  return PRIVATE_LOCATIONS.some((row) => atLocation(names, row));",
+          "new": "  return false;"
+        }
+      ]
+    },
+    {
+      "name": "PP13",
+      "what": "a location is compared with the name as written: a trailing dot or a stream suffix reads the file",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  const names = parts.map(nameOf);",
+          "new": "  const names = parts.map((part) => part.toLowerCase());"
+        }
+      ]
+    },
+    {
+      "name": "PP14",
+      "what": "a location is compared case-sensitively",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  const names = parts.map(nameOf);",
+          "new": "  const names = parts;"
+        }
+      ]
+    },
+    {
+      "name": "PP15",
+      "what": "a location only counts at the end of the path: what lies below a folder of key files is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  for (let start = 0; start + parts.length <= names.length; start += 1) {",
+          "new": "  for (let start = Math.max(0, names.length - parts.length); start + parts.length <= names.length; start += 1) {"
+        }
+      ]
+    },
+    {
+      "name": "PP16",
+      "what": "one name of a location is enough: every config.json is protected",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "    if (parts.every((part, index) => names[start + index] === part)) return true;",
+          "new": "    if (parts.some((part, index) => names[start + index] === part)) return true;"
+        }
+      ]
+    },
+    {
+      "name": "PP17",
+      "what": "credentials.toml (cargo) is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|credentials(?:\\\\.(?:json|toml))?'",
+          "new": "  + '|credentials(?:\\\\.(?:json))?'"
+        }
+      ]
+    },
+    {
+      "name": "PP18",
+      "what": "secrets.tfvars is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "(?:json|ya?ml|toml|(?:auto\\\\.)?tfvars)'",
+          "new": "(?:json|ya?ml|toml)'"
+        }
+      ]
+    },
+    {
+      "name": "PP19",
+      "what": "secret.auto.tfvars is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "|(?:auto\\\\.)?tfvars)'",
+          "new": "|tfvars)'"
+        }
+      ]
+    },
+    {
+      "name": "PP20",
+      "what": ".pgpass is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "|htpasswd|pgpass|dockercfg|",
+          "new": "|htpasswd|dockercfg|"
+        }
+      ]
+    },
+    {
+      "name": "PP21",
+      "what": ".dockercfg is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "|pgpass|dockercfg|vault-token|",
+          "new": "|pgpass|vault-token|"
+        }
+      ]
+    },
+    {
+      "name": "PP22",
+      "what": ".vault-token is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "|dockercfg|vault-token|terraformrc)'",
+          "new": "|dockercfg|terraformrc)'"
+        }
+      ]
+    },
+    {
+      "name": "PP23",
+      "what": ".terraformrc is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "|vault-token|terraformrc)'",
+          "new": "|vault-token)'"
+        }
+      ]
+    },
+    {
+      "name": "PP24",
+      "what": "_netrc is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|_netrc'",
+          "new": "  + '|_netrc-off'"
+        }
+      ]
+    },
+    {
+      "name": "PP25",
+      "what": "terraform.rc is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|terraform\\\\.rc'",
+          "new": "  + '|terraform\\\\.rc-off'"
+        }
+      ]
+    },
+    {
+      "name": "PP26",
+      "what": "credentials.tfrc.json is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|credentials\\\\.tfrc\\\\.json'",
+          "new": "  + '|credentials\\\\.tfrc\\\\.json-off'"
+        }
+      ]
+    },
+    {
+      "name": "PP27",
+      "what": "Terraform state is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|.*\\\\.tfstate(?:\\\\.[0-9]+)?(?:\\\\.backup)?'",
+          "new": "  + '|.*\\\\.tfstate-off(?:\\\\.[0-9]+)?(?:\\\\.backup)?'"
+        }
+      ]
+    },
+    {
+      "name": "PP28",
+      "what": "the backup of Terraform state is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "(?:\\\\.[0-9]+)?(?:\\\\.backup)?'",
+          "new": "(?:\\\\.[0-9]+)?'"
+        }
+      ]
+    },
+    {
+      "name": "PP29",
+      "what": "a numbered backup of Terraform state is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "tfstate(?:\\\\.[0-9]+)?(?:",
+          "new": "tfstate(?:"
+        }
+      ]
+    },
+    {
+      "name": "PP30",
+      "what": "everything that starts like Terraform state is protected: notes.tfstate.md too",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "tfstate(?:\\\\.[0-9]+)?(?:\\\\.backup)?'",
+          "new": "tfstate.*'"
+        }
+      ]
+    },
+    {
+      "name": "PP31",
+      "what": "only the spelling with a dash is a service-account key",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|service[-_]?account(",
+          "new": "  + '|service-account("
+        }
+      ]
+    },
+    {
+      "name": "PP32",
+      "what": "serviceAccountKey.json is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "account(?:[-_]?key)?(?:[-_.].*)?\\\\.json'",
+          "new": "account(?:[-_.].*)?\\\\.json'"
+        }
+      ]
+    },
+    {
+      "name": "PP33",
+      "what": "service-account-prod.json is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "(?:[-_]?key)?(?:[-_.].*)?\\\\.json'",
+          "new": "(?:[-_]?key)?\\\\.json'"
+        }
+      ]
+    },
+    {
+      "name": "PP34",
+      "what": "every name that starts with service-account is a key: service-accounts.json too",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "(?:[-_]?key)?(?:[-_.].*)?\\\\.json'",
+          "new": "(?:[-_]?key)?.*\\\\.json'"
+        }
+      ]
+    },
+    {
+      "name": "PP35",
+      "what": "the application default credentials of gcloud are readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|application_default_credentials\\\\.json'",
+          "new": "  + '|application_default_credentials-off\\\\.json'"
+        }
+      ]
+    },
+    {
+      "name": "PP36",
+      "what": "a file named kubeconfig is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|kubeconfig(?:\\\\.ya?ml)?'",
+          "new": "  + '|kubeconfig-off(?:\\\\.ya?ml)?'"
+        }
+      ]
+    },
+    {
+      "name": "PP37",
+      "what": "kubeconfig.yaml is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|kubeconfig(?:\\\\.ya?ml)?'",
+          "new": "  + '|kubeconfig'"
+        }
+      ]
+    },
+    {
+      "name": "PP38",
+      "what": "prod.kubeconfig is readable",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  + '|.*\\\\.kubeconfig'",
+          "new": "  + '|.*\\\\.kubeconfig-off'"
+        }
+      ]
+    },
+    {
+      "name": "PP39",
+      "what": "Terraform state through a wildcard is not noticed",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  if (/[*?[]/.test(text) && text.includes('.tfstate')) return true;",
+          "new": "  if (false && text.includes('.tfstate')) return true;"
+        }
+      ]
+    },
+    {
+      "name": "PP40",
+      "what": "every operand that holds .tfstate is refused, wildcard or not",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "  if (/[*?[]/.test(text) && text.includes('.tfstate')) return true;",
+          "new": "  if (text.includes('.tfstate')) return true;"
+        }
+      ]
+    },
+    {
+      "name": "PP41",
+      "what": "a location through a wildcard is not noticed",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "      if (anchored || window.some((segment, at) => nameOf(segment) === parts[at])) return true;",
+          "new": "      if (false) return true;"
+        }
+      ]
+    },
+    {
+      "name": "PP42",
+      "what": "a location below a dot-folder needs a segment written out in full: \".docker/*\" passes",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "      if (anchored || window.some(",
+          "new": "      if (window.some("
+        }
+      ]
+    },
+    {
+      "name": "PP43",
+      "what": "a location without a dot-folder is never noticed through a wildcard: \"gh/*\" passes",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "      if (anchored || window.some((segment, at) => nameOf(segment) === parts[at])) return true;",
+          "new": "      if (anchored) return true;"
+        }
+      ]
+    },
+    {
+      "name": "PP44",
+      "what": "star-slash-star is refused",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "    const anchored = parts.some((part) => part.startsWith('.'));",
+          "new": "    const anchored = true;"
+        }
+      ]
+    },
+    {
+      "name": "PP45",
+      "what": "one matching segment is enough: \"inventory/*.yml\" is refused",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "      if (!window.every((segment, at) => segmentMayBe(segment, parts[at]))) continue;",
+          "new": "      if (!window.some((segment, at) => segmentMayBe(segment, parts[at]))) continue;"
+        }
+      ]
+    },
+    {
+      "name": "PP46",
+      "what": "a location is only looked for at the start of the operand: \".config/gh/*.yml\" passes",
+      "patches": [
+        {
+          "file": "lib/protected-paths.mjs",
+          "old": "    for (let index = 0; index + parts.length <= segments.length; index += 1) {",
+          "new": "    for (let index = 0; index + parts.length <= segments.length && index < 1; index += 1) {"
+        }
+      ]
+    }
+  ]
+}

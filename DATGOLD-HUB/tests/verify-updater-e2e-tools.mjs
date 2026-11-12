@@ -60,6 +60,23 @@ try {
   {
     assert.match(repoVersion, /^\d+\.\d+\.\d+$/);
     assert.ok(VERSION_FILES.length >= 8, `the places a build reads its version from: ${VERSION_FILES.join(', ')}`);
+    // Every project of the repository that says the release version in <Version> is one of the places (a test project too: the native tests compare the version of the code they are built from with the shell's), and no
+    // test writes the running version by hand (it reads it: tests/support/running-version.mjs, HubLifecycle.Version). A version bump with this tool then leaves no test behind on the old number.
+    {
+      const tracked = spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '-z'], { encoding: 'utf8' });
+      if (tracked.status === 0) {
+        const files = tracked.stdout.split('\0').filter(Boolean);
+        // (a project that says another number on purpose, 0.0.0 for the stand-in WebView2Host of the updater proof, is not a place of the release version)
+        const projects = files.filter((file) => file.endsWith('.csproj') && read(REPO_ROOT, file).includes(`<Version>${repoVersion}</Version>`));
+        const missing = projects.filter((file) => !VERSION_FILES.includes(file));
+        assert.deepEqual(missing, [], `projects that say a <Version> but are not places of set-build-version.mjs: ${missing.join(', ')}`);
+        const quoted = new RegExp(`['"\`]${repoVersion.replace(/[.]/g, '\\.')}(?:-react-agent)?['"\`]`);
+        const tests = files.filter((file) => (/^scripts\/tests\/.+\.cs$/.test(file) || /^DATGOLD-HUB\/tests\/[^/]+\.mjs$/.test(file)) && fs.existsSync(path.join(REPO_ROOT, ...file.split('/'))));
+        const byHand = tests.filter((file) => read(REPO_ROOT, file).split('\n').some((line) => !/^\s*\/\//.test(line) && quoted.test(line)));
+        assert.deepEqual(byHand, [], `tests that write the running version ${repoVersion} by hand instead of reading it: ${byHand.join(', ')}`);
+        ok(`${projects.length} projects say a <Version> and all are places of the version tool; no test of scripts/tests or DATGOLD-HUB/tests writes ${repoVersion} by hand`);
+      } else ok('(not a Git checkout: the projects and tests of the repository are not listed)');
+    }
     const root = copyVersionFiles(folder('tree'));
     const before = snapshot(root);
     assert.equal(readBuildVersion(root), repoVersion, 'the tree as it is committed says one version');

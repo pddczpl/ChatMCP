@@ -24,7 +24,7 @@ internal sealed class InstallTransaction : IDisposable
     private readonly List<Change> touched = new();
     private bool retain;
     private long stagedBytes;
-    internal const string PendingName = ".chatmcp-update-pending.json";
+    internal const string PendingName = InstalledCopy.PendingName; // the shell looks for the same file before it starts its Hub
     internal IReadOnlyDictionary<string, string> Files => changes.Values.Where(c => c.NewHash != null)
         .ToDictionary(c => c.Relative, c => c.NewHash!, StringComparer.OrdinalIgnoreCase);
     internal InstallTransaction(string directory)
@@ -32,7 +32,7 @@ internal sealed class InstallTransaction : IDisposable
         root = Path.GetFullPath(directory).TrimEnd('\\', '/');
         marker = InstallerEngine.SafePath(root, PendingName);
         if (File.Exists(marker)) throw new InvalidOperationException("An update that stopped halfway has left a backup (.chatmcp-update-pending.json). Repair it first, with DatGoldSetup.exe --quiet --recover --install-dir <the DatGold folder> or with the setup wizard, which offers to; no files were changed.").Tag("pending_recovery");
-        workspace = InstallerEngine.SafePath(root, ".ChatMCP-update-" + Guid.NewGuid().ToString("N"));
+        workspace = InstallerEngine.SafePath(root, InstalledCopy.UpdateFolderPrefix + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(workspace, "new"));
         Directory.CreateDirectory(Path.Combine(workspace, "old"));
     }
