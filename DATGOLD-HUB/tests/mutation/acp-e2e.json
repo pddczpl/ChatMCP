@@ -50,8 +50,8 @@
       "patches": [
         {
           "file": "lib/acp/content.mjs",
-          "old": "const protectedName = isProtectedPath(place.file ? (place.inside ? place.relative : paths.basename(place.absolute)) : nameOfUri(resource.uri));",
-          "new": "const protectedName = false;"
+          "old": "if (protectedTarget(resource.uri, place)) { items.push(",
+          "new": "if (false) { items.push("
         }
       ]
     },

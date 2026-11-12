@@ -69,10 +69,13 @@ What the content blocks become (`lib/acp/content.mjs`):
 | `text` | The prompt, in order, one blank line apart. Never cut: over 100,000 characters (the Hub's limit) is `Invalid params` with the limit in the message. |
 | `resource_link` to a file inside the project folder | A line `File in the project: <path from the folder>`. The agent never reads the file for the prompt: the model reads it with the Hub's tools, which have the workspace boundary and the protected files. |
 | `resource_link` to a file outside the folder, or to anything else | `File outside the project folder …` / `Link (not fetched): <uri>`. A URL is never fetched because a prompt carries one. |
-| `resource` with text | The text between two marks that say it is data and not instructions, while the whole prompt fits in 100,000 characters. One that does not fit is left out whole and named. |
+| `resource` with text | The text between a BEGIN and an END line that say it is data and not instructions, while the whole prompt fits in 100,000 characters. One that does not fit is left out whole and named. The two lines carry a code of 16 hexadecimal digits that is drawn for each prompt (again if the text or its name holds it), and a sentence before the first text says that only an END line with this code ends it: a text that holds an END line of its own, or one with another code, cannot close the fence. The fence tells the model what is data; it is not a guarantee that a model never follows text it reads (RR-8). |
 | `resource` with a blob | A line that says it was not sent. |
-| a protected file (`.env`, keys, credentials, `.git`, `.ssh`, `lib/protected-paths.mjs`), as a link or as embedded text | `Protected file, not sent: <name>`. Its text is **never** in the prompt. |
+| a protected file (`.env`, keys, credentials, `.git`, `.ssh`, `.aws`, `.gnupg`, `.kube`: `lib/protected-paths.mjs`), as a link or as embedded text | `Protected file, not sent: <name>`. Its text is **never** in the prompt. A file inside the project is judged by its path from the project folder (the project may itself sit in a folder with a protected name); one outside it by its whole path, every folder of it, and by its name (so `~/.ssh/config` and another repository's `.git/config` are protected); any other URI by its decoded path (a remote `.ssh/config`, a separator sent as `%2F` or `%5C`). What the Hub's rule does not name (for example `.docker/config.json`) is not protected here either. |
 | `image`, `audio`, an unknown type | `Invalid params` (not advertised / unknown). |
+
+Every label that goes into the prompt or a note — a title, a name, a URI, a file name, a type — is **one line**: a line break or any other control character (also U+0085, U+2028, U+2029, and `%0A` once a URI is decoded) is shown as an escape such as `
+`, and a label is cut after 300 characters, so nothing an editor names can start a line of the prompt. The words of the person are not touched.
 
 The person is told what was left out and why (a notice if the client advertised notices, otherwise an ordinary message). Tests: `tests/verify-acp-logic.mjs` (every row, both ways), `tests/verify-e2e-acp.mjs` (a real prompt with a link, a protected file and an ordinary file: the model's requests are scanned, the text of the ordinary file is found there, the text of `.env` is not). A secret in an *ordinary* file that the person attaches is sent: the protection is by name, as everywhere in the Hub.
 
@@ -139,6 +142,8 @@ Each of these has a defined answer and the next request is served ([lib/acp/rpc.
 - **MCP servers** passed in `session/new` are ignored without a word to the person (the Hub has no MCP client yet; a later change says so with a notice).
 - **Images and audio** in a prompt.
 - **A guide for each editor** (Zed, JetBrains, Neovim, Emacs, VS Code through a community extension) and the evidence from running them. The configuration an editor needs is the command above.
+- **The connection to the Hub is made again when it can no longer be used**: an attached Hub that no longer takes the session of the agent (the desktop app was restarted: a new secret) ends the running turn at once with a sentence, and the next request reads the session file again and checks the listener again; so does an attached Hub that cannot be reached. A Hub that the agent started and that has ended is started again by the next request. A Hub that answers with a refusal of its own (a limit, a busy Hub) is kept. Tests: `tests/verify-acp-logic.mjs`.
+- **256 sessions on one connection**: when it is full, the oldest session without a running turn is closed (and logged) to make room; when every session has a turn, `session/new` is refused with the number. Test: `tests/verify-acp-logic.mjs`.
 - Sessions live in the agent's memory: when the editor starts the agent again, `session/new` is a new conversation (the Hub keeps the old tasks, which the desktop app shows).
 
 ## Verified, and not

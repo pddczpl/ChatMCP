@@ -82,7 +82,7 @@ export function describeHubFailure(failure) {
     case 'workspace_limit': return internal(`DatGold cannot take another workspace folder.${tail}`);
     case 'git_required': return internal(`This needs a Git repository with at least one commit (a second task in the same folder runs in its own Git worktree).${tail}`);
     case 'shutting_down': return internal(`DatGold is shutting down.${tail}`);
-    case 'hub_auth_required': return internal(`The Hub no longer accepts the session of this agent (it was probably restarted). Restart the agent from the editor.${tail}`);
+    case 'hub_auth_required': return internal(`The Hub no longer accepts the session of this agent (it was probably restarted). The next request connects to it again.${tail}`);
     default: break;
   }
   if (status === 413) return { code: ERROR_CODES.INVALID_PARAMS, message: `The message is too large for DatGold.${tail}` };

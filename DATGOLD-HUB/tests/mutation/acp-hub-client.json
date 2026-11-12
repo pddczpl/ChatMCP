@@ -304,7 +304,7 @@
       "patches": [
         {
           "file": "lib/acp/hub-client.mjs",
-          "old": "Restart the agent from the editor.",
+          "old": "The next request connects to it again.",
           "new": "x"
         }
       ]

@@ -31,6 +31,8 @@ export const AGENT_CAPABILITIES = Object.freeze({
   sessionCapabilities: Object.freeze({}),
 });
 const MAX_SESSIONS = 256;
+const isAuthLoss = (error) => error instanceof HubError && (error.status === 401 || error.code === 'hub_auth_required');
+const isUnreachable = (error) => error instanceof HubError && error.status === null;
 const SHUTDOWN_CANCEL_MS = 5000;
 const SETTLE_POLL_MS = 50; // the Hub turns a task "completed" a moment before it lets go of the workspace: the look after that moment is not a whole poll interval away
 
@@ -46,7 +48,7 @@ const SETTLE_POLL_MS = 50; // the Hub turns a task "completed" a moment before i
  */
 export function createAcpAgent({ peer, connectHub, masker, log: sink, version = VERSION, pollMs = 500, lostContactMs = 30_000 }) {
   let connector = connectHub;
-  const state = { initialized: false, supportsNotices: false, client: null, hubPromise: null, shutdown: null };
+  const state = { initialized: false, supportsNotices: false, client: null, hubPromise: null, hubConnection: null, shutdown: null };
   const sessions = new Map();
   let sessionsBeingMade = 0;
   const log = (line) => sink(masker.text(line));
@@ -64,7 +66,7 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
     return error; // anything else is a defect: the peer answers Internal error and logs it
   };
   const guard = (handler) => async (params, context) => {
-    try { return masker.value(await handler(params, context)); } catch (error) { throw asRpcError(error); }
+    try { return masker.value(await handler(params, context)); } catch (error) { noteHubFailure(error); throw asRpcError(error); }
   };
   /** Information for the person: a notice when the client said it can show one, otherwise an ordinary message (the protocol forbids a notice to a client that did not advertise them). */
   const tell = (sessionId, { severity, title, description }) => {
@@ -73,9 +75,23 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
   };
 
   // ---- the Hub --------------------------------------------------------------------------------------------------------------------------------------
+  // The connection is kept, and dropped when it can no longer be used, so that the next request connects again (connectToHub reads the session file and checks the listener again):
+  // an attached Hub that no longer takes the session of the agent (it was restarted: a new secret) or that cannot be reached, and a Hub the agent started that has ended. A Hub the agent
+  // started that is still running is never dropped: connecting again would attach to it, and nobody would stop it.
+  const forget = (hub) => { if (state.hubConnection === hub) { state.hubConnection = null; state.hubPromise = null; } };
   const getHub = () => {
-    state.hubPromise ??= Promise.resolve().then(() => connector()).catch((error) => { state.hubPromise = null; throw error; });
+    state.hubPromise ??= Promise.resolve().then(() => connector()).then((hub) => {
+      state.hubConnection = hub;
+      void hub.closed?.then(() => { if (state.hubConnection === hub) log('the Hub the agent started has ended: the next request starts one again'); forget(hub); });
+      return hub;
+    }).catch((error) => { state.hubPromise = null; throw error; });
     return state.hubPromise;
+  };
+  const noteHubFailure = (error) => {
+    const hub = state.hubConnection;
+    if (!hub || hub.owned || !(isAuthLoss(error) || isUnreachable(error))) return;
+    log(`the Hub ${isAuthLoss(error) ? 'no longer takes the session of this agent' : 'cannot be reached'}: the next request connects again`);
+    forget(hub);
   };
 
   // ---- requests -------------------------------------------------------------------------------------------------------------------------------------
@@ -108,7 +124,13 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
     try { stat = await fs.stat(cwd); } catch { throw fail(ERROR_CODES.INVALID_PARAMS, `The folder does not exist: ${cwd}`); }
     if (!stat.isDirectory()) throw fail(ERROR_CODES.INVALID_PARAMS, `The path is not a folder: ${cwd}`);
     // The limit counts the sessions that are still being made too: requests that arrive in one chunk of the pipe all get here before the first of them has its session.
-    if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) throw fail(ERROR_CODES.INVALID_REQUEST, `Too many sessions on this connection (${MAX_SESSIONS}).`);
+    // A full connection makes room by closing its oldest session that has no turn running; when every session has one, the request is refused.
+    if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {
+      const idle = [...sessions.values()].find((session) => !session.turn);
+      if (!idle) throw fail(ERROR_CODES.INVALID_REQUEST, `Too many sessions on this connection (${MAX_SESSIONS}), and every one of them has a turn running.`);
+      sessions.delete(idle.id);
+      log(`closed the oldest session without a turn, ${idle.id}, to make room (${MAX_SESSIONS} sessions at most)`);
+    }
     sessionsBeingMade += 1;
     try {
       const hub = await getHub();
@@ -153,6 +175,7 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
         lastAnswer = Date.now();
       } catch (error) {
         if (error instanceof RpcError) throw error;
+        if (isAuthLoss(error)) throw error; // a Hub that no longer takes the session will not take it in a moment either: the turn fails now
         if (Date.now() - lastAnswer > lostContactMs) throw fail(ERROR_CODES.INTERNAL, `Lost contact with the DatGold Hub: ${error?.message ?? error}`);
       }
       await nap(napMs);
@@ -209,7 +232,9 @@ export function createAcpAgent({ peer, connectHub, masker, log: sink, version = 
   return {
     log,
     /** Takes the place of the way to the Hub (the tests use it). */
-    replaceConnector(next) { connector = next; state.hubPromise = null; },
+    replaceConnector(next) { connector = next; state.hubPromise = null; state.hubConnection = null; },
+    /** How many sessions the connection holds (the tests use it). */
+    sessionCount: () => sessions.size,
     attach() {
       peer.handle('initialize', guard(initialize));
       peer.handle('session/new', guard(requireInitialized(newSession)));

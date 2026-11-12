@@ -371,8 +371,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "    if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) throw fail(ERROR_CODES.INVALID_REQUEST, `Too many sessions on this connection (${MAX_SESSIONS}).`);\n",
-          "new": ""
+          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {",
+          "new": "if (false) {"
         }
       ]
     },
@@ -382,8 +382,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) throw",
-          "new": "if (sessions.size >= MAX_SESSIONS) throw"
+          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {",
+          "new": "if (sessions.size >= MAX_SESSIONS) {"
         }
       ]
     },
@@ -404,8 +404,8 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) throw",
-          "new": "if (sessions.size + sessionsBeingMade > MAX_SESSIONS) throw"
+          "old": "if (sessions.size + sessionsBeingMade >= MAX_SESSIONS) {",
+          "new": "if (sessions.size + sessionsBeingMade > MAX_SESSIONS) {"
         }
       ]
     },
@@ -1027,7 +1027,7 @@
       "patches": [
         {
           "file": "lib/acp/agent.mjs",
-          "old": "replaceConnector(next) { connector = next; state.hubPromise = null; },",
+          "old": "replaceConnector(next) { connector = next; state.hubPromise = null; state.hubConnection = null; },",
           "new": "replaceConnector(next) { connector = next; },"
         }
       ]
@@ -1139,6 +1139,150 @@
           "file": "lib/acp/agent.mjs",
           "old": "const log = (line) => sink(masker.text(line));",
           "new": "const log = (line) => sink(line);"
+        }
+      ]
+    },
+    {
+      "name": "sessions-busy-closed",
+      "what": "a full connection closes its oldest session even when it has a turn running",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const idle = [...sessions.values()].find((session) => !session.turn);",
+          "new": "const idle = [...sessions.values()][0];"
+        }
+      ]
+    },
+    {
+      "name": "sessions-never-closed",
+      "what": "a full connection refuses instead of closing an idle session",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const idle = [...sessions.values()].find((session) => !session.turn);",
+          "new": "const idle = undefined;"
+        }
+      ]
+    },
+    {
+      "name": "sessions-closed-kept",
+      "what": "the session that gives its place is kept",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      sessions.delete(idle.id);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "sessions-closed-silent",
+      "what": "closing a session to make room is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      log(`closed the oldest session without a turn, ${idle.id}, to make room (${MAX_SESSIONS} sessions at most)`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "hub-never-forgotten",
+      "what": "a Hub that no longer takes the session is kept for ever",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "try { return masker.value(await handler(params, context)); } catch (error) { noteHubFailure(error); throw asRpcError(error); }",
+          "new": "try { return masker.value(await handler(params, context)); } catch (error) { throw asRpcError(error); }"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-auth-off",
+      "what": "a Hub that no longer takes the session is not connected to again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const isAuthLoss = (error) => error instanceof HubError && (error.status === 401 || error.code === 'hub_auth_required');",
+          "new": "const isAuthLoss = () => false;"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-unreachable-off",
+      "what": "a Hub that cannot be reached is not connected to again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const isUnreachable = (error) => error instanceof HubError && error.status === null;",
+          "new": "const isUnreachable = () => false;"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-any-error",
+      "what": "a Hub that refuses for a reason of its own is connected to again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (!hub || hub.owned || !(isAuthLoss(error) || isUnreachable(error))) return;",
+          "new": "if (!hub || hub.owned) return;"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-owned",
+      "what": "a running Hub that the agent started is dropped too (and would be attached to, and never stopped)",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (!hub || hub.owned || !(isAuthLoss(error)",
+          "new": "if (!hub || !(isAuthLoss(error)"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-other",
+      "what": "the connection is dropped even when it is not the one in use",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const forget = (hub) => { if (state.hubConnection === hub) { state.hubConnection = null; state.hubPromise = null; } };",
+          "new": "const forget = () => { state.hubConnection = null; state.hubPromise = null; };"
+        }
+      ],
+      "equivalent": "forget is only ever handed the connection in use: noteHubFailure passes state.hubConnection, and a Hub the agent started is never replaced while it runs, so its end arrives while it is still the one in use"
+    },
+    {
+      "name": "hub-ended-kept",
+      "what": "a Hub the agent started that has ended is kept",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (state.hubConnection === hub) log('the Hub the agent started has ended: the next request starts one again'); forget(hub); });",
+          "new": "if (state.hubConnection === hub) log('the Hub the agent started has ended: the next request starts one again'); });"
+        }
+      ]
+    },
+    {
+      "name": "hub-connection-unknown",
+      "what": "the connection in use is not remembered",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      state.hubConnection = hub;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "turn-auth-loss-waited",
+      "what": "a turn on a Hub that no longer takes the session waits for the whole time a Hub that does not answer is waited for",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (isAuthLoss(error)) throw error; // a Hub that no longer takes the session will not take it in a moment either: the turn fails now\n",
+          "new": ""
         }
       ]
     }
