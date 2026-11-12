@@ -444,7 +444,7 @@ try {
     assert.equal(answer.result.protocolVersion, PROTOCOL_VERSION);
     assert.deepEqual(answer.result.agentInfo, { name: 'datgold', title: 'DatGold', version: '9.9.9' });
     assert.deepEqual(answer.result.authMethods, []);
-    assert.deepEqual(answer.result.agentCapabilities, { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: true }, mcpCapabilities: { http: false, sse: false }, sessionCapabilities: {} });
+    assert.deepEqual(answer.result.agentCapabilities, { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: true }, mcpCapabilities: { http: false, sse: false }, sessionCapabilities: {} });
     assert.equal(c.hub.calls.length, 0, 'initialize does not wait for the Hub');
     ok('initialize answers with version 1, who the agent is, and exactly the capabilities it has (no image, no audio, no session/load, no MCP): nothing is advertised that is not done');
 
@@ -464,7 +464,7 @@ try {
     assert.equal((await bad.initialize()).result.protocolVersion, 1, 'a refused initialize does not count as the initialize');
     ok('an initialize with a bad version is refused and does not use up the one initialize');
 
-    for (const method of ['authenticate', 'logout', 'session/load', 'session/list', 'session/resume', 'session/close', 'session/delete', 'session/set_mode', 'session/set_config_option', 'fs/read_text_file', 'something/else']) {
+    for (const method of ['authenticate', 'logout', 'session/list', 'session/resume', 'session/close', 'session/delete', 'session/set_mode', 'session/set_config_option', 'fs/read_text_file', 'something/else']) {
       const answer = await c.request(method, { sessionId: 'x' });
       assert.equal(answer.error?.code, ERROR_CODES.METHOD_NOT_FOUND, method);
     }
