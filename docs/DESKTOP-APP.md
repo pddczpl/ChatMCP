@@ -124,6 +124,8 @@ npm run build --prefix .\DATGOLD-HUB\ui
 .\START-CHATMCP-DESKTOP.cmd
 ~~~
 
+`START-CHATMCP-DESKTOP.cmd` mở app desktop khi thư mục có `ChatMCP.exe` (bản cài đặt) hoặc `desktop-shellin\dist\ChatMCP.exe`; app không nhận tham số nên thư mục dự án được chọn trong app. Trong một bản source chưa có app, lệnh này nói rõ điều đó rồi giao cho launcher của Hub (`DATGOLD-HUB\Start-ChatMcpHub.ps1`), launcher mở dashboard trong trình duyệt mặc định bằng vé đăng nhập một lần.
+
 Chỉ cần Hub qua browser:
 
 ~~~powershell

@@ -273,6 +273,137 @@ try {
       equal(nothing.code, 0, 'stopping a Hub that is not running is not an error');
       check(/Already stopped/.test(nothing.output), 'and says so');
     });
+
+    // ---------------------------------------------------------------- the desktop launcher (Windows)
+    // START-CHATMCP-DESKTOP.cmd and scripts/Start-DesktopApp.ps1 are never run where they stand: in a checkout that has a published desktop shell they would start the real
+    // app. Each case runs a copy of the two files in a folder of its own, with stand-ins around them: a "ChatMCP.exe" that is a copy of node.exe and writes down how it was
+    // started (NODE_OPTIONS makes it load the recorder below and exit), and a DATGOLD-HUB\Start-ChatMcpHub.ps1 that prints the parameters it was given.
+    const repositoryRoot = path.resolve(bundleRoot, '..');
+    const desktopScriptSource = path.join(repositoryRoot, 'scripts', 'Start-DesktopApp.ps1');
+    const desktopCmdSource = path.join(repositoryRoot, 'START-CHATMCP-DESKTOP.cmd');
+    const recorder = path.join(root, 'app-recorder.cjs');
+    await fs.writeFile(recorder, "require('node:fs').appendFileSync(process.env.DESKTOP_STANDIN_RECORD, JSON.stringify({ exe: process.execPath, args: process.argv.slice(1) }) + '\\n');\nprocess.exit(0);\n");
+    const printingHubLauncher = [
+      'param([Parameter(Position = 0)][string]$ProjectPath, [int]$Port = 3007)',
+      "Write-Host ('HUBARGS ' + (ConvertTo-Json -Compress @{ ProjectPath = [string]$ProjectPath; Port = $Port; Bound = @($PSBoundParameters.Keys | Sort-Object) }))",
+      'if ($env:DESKTOP_STANDIN_EXIT) { exit [int]$env:DESKTOP_STANDIN_EXIT }', '',
+    ].join('\r\n');
+    async function desktopLayout(name, { app = null, hubLauncher = printingHubLauncher } = {}) {
+      const folder = path.join(root, name);
+      await fs.mkdir(path.join(folder, 'scripts'), { recursive: true });
+      await fs.copyFile(desktopScriptSource, path.join(folder, 'scripts', 'Start-DesktopApp.ps1'));
+      await fs.copyFile(desktopCmdSource, path.join(folder, 'START-CHATMCP-DESKTOP.cmd'));
+      if (hubLauncher) {
+        await fs.mkdir(path.join(folder, 'DATGOLD-HUB'), { recursive: true });
+        await fs.writeFile(path.join(folder, 'DATGOLD-HUB', 'Start-ChatMcpHub.ps1'), hubLauncher);
+      }
+      const appPath = app === 'installed' ? path.join(folder, 'ChatMCP.exe') : app === 'published' ? path.join(folder, 'desktop-shell', 'bin', 'dist', 'ChatMCP.exe') : null;
+      if (appPath) { await fs.mkdir(path.dirname(appPath), { recursive: true }); await fs.copyFile(process.execPath, appPath); }
+      return { folder, script: path.join(folder, 'scripts', 'Start-DesktopApp.ps1'), cmd: path.join(folder, 'START-CHATMCP-DESKTOP.cmd'), appPath, record: path.join(folder, 'app-starts.jsonl') };
+    }
+    const desktopEnvironment = (layout, extra = {}) => powerShellChildEnvironment({ DESKTOP_STANDIN_RECORD: layout.record, NODE_OPTIONS: `--require "${recorder.replaceAll('\\', '/')}"`, ...extra });
+    const runDesktopScript = (layout, scriptArgs, extra = {}) => {
+      const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', layout.script, ...scriptArgs], { cwd: root, encoding: 'utf8', timeout: 90_000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: desktopEnvironment(layout, extra) });
+      return { code: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+    };
+    // (stdin is the null device, so the "pause" that the .cmd ends a failure with returns at once)
+    const runDesktopCmd = (layout, argumentText, extra = {}) => {
+      const result = spawnSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe'), ['/d', '/s', '/c', `""${layout.cmd}"${argumentText ? ` ${argumentText}` : ''}"`], { cwd: root, encoding: 'utf8', timeout: 90_000, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'pipe'], env: desktopEnvironment(layout, extra) });
+      return { code: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+    };
+    const appStarts = async (layout, count) => waitFor(`${count} start(s) of the stand-in app`, async () => {
+      const lines = (await fs.readFile(layout.record, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+      return lines.length >= count ? lines.map((line) => JSON.parse(line)) : null;
+    });
+    const hubArgsOf = (run) => { const line = run.output.split(/\r?\n/).find((entry) => entry.startsWith('HUBARGS ')); return line ? JSON.parse(line.slice(8)) : null; };
+    const samePath = (left, right) => path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+
+    await section('desktop launcher: with the app there, it starts the app and nothing else', async () => {
+      const someProject = await project('desktop project');
+      for (const where of ['installed', 'published']) {
+        const layout = await desktopLayout(`desktop ${where}`, { app: where });
+        const plain = runDesktopScript(layout, []);
+        equal(plain.code, 0, `${where}: the script succeeds\n${plain.output}`);
+        let starts = await appStarts(layout, 1);
+        check(samePath(starts[0].exe, layout.appPath), `${where}: the app that was started is the one of this folder (${starts[0].exe})`);
+        equal(starts[0].args, [], `${where}: it is started without arguments`);
+        equal(hubArgsOf(plain), null, `${where}: the Hub launcher is not run (the app starts its own Hub)`);
+
+        // The app reads no arguments (desktop-shell/Program.cs): what the launcher is given is not passed on, and the launcher says so.
+        const withProject = runDesktopScript(layout, ['-ProjectPath', someProject, '-Port', '3011']);
+        equal(withProject.code, 0, `${where}: a project folder does not stop the start\n${withProject.output}`);
+        starts = await appStarts(layout, 2);
+        equal(starts[1].args, [], `${where}: the project folder is not handed to an app that would ignore it`);
+        check(/takes no arguments/.test(withProject.output), `${where}: and the launcher says that it is not passed on\n${withProject.output}`);
+        equal(hubArgsOf(withProject), null, `${where}: still no Hub launcher`);
+
+        const throughCmd = runDesktopCmd(layout, `"${someProject}"`);
+        equal(throughCmd.code, 0, `${where}: START-CHATMCP-DESKTOP.cmd succeeds\n${throughCmd.output}`);
+        starts = await appStarts(layout, 3);
+        check(samePath(starts[2].exe, layout.appPath), `${where}: the .cmd starts the same app`);
+        equal(starts[2].args, [], `${where}: the .cmd passes nothing on either`);
+        check(/takes no arguments/.test(throughCmd.output), `${where}: and says so\n${throughCmd.output}`);
+        equal(hubArgsOf(throughCmd), null, `${where}: the .cmd does not run the Hub launcher`);
+      }
+    });
+
+    await section('desktop launcher: without the app, the Hub launcher does the work', async () => {
+      const layout = await desktopLayout('desktop no app');
+      const someProject = await project('browser project');
+      const plain = runDesktopScript(layout, []);
+      equal(plain.code, 0, `the script succeeds\n${plain.output}`);
+      equal(hubArgsOf(plain), { ProjectPath: '', Port: 3007, Bound: ['Port'] }, 'the Hub launcher gets the port and no project');
+      check(/ChatMCP\.exe/.test(plain.output) && /browser/.test(plain.output), `the launcher says that the app is not there and that the browser is used\n${plain.output}`);
+      const full = runDesktopScript(layout, ['-ProjectPath', someProject, '-Port', '3011']);
+      equal(hubArgsOf(full), { ProjectPath: someProject, Port: 3011, Bound: ['Port', 'ProjectPath'] }, 'a project folder with a space and the port reach it as they were given');
+      const positional = runDesktopCmd(layout, `"${someProject}"`);
+      equal(positional.code, 0, `the .cmd succeeds\n${positional.output}`);
+      equal(hubArgsOf(positional), { ProjectPath: someProject, Port: 3007, Bound: ['Port', 'ProjectPath'] }, 'the .cmd hands its arguments to the script');
+      const failed = runDesktopScript(layout, [], { DESKTOP_STANDIN_EXIT: '1' });
+      equal(failed.code, 1, 'a Hub launcher that stops makes the script fail');
+      const failedCmd = runDesktopCmd(layout, '', { DESKTOP_STANDIN_EXIT: '1' });
+      check(failedCmd.code !== 0, 'and the .cmd');
+      check(!(await fs.stat(layout.record).catch(() => null)), 'no app was started');
+
+      const bare = await desktopLayout('desktop nothing', { hubLauncher: null });
+      const nothing = runDesktopScript(bare, []);
+      equal(nothing.code, 1, 'a folder with neither the app nor the Hub stops');
+      check(/DatGoldSetup\.exe/.test(nothing.output), `and says in words what to install\n${nothing.output}`);
+
+      // No second way of starting a Hub or of opening its page is left in the script: the route it used to ask does not exist, the message box had no assembly, and the
+      // browser window it opened carried no sign-in ticket.
+      const text = `${await fs.readFile(desktopScriptSource, 'utf8')}\n${await fs.readFile(desktopCmdSource, 'utf8')}`;
+      for (const gone of ['healthz', 'System.Windows.Forms', '--app=', 'hub.mjs', 'WebClient', 'msedge', 'ChatMCP.exe" %*']) check(!text.includes(gone), `the desktop launcher no longer holds: ${gone}`);
+    });
+
+    await section('desktop launcher: the fallback is the real Hub launcher: one Hub, found on /api/health, reused by the next start', async () => {
+      // The stand-in only adds what a test needs (-NoOpen, a state folder of its own) and hands over to the real Start-ChatMcpHub.ps1.
+      const forwarding = [
+        'param([Parameter(Position = 0)][string]$ProjectPath, [int]$Port = 3007)',
+        '& $env:DESKTOP_REAL_LAUNCHER -NoOpen -StateDir $env:DESKTOP_REAL_STATE -Port $Port -ProjectPath $ProjectPath',
+        'exit $LASTEXITCODE', '',
+      ].join('\r\n');
+      const layout = await desktopLayout('desktop real hub', { hubLauncher: forwarding });
+      const desktopPort = await freePort();
+      hubPorts.add(desktopPort);
+      const desktopState = path.join(root, 'desktop-state');
+      hubStates.set(desktopPort, desktopState);
+      const desktopProject = await project('desktop real project');
+      // (no NODE_OPTIONS here: the node that this starts is the Hub)
+      const real = { DESKTOP_REAL_LAUNCHER: startScript, DESKTOP_REAL_STATE: desktopState, NODE_OPTIONS: '' };
+      const first = runDesktopScript(layout, ['-ProjectPath', desktopProject, '-Port', String(desktopPort)], real);
+      equal(first.code, 0, `the script succeeds\n${first.output}`);
+      check(/Dang chay nen/.test(first.output), `it started a Hub\n${first.output}`);
+      const health = await fetch(`http://127.0.0.1:${desktopPort}/api/health`);
+      equal([health.status, (await health.json()).app], [200, 'chatmcp-local-hub'], 'the Hub answers the health route that exists');
+      equal((await fetch(`http://127.0.0.1:${desktopPort}/healthz`)).status, 404, 'and has no /healthz, which the script used to ask');
+      const snapshot = await waitFor('the Hub to be ready', async () => { const s = await getJson(`http://127.0.0.1:${desktopPort}/api/state`, desktopState); return s?.services?.local?.state === 'ready' ? s : null; });
+      equal(snapshot.workspace.path, desktopProject, 'the Hub opened the project that the launcher was given');
+      const second = runDesktopScript(layout, ['-ProjectPath', desktopProject, '-Port', String(desktopPort)], real);
+      equal(second.code, 0, 'a second start succeeds');
+      check(/Hub da chay nen/.test(second.output), `and reuses the Hub that runs instead of starting another\n${second.output}`);
+      check(await shutdown(desktopPort), 'the Hub of this section is stopped');
+    });
   }
 
   console.log(`PASS: ${checks} checks - launcher: standalone start, reuse, project switch, mode mismatch, busy port, startup failure${process.platform === 'win32' ? ', PowerShell wrapper' : ''}`);
