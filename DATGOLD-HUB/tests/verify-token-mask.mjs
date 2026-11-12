@@ -136,4 +136,36 @@ const leaks = (view, secret) => { for (let k = 4; k <= secret.length; k += 1) if
   ok('when the masked whole stops beginning with what was sent, the watchers drop it and get the masked whole');
 }
 
+// ---- 7. the cost of a long answer --------------------------------------------------------------------------------------------------------------------
+// The mask runs on the Hub's one thread. Masking the whole text so far at every piece costs the square of the answer (60,000 characters in pieces of 4: seconds of CPU). What the
+// mask is asked to mask, summed over the whole answer, must grow with the answer, not with its square: counted in characters handed to `redact`, so the check does not depend on
+// the speed of the machine.
+{
+  const measure = (text, size) => {
+    let masked = 0;
+    let looks = 0;
+    let shown = '';
+    const counted = (value) => { masked += value.length; return redact(value); };
+    const mask = createTokenMask({ redact: counted, secrets: () => { looks += 1; return secrets; }, emit: (piece) => { shown += piece; }, reset: () => { shown = ''; } });
+    for (let i = 0; i < text.length; i += size) mask.push(text.slice(i, i + size));
+    mask.flush();
+    return { masked, looks, shown };
+  };
+  const words = ['the', 'function', 'returns', 'a', 'value,', 'and', `${SECRET}`, 'then', 'sk-proj-0123456789abcdefXYZ', 'Bearer', 'abc.def', 'with', SPACED, 'line\n'];
+  let prose = '';
+  for (let i = 0; prose.length < 100_000; i += 1) prose += words[(i * 7) % words.length] + ' ';
+  const long = measure(prose, 4);
+  assert.equal(long.shown, redact(prose), '100,000 characters of prose in pieces of 4: the page ends with the masked whole');
+  assert.ok(long.masked <= 60 * prose.length, `and redact was handed at most 60 times the length of the text (${long.masked} characters for ${prose.length}, ${(long.masked / prose.length).toFixed(1)} times)`);
+  // A run without a space (a long hash, base64, minified code): the last word is held, so nothing of it can be sent before it ends.
+  const run = 'x'.repeat(60_000) + ' done';
+  const blob = measure(run, 4);
+  assert.equal(blob.shown, redact(run), '60,000 characters without a space: the page ends with the masked whole');
+  assert.ok(blob.masked <= 60 * run.length, `and redact was handed at most 60 times its length (${blob.masked} characters for ${run.length})`);
+  // A piece that only makes the held word longer cannot release anything: it is not looked at (looking at it scans the whole word, which is again the square of the word). Each
+  // look reads the list of secrets once, so the reads count the looks.
+  assert.ok(blob.looks <= 5, `the pieces of one long word are not looked at one by one (${blob.looks} looks for ${Math.ceil(run.length / 4)} pieces)`);
+  ok(`a long answer costs in proportion to its length: ${(long.masked / prose.length).toFixed(1)} and ${(blob.masked / run.length).toFixed(1)} characters masked per character of text`);
+}
+
 console.log(`\nPASS: ${checks} token mask checks`);
