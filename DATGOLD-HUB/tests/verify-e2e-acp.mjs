@@ -279,9 +279,9 @@ await runScenario({
     t.check(done?.code === 0, `the end of the input still ends it with exit code 0 (saw ${JSON.stringify(done)})`);
   }
 
-  // ---- G. what the Hub does NOT do: its stream of events ------------------------------------------------------------------------------------------------
-  // The agent polls the task and does not open GET /api/tasks/events, because in this build the stream sends nothing (the object the Hub keeps for it has no `subscribe`). This is a fact about the Hub,
-  // checked with a raw client that was open before a task ran to its end: heartbeats only. If it fails the Hub has a stream that works, and docs/ACP.md and lib/acp/agent.mjs can use it.
+  // ---- G. the Hub's stream of events -------------------------------------------------------------------------------------------------------------------
+  // The agent polls the task and does not open GET /api/tasks/events. When it was written the stream sent nothing (the Hub's task surface had no `subscribe`); it now carries the events of
+  // the task, which a later change of the agent could use. Checked with a raw client that was open before a task ran to its end.
   {
     const chunks = [];
     const watcher = new AbortController();
@@ -293,7 +293,7 @@ await runScenario({
     }).catch(() => {});
     await eventually(() => chunks.length > 0, { label: 'the stream of events to open' });
     const watched = await startTask(hub, '[[DIRECT]] A task for the stream to show', { workspacePath: projectA });
-    // The stream of one task (GET /api/tasks/<id>/stream) is the same defect: it opens with a snapshot of the task and nothing after it.
+    // The stream of one task (GET /api/tasks/<id>/stream): it opens with a snapshot of the task and then carries the events of that task.
     const taskChunks = [];
     const taskReading = fetch(`${hub.origin}/api/tasks/${watched.id}/stream`, { headers: { authorization: `Bearer ${hub.secret}` }, signal: watcher.signal }).then(async (response) => {
       const reader = response.body.getReader();
@@ -302,9 +302,12 @@ await runScenario({
     }).catch(() => {});
     await waitForState(hub, watched.id, ['completed']);
     await new Promise((resolve) => setTimeout(resolve, 500));
-    t.check(chunks.length > 0 && !chunks.join('').includes('data:'), `the stream of events of the Hub carries no event for a task that ran to its end (${chunks.length} chunk(s), comments only)`, chunks.join('').slice(0, 300));
-    const taskEvents = taskChunks.join('').split('\n').filter((row) => row.startsWith('data:')).map((row) => JSON.parse(row.slice(5)).type);
-    t.check(taskEvents.length === 1 && taskEvents[0] === 'task_snapshot', `and the stream of that one task carries its snapshot and no event after it (saw: ${JSON.stringify(taskEvents)})`, taskChunks.join('').slice(0, 300));
+    const dataOf = (parts) => parts.join('').split('\n').filter((row) => row.startsWith('data:')).map((row) => JSON.parse(row.slice(5)));
+    const allEvents = dataOf(chunks).filter((event) => event.taskId === watched.id);
+    const record = await hub.task(watched.id);
+    t.check(allEvents.filter((event) => event.type === 'event').length === record.events.length && allEvents.some((event) => event.type === 'state' && event.state === 'completed'), `the stream of events of the Hub carries the events of a task that ran to its end, and its last state (${allEvents.length} event(s) of the task, ${record.events.length} in its record)`, chunks.join('').slice(0, 300));
+    const taskEvents = dataOf(taskChunks);
+    t.check(taskEvents[0]?.type === 'task_snapshot' && taskEvents.length > 1 && taskEvents.slice(1).every((event) => event.taskId === watched.id), `and the stream of that one task carries its snapshot, then events of that task only (saw: ${JSON.stringify(taskEvents.map((event) => event.type).slice(0, 12))})`, taskChunks.join('').slice(0, 300));
     watcher.abort();
     await Promise.all([reading, taskReading]);
   }

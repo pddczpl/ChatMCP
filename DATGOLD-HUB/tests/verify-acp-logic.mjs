@@ -373,7 +373,7 @@ const hubClient = await import('../lib/acp/hub-client.mjs');
   const { ROUTES, routeAllowed, describeHubFailure, parseCliArguments, FORBIDDEN_ROUTES } = hubClient;
   const allowed = [['GET', '/api/health'], ['GET', '/api/state'], ['GET', '/api/tasks/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f'], ['POST', '/api/workspaces/add'], ['POST', '/api/tasks/start'], ['POST', '/api/tasks/continue'], ['POST', '/api/tasks/cancel'], ['POST', '/api/studio/permissions/decide']];
   for (const [method, route] of allowed) assert.equal(routeAllowed(method, route), true, `${method} ${route}`);
-  assert.equal(routeAllowed('GET', '/api/tasks/events'), false, 'the stream of events sends nothing in this build of the Hub, so the agent does not open it');
+  assert.equal(routeAllowed('GET', '/api/tasks/events'), false, 'the agent does not open the stream of events: it polls the task (the stream works since the Hub got subscribe, a later change may use it)');
   assert.equal(ROUTES.length, allowed.length, 'and the list holds nothing the test does not name');
   ok(`the agent may call exactly these routes of the Hub: ${ROUTES.map((r) => `${r.method} ${r.path}`).join(', ')}`);
 

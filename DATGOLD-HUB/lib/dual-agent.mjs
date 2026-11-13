@@ -19,6 +19,27 @@ export class DualAgent {
     this.handoffs = new Map();
     this.mode = defaultMode;
   }
+  /**
+   * Watch the tasks of both engines: `listener` is called with every event either of them sends, in the order they send them. An event is the engine's own object with one
+   * field added, `transport` ('api' or 'chatgpt-web', the same word get() and state() put on a task); no field is renamed or removed, and the engine's object is not written to.
+   * The two engines do not say the same things: the Model API engine sends `state`, `event` (with the canonical `state`), `token`, `token_reset` and `workflow`; the ChatGPT Web
+   * engine sends `event` only, with the `status` of its task (its record has no canonical state). Both carry `type` and `taskId`.
+   * Returns ONE function that removes the listener from both engines. An engine without `subscribe` is passed over. What `listener` throws stops here: it reaches neither the
+   * engine nor the other listeners (a watcher of the page is not trusted code).
+   */
+  subscribe(listener) {
+    if (typeof listener !== 'function') return () => {};
+    const forward = (transport) => (event) => {
+      try { listener(event && typeof event === 'object' ? { ...event, transport } : event); } catch { /* the watcher's own fault: nobody else pays for it */ }
+    };
+    const disposers = [];
+    for (const [engine, transport] of [[this.api, 'api'], [this.browser, 'chatgpt-web']]) {
+      if (typeof engine?.subscribe !== 'function') continue;
+      const dispose = engine.subscribe(forward(transport));
+      if (typeof dispose === 'function') disposers.push(dispose);
+    }
+    return () => { for (const dispose of disposers.splice(0)) dispose(); };
+  }
   async load() {
     const data = await readJson(this.file);
     if (['chatgpt-web','api'].includes(data?.mode)) this.mode = data.mode;

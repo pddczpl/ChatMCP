@@ -21,7 +21,7 @@ await fs.mkdir(hubDirectory, { recursive: true });
 const say = (text) => [{ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text }] }];
 function fakeManager(hooks) {
   return {
-    secrets: [], generation: 1, instanceId: 'stream-agent', locked: false, workspace: work, hooks, hooksProjectRoot: null, lifecycleAgent: null, permissions: { mode: 'review', executionPolicy: 'host-review' }, pluginManager: null,
+    secrets: [REGISTERED, SPACED], generation: 1, instanceId: 'stream-agent', locked: false, workspace: work, hooks, hooksProjectRoot: null, lifecycleAgent: null, permissions: { mode: 'review', executionPolicy: 'host-review' }, pluginManager: null,
     state() { return { workspace: { path: work }, generation: 1, instanceId: this.instanceId }; },
     acquireTask() { if (this.locked) return false; this.locked = true; return true; },
     releaseTask() { this.locked = false; },
@@ -34,6 +34,10 @@ function fakeManager(hooks) {
     },
   };
 }
+// A secret the Hub knows (the manager's list): the answer the task keeps shows it as [REDACTED], and so must its pieces.
+const REGISTERED = 'registered-stream-secret-0a1b2c3d';
+// A secret with spaces in it: the last word of a piece is not enough to hold it.
+const SPACED = 'spaced stream secret 4e5f';
 const hookRunner = new HookRunner({ hubDirectory, log: () => {} });
 
 /** One run to its end with a provider whose `respond` is the given function; returns the events the runner sent and the task. */
@@ -61,13 +65,35 @@ try {
     });
     assert.equal(answer.task.status, 'completed', answer.task.error);
     const stream = answer.events.filter((event) => event.type === 'token' || event.type === 'token_reset');
-    assert.deepEqual(stream.map((event) => [event.type, event.token ?? null]), [['token', 'Dự án '], ['token', 'là một '], ['token_reset', null], ['token', 'Dự án là một máy tính.']]);
+    assert.deepEqual(stream.map((event) => [event.type, event.token ?? null]), [['token', 'Dự án '], ['token', 'là một '], ['token_reset', null], ['token', 'Dự án là một máy '], ['token', 'tính.']]);
     assert.ok(stream.every((event) => event.taskId === answer.id), 'every event names its task');
     assert.equal(answer.task.finalText, 'Dự án là một máy tính.', 'the task keeps the final answer, not the pieces');
     const lastPiece = answer.events.lastIndexOf(stream.at(-1));
     const assistant = answer.events.findIndex((event) => event.type === 'event' && event.event?.type === 'assistant');
     assert.ok(assistant > lastPiece, 'the pieces come before the event that carries the answer');
     ok('The agent forwards onToken as token events and onStreamReset as token_reset, in order, before the answer');
+  }
+  // A secret cut between pieces: never shown, not even its start; the pieces add up to the masked answer.
+  {
+    const text = `The key is ${REGISTERED} and sk-proj-0123456789abcdefXYZ, the phrase ${SPACED}. Done.`;
+    const answer = await play(async (request) => {
+      for (let i = 0; i < text.length; i += 5) await request.onToken(text.slice(i, i + 5));
+      return { status: 'completed', usage, output: say(text) };
+    });
+    assert.equal(answer.task.status, 'completed', answer.task.error);
+    const pieces = answer.events.filter((event) => event.type === 'token').map((event) => event.token);
+    let shown = '';
+    for (const piece of pieces) {
+      shown += piece;
+      for (const secret of [REGISTERED, 'sk-proj-0123456789abcdefXYZ', SPACED]) for (let k = 6; k <= secret.length; k += 1) assert.ok(!shown.includes(secret.slice(0, k)), `the page never shows ${JSON.stringify(secret.slice(0, k))} (it showed ${JSON.stringify(shown)})`);
+    }
+    assert.equal(shown, 'The key is [REDACTED] and [REDACTED], the phrase [REDACTED]. Done.', 'the pieces add up to the answer as the task keeps it');
+    assert.equal(answer.task.finalText, shown, 'which is what the task kept');
+    assert.ok(!answer.events.some((event) => event.type === 'token_reset'), 'no reset was needed');
+    const lastPiece = answer.events.lastIndexOf(answer.events.filter((event) => event.type === 'token').at(-1));
+    const assistant = answer.events.findIndex((event) => event.type === 'event' && event.event?.type === 'assistant');
+    assert.ok(assistant > lastPiece, 'the held end is sent before the event that carries the answer');
+    ok('A secret cut between the pieces of an answer is held and masked; the pieces add up to the masked answer, before the answer event');
   }
   // A provider that never streams sends nothing of the kind.
   {

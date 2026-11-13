@@ -28,6 +28,7 @@ import { agentOptionsView } from './agent-options.mjs';
 import { prepareModelInput, retentionNotice } from './compaction-v2.mjs';
 import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
 import { publicToolInput } from './tool-event-input.mjs';
+import { createTokenMask } from './token-mask.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -1426,6 +1427,13 @@ export class AgentRunner {
         if (prepared.overLimit)
           throw fault('context_limit','Model context đã đầy sau compaction an toàn; bằng chứng gốc vẫn nằm trong transcript.');
 
+        // The pieces of the answer are masked like the answer the task keeps; a secret cut between two pieces is held until it can be masked whole (lib/token-mask.mjs).
+        const tokens = createTokenMask({
+          redact: (text) => this.#redact(text),
+          secrets: () => this.manager.secrets ?? [],
+          emit: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
+          reset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },
+        });
         const response = await abortable(this.provider.respond({
           beforeModelRequest: () => {
             this.onBeforeModelRequest?.({taskId:task.id,model:task.model,provider:task.provider});
@@ -1437,11 +1445,13 @@ export class AgentRunner {
           // The thinking effort chosen for this task, over the connection's (undefined: the task follows its connection).
           reasoningEffort: task.reasoningEffort,
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
-          onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
+          onToken: (token) => { tokens.push(token); },
           // The stream the pieces came from was cut and the request is made again: whoever shows the pieces drops them (the answer that comes next is shown from its start).
-          onStreamReset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },
+          onStreamReset: () => { tokens.reset(); },
         }), context.controller.signal);
         context.inFlight = null;
+        // The held end of the answer, before anything is recorded of it.
+        tokens.flush();
         this.#check(context);
         if (!object(response) || !Array.isArray(response.output)) throw fault('invalid_response', 'Model trả về response không đúng định dạng. Không gọi thêm công cụ.', 502);
         // Preserve measured zeros, distinguish missing provider usage, and do
