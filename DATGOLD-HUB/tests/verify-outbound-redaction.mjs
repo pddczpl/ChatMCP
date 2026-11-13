@@ -188,9 +188,13 @@ console.log(`PASS false positives: ${altered.length} of ${clean.length} benign s
 {
   const denied = ['.env', '.env.local', '.env.production', 'config/.env', '.envrc', 'C:\\proj\\.env', 'C:/proj/app/.env.staging', '.ENV', 'file:///C:/p/.env',
     '.env::$DATA', '.env.', 'server.pem', 'certs/tls.PEM', 'tls/private.key', 'keys\\signing.key', 'id_rsa', 'id_rsa.pub', '~/.ssh/id_rsa', 'id_ed25519',
-    '.ssh/config', '.git/config', 'repo/.git/hooks/pre-commit', '.aws/credentials', 'credentials.json', 'secrets.yml', '.npmrc', '.netrc', '.env.example', '*.pem', 'certs/*.key'];
+    '.ssh/config', '.git/config', 'repo/.git/hooks/pre-commit', '.aws/credentials', 'credentials.json', 'secrets.yml', '.npmrc', '.netrc', '.env.example', '*.pem', 'certs/*.key',
+    // credential stores of command-line tools and cloud state (P42)
+    '.docker/config.json', 'C:\\Users\\me\\.docker\\config.json', 'file:///C:/Users/me/.config/gh/hosts.yml', '.azure/accessTokens.json', '.terraform.d/credentials.tfrc.json',
+    'terraform.tfstate', 'infra/terraform.tfstate.backup', 'service-account.json', '~/.config/gcloud/application_default_credentials.json', '*.tfstate', '.docker/*'];
   const allowed = ['src/environment.ts', 'env.d.ts', 'docs/keyboard.md', 'key.txt', 'README.md', '.gitignore', '.github/workflows/ci.yml', 'package.json',
-    'src/keys.ts', 'monkey.pem.md', 'src/app.ts', 'C:\\proj\\src\\index.js', 'envoy.yaml', 'notes/id-rsa-explained.md', '.eslintrc.json', ''];
+    'src/keys.ts', 'monkey.pem.md', 'src/app.ts', 'C:\\proj\\src\\index.js', 'envoy.yaml', 'notes/id-rsa-explained.md', '.eslintrc.json', '',
+    'config.json', 'app/config.json', 'inventory/hosts.yml', 'data/accessTokens.json', 'main.tf', 'terraform.tfvars', 'service.json', 'docker/config.json', '*.tf', 'config/*.json'];
   for (const value of denied) assert.ok(isDeniedOutboundPath(value), `should be denied: ${value}`);
   for (const value of allowed) assert.ok(!isDeniedOutboundPath(value), `should be allowed: ${value}`);
   for (const value of [undefined, null, 7, {}, 'x'.repeat(5000)]) assert.equal(isDeniedOutboundPath(value), false);

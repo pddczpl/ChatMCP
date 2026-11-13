@@ -34,7 +34,7 @@ dotnet --version
 
 ## 2. Chọn release commit và đồng bộ phiên bản
 
-Trước khi build bản công khai, merge PR sau review/CI và **chọn số version chính thức**, v2.6.0 là phiên bản local-only tiếp theo sau v2.5.0; kiểm tra tag hiện có trước khi chọn phiên bản tiếp theo.
+Trước khi build bản công khai, merge PR sau review/CI và **chọn số version chính thức**; kiểm tra tag hiện có (`git tag -l`) trước khi chọn phiên bản tiếp theo.
 
 Đồng bộ các vị trí sau khi tăng version:
 - DATGOLD-HUB/package.json và VERSION trong DATGOLD-HUB/lib/manager.mjs
@@ -68,7 +68,8 @@ Sau khi thành công:
 ~~~text
 dist\DatGoldSetup.exe
 dist\DatGoldSetup.exe.sha256
-dist\DatGold-Browser-Companion.zip (và bản sao ChatMCP-Browser-Companion.zip, cùng checksum riêng)
+dist\DatGold-Browser-Companion.zip
+dist\DatGold-Browser-Companion.zip.sha256
 ~~~
 
 Kiểm tra SHA-256:
@@ -95,34 +96,35 @@ Dùng máy ảo Windows sạch, ghi lại kết quả:
 
 Không đánh dấu bước này hoàn tất chỉ vì dotnet build hoặc CI xanh.
 
-## 5. Code signing và GitHub Release
+## 5. Phát hành: workflow publish và chữ ký của manifest
 
-Nếu có chứng chỉ Authenticode hợp lệ, ký các executable theo quy trình ký Windows. **Sau khi ký bất kỳ file phân phối nào, tính lại SHA-256**. Chữ ký giúp xác định nhà phát hành nhưng không thay thế kiểm thử bảo mật.
+Tag và GitHub Release không được tạo bằng tay. Mỗi phiên bản có workflow riêng `.github/workflows/publish-vX.Y.Z.yml` (mẫu mới nhất: `publish-v3.11.2.yml`). Nó chỉ chạy khi vào `main` một commit có đúng tiêu đề phát hành mà workflow đó kiểm (dòng `if:` của các job), và trên đúng commit đó:
 
-Tag phải trỏ đến **chính commit đã kiểm thử/build**:
+1. kiểm tra commit và mọi số phiên bản (Hub, UI, hai project .NET, Companion);
+2. chạy cổng Chromium MV3 của Companion, toàn bộ test Hub không bỏ qua, build installer mới, nâng cấp thật từ bản 3.9.0 đã phát hành, vòng đời của EXE đã cài, gỡ cài và smoke WebView2;
+3. so checksum và ghi `RELEASE-MANIFEST.json` (phiên bản, commit, lần chạy, tên, kích thước và SHA-256 của `DatGoldSetup.exe` và `DatGold-Browser-Companion.zip`);
+4. chỉ khi CI thường đã xanh trên commit đó: đẩy tag (một tag đã có không bao giờ bị dời) và tạo release với `DatGoldSetup.exe`, `DatGold-Browser-Companion.zip`, hai file `.sha256` và `RELEASE-MANIFEST.json`, đánh dấu latest.
+
+Workflow không ký. Chữ ký `RELEASE-MANIFEST.json.sig` (ECDSA P-256 trên đúng các byte của manifest đã phát hành) do chủ dự án thêm sau đó, bằng tay và ngoại tuyến, với khóa riêng không nằm trong thư mục Git nào:
 
 ~~~powershell
-git rev-parse HEAD
-git tag -a vX.Y.Z -m "DatGold vX.Y.Z"
-git push origin vX.Y.Z
-gh auth status
-gh release create vX.Y.Z .\dist\DatGoldSetup.exe .\dist\DatGoldSetup.exe.sha256 .\dist\DatGold-Browser-Companion.zip .\dist\DatGold-Browser-Companion.zip.sha256 .\dist\ChatMCP-Browser-Companion.zip .\dist\ChatMCP-Browser-Companion.zip.sha256 --draft --title "DatGold vX.Y.Z" --generate-notes
+gh run download <run id> --repo pddczpl/ChatMCP --name <artifact *-Windows-and-Companion của lần chạy> --dir <thư mục tạm>
+node .\scripts\sign-release.mjs --tag vX.Y.Z --key <tệp khóa riêng> --installer <thư mục tạm>\DatGoldSetup.exe
 ~~~
 
-Xem lại nội dung và file checksum trên Draft Release rồi publish thủ công. Chưa chọn version / chưa test máy sạch thì không tạo tag hay release.
+`sign-release.mjs` lấy manifest mà GitHub đang phát cho tag đó, chỉ ký khi installer của lần chạy workflow khớp kích thước và SHA-256 trong manifest, kiểm chữ ký vừa tạo với các khóa công khai trong `DATGOLD-HUB/lib/release-keys.json`, rồi in lệnh `gh release upload` để chủ dự án đọc và tự chạy; script không tải lên gì. Ứng dụng chỉ cho tải bản có chữ ký hợp lệ ([SECURITY.md](../SECURITY.md#update-notice-and-download)). Các bản hiện tại không có chữ ký Authenticode (manifest ghi `authenticodeSigned: false`).
 
 ## 6. Chạy development từ source
 
 ~~~powershell
 git clone https://github.com/pddczpl/ChatMCP.git
 cd ChatMCP
-# Test nhánh beta PR chưa merge:
-# git fetch origin
-# git switch feat/parallel-coding-agents-skills-registry-v2
 npm ci --prefix .\DATGOLD-HUB\ui
 npm run build --prefix .\DATGOLD-HUB\ui
 .\START-CHATMCP-DESKTOP.cmd
 ~~~
+
+`START-CHATMCP-DESKTOP.cmd` mở app desktop khi thư mục có `ChatMCP.exe` (bản cài đặt) hoặc `desktop-shellin\dist\ChatMCP.exe`; app không nhận tham số nên thư mục dự án được chọn trong app. Trong một bản source chưa có app, lệnh này nói rõ điều đó rồi giao cho launcher của Hub (`DATGOLD-HUB\Start-ChatMcpHub.ps1`), launcher mở dashboard trong trình duyệt mặc định bằng vé đăng nhập một lần.
 
 Chỉ cần Hub qua browser:
 

@@ -996,7 +996,7 @@ export class AgentRunner {
     const selectionText = selectionPrompt?.trim() ? this.#redact(selectionPrompt.trim()) : cleanPrompt;
     const carried = (carriedPrompts ?? []).map((text) => text.trim()).filter(Boolean);
     // No await before this lock: two HTTP requests cannot both pass preflight.
-    if (this.manager.acquireTask(id) === false) throw fault('hub_busy', 'Hub đang bận hoặc chưa thể khóa workspace.', 409);
+    this.manager.acquireTask(id);
     const initial = now();
     const task = existing ?? {
       id, prompt: cleanPrompt, status: 'running', workspace: binding,
@@ -1442,7 +1442,6 @@ export class AgentRunner {
           },
           input: modelInput, instructions: context.instructions, tools: structuredClone(context.tools),
           signal: context.controller.signal, maxOutputTokens: context.contextPolicy?.reservedOutputTokens ?? MAX_OUTPUT_TOKENS,
-          store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
           // The thinking effort chosen for this task, over the connection's (undefined: the task follows its connection).
           reasoningEffort: task.reasoningEffort,
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },

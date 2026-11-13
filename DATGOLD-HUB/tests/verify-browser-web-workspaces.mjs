@@ -14,7 +14,7 @@ import {BrowserRunner} from '../lib/browser-runner.mjs';
 import {DualAgent} from '../lib/dual-agent.mjs';
 
 const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-// Canonical paired companion, not the obsolete repository-root "Button Fix".
+// The paired Companion in DATGOLD-HUB/extension (the older "Button Fix" helper that stood at the repository root was removed).
 // Keep the packaged extension manifest self-contained on Chrome and Edge.
 const companionRoot=path.join(bundleRoot,'extension');
 const companionManifest=JSON.parse(await fs.readFile(path.join(companionRoot,'manifest.json'),'utf8'));

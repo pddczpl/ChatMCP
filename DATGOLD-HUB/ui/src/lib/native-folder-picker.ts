@@ -12,7 +12,6 @@ const desktop=():NativeWebview|null=>{
   const host=window as Window & {chrome?:{webview?:NativeWebview}};
   return host.chrome?.webview??null;
 };
-export function hasDesktopPicker():boolean{return !!desktop();}
 export async function browseNativeWorkspace(initialPath?:string|null):Promise<{path?:string|null}|null>{
   const webview=desktop();
   if(!webview)return null;

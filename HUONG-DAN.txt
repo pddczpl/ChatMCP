@@ -1,6 +1,6 @@
-CHATMCP STUDIO — HƯỚNG DẪN LOCAL-ONLY
+DATGOLD STUDIO — HƯỚNG DẪN LOCAL-ONLY
 
-Lưu ý: từ nhánh refactor/local-only-remove-cloud, DatGold chỉ chạy cục bộ
+Lưu ý: DatGold chỉ chạy cục bộ
 trên Windows (127.0.0.1). Không cần và không còn hỗ trợ Cloud Harness MCP,
 Docker/Render hosting, proxy cổng 3006 hoặc đăng nhập chủ sở hữu server.
 

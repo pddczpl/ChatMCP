@@ -143,6 +143,66 @@ table('cmd', 'exec', ['dir', 'echo hi', 'type README.md']);
   for (const fine of ['.env.example', '.env.sample', '.env.template', 'README.md', 'src/envs.py', '.envrc', 'src/app.py', 'docs/keys.md', 'package.json', '.github/workflows/ci.yml', '']) {
     assert.equal(isProtectedPath(fine), false, `${fine || '(empty)'} must not be protected`);
   }
+  // Credential stores of command-line tools and cloud state (P42). A row on the left is protected, the row beside it is the ordinary file
+  // that differs by the one thing the rule looks at (the folder above it, or the name) and must stay readable.
+  const stores = [
+    ['.docker/config.json', 'config.json'],
+    ['C:\\Users\\me\\.docker\\config.json', 'docker/config.json'],
+    ['home/.Docker/Config.JSON', '.docker/daemon.json'],
+    ['.dockercfg', 'dockercfg.md'],
+    ['.config/gh/hosts.yml', 'inventory/hosts.yml'],
+    ['gh/hosts.yml', 'hosts.yml'],
+    ['.azure/accessTokens.json', 'accessTokens.json'],
+    ['.azure/msal_token_cache.json', '.azure/config.json'],
+    ['.azure/msal_token_cache.bin', 'azure/msal_token_cache.bin'],
+    ['.azure/service_principal_entries.json', 'docs/service_principal_entries.json'],
+    ['.terraform.d/credentials.tfrc.json', '.terraform.d/checkpoint_cache'],
+    ['credentials.tfrc.json', 'credentials.tfrc.md'],
+    ['.terraformrc', 'terraformrc.md'],
+    ['terraform.rc', 'terraform.tf'],
+    ['terraform.tfstate', 'main.tf'],
+    ['envs/prod/terraform.tfstate', 'envs/prod/variables.tf'],
+    ['terraform.tfstate.backup', 'tfstate.md'],
+    ['terraform.tfstate.d/staging/terraform.tfstate', 'terraform.tfstate.d/staging/notes.md'],
+    ['prod.tfstate.1699999999.backup', 'state.json'],
+    ['secrets.tfvars', 'terraform.tfvars'],
+    ['secret.auto.tfvars', 'prod.auto.tfvars'],
+    ['service-account.json', 'service-accounts.json'],
+    ['keys/service_account.json', 'keys/service.json'],
+    ['serviceAccountKey.json', 'serviceAccountKey.ts'],
+    ['service-account-prod.json', 'service-accounting.json'],
+    ['service-account.prod.json', 'account.json'],
+    ['.config/gcloud/application_default_credentials.json', '.config/gcloud/configurations/config_default'],
+    ['application_default_credentials.json', 'application_default.json'],
+    ['.config/gcloud/credentials.db', 'data/credentials.db'],
+    ['gcloud/access_tokens.db', 'access_tokens.db'],
+    ['gcloud/legacy_credentials/me@example.com/adc.json', 'legacy_credentials/readme.md'],
+    ['.cargo/credentials.toml', '.cargo/config.toml'],
+    ['.m2/settings.xml', 'settings.xml'],
+    ['.m2/settings-security.xml', 'm2/settings.xml'],
+    ['.pgpass', 'pgpass.md'],
+    ['_netrc', 'netrc.md'],
+    ['.vault-token', 'vault-token.md'],
+    ['.docker/config.json/blob', '.docker/daemon.json/blob'],
+    ['kubeconfig', 'kubeconfig.md'],
+    ['kubeconfig.yaml', 'kube.yaml'],
+    ['clusters/prod.kubeconfig', 'clusters/prod.yaml'],
+  ];
+  for (const [secret, fine] of stores) {
+    assert.equal(isProtectedPath(secret), true, `${secret} must be protected`);
+    assert.equal(isProtectedPath(fine), false, `${fine} must not be protected`);
+  }
+  // Windows reads a name with trailing dots or spaces, or with a stream suffix, as the same file.
+  for (const alias of ['.docker/config.json.', '.docker/config.json::$DATA', '.docker./config.json', '.azure/accessTokens.json ', 'gh/hosts.yml::$DATA']) {
+    assert.equal(isProtectedPath(alias), true, `${alias} names a protected file`);
+  }
+  // Through a wildcard, as an operand of a shell command.
+  for (const pattern of ['*.tfstate', 'envs/*/terraform.tfstate*', '.docker/*', '.docker/conf*', '.dock*/config.json', '.dock*/conf*', '.az*/*', '.config/gh/*.yml', '.azure/access*', 'gcloud/*.db', 'gh/*', '*/hosts.yml', 'HEAD:terraform.tfstate', 'HEAD:.docker/config.json']) {
+    assert.equal(mayExpandToProtected(pattern), true, `${pattern} may expand to a protected file`);
+  }
+  for (const pattern of ['*.tf', 'docker/*', '*/config.json', 'config/*.json', 'inventory/*.yml', '*.json', 'src/*', '*/*', '*/*.yml', 'notes.tfstate.md', 'docs/*.md']) {
+    assert.equal(mayExpandToProtected(pattern), false, `${pattern} is an ordinary pattern`);
+  }
   assert.equal(mayExpandToProtected('.env*'), true);
   assert.equal(mayExpandToProtected('*.pem'), true);
   assert.equal(mayExpandToProtected('.git/hooks'), true);

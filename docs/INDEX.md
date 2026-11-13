@@ -2,14 +2,15 @@
 
 The documents below cover detailed setup, development, architecture, historical phase reports, and release verification. Historical reports describe the state at the time they were written; use the latest release notes for current behavior.
 
-Current provider catalog: **19 preset** choices (including OpenAI Responses API, the popular providers Grok, GLM, Qwen, MiniMax and Kimi, and a custom Responses-compatible gateway). Provider compatibility requires a successful function-call probe.\n\nCurrent agent capability inventory: **LocalTools (100 công cụ)**. This count is checked against the actual local tool definitions by the documentation regression test; capability quantity does not prove quality, security, or parity with another coding agent.
+Current provider catalog: **19 preset** choices (including OpenAI Responses API, the popular providers Grok, GLM, Qwen, MiniMax and Kimi, and a custom Responses-compatible gateway). Provider compatibility requires a successful function-call probe.
+
+Current agent capability inventory: **LocalTools (100 công cụ)**. This count is checked against the actual local tool definitions by the documentation regression test; capability quantity does not prove quality, security, or parity with another coding agent.
 
 Comprehensive documentation across all architecture, implementation, and verification phases:
 
 ### System Architecture and Guides
 - [Naming: DatGold, formerly ChatMCP](NAMING.md) — what the new name covers, what still has the old name and why, and the step that changes each
 - [Reproducible evaluation harness](EVALUATION.md) — deterministic external-process evaluation and explicit live-model limits
-- [Upgrade implementation checkpoint](UPGRADE-IMPLEMENTATION-STATUS.md) — shipped-source changes, outstanding acceptance work and restart handoff
 - [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
 - [Architecture](ARCHITECTURE.md) — System components, security model, and task state machine
 - [Hub authentication](HUB-AUTH.md) — Per-launch bearer secret, session file, dashboard sign-in ticket, and what it does not protect
@@ -35,6 +36,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Troubleshooting](TROUBLESHOOTING.md) — Diagnosing common startup, permission, and runtime issues
 - [Historical Cloud Deployment Notice](DEPLOYMENT.md) — Archived notice regarding deprecated cloud infrastructure
 - [Windows Sandbox Feasibility](WINDOWS-SANDBOX-REAL-FEASIBILITY.md) — Technical feasibility analysis of Windows Sandbox integration
+- [Skill selection](SKILL-SELECTION.md) — How the Hub picks skills for a request (word overlap, no model), the labelled corpus of 347 requests, the baseline numbers and what they cannot see
 
 ### Phase 0: Desktop Contract Reconnection
 - [Phase 0 Audit](PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment
@@ -64,5 +66,6 @@ Comprehensive documentation across all architecture, implementation, and verific
 ### Phase 4: Extended Planning & Optimization
 - [Phase 4 Design](PHASE4-DESIGN.md) — Long-horizon agent planning and autonomous optimization design
 - [Phase 4 Report](PHASE4-REPORT.md) — Experimental evaluation and future milestone documentation
+- [Upgrade implementation checkpoint](UPGRADE-IMPLEMENTATION-STATUS.md) — shipped-source changes, outstanding acceptance work and restart handoff (historical)
 
 ---

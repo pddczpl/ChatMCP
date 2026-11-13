@@ -1,14 +1,19 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Launches DatGold Studio as a native desktop window application on Windows.
+  Opens DatGold from the folder that holds it: the desktop app when it is there, the dashboard in the browser when it is not.
 
 .DESCRIPTION
-  Starts the background DatGold Hub daemon (if not already running) and opens
-  the Studio interface in a standalone, dedicated desktop application window
-  using Microsoft Edge or Chrome App Mode (no browser URL bars, tabs, or address bars).
-  
-  Uses an isolated runtime profile in %LOCALAPPDATA%\ChatMCP\desktop-runtime.
+  1. The desktop app is ChatMCP.exe beside this folder (an installation) or desktop-shell\bin\dist\ChatMCP.exe (a
+     checkout in which the desktop shell was published there). When one of them exists it is started and nothing else
+     is done: the app starts its own Hub and signs its own window in. It reads no arguments and uses its own port, so
+     -ProjectPath and -Port are not passed on; the folder is chosen in the app.
+  2. Without the app, the Hub launcher (DATGOLD-HUB\Start-ChatMcpHub.ps1) does the work: it asks /api/health, reuses
+     the Hub that already runs or starts one, and opens the dashboard in the default browser with a one-time sign-in
+     ticket. This script holds no copy of that logic.
+  3. With neither, it stops and says what to install.
+
+  DATGOLD-HUB\tests\verify-launcher.mjs runs a copy of this script and of START-CHATMCP-DESKTOP.cmd with stand-ins.
 #>
 [CmdletBinding()]
 param(
@@ -21,131 +26,32 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$repoRoot = [IO.Path]::GetFullPath((Join-Path $scriptDir '..'))
-# The folder of the Hub is DATGOLD-HUB in an installation and in a source checkout (installations made up to 3.11.0 called it CHATMCP-HUB; the setup replaces them).
-$hubDir = Join-Path $repoRoot 'DATGOLD-HUB'
-$hubScript = Join-Path $hubDir 'hub.mjs'
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
-# 0. Check for Native ChatMCP.exe desktop shell first
-$nativeExe = Join-Path $repoRoot 'desktop-shell\bin\dist\ChatMCP.exe'
-if (-not (Test-Path -LiteralPath $nativeExe -PathType Leaf)) {
-    $nativeExe = Join-Path $repoRoot 'ChatMCP.exe'
+$app = $null
+foreach ($candidate in @((Join-Path $root 'ChatMCP.exe'), (Join-Path $root 'desktop-shell\bin\dist\ChatMCP.exe'))) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $app = $candidate; break }
 }
-if (Test-Path -LiteralPath $nativeExe -PathType Leaf) {
-    $procArgs = @()
-    if (-not [string]::IsNullOrWhiteSpace($ProjectPath)) {
-        $procArgs += @($ProjectPath)
+if ($null -ne $app) {
+    if ($PSBoundParameters.ContainsKey('ProjectPath') -or $PSBoundParameters.ContainsKey('Port')) {
+        Write-Host '[DatGold Desktop] The desktop app takes no arguments: -ProjectPath and -Port are not passed on. Choose the project folder in the app.'
     }
-    Start-Process -FilePath $nativeExe -ArgumentList $procArgs
+    # (no -ArgumentList: Windows PowerShell 5.1 refuses an empty one)
+    Start-Process -FilePath $app
     exit 0
 }
 
-# 1. Verify Node.js
-$nodeCmd = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($null -eq $nodeCmd) {
-    [System.Windows.Forms.MessageBox]::Show(
-        "Node.js 22+ is required to run DatGold.`nPlease install Node.js from https://nodejs.org",
-        "DatGold Desktop",
-        [System.Windows.Forms.MessageBoxButtons]::OK,
-        [System.Windows.Forms.MessageBoxIcon]::Error
-    ) 2>$null
-    Write-Error "DatGold requires Node.js 22+. Download from https://nodejs.org"
+$hubLauncher = Join-Path $root 'DATGOLD-HUB\Start-ChatMcpHub.ps1'
+if (-not (Test-Path -LiteralPath $hubLauncher -PathType Leaf)) {
+    Write-Host '[DatGold Desktop] STOPPED: this folder holds neither the desktop app (ChatMCP.exe) nor the Hub (DATGOLD-HUB\Start-ChatMcpHub.ps1).'
+    Write-Host '[DatGold Desktop] Install DatGold with DatGoldSetup.exe from https://github.com/pddczpl/ChatMCP/releases, or run this from a complete source checkout.'
     exit 1
 }
 
-# 2. Check if Hub is already running
-$healthUrl = "http://127.0.0.1:$Port/healthz"
-$hubRunning = $false
-try {
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("User-Agent", "ChatMCP-Desktop-Launcher")
-    $resp = $wc.DownloadString($healthUrl)
-    if ($resp -match '"ok":true') {
-        $hubRunning = $true
-    }
-}
-catch {
-    $hubRunning = $false
-}
-
-# 3. Start Hub in background if not already running
-if (-not $hubRunning) {
-    Write-Host "[DatGold Desktop] Starting Hub daemon at port $Port..."
-    $hubArgs = @($hubScript, "--port", ([string]$Port), "--no-open")
-    if (-not [string]::IsNullOrWhiteSpace($ProjectPath)) {
-        $hubArgs += @("--project", $ProjectPath)
-    }
-
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $nodeCmd.Path
-    $startInfo.Arguments = ($hubArgs -join ' ')
-    $startInfo.WorkingDirectory = $hubDir
-    $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $startInfo.CreateNoWindow = $true
-    $startInfo.UseShellExecute = $true
-    [System.Diagnostics.Process]::Start($startInfo) | Out-Null
-
-    # Wait for Hub to be healthy
-    $attempts = 0
-    $maxAttempts = 40
-    while ($attempts -lt $maxAttempts -and -not $hubRunning) {
-        Start-Sleep -Milliseconds 250
-        $attempts++
-        try {
-            $wc = New-Object System.Net.WebClient
-            $wc.Headers.Add("User-Agent", "ChatMCP-Desktop-Launcher")
-            $resp = $wc.DownloadString($healthUrl)
-            if ($resp -match '"ok":true') {
-                $hubRunning = $true
-                break
-            }
-        }
-        catch {
-            $hubRunning = $false
-        }
-    }
-
-    if (-not $hubRunning) {
-        Write-Warning "[DatGold Desktop] Hub took longer than expected to start. Opening dashboard anyway..."
-    }
-}
-
-# 4. Find Browser for Native App Window Mode
-$appUrl = "http://127.0.0.1:$Port/"
-$userDataDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ChatMCP\desktop-runtime'
-
-$candidateBrowsers = @(
-    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-    "$env:LOCALAPPDATA\Microsoft\Edge\Application\msedge.exe",
-    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe",
-    "$env:ProgramFiles\BraveSoftware\Brave-Browser\Application\brave.exe"
-)
-
-$targetBrowser = $null
-foreach ($b in $candidateBrowsers) {
-    if (Test-Path -LiteralPath $b -PathType Leaf) {
-        $targetBrowser = $b
-        break
-    }
-}
-
-if ($targetBrowser) {
-    $browserArgs = @(
-        "--app=$appUrl",
-        "--user-data-dir=$userDataDir",
-        "--window-size=1440,900",
-        "--enable-features=OverlayScrollbar",
-        "--disable-features=Translate"
-    )
-    Start-Process -FilePath $targetBrowser -ArgumentList $browserArgs
-}
-else {
-    Start-Process $appUrl
-}
-
-Write-Host "[DatGold Desktop] Launched successfully."
-exit 0
+Write-Host '[DatGold Desktop] The desktop app (ChatMCP.exe) is not in this folder, so the dashboard opens in your browser instead.'
+Write-Host '[DatGold Desktop] The app itself comes with DatGoldSetup.exe (https://github.com/pddczpl/ChatMCP/releases).'
+$hubParameters = @{ Port = $Port }
+if (-not [string]::IsNullOrWhiteSpace($ProjectPath)) { $hubParameters['ProjectPath'] = $ProjectPath }
+$global:LASTEXITCODE = 0
+& $hubLauncher @hubParameters
+exit $LASTEXITCODE

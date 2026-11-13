@@ -1,4 +1,4 @@
-# Bundled Code Intelligence Runtime — ChatMCP v3.2.0
+# Bundled Code Intelligence Runtime
 
 ## Installed layout
 

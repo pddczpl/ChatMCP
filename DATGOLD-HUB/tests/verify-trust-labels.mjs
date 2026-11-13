@@ -90,7 +90,9 @@ export async function scanTree(repo) {
   const found = [];
   const hub = path.join(repo, 'DATGOLD-HUB');
   const rel = (file) => path.relative(repo, file).replaceAll('\\', '/');
-  const skipDirectories = (full, entry) => entry.isDirectory() && ['node_modules', 'dist', '.git', 'agent-handoffs', 'evidence', 'runtimes'].includes(entry.name);
+  // docs/archive holds the notes of versions 1.x to 3.0.2, moved there unchanged: history like agent-handoffs, not what a user reads about today's product.
+  const archive = path.join(repo, 'docs', 'archive');
+  const skipDirectories = (full, entry) => entry.isDirectory() && (['node_modules', 'dist', '.git', 'agent-handoffs', 'evidence', 'runtimes'].includes(entry.name) || full === archive);
 
   for await (const file of walk(path.join(hub, 'lib'), skipDirectories)) {
     if (!/\.(?:mjs|js)$/.test(file)) continue;

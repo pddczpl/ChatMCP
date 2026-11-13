@@ -19,7 +19,6 @@ const END = new Set(['completed', 'failed', 'cancelled', 'paused', 'uncertain', 
 // (depth 1) and those can spawn grandchildren (depth 2), which cannot spawn at all and are not even offered the spawn tools.
 export const DEFAULT_SPAWN_LIMITS = Object.freeze({ maxSpawnDepth: 2, maxSpawnDescendants: 16 });
 const SPAWN_LIMIT_BOUNDS = Object.freeze({ maxSpawnDepth: [0, 4], maxSpawnDescendants: [0, 64] });
-export const SPAWN_LIMIT_CODES = Object.freeze(['spawn_depth_exceeded', 'spawn_descendants_exceeded']);
 function normalizeSpawnLimits(value, base = DEFAULT_SPAWN_LIMITS) {
   const next = { ...base };
   for (const key of Object.keys(SPAWN_LIMIT_BOUNDS)) {

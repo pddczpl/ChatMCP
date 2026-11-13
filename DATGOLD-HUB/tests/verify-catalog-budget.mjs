@@ -210,8 +210,6 @@ async function provider({ preset, apiBaseUrl, model, contextWindowTokens, catalo
   // The saved file keeps what the owner typed, not what the catalog said.
   const saved = JSON.parse(await fs.readFile(path.join(base, 'gateway-1', 'gateway-config.json'), 'utf8'));
   assert.equal(saved.contextWindowTokens, null, 'a window from the catalog is never written into the owner\'s configuration');
-  // The context meter and the context size of an estimate follow the effective window.
-  assert.equal(gateway.estimateUsage({ input: [], instructions: 'x' }).contextWindowTokens, 1000000);
 
   const limited = await provider({ preset: 'openai', model: 'limited' });
   assert.deepEqual([limited.state().contextWindowSource, limited.state().effectiveContextWindowTokens, limited.snapshot().metadataContextTokens], ['catalog', 272000 + 16384, 272000 + 16384]);

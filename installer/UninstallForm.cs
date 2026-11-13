@@ -163,11 +163,12 @@ namespace ChatMCP.Installer
             };
             _contentPanel.Controls.Add(detailLabel);
 
+            System.Collections.Generic.IReadOnlyList<string> notes;
             try
             {
-                await Task.Run(() =>
+                notes = await Task.Run(() =>
                 {
-                    InstallerEngine.Uninstall(_installDir, (pct, msg) =>
+                    return InstallerEngine.Uninstall(_installDir, (pct, msg) =>
                     {
                         Invoke(new Action(() =>
                         {
@@ -198,13 +199,17 @@ namespace ChatMCP.Installer
             };
             _contentPanel.Controls.Add(doneLabel);
 
+            // What the engine could not do and did not stop for (a shortcut that stays, the entry in Installed apps) is shown here: on the progress line it was replaced by the next line at once.
             var doneMsg = new Label
             {
-                Text = "DatGold Studio was successfully removed from your computer.",
-                Font = new Font("Segoe UI", 10),
+                Text = notes.Count == 0
+                    ? "DatGold Studio was successfully removed from your computer."
+                    : "DatGold Studio was removed from your computer, except:\n" + string.Join("\n", notes),
+                Font = new Font("Segoe UI", notes.Count == 0 ? 10 : 9),
                 Location = new Point(25, 75),
                 Width = 470,
-                Height = 60
+                Height = notes.Count == 0 ? 60 : 105,
+                AutoEllipsis = true
             };
             _contentPanel.Controls.Add(doneMsg);
 

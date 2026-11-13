@@ -1,6 +1,6 @@
 # Kiến trúc DatGold
 
-Đây là kiến trúc **local-only một người dùng**, áp dụng cho nhánh refactor hiện tại. Tài liệu Phase 0–4 ghi lại quá trình phát triển, một số hướng dẫn cloud trong đó đã lỗi thời.
+Đây là kiến trúc **local-only một người dùng** của `main`. Tài liệu Phase 0–4 ghi lại quá trình phát triển, một số hướng dẫn cloud trong đó đã lỗi thời.
 
 ## 1. Sơ đồ
 
@@ -104,7 +104,7 @@ Chỉ lắng nghe 127.0.0.1; kiểm tra Host và Origin, giới hạn CORS, CSRF
 
 `ui/src/lib/api.ts` adapts `agent.tasks` summaries into the session list and loads the selected full task separately. `task-view.ts` maps recorded dialogue/prompts/runs/events into the conversation view and canonical states into controls. Permission reviews come from `studio.permissions`, never inferred task fields. Plans, Git and terminal sessions use existing Studio routes. `useTaskStream` subscribes to the real task event endpoint; it scopes transient text by task ID and refetches durable state on reconnect because SSE does not provide event replay. Polling remains a recovery fallback. The text a model streams arrives as `token` events (and `token_reset` when a stream that was cut is replaced by another request: see section 9); the page shows it until the persisted answer replaces it. Two routes carry the events, both behind the bearer: `GET /api/tasks/events` (every task) and `GET /api/tasks/<id>/stream` (one task: first a `task_snapshot` with the task as `GET /api/tasks/<id>` returns it, then only the events whose `taskId` is that task). The Hub's task surface is a `DualAgent`, and its `subscribe` forwards what both engines send, in the order they send it, adding one field, `transport` (`api` or `chatgpt-web`, the word a task carries). The Model API engine sends `state` (`state`, `reason`, `stateChangedAt`), `event` (`event` is the entry added to the task's record, `state` the canonical state), `token`, `token_reset` and `workflow`; the ChatGPT Web engine sends `event` only, with the `status` of its task instead of a `state`, because its record has no canonical state. An `event` carries exactly the entry the task route returns, masked the same way. The pieces of `token` events are masked the way the recorded answer is: `lib/token-mask.mjs` keeps the text of the stream, sends only what the masked whole will begin with, and holds back the end that could still become something masked (the last word, the start of a secret the Hub knows, a `Bearer` without its token yet); the held end is sent when the answer is complete, before the event that records it. So a piece can arrive one word late, and a secret cut between two pieces is never shown, not even its start. What was sent is final and only the unsent end is masked again, so the cost of a piece is bounded by that end, not by the answer (the Hub has one thread); a piece that only makes the last word longer is not looked at until a space or the end comes. At the end the mask compares what it sent with the masked whole once, and if they differ the watchers get `token_reset` and the masked whole. A closed connection removes its listener from both engines; a stream has no replay, so nothing is sent for what happened before it opened. Until `DualAgent` had `subscribe`, both routes answered 200 and then sent heartbeats only, and the page lived on its polling, which it still does at the same intervals.
 
-React/TypeScript/Vite trong DATGOLD-HUB/ui được biên dịch vào DATGOLD-HUB/web/dist và nhúng trong desktop WinForms + WebView2. Các tab gồm Files, Git, Agents, Skills, Terminal, Plans, Preview và Settings. Luôn build lại UI trước khi đóng gói installer.
+React/TypeScript/Vite trong DATGOLD-HUB/ui được biên dịch vào DATGOLD-HUB/web/dist và nhúng trong desktop WinForms + WebView2. Bảng công việc bên phải có các tab Kế hoạch, Thay đổi, Duyệt, Tệp, Terminal và Tác nhân; Hoạt động và Xem trước nằm trong menu "Thêm" (`ui/src/store/useAppStore.ts`, `components/inspector/InspectorPanel.tsx`). Model, quyền, Skills, code intelligence, cập nhật và các phần khác là các mục của màn hình Cài đặt. Luôn build lại UI trước khi đóng gói installer.
 
 ## 14. Ranh giới tin cậy
 
@@ -125,15 +125,15 @@ Các nguồn Cloud Harness proxy và Render/Docker public-hosting không còn l�
 
 ## 16. Độ lệch so với thiết kế và hạng mục chưa làm
 
-Không hỗ trợ public SaaS, public multi-tenant hoặc Cloud Harness backend. MCP client tích hợp một cách chính thức cho local server khác, Windows Sandbox cấp hệ điều hành, benchmark model thật, cập nhật tự động và clean-VM installer E2E là các hướng tương lai. Các tài liệu thiết kế Phase 1–4 là lịch sử, không phải mô tả hiện tại.
+Không hỗ trợ public SaaS, public multi-tenant hoặc Cloud Harness backend. MCP client tích hợp một cách chính thức cho local server khác, Windows Sandbox cấp hệ điều hành, benchmark model thật và clean-VM installer E2E là các hướng tương lai. Cập nhật trong ứng dụng đã có từ 3.11.0 (thông báo, tải bản có chữ ký và cài khi người dùng bấm); còn thiếu một bản cập nhật tự cài không cần bấm. Các tài liệu thiết kế Phase 1–4 là lịch sử, không phải mô tả hiện tại.
 
-## 17. Parallel Coding Workers và Skills Registry nâng cao (nhánh phát triển)
+## 17. Parallel Coding Workers và Skills Registry nâng cao
 
 CodingWorktreeOrchestrator chạy tối đa bốn worker trên Git worktrees riêng, giới hạn tool sửa file. Người dùng xem diff và xác nhận trước khi merge vào nhánh integration mới; Draft PR cũng cần xác nhận, không tự merge main. Worktree chỉ cách ly working copy và Git index.
 
 Skills Hub duyệt SKILL.md lồng sâu theo Git tree được pin, kiểm tra blob SHA của tài nguyên text/binary, quản lý nguồn/update và ghi thông tin license evidence. Mặc định skills bên thứ ba tắt; không tự chạy script.
 
-## 16. Multi-Agent Orchestrator và GitHub Skills Hub (giai đoạn đầu)
+## 18. Multi-Agent Orchestrator và GitHub Skills Hub (giai đoạn đầu)
 
 StudioDelegates là read-only DAG phục vụ research/planning/review, không có tools thực thi. Chức năng này độc lập với các coding workers có worktree riêng.
 

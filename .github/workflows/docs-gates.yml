@@ -12,7 +12,6 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - 'HUONG-DAN.txt'
-      - 'VALIDATION.txt'
   pull_request:
     paths:
       - '*.md'
@@ -20,7 +19,6 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - 'HUONG-DAN.txt'
-      - 'VALIDATION.txt'
   workflow_dispatch:
 
 permissions:
