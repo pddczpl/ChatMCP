@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson, redact, resolveProgram, spawnLogged, stopOwned } from './runtime.mjs';
 import { powerShellChildEnvironment } from './powershell-environment.mjs';
@@ -153,31 +152,12 @@ export class HubManager {
     return program;
   }
 
-  async openProgram(program, args) {
-    await new Promise((resolve, reject) => {
-      const child = spawn(program, args, { detached: true, stdio: 'ignore', windowsHide: false, shell: false });
-      child.once('error', reject);
-      child.once('spawn', () => { child.unref(); resolve(); });
-    });
-  }
-
   async start() {return await this.exclusive(async()=>{await this.startLocal();});}
   async selectWorkspace(value) {return await this.exclusive(async()=>{
     const target=await this.validateWorkspace(value);
     await this.localTools?.close?.();
     await this.startLocal(target);
   });}
-
-  /** Forget a selected workspace without deleting any files. */
-  async clearWorkspace() {
-    if (this.busy || this.taskId) { const error = new Error('Hub đang xử lý một thao tác hoặc nhiệm vụ; chưa bỏ chọn workspace được.'); error.statusCode = 409; throw error; }
-    this.workspace = null;
-    this.generation += 1;
-    this.tools = [];
-    this.catalog = { ...this.catalog, ready: false };
-    this.status('local', 'stopped', 'Chọn hoặc tạo một workspace để bắt đầu');
-    await writeJson(this.settingsFile, { version: VERSION, workspace: null, savedAt: new Date().toISOString() });
-  }
 
   /** Local backend: validates the folder, checks the shell and Git, and publishes the catalog of in-process tools. */
   async startLocal(workspace = this.workspace) {
@@ -371,7 +351,8 @@ export class HubManager {
       }
       let result;
       try {
-        result = name.startsWith('local.') && this.localTools ? await this.localTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
+        // `decision.guard` is what the owner was shown when the gate asked about a file change: the call is held to those files (a file that changed since is not written).
+        result = name.startsWith('local.') && this.localTools ? await this.localTools.call(name, args, { taskId: binding.taskId, signal: options.signal, guard: decision.guard })
           : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
             : await external(name, args, options);
       } catch (error) {
@@ -427,7 +408,7 @@ export class HubManager {
     if (!this.permissions) return { decision, refusal: `a hook asked for confirmation and nobody can be asked${outcome.reason ? `: ${outcome.reason}` : ''}` };
     await this.workflow?.mark(binding.taskId, 'hook_asked', { toolName: name, category: decision.category });
     const asked = await this.permissions.authorize({ name, args, definition, taskId: binding.taskId, signal: options.signal, forceAsk: true, askReason: outcome.reason ?? '' });
-    return { decision: asked.allowed ? { ...decision, asked: true } : asked, refusal: null };
+    return { decision: asked.allowed ? { ...decision, asked: true, ...(asked.guard ? { guard: asked.guard } : {}) } : asked, refusal: null };
   }
 
   /**

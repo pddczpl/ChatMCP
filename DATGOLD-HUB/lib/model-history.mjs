@@ -81,12 +81,6 @@ export function historyBytes(history) {
   return Buffer.byteLength(JSON.stringify(history), 'utf8');
 }
 
-/** Cheap token estimate: about 3.5 bytes per token for code and prose mixed. Good enough for budgets, not for billing. */
-export function estimateTokens({ input = [], instructions = '', tools = [] } = {}) {
-  const bytes = historyBytes(input) + Buffer.byteLength(String(instructions), 'utf8') + Buffer.byteLength(JSON.stringify(tools), 'utf8');
-  return Math.ceil(bytes / 3.5);
-}
-
 const STUB_HEAD = 240;
 function stub(label, original) {
   const text = outputText(original);

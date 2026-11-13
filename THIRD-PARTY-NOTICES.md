@@ -111,59 +111,35 @@ What that means here, as facts and not as a conclusion:
 
 These are the gaps that remain after this change. None of them is hidden by the build.
 
-1. **WebView2, .NET runtime, OFL font texts and the MIT/ISC/BSD notices of the UI libraries** (findings 2 to 4 of the license scan) are outside this change and still open. The Browser Companion archive `DatGold-Browser-Companion.zip` (and its copy `ChatMCP-Browser-Companion.zip`) also does not contain `LICENSE` or `NOTICE` yet.
+1. **WebView2, .NET runtime, OFL font texts and the MIT/ISC/BSD notices of the UI libraries** (findings 2 to 4 of the license scan) are outside this change and still open. The Browser Companion archive `DatGold-Browser-Companion.zip` also does not contain `LICENSE` or `NOTICE` yet.
 
 ## UI libraries compiled into the dashboard
 
 <!-- BEGIN GENERATED: ui-production-packages (scripts/generate-licenses.mjs) -->
-167 packages of the production dependency closure of DATGOLD-HUB/ui/package-lock.json (MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the `license` field of the lockfile entry.
+143 packages of the production dependency closure of DATGOLD-HUB/ui/package-lock.json (MIT 137, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the `license` field of the lockfile entry.
 
 | Package | Version | License |
 |---|---|---|
-| `@floating-ui/core` | 1.8.0 | MIT |
-| `@floating-ui/dom` | 1.8.0 | MIT |
-| `@floating-ui/react-dom` | 2.1.9 | MIT |
-| `@floating-ui/utils` | 0.2.12 | MIT |
 | `@fontsource-variable/inter` | 5.3.0 | OFL-1.1 |
 | `@fontsource/jetbrains-mono` | 5.3.0 | OFL-1.1 |
-| `@radix-ui/number` | 1.1.3 | MIT |
 | `@radix-ui/primitive` | 1.1.7 | MIT |
-| `@radix-ui/react-alert-dialog` | 1.1.24 | MIT |
-| `@radix-ui/react-arrow` | 1.1.16 | MIT |
-| `@radix-ui/react-collection` | 1.1.16 | MIT |
 | `@radix-ui/react-compose-refs` | 1.1.5 | MIT |
 | `@radix-ui/react-context` | 1.2.2 | MIT |
 | `@radix-ui/react-dialog` | 1.2.0 | MIT |
-| `@radix-ui/react-direction` | 1.1.5 | MIT |
 | `@radix-ui/react-dismissable-layer` | 1.1.20 | MIT |
-| `@radix-ui/react-dropdown-menu` | 2.1.25 | MIT |
 | `@radix-ui/react-focus-guards` | 1.1.6 | MIT |
 | `@radix-ui/react-focus-scope` | 1.2.0 | MIT |
 | `@radix-ui/react-id` | 1.1.4 | MIT |
-| `@radix-ui/react-menu` | 2.1.25 | MIT |
-| `@radix-ui/react-popover` | 1.2.0 | MIT |
-| `@radix-ui/react-popper` | 1.3.8 | MIT |
 | `@radix-ui/react-portal` | 1.1.18 | MIT |
 | `@radix-ui/react-presence` | 1.1.11 | MIT |
 | `@radix-ui/react-primitive` | 2.1.11 | MIT |
-| `@radix-ui/react-roving-focus` | 1.1.20 | MIT |
-| `@radix-ui/react-scroll-area` | 1.3.0 | MIT |
 | `@radix-ui/react-slot` | 1.4.0 | MIT |
-| `@radix-ui/react-tabs` | 1.1.22 | MIT |
-| `@radix-ui/react-tooltip` | 1.3.0 | MIT |
 | `@radix-ui/react-use-callback-ref` | 1.1.4 | MIT |
 | `@radix-ui/react-use-controllable-state` | 1.2.6 | MIT |
 | `@radix-ui/react-use-effect-event` | 0.0.5 | MIT |
-| `@radix-ui/react-use-is-hydrated` | 0.1.3 | MIT |
 | `@radix-ui/react-use-layout-effect` | 1.1.4 | MIT |
-| `@radix-ui/react-use-rect` | 1.1.4 | MIT |
-| `@radix-ui/react-use-size` | 1.1.5 | MIT |
-| `@radix-ui/react-visually-hidden` | 1.2.12 | MIT |
-| `@radix-ui/rect` | 1.1.3 | MIT |
 | `@tanstack/query-core` | 5.104.1 | MIT |
 | `@tanstack/react-query` | 5.104.1 | MIT |
-| `@tanstack/react-virtual` | 3.14.15 | MIT |
-| `@tanstack/virtual-core` | 3.19.0 | MIT |
 | `@types/debug` | 4.1.13 | MIT |
 | `@types/estree` | 1.0.9 | MIT |
 | `@types/estree-jsx` | 1.0.5 | MIT |
@@ -294,6 +270,7 @@ These are the gaps that remain after this change. None of them is hidden by the 
 - Git for Windows (GPL-2.0), Microsoft Edge or Chromium, the Microsoft Edge WebView2 Runtime, Ollama, LM Studio and the model providers' services are separate installations that the user provides; DatGold does not bundle them. If a release ever bundles Git or another GPL or LGPL component, the license scan has to be redone first.
 - `node-pty` (MIT) is optional and installed by the user from npm on request.
 - Build-time and test-only dependencies stay out of the installer, among them Vite, Tailwind CSS, the UI type packages, the Playwright test runner, `lightningcss` (MPL-2.0, file-level copyleft) and `caniuse-lite` (CC-BY-4.0 data). Shipping `node_modules` would add duties for those two.
+- The test tools of the ACP agent (`DATGOLD-HUB/tests/acp-tools`, installed with `npm ci` for the tests, never in the installer): `@agentclientprotocol/sdk` 2.4.0 (Apache-2.0), `ajv` 8.20.0 (MIT) with `fast-deep-equal` 3.1.3, `json-schema-traverse` 1.0.0 and `require-from-string` 2.0.2 (MIT) and `fast-uri` 3.1.9 (BSD-3-Clause), and `zod` 4.6.7 (MIT). One file of it IS redistributed: the pinned copy of the protocol's JSON Schema, `DATGOLD-HUB/lib/acp/schema/schema.json`, taken unchanged from `@agentclientprotocol/sdk` 2.4.0 (`schema/v1/schema.json`), with the licence text beside it (Apache-2.0, Copyright 2025 Zed Industries, Inc. and contributors). The agent does not read it at run time; the ACP test suites validate against it.
 
 ## Agent Skills and external tools
 

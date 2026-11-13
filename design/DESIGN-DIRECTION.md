@@ -2,7 +2,7 @@
 
 > **Trạng thái:** đang áp dụng cho bản làm mới giao diện sau v3.9.0 (nhánh `pddczpl/ux-refresh`). Thay thế bản đặc tả "Frontend Rebuild 2.4.0".
 > **Nguyên tắc chủ đạo:** *Calm Precision* — bình tĩnh, chính xác, kiểm soát được — và một nguyên tắc mới: **báo xong khác với chứng minh xong**.
-> **Nguồn sự thật:** mã trong `CHATMCP-HUB/ui/src` (token ở `src/index.css`). Tài liệu này giải thích *vì sao*; test ở `ui/tests` và `ui/e2e` giữ cho nó đúng.
+> **Nguồn sự thật:** mã trong `DATGOLD-HUB/ui/src` (token ở `src/index.css`). Tài liệu này giải thích *vì sao*; test ở `ui/tests` và `ui/e2e` giữ cho nó đúng.
 > **Ảnh minh họa:** `design/screenshots/v3/` (tạo lại bằng `npm run gallery`, xem mục 9).
 
 ---
@@ -175,7 +175,7 @@ Bảng này là kế hoạch chỗ đặt, không phải danh sách đã làm: m
 ## 9. Kiểm tra và chụp lại
 
 ```sh
-cd CHATMCP-HUB/ui
+cd DATGOLD-HUB/ui
 npm run build          # web/dist
 npm run test:unit      # token, độ tương phản, dải bằng chứng, định dạng, nhãn công cụ, component
 npm run test:e2e:built # luồng thật: Hub thật, model giả lập, Chromium

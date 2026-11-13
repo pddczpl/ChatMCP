@@ -1,0 +1,1279 @@
+{
+  "suite": "verify-acp-logic.mjs",
+  "mutations": [
+    {
+      "name": "protocol-version",
+      "what": "the agent answers another protocol version",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "export const PROTOCOL_VERSION = 1;",
+          "new": "export const PROTOCOL_VERSION = 2;"
+        }
+      ]
+    },
+    {
+      "name": "capability-image",
+      "what": "image is advertised",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "promptCapabilities: Object.freeze({ image: false, audio: false, embeddedContext: true })",
+          "new": "promptCapabilities: Object.freeze({ image: true, audio: false, embeddedContext: true })"
+        }
+      ]
+    },
+    {
+      "name": "capability-embedded",
+      "what": "embedded context is not advertised",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "promptCapabilities: Object.freeze({ image: false, audio: false, embeddedContext: true })",
+          "new": "promptCapabilities: Object.freeze({ image: false, audio: false, embeddedContext: false })"
+        }
+      ]
+    },
+    {
+      "name": "capability-load",
+      "what": "the agent says it cannot load a session",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "  loadSession: true,\n",
+          "new": "  loadSession: false,\n"
+        }
+      ]
+    },
+    {
+      "name": "capability-mcp",
+      "what": "http MCP servers are advertised",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "mcpCapabilities: Object.freeze({ http: false, sse: false })",
+          "new": "mcpCapabilities: Object.freeze({ http: true, sse: false })"
+        }
+      ]
+    },
+    {
+      "name": "notify-unmasked",
+      "what": "a message to the editor is not masked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "notify(method, params) { peer.notify(method, masker.value(params)); },",
+          "new": "notify(method, params) { peer.notify(method, params); },"
+        }
+      ]
+    },
+    {
+      "name": "fail-message-unmasked",
+      "what": "the words of an error are not masked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "new RpcError(code, masker.text(message), data === undefined",
+          "new": "new RpcError(code, message, data === undefined"
+        }
+      ]
+    },
+    {
+      "name": "fail-data-unmasked",
+      "what": "the data of an error is not masked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": ": masker.value(data));",
+          "new": ": data);"
+        }
+      ]
+    },
+    {
+      "name": "rpc-error-unmasked",
+      "what": "an error thrown as an RpcError reaches the editor as it is",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (error instanceof RpcError) return fail(error.code, error.message, error.data);\n",
+          "new": "    if (error instanceof RpcError) return error;\n"
+        }
+      ]
+    },
+    {
+      "name": "hub-error-by-class",
+      "what": "a failure of the Hub with no status is not told",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (error instanceof HubError || typeof error?.status === 'number')",
+          "new": "if (typeof error?.status === 'number')"
+        }
+      ]
+    },
+    {
+      "name": "hub-error-by-status",
+      "what": "a failure of the Hub with a status is not told",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (error instanceof HubError || typeof error?.status === 'number')",
+          "new": "if (error instanceof HubError)"
+        }
+      ]
+    },
+    {
+      "name": "unavailable-hub-sentence",
+      "what": "a Hub that is not there is an unexplained error",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (error?.code === 'hub_unavailable') return fail(ERROR_CODES.INTERNAL, error.message);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "defect-words-shown",
+      "what": "an error nobody foresaw is shown with its words",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    return error; // anything else is a defect",
+          "new": "    return fail(ERROR_CODES.INTERNAL, error.message); // anything else is a defect"
+        }
+      ]
+    },
+    {
+      "name": "result-unmasked",
+      "what": "the result of a request is not masked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "try { return masker.value(await handler(params, context)); }",
+          "new": "try { return await handler(params, context); }"
+        }
+      ]
+    },
+    {
+      "name": "notice-always-message",
+      "what": "a client that can show notices gets a message",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (state.supportsNotices) outbound.notify",
+          "new": "if (false) outbound.notify"
+        }
+      ]
+    },
+    {
+      "name": "notice-always",
+      "what": "a client that cannot show notices gets a notice",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (state.supportsNotices) outbound.notify",
+          "new": "if (true) outbound.notify"
+        }
+      ]
+    },
+    {
+      "name": "notice-message-title",
+      "what": "a notice sent as a message loses its title",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "`${title}\\n\\n${description}`",
+          "new": "`${description}`"
+        }
+      ]
+    },
+    {
+      "name": "notice-message-description",
+      "what": "a notice sent as a message loses its description",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "`${title}\\n\\n${description}`",
+          "new": "`${title}`"
+        }
+      ]
+    },
+    {
+      "name": "hub-looked-for-each-time",
+      "what": "the Hub is looked for again every time it is needed",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    state.hubPromise ??= Promise.resolve()",
+          "new": "    state.hubPromise = Promise.resolve()"
+        }
+      ]
+    },
+    {
+      "name": "hub-failure-remembered",
+      "what": "a failed look for the Hub is remembered for ever",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": ".catch((error) => { state.hubPromise = null; throw error; });",
+          "new": ".catch((error) => { throw error; });"
+        }
+      ]
+    },
+    {
+      "name": "initialize-first-not-needed",
+      "what": "a request before initialize is served",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!state.initialized) throw fail(ERROR_CODES.INVALID_REQUEST, 'Call initialize first: it must be the first request on the connection.');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "shutdown-not-checked",
+      "what": "a request after the shutdown is served",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (state.shutdown) throw fail(ERROR_CODES.CANCELLED, 'The agent is shutting down.');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "initialize-twice",
+      "what": "a second initialize is served",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (state.initialized) throw fail(ERROR_CODES.INVALID_REQUEST, 'initialize was already called on this connection.');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "initialize-state-early",
+      "what": "a refused initialize counts as the initialize",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    const parsed = parseInitialize(params);\n    state.initialized = true;",
+          "new": "    state.initialized = true;\n    const parsed = parseInitialize(params);"
+        }
+      ]
+    },
+    {
+      "name": "notices-not-kept",
+      "what": "what the client said about notices is forgotten",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    state.supportsNotices = parsed.supportsNotices;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "hub-not-warmed-up",
+      "what": "the Hub is not looked for after initialize",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    void getHub().catch((error) => log(`the Hub is not available yet: ${error.message}`));\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "agent-name",
+      "what": "the agent is not called datgold",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "agentInfo: { name: 'datgold', title: 'DatGold', version }",
+          "new": "agentInfo: { name: 'agent', title: 'DatGold', version }"
+        }
+      ]
+    },
+    {
+      "name": "agent-title",
+      "what": "the agent is not titled DatGold",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "agentInfo: { name: 'datgold', title: 'DatGold', version }",
+          "new": "agentInfo: { name: 'datgold', title: 'ChatMCP', version }"
+        }
+      ]
+    },
+    {
+      "name": "agent-version",
+      "what": "the agent does not say its version",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "agentInfo: { name: 'datgold', title: 'DatGold', version }",
+          "new": "agentInfo: { name: 'datgold', title: 'DatGold', version: '0.0.0' }"
+        }
+      ]
+    },
+    {
+      "name": "auth-methods",
+      "what": "the agent offers an authentication method",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      authMethods: [],\n",
+          "new": "      authMethods: [{ id: 'x', name: 'x' }],\n"
+        }
+      ]
+    },
+    {
+      "name": "capabilities-shared",
+      "what": "the capabilities are the shared frozen object",
+      "equivalent": "the result is copied by the masker on its way out, so the client never gets the frozen object; the copy here only says it",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "agentCapabilities: structuredClone(AGENT_CAPABILITIES),",
+          "new": "agentCapabilities: AGENT_CAPABILITIES,"
+        }
+      ]
+    },
+    {
+      "name": "folder-missing",
+      "what": "a folder that does not exist is taken",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    try { stat = await fs.stat(cwd); } catch { throw fail(ERROR_CODES.INVALID_PARAMS, `The folder does not exist: ${cwd}`); }\n",
+          "new": "    stat = { isDirectory: () => true };\n"
+        }
+      ]
+    },
+    {
+      "name": "folder-is-file",
+      "what": "a file is taken for a folder",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!stat.isDirectory()) throw fail(ERROR_CODES.INVALID_PARAMS, `The path is not a folder: ${cwd}`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "sessions-unlimited",
+      "what": "a connection may hold any number of sessions",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (sessions.size + sessionsBeingMade < MAX_SESSIONS) return;",
+          "new": "    return;"
+        }
+      ]
+    },
+    {
+      "name": "sessions-being-made-ignored",
+      "what": "the limit of sessions does not count the ones still being made",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (sessions.size + sessionsBeingMade < MAX_SESSIONS) return;",
+          "new": "    if (sessions.size < MAX_SESSIONS) return;"
+        }
+      ]
+    },
+    {
+      "name": "sessions-being-made-kept",
+      "what": "a session that could not be made is still counted",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null, eventCursor: 0, usageMark: null });\n    } finally { sessionsBeingMade -= 1; }",
+          "new": "      sessions.set(id, { id, cwd, workspacePath: workspace.path, taskId: null, turn: null, eventCursor: 0, usageMark: null });\n    } finally { /* counted for good */ }"
+        }
+      ]
+    },
+    {
+      "name": "sessions-off-by-one",
+      "what": "a connection may hold one session more",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (sessions.size + sessionsBeingMade < MAX_SESSIONS) return;",
+          "new": "    if (sessions.size + sessionsBeingMade <= MAX_SESSIONS) return;"
+        }
+      ]
+    },
+    {
+      "name": "session-limit-number",
+      "what": "the number of sessions is not 256",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const MAX_SESSIONS = 256;",
+          "new": "const MAX_SESSIONS = 255;"
+        }
+      ]
+    },
+    {
+      "name": "workspace-not-registered",
+      "what": "the folder is not put in the Hub",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      const workspace = await hub.ensureWorkspace(cwd);\n      id = randomUUID();",
+          "new": "      const workspace = { path: cwd };\n      id = randomUUID();"
+        }
+      ]
+    },
+    {
+      "name": "workspace-canonical-ignored",
+      "what": "the task is started in the folder as the editor wrote it, not as the Hub keeps it",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "workspacePath: workspace.path, taskId: null",
+          "new": "workspacePath: cwd, taskId: null"
+        }
+      ]
+    },
+    {
+      "name": "session-id-fixed",
+      "what": "every session has the same id",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      id = randomUUID();\n",
+          "new": "      id = '00000000-0000-4000-8000-000000000000';\n"
+        }
+      ]
+    },
+    {
+      "name": "cancel-not-once",
+      "what": "a cancel is sent each time it is asked for",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (turn.cancelPromise || !turn.taskId) return turn.cancelPromise ?? Promise.resolve();\n",
+          "new": "    if (!turn.taskId) return Promise.resolve();\n"
+        }
+      ]
+    },
+    {
+      "name": "cancel-without-task",
+      "what": "a cancel is sent before there is a task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (turn.cancelPromise || !turn.taskId) return turn.cancelPromise ?? Promise.resolve();\n",
+          "new": "    if (turn.cancelPromise) return turn.cancelPromise;\n"
+        }
+      ]
+    },
+    {
+      "name": "cancel-failure-hidden",
+      "what": "a cancel the Hub refused is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": ".catch((error) => log(`could not stop the task ${turn.taskId}: ${error?.message ?? error}`));",
+          "new": ".catch(() => {});"
+        }
+      ]
+    },
+    {
+      "name": "hub-gone-ignored",
+      "what": "a Hub that ends is not noticed",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    void hub.closed?.then((how) => { hubGone = how ?? {}; turn.wake?.(); });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "hub-gone-sentence",
+      "what": "the sentence about a Hub that ended does not say it stopped",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "The DatGold Hub stopped while the task was running",
+          "new": "The DatGold Hub went away"
+        }
+      ]
+    },
+    {
+      "name": "abort-ignored",
+      "what": "a closed connection does not end the turn",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (signal.aborted) throw fail(ERROR_CODES.CANCELLED, 'The connection to the editor closed.');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "missing-task-ignored",
+      "what": "a task the Hub lost is waited for for ever",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (!task) throw fail(ERROR_CODES.INTERNAL, 'The Hub no longer has this task.');\n",
+          "new": "        if (!task) { await nap(); continue; }\n"
+        }
+      ]
+    },
+    {
+      "name": "active-ignored",
+      "what": "a task at rest ends the turn although the Hub still holds the workspace",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "          if (!(await hub.isActive(turn.taskId))) return task;\n",
+          "new": "          return task;\n"
+        }
+      ]
+    },
+    {
+      "name": "resting-ignored",
+      "what": "a task that is not at rest ends the turn",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (RESTING_STATES.includes(task.state)) {\n          if (!(await hub.isActive(turn.taskId))) return task;\n          napMs = Math.min(pollMs, SETTLE_POLL_MS);\n        }\n",
+          "new": "        if (!(await hub.isActive(turn.taskId))) return task;\n"
+        }
+      ]
+    },
+    {
+      "name": "settle-ignored",
+      "what": "a task at rest that the Hub still holds is looked at again only after a whole poll interval",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "          napMs = Math.min(pollMs, SETTLE_POLL_MS);\n",
+          "new": "          napMs = pollMs;\n"
+        }
+      ]
+    },
+    {
+      "name": "settle-long",
+      "what": "the look after a task at rest that the Hub still holds is five seconds away",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const SETTLE_POLL_MS = 50;",
+          "new": "const SETTLE_POLL_MS = 5000;"
+        }
+      ]
+    },
+    {
+      "name": "poll-interval-ignored",
+      "what": "the interval of the poll is not the setting",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      let napMs = pollMs;\n",
+          "new": "      let napMs = 500;\n"
+        }
+      ]
+    },
+    {
+      "name": "wake-does-nothing",
+      "what": "a cancel, a closed connection and the end of the Hub do not wake the wait",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      turn.wake = () => { clearTimeout(timer); resolve(); };",
+          "new": "      turn.wake = () => {};"
+        }
+      ]
+    },
+    {
+      "name": "cancel-wake",
+      "what": "a cancel does not wake the wait",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    turn.wake?.();\n  }\n\n  return {",
+          "new": "  }\n\n  return {"
+        }
+      ]
+    },
+    {
+      "name": "abort-wake",
+      "what": "a closed connection does not wake the wait",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const onAbort = () => { void cancelHubTask(turn); turn.wake?.(); };",
+          "new": "const onAbort = () => { void cancelHubTask(turn); };"
+        }
+      ]
+    },
+    {
+      "name": "hub-gone-wake",
+      "what": "the end of the Hub does not wake the wait",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "hubGone = how ?? {}; turn.wake?.(); });",
+          "new": "hubGone = how ?? {}; });"
+        }
+      ]
+    },
+    {
+      "name": "lost-contact-never",
+      "what": "a Hub that does not answer is waited for for ever",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (Date.now() - lastAnswer > lostContactMs) throw",
+          "new": "        if (false) throw"
+        }
+      ]
+    },
+    {
+      "name": "lost-contact-immediately",
+      "what": "a Hub that does not answer once is given up on",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (Date.now() - lastAnswer > lostContactMs) throw",
+          "new": "        if (true) throw"
+        }
+      ]
+    },
+    {
+      "name": "answer-time-not-kept",
+      "what": "the time of the last answer is never renewed",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        lastAnswer = Date.now();\n      } catch",
+          "new": "      } catch"
+        }
+      ]
+    },
+    {
+      "name": "rpc-errors-retried",
+      "what": "an error of the loop itself is retried like a network failure",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (error instanceof RpcError) throw error;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "unknown-session",
+      "what": "a prompt for an unknown session is another error",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "throw fail(ERROR_CODES.NOT_FOUND, `Unknown session ${JSON.stringify(sessionId)}.`);",
+          "new": "throw fail(ERROR_CODES.INVALID_PARAMS, `Unknown session ${JSON.stringify(sessionId)}.`);"
+        }
+      ]
+    },
+    {
+      "name": "two-turns",
+      "what": "a second prompt in a session is served while the first runs",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (session.turn) throw fail(ERROR_CODES.INVALID_REQUEST, 'A turn is already running in this session: wait for it to end, or cancel it.');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "content-folder",
+      "what": "links are read against another folder",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "mapPromptContent(blocks, { cwd: session.cwd,",
+          "new": "mapPromptContent(blocks, { cwd: session.workspacePath,"
+        }
+      ]
+    },
+    {
+      "name": "capabilities-offered-to-content",
+      "what": "every kind of content is taken",
+      "equivalent": "content.mjs refuses an image and an audio block whatever the capabilities say and reads only embeddedContext, which is true in both objects; the advertised object is passed so that a later change of the capabilities reaches the mapper",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "promptCapabilities: AGENT_CAPABILITIES.promptCapabilities });",
+          "new": "promptCapabilities: { image: true, audio: true, embeddedContext: true } });"
+        }
+      ]
+    },
+    {
+      "name": "embedded-context-refused",
+      "what": "embedded text is refused although the agent advertised it",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "promptCapabilities: AGENT_CAPABILITIES.promptCapabilities });",
+          "new": "promptCapabilities: { ...AGENT_CAPABILITIES.promptCapabilities, embeddedContext: false } });"
+        }
+      ]
+    },
+    {
+      "name": "turn-task-of-the-old-run",
+      "what": "a cancel during the continue of a task is sent for the run that had ended",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const turn = { hub: null, taskId: null, cancelRequested: false",
+          "new": "const turn = { hub: null, taskId: session.taskId, cancelRequested: false"
+        }
+      ]
+    },
+    {
+      "name": "turn-taken-late",
+      "what": "the turn of a session is taken after the Hub has been found (a second prompt, or a cancel, that arrives in the same chunk of the pipe does not see it)",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    session.turn = turn;\n    const askSignal",
+          "new": "    const askSignal"
+        },
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      turn.hub = hub;\n",
+          "new": "      turn.hub = hub;\n      session.turn = turn;\n"
+        }
+      ]
+    },
+    {
+      "name": "turn-not-recorded",
+      "what": "the session does not know that its turn runs",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    session.turn = turn;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "abort-does-not-cancel",
+      "what": "a closed connection does not stop the task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    const onAbort = () => { void cancelHubTask(turn); turn.wake?.(); };",
+          "new": "    const onAbort = () => { turn.wake?.(); };"
+        }
+      ]
+    },
+    {
+      "name": "notes-not-told",
+      "what": "what was left out of a prompt is not told to the person",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (notes.length) tell(sessionId, { severity: 'info', title: 'Some of what you attached was not sent to the model', description: notes.join('\\n') });\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "first-prompt-continues",
+      "what": "the first prompt of a session continues a task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const task = session.taskId === null ? await hub.startTask({ prompt: text, workspacePath: session.workspacePath }) : await hub.continueTask({ id: session.taskId, prompt: text });",
+          "new": "const task = session.taskId === null ? await hub.continueTask({ id: session.taskId, prompt: text }) : await hub.continueTask({ id: session.taskId, prompt: text });"
+        }
+      ]
+    },
+    {
+      "name": "later-prompt-starts",
+      "what": "a later prompt of a session starts a new task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const task = session.taskId === null ? await hub.startTask({ prompt: text, workspacePath: session.workspacePath }) : await hub.continueTask({ id: session.taskId, prompt: text });",
+          "new": "const task = await hub.startTask({ prompt: text, workspacePath: session.workspacePath });"
+        }
+      ]
+    },
+    {
+      "name": "task-id-not-kept",
+      "what": "the session forgets its task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      session.taskId = task.id;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "turn-task-not-kept",
+      "what": "the turn does not know its task",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      turn.taskId = task.id;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancel-before-start-forgotten",
+      "what": "a cancel that came before the task existed is forgotten",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (turn.cancelRequested || context.signal.aborted) await cancelHubTask(turn);",
+          "new": "      if (false) await cancelHubTask(turn);"
+        }
+      ]
+    },
+    {
+      "name": "abort-before-start-forgotten",
+      "what": "a closed connection before the task existed does not stop it",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (turn.cancelRequested || context.signal.aborted) await cancelHubTask(turn);",
+          "new": "if (turn.cancelRequested) await cancelHubTask(turn);"
+        }
+      ]
+    },
+    {
+      "name": "cancel-flag-ignored",
+      "what": "the outcome does not know that the client cancelled",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const outcome = outcomeOf(finished, { cancelRequested: turn.cancelRequested });",
+          "new": "const outcome = outcomeOf(finished, { cancelRequested: false });"
+        }
+      ]
+    },
+    {
+      "name": "failure-not-thrown",
+      "what": "a failed task ends the turn without an error",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (outcome.error) throw fail(outcome.error.code, outcome.error.message);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "answer-not-sent",
+      "what": "the answer of the task is not sent",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (rest) outbound.notify(",
+          "new": "      if (false) outbound.notify("
+        }
+      ]
+    },
+    {
+      "name": "notice-not-sent",
+      "what": "the notice of the outcome is not sent",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (outcome.notice) tell(sessionId, outcome.notice);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "notice-before-answer",
+      "what": "the notice comes before the answer",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      if (rest) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: rest } } });\n      if (outcome.notice) tell(sessionId, outcome.notice);\n",
+          "new": "      if (outcome.notice) tell(sessionId, outcome.notice);\n      if (rest) outbound.notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: rest } } });\n"
+        }
+      ]
+    },
+    {
+      "name": "stop-reason-lost",
+      "what": "the response does not carry the stop reason",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      return { stopReason: outcome.stopReason };\n",
+          "new": "      return { stopReason: 'end_turn' };\n"
+        }
+      ]
+    },
+    {
+      "name": "turn-not-released",
+      "what": "the session keeps its turn after it ends",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      session.turn = null;\n    }\n  }\n\n  function cancel(params)",
+          "new": "    }\n  }\n\n  function cancel(params)"
+        }
+      ]
+    },
+    {
+      "name": "abort-listener-left",
+      "what": "the abort listener stays on the request signal",
+      "equivalent": "the signal belongs to one request and is dropped with it; removing the listener only releases a closure a little sooner",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      context.signal.removeEventListener('abort', onAbort);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancel-before-initialize",
+      "what": "a cancel before initialize is acted on",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!state.initialized) { log('ignored session/cancel before initialize'); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancel-bad-params-crash",
+      "what": "a cancel with bad parameters is not ignored",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    try { ({ sessionId } = parseCancel(params)); } catch (error) { log(`ignored session/cancel: ${error.message}`); return; }\n",
+          "new": "    ({ sessionId } = parseCancel(params));\n"
+        }
+      ]
+    },
+    {
+      "name": "cancel-unknown-session",
+      "what": "a cancel for an unknown session is not ignored",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!session) { log(`ignored session/cancel for an unknown session ${JSON.stringify(sessionId)}`); return; }\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancel-without-turn",
+      "what": "a cancel with no turn is acted on",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    if (!turn) return;\n    turn.cancelRequested = true;",
+          "new": "    turn.cancelRequested = true;"
+        }
+      ]
+    },
+    {
+      "name": "cancel-flag-not-set",
+      "what": "a cancel does not mark the turn",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    turn.cancelRequested = true;\n    void cancelHubTask(turn);",
+          "new": "    void cancelHubTask(turn);"
+        }
+      ]
+    },
+    {
+      "name": "cancel-not-sent",
+      "what": "a cancel does not reach the Hub",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    void cancelHubTask(turn); // no task id yet",
+          "new": "    // no task id yet"
+        }
+      ]
+    },
+    {
+      "name": "connector-replaced-memory",
+      "what": "replacing the way to the Hub keeps the old Hub",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "replaceConnector(next) { connector = next; state.hubPromise = null; state.hubConnection = null; },",
+          "new": "replaceConnector(next) { connector = next; },"
+        }
+      ]
+    },
+    {
+      "name": "shutdown-does-not-cancel",
+      "what": "the end does not stop the tasks of the editor",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        const stopping = [...sessions.values()].filter((session) => session.turn).map((session) => { session.turn.cancelRequested = true; return cancelHubTask(session.turn); });",
+          "new": "        const stopping = [];"
+        }
+      ]
+    },
+    {
+      "name": "shutdown-does-not-mark",
+      "what": "the end does not mark the running turns as cancelled",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": ".map((session) => { session.turn.cancelRequested = true; return cancelHubTask(session.turn); });",
+          "new": ".map((session) => cancelHubTask(session.turn));"
+        }
+      ]
+    },
+    {
+      "name": "shutdown-twice",
+      "what": "the end runs each time it is asked for",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      state.shutdown ??= (async () => {",
+          "new": "      state.shutdown = (async () => {"
+        }
+      ]
+    },
+    {
+      "name": "shutdown-stops-attached",
+      "what": "the end stops a Hub that was only attached to",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (hub.owned) await hub.stop();",
+          "new": "        await hub.stop?.();"
+        }
+      ]
+    },
+    {
+      "name": "shutdown-never-stops",
+      "what": "the end does not stop a Hub the agent started",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (hub.owned) await hub.stop();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "shutdown-hub-failure",
+      "what": "a Hub that could not be found stops the end",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "await state.hubPromise.catch(() => null)",
+          "new": "await state.hubPromise"
+        }
+      ]
+    },
+    {
+      "name": "attach-notification",
+      "what": "session/cancel is not registered",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      peer.onNotification('session/cancel', cancel);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "attach-prompt-guard",
+      "what": "session/prompt is served before initialize",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "peer.handle('session/prompt', guard(requireInitialized(prompt)));",
+          "new": "peer.handle('session/prompt', guard(prompt));"
+        }
+      ]
+    },
+    {
+      "name": "attach-new-guard",
+      "what": "session/new is served before initialize",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "peer.handle('session/new', guard(requireInitialized(newSession)));",
+          "new": "peer.handle('session/new', guard(newSession));"
+        }
+      ]
+    },
+    {
+      "name": "log-unmasked",
+      "what": "a line of the log is not masked",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const log = (line) => sink(masker.text(line));",
+          "new": "const log = (line) => sink(line);"
+        }
+      ]
+    },
+    {
+      "name": "sessions-busy-closed",
+      "what": "a full connection closes its oldest session even when it has a turn running",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const idle = [...sessions.values()].find((session) => !session.turn);",
+          "new": "const idle = [...sessions.values()][0];"
+        }
+      ]
+    },
+    {
+      "name": "sessions-never-closed",
+      "what": "a full connection refuses instead of closing an idle session",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const idle = [...sessions.values()].find((session) => !session.turn);",
+          "new": "const idle = undefined;"
+        }
+      ]
+    },
+    {
+      "name": "sessions-closed-kept",
+      "what": "the session that gives its place is kept",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    sessions.delete(idle.id);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "sessions-closed-silent",
+      "what": "closing a session to make room is not logged",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "    log(`closed the oldest session without a turn, ${idle.id}, to make room (${MAX_SESSIONS} sessions at most)`);\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "hub-never-forgotten",
+      "what": "a Hub that no longer takes the session is kept for ever",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "try { return masker.value(await handler(params, context)); } catch (error) { noteHubFailure(error); throw asRpcError(error); }",
+          "new": "try { return masker.value(await handler(params, context)); } catch (error) { throw asRpcError(error); }"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-auth-off",
+      "what": "a Hub that no longer takes the session is not connected to again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const isAuthLoss = (error) => error instanceof HubError && (error.status === 401 || error.code === 'hub_auth_required');",
+          "new": "const isAuthLoss = () => false;"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-unreachable-off",
+      "what": "a Hub that cannot be reached is not connected to again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const isUnreachable = (error) => error instanceof HubError && error.status === null;",
+          "new": "const isUnreachable = () => false;"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-any-error",
+      "what": "a Hub that refuses for a reason of its own is connected to again",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (!hub || hub.owned || !(isAuthLoss(error) || isUnreachable(error))) return;",
+          "new": "if (!hub || hub.owned) return;"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-owned",
+      "what": "a running Hub that the agent started is dropped too (and would be attached to, and never stopped)",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (!hub || hub.owned || !(isAuthLoss(error)",
+          "new": "if (!hub || !(isAuthLoss(error)"
+        }
+      ]
+    },
+    {
+      "name": "hub-forget-other",
+      "what": "the connection is dropped even when it is not the one in use",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "const forget = (hub) => { if (state.hubConnection === hub) { state.hubConnection = null; state.hubPromise = null; } };",
+          "new": "const forget = () => { state.hubConnection = null; state.hubPromise = null; };"
+        }
+      ],
+      "equivalent": "forget is only ever handed the connection in use: noteHubFailure passes state.hubConnection, and a Hub the agent started is never replaced while it runs, so its end arrives while it is still the one in use"
+    },
+    {
+      "name": "hub-ended-kept",
+      "what": "a Hub the agent started that has ended is kept",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "if (state.hubConnection === hub) log('the Hub the agent started has ended: the next request starts one again'); forget(hub); });",
+          "new": "if (state.hubConnection === hub) log('the Hub the agent started has ended: the next request starts one again'); });"
+        }
+      ]
+    },
+    {
+      "name": "hub-connection-unknown",
+      "what": "the connection in use is not remembered",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "      state.hubConnection = hub;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "turn-auth-loss-waited",
+      "what": "a turn on a Hub that no longer takes the session waits for the whole time a Hub that does not answer is waited for",
+      "patches": [
+        {
+          "file": "lib/acp/agent.mjs",
+          "old": "        if (isAuthLoss(error)) throw error; // a Hub that no longer takes the session will not take it in a moment either: the turn fails now\n",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}

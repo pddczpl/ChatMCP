@@ -1,0 +1,337 @@
+{
+  "suite": "verify-approval-preview.mjs",
+  "description": "The guard that holds the call that follows an approval to the files the owner was shown (stale_after_approval) and the gate that draws the card: lib/local-tools.mjs (the hold, previewChanges, the preflights), lib/permissions.mjs (when the card is drawn, what it carries, the guard of an approval), lib/manager.mjs (the guard reaches the call, also after a hook's question), judged by tests/verify-approval-preview.mjs on a real HubManager.",
+  "mutations": [
+    {
+      "name": "AG-hold-none",
+      "what": "the guard holds nothing",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "    if (!guard) return;",
+          "new": "    return;"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-sha",
+      "what": "a file that changed is let through",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (shown && shown.baseSha === current) return;",
+          "new": "if (shown) return;"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-foreign",
+      "what": "a file that is not on the card is let through",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (shown && shown.baseSha === current) return;",
+          "new": "if (!shown || shown.baseSha === current) return;"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-executed",
+      "what": "the refusal does not say that nothing was executed",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "409), { executed: false });",
+          "new": "409));"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-code",
+      "what": "the refusal has another code",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "fault('stale_after_approval', `${what}",
+          "new": "fault('stale_revision', `${what}"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-deleted",
+      "what": "a file that went away is not held",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (error.code === 'ENOENT') this.#holdToApproved(guard, target.relative, null);",
+          "new": "if (error.code === 'ENOENT') void 0;"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-edit",
+      "what": "an edit is not held to the card",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "this.#holdToApproved(guard, target.relative, sha256(buffer));",
+          "new": "void 0;"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-write",
+      "what": "a write is not held to the card",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "async #preflightWrite(args, { guard = null } = {}) {",
+          "new": "async #preflightWrite(args, { guard = null } = {}) { guard = null;"
+        }
+      ]
+    },
+    {
+      "name": "AG-hold-batch",
+      "what": "a batch is not held to the card",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "async #loadBatchItem(item, guard = null) {",
+          "new": "async #loadBatchItem(item, guard = null) { guard = null;"
+        }
+      ]
+    },
+    {
+      "name": "AG-call-match",
+      "what": "a card made for another call is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (guard && !guardMatches(guard, tool.name, args ?? {})) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "AG-call-pass",
+      "what": "the guard does not reach the tool",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "return await tool.run(checked.value, { taskId, signal, guard });",
+          "new": "return await tool.run(checked.value, { taskId, signal });"
+        }
+      ]
+    },
+    {
+      "name": "AG-call-executed",
+      "what": "a refusal that carries executed:false loses it",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "return failure(info.code, info.message, error?.executed === false ? { executed: false } : {});",
+          "new": "return failure(info.code, info.message, {});"
+        }
+      ]
+    },
+    {
+      "name": "AG-preview-tools",
+      "what": "every local tool is previewed",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const tool = FILE_CHANGE_TOOLS.includes(op) ? this.#lookup(name) : null;",
+          "new": "const tool = this.#lookup(name);"
+        }
+      ]
+    },
+    {
+      "name": "AG-preview-invalid",
+      "what": "a call with a wrong form is previewed",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (!checked.ok || this.#crossFieldErrors(tool, checked.value).length) return null;",
+          "new": "if (!checked.ok) return null;"
+        }
+      ]
+    },
+    {
+      "name": "AG-preview-guard-failed",
+      "what": "a call that would be refused is held to a card",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "guard: failed ? null : buildApprovalGuard(op, args ?? {}, plans) };",
+          "new": "guard: buildApprovalGuard(op, args ?? {}, plans ?? []) };"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-tools",
+      "what": "the gate asks for a preview of every local tool",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "if(!FILE_CHANGE_TOOLS.includes(String(name).replace(/^local\\./i,'')))return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-local",
+      "what": "the gate asks for a preview of a tool that is not local",
+      "equivalent": "the name of an external tool carries its server (desktop-commander.write_file), so it is never in the list of file tools",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "if(!verdict.local||typeof this.localTools?.previewChanges!=='function')return null;",
+          "new": "if(typeof this.localTools?.previewChanges!=='function')return null;"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-guard-denied",
+      "what": "a refusal carries the guard",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "...(yes&&shown?.guard?{guard:shown.guard}:{})",
+          "new": "...(shown?.guard?{guard:shown.guard}:{})"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-guard-none",
+      "what": "an approval carries no guard",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "...(yes&&shown?.guard?{guard:shown.guard}:{})",
+          "new": "...({})"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-card",
+      "what": "the card is not put into the request",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "if(changes&&FILE_CHANGE_TOOLS.includes(op))detail={...detail,preview:maskDeep(changes,secrets)};",
+          "new": "if(false)detail={...detail,preview:maskDeep(changes,secrets)};"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-mask",
+      "what": "the card is not masked",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "preview:maskDeep(changes,secrets)}",
+          "new": "preview:changes}"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-text",
+      "what": "the text of the request carries the rows",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const text=JSON.stringify(detail);",
+          "new": "const text=JSON.stringify({...detail,preview:changes});"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-batch-content",
+      "what": "the list of a batch carries the content of its files",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "bytes:Buffer.byteLength(String(item.content??'')),overwrite:Boolean(item.overwrite)",
+          "new": "bytes:Buffer.byteLength(String(item.content??'')),content:item.content,overwrite:Boolean(item.overwrite)"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-batch-kind",
+      "what": "a batch has the card of a tool it is not",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "detail={kind:'batch',count:items.length,",
+          "new": "detail={kind:'tool',count:items.length,"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-protected",
+      "what": "a refused write of a protected file keeps what was to be written",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const secret=(typeof input.path==='string'&&isProtectedPath(input.path))||changes?.privateKeys===true;",
+          "new": "const secret=changes?.privateKeys===true;"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-keys",
+      "what": "a call that touches a private key keeps the words the model wrote",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const secret=(typeof input.path==='string'&&isProtectedPath(input.path))||changes?.privateKeys===true;",
+          "new": "const secret=(typeof input.path==='string'&&isProtectedPath(input.path));"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-edit-hidden",
+      "what": "the words of an edit of a protected file are kept",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "}else if(op==='edit_file'&&secret){",
+          "new": "}else if(false){"
+        }
+      ]
+    },
+    {
+      "name": "AG-gate-patch-path",
+      "what": "the card of a patch has no path",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "{kind:'edit',path:input.path,replace_all:false,old_string:cut(input.old_text,800)",
+          "new": "{kind:'edit',replace_all:false,old_string:cut(input.old_text,800)"
+        }
+      ]
+    },
+    {
+      "name": "AG-manager-guard",
+      "what": "the guard does not reach the call",
+      "patches": [
+        {
+          "file": "lib/manager.mjs",
+          "old": "signal: options.signal, guard: decision.guard })",
+          "new": "signal: options.signal })"
+        }
+      ]
+    },
+    {
+      "name": "AG-manager-hook-guard",
+      "what": "the guard of a hook's question is dropped",
+      "patches": [
+        {
+          "file": "lib/manager.mjs",
+          "old": "{ ...decision, asked: true, ...(asked.guard ? { guard: asked.guard } : {}) }",
+          "new": "{ ...decision, asked: true }"
+        }
+      ]
+    }
+  ]
+}

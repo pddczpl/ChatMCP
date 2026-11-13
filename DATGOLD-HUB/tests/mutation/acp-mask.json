@@ -1,0 +1,160 @@
+{
+  "suite": "verify-acp-logic.mjs",
+  "mutations": [
+    {
+      "name": "secrets-not-used",
+      "what": "the credentials of the agent are not masked by value",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "maskSecrets(String(value), secrets())",
+          "new": "maskSecrets(String(value), [])"
+        }
+      ]
+    },
+    {
+      "name": "secrets-read-once",
+      "what": "the list of credentials is read once, at the start",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "  const text = (value) => maskSecrets(String(value), secrets());",
+          "new": "  const fixed = secrets();\n  const text = (value) => maskSecrets(String(value), fixed);"
+        }
+      ]
+    },
+    {
+      "name": "string-passed-raw",
+      "what": "the value is not turned into a string before it is masked",
+      "equivalent": "maskSecrets turns its first argument into a string itself, so the String() here only says so",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "maskSecrets(String(value), secrets())",
+          "new": "maskSecrets(value, secrets())"
+        }
+      ]
+    },
+    {
+      "name": "strings-not-masked",
+      "what": "a string of a structure is returned as it is",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "    if (typeof value === 'string') return text(value);",
+          "new": "    if (typeof value === 'string') return value;"
+        }
+      ]
+    },
+    {
+      "name": "null-walked",
+      "what": "null is walked as an object",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "    if (value === null || typeof value !== 'object') return value;",
+          "new": "    if (typeof value !== 'object') return value;"
+        }
+      ]
+    },
+    {
+      "name": "cycle-not-cut",
+      "what": "a cycle is followed until the depth limit",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "depth >= MAX_DEPTH || ancestors.has(value)",
+          "new": "depth >= MAX_DEPTH"
+        }
+      ]
+    },
+    {
+      "name": "depth-not-limited",
+      "what": "there is no limit to the depth",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "depth >= MAX_DEPTH || ancestors.has(value)",
+          "new": "ancestors.has(value)"
+        }
+      ]
+    },
+    {
+      "name": "ancestors-kept",
+      "what": "an object stays marked after it was walked, so a second use of it is cut",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "    } finally { ancestors.delete(value); }",
+          "new": "    } finally { void 0; }"
+        }
+      ]
+    },
+    {
+      "name": "array-not-walked",
+      "what": "the strings of an array are not masked",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "      if (Array.isArray(value)) return value.map((item) => walk(item, depth + 1, ancestors));",
+          "new": "      if (Array.isArray(value)) return value;"
+        }
+      ]
+    },
+    {
+      "name": "object-not-walked",
+      "what": "the strings of an object are not masked",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "[key, walk(item, depth + 1, ancestors)]",
+          "new": "[key, item]"
+        }
+      ]
+    },
+    {
+      "name": "unknown-error-text",
+      "what": "an error that is nothing says nothing",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "      if (error === undefined || error === null) return 'unknown error';\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "error-with-prefix",
+      "what": "an error is given as \"Error: words\"",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "error instanceof Error ? error.message : String(error)",
+          "new": "String(error)"
+        }
+      ]
+    },
+    {
+      "name": "depth-limit-tiny",
+      "what": "the depth limit is 2",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "const MAX_DEPTH = 64;",
+          "new": "const MAX_DEPTH = 2;"
+        }
+      ]
+    },
+    {
+      "name": "cut-text",
+      "what": "the text of a cut is another",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "const CUT = '[cut: nested too deeply or circular]';",
+          "new": "const CUT = '[cut]';"
+        }
+      ]
+    }
+  ]
+}

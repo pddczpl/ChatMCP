@@ -19,7 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { HistoryLedger } from '../lib/history-ledger.mjs';
-import { compactHistory, estimateTokens, pairToolCalls } from '../lib/model-history.mjs';
+import { compactHistory, pairToolCalls } from '../lib/model-history.mjs';
 import { buildChatBody } from '../lib/openai-chat-api.mjs';
 import { asResponsesInput, buildResponsesBody, respondOpenAIResponses } from '../lib/openai-responses-api.mjs';
 import { buildAnthropicBody } from '../lib/anthropic-api.mjs';
@@ -540,7 +540,6 @@ const deepFreeze = (value) => {
   asGeminiContents(frozenView(withImages));
   geminiTextEnvelope(frozenView(plain), 'system', tools, { maxRequestBytes: 32 * 1024, repairHint: 'FORMAT RECOVERY 1/2' });
   compactHistory(frozenView(withImages), { maxBytes: 20 * 1024, keepRecent: 4 });
-  estimateTokens({ input: frozenView(withImages), instructions: 'system', tools });
   estimateContextTokens(frozenView(withImages));
   ok('the body builders, the Gemini converters and the byte compaction accept deep-frozen history items (they do not write to them)');
 

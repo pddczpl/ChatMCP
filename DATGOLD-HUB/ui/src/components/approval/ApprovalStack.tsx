@@ -8,6 +8,8 @@ import { formatTime } from '@/lib/format';
 import { riskInfo } from '@/lib/tool-labels';
 import { cn } from '@/lib/utils';
 import type { ApprovalView } from '@/lib/task-view';
+import { detailWithoutPreview, parseChangePreview } from '@/lib/change-preview';
+import { ChangePreview } from './ChangePreview';
 import { GitPushPreview } from './GitPushPreview';
 
 export type PendingApproval = ApprovalView;
@@ -42,7 +44,9 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
         const expired = Number.isFinite(expiresAt) && expiresAt <= now;
         const decision = item.decision || (expired ? 'expired' : undefined);
         const disabled = !!decision || busy;
-        const diffs = item.oldContent !== undefined && item.newContent !== undefined ? diffLines(item.oldContent, item.newContent) : null;
+        // The change as the Hub planned it replaces the crude diff of the two strings the model wrote; a request from an Hub that does not send it is drawn as before.
+        const changes = parseChangePreview(item.detail);
+        const diffs = !changes && item.oldContent !== undefined && item.newContent !== undefined ? diffLines(item.oldContent, item.newContent) : null;
         const risk = riskInfo(item.risk, lang);
         const pending = !decision;
         return (
@@ -72,6 +76,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
 
               {item.targetPath && <p className="break-all rounded-lg border border-line bg-surface px-3 py-2 font-mono text-[12px] text-fg">{item.targetPath}</p>}
               {item.command && <pre className="overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 text-[12px] leading-5"><code>{item.command}</code></pre>}
+              {changes && <ChangePreview preview={changes} />}
               {diffs && (
                 <div className="max-h-64 overflow-auto rounded-lg border border-line bg-bg font-mono text-[12px] leading-5" aria-label={t('agents_apr_diff')}>
                   {diffs.map((part, index) => (
@@ -87,7 +92,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
               {item.detail && (
                 <details className="text-[13px]">
                   <summary className="cursor-pointer text-muted hover:text-fg">{t('agents_apr_details')}</summary>
-                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 font-mono text-[12px] leading-5">{JSON.stringify(item.detail, null, 2)}</pre>
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 font-mono text-[12px] leading-5">{JSON.stringify(changes ? detailWithoutPreview(item.detail) : item.detail, null, 2)}</pre>
                 </details>
               )}
               {!item.detail && item.preview && <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 font-mono text-[12px] leading-5">{item.preview}</pre>}

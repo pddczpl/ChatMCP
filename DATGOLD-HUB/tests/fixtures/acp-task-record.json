@@ -1,0 +1,223 @@
+{
+  "note": "A task record as the Hub 3.11.2 publishes it on GET /api/tasks/:id (probe of 2026-11-07, Review mode, a read, a write and an edit); only the fields lib/acp/event-map.mjs reads are kept.",
+  "task": {
+    "id": "6281fa4b-8564-4560-9725-835fa19d2da9",
+    "state": "completed",
+    "status": "completed",
+    "finalText": "WRITE-DONE all good.",
+    "finalParts": {
+      "words": "WRITE-DONE all good.",
+      "verificationNotice": null,
+      "hookNotice": null
+    },
+    "eventCount": 22,
+    "usage": {
+      "inputTokens": 480,
+      "outputTokens": 96,
+      "httpRequests": 4,
+      "cachedInputTokens": 0,
+      "cacheWriteTokens": 0,
+      "reasoningTokens": 0,
+      "telemetrySchema": 2,
+      "inputUsageReported": 4,
+      "inputUsageMissing": 0,
+      "outputUsageReported": 4,
+      "outputUsageMissing": 0
+    },
+    "contextPolicy": {
+      "source": "conservative_fallback",
+      "capacityTokens": 32768,
+      "maxHistoryTokens": 6202,
+      "compactAtTokens": 4961,
+      "tailTokens": 4217,
+      "reservedOutputTokens": 16384,
+      "plannedOutputTokens": 8192,
+      "safetyMarginTokens": 1147,
+      "fixedOverheadTokens": 17227,
+      "approximate": true
+    },
+    "goalPlan": null,
+    "pendingCall": null,
+    "events": [
+      {
+        "at": "2026-11-06T19:38:41.073Z",
+        "type": "preflight",
+        "message": "",
+        "state": "queued",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.085Z",
+        "type": "project_detected",
+        "message": "",
+        "state": "queued",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.091Z",
+        "type": "instructions_loaded",
+        "message": "",
+        "state": "queued"
+      },
+      {
+        "at": "2026-11-06T19:38:41.098Z",
+        "type": "repo_map_started",
+        "message": "",
+        "state": "queued",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.143Z",
+        "type": "repo_map_injected",
+        "message": "",
+        "state": "queued"
+      },
+      {
+        "at": "2026-11-06T19:38:41.148Z",
+        "type": "started",
+        "message": "",
+        "state": "planning",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.154Z",
+        "type": "model",
+        "message": "",
+        "state": "planning",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.159Z",
+        "type": "context_budget",
+        "message": "",
+        "state": "planning"
+      },
+      {
+        "at": "2026-11-06T19:38:41.175Z",
+        "type": "tool_start",
+        "message": "Đang gọi local.read_file.\nTham số: {\"path\":\"calc.js\"}",
+        "state": "planning",
+        "toolName": "local.read_file",
+        "callId": "call_mock_2",
+        "input": {
+          "path": "calc.js"
+        },
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.192Z",
+        "type": "tool_result",
+        "message": "{\n  \"isError\": false,\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"calc.js · 5 dòng · 66 B · UTF-8 · LF\\nsha256: b641cc0765ed98d38709eafaedd083e57e19a68d3d28b2448c95116698dfb120\\n     1\\tfunction add(a, b) {\\n     2\\t  return a - b;\\n     3\\t}\\n     4\\t\\n     5\\tmodule.exports = { add };\"\n    }\n  ],\n  \"structuredContent\": {\n    \"path\": \"calc.js\",\n    \"sha256\": \"b641cc0765ed98d38709eafaedd083e57e19a68d3d28b2448c95116698dfb120\",\n    \"size\": 66,\n    \"lines\": 5,\n    \"encoding\": \"utf8\",\n    \"eol\": \"lf\",\n    \"start\": 1,\n    \"end\": 5,\n    \"truncated\": false\n  }\n}",
+        "state": "planning",
+        "toolName": "local.read_file",
+        "callId": "call_mock_2",
+        "input": {
+          "path": "calc.js"
+        },
+        "status": "completed"
+      },
+      {
+        "at": "2026-11-06T19:38:41.199Z",
+        "type": "goal_evidence",
+        "message": "",
+        "state": "planning"
+      },
+      {
+        "at": "2026-11-06T19:38:41.203Z",
+        "type": "model",
+        "message": "",
+        "state": "planning",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.220Z",
+        "type": "tool_start",
+        "message": "Đang gọi local.write_file.\nTham số: {\"path\":\"out.txt\",\"content\":\"from probe\\n\"}",
+        "state": "planning",
+        "toolName": "local.write_file",
+        "callId": "call_mock_3",
+        "input": {
+          "path": "out.txt"
+        },
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.446Z",
+        "type": "tool_result",
+        "message": "{\n  \"isError\": false,\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"Đã tạo out.txt (11 B, 1 dòng).\\nsha256: 17abff7dc05aa0c427c3e1312dd0a1c3f46a2e6ea7b45edf8bbd1eb3de4f228b\"\n    }\n  ],\n  \"structuredContent\": {\n    \"path\": \"out.txt\",\n    \"created\": true,\n    \"bytes\": 11,\n    \"sha256\": \"17abff7dc05aa0c427c3e1312dd0a1c3f46a2e6ea7b45edf8bbd1eb3de4f228b\",\n    \"previousSha\": null\n  }\n}",
+        "state": "running",
+        "toolName": "local.write_file",
+        "callId": "call_mock_3",
+        "input": {
+          "path": "out.txt"
+        },
+        "status": "completed",
+        "checkpointId": "20e2a6e2-8d2a-4632-8d13-960e2510dcd8"
+      },
+      {
+        "at": "2026-11-06T19:38:41.452Z",
+        "type": "goal_evidence",
+        "message": "",
+        "state": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.455Z",
+        "type": "model",
+        "message": "",
+        "state": "running",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.467Z",
+        "type": "tool_start",
+        "message": "Đang gọi local.edit_file.\nTham số: {\"path\":\"calc.js\",\"old_string\":\"return\",\"new_string\":\"return /* probe */\"}",
+        "state": "running",
+        "toolName": "local.edit_file",
+        "callId": "call_mock_4",
+        "input": {
+          "path": "calc.js"
+        },
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.598Z",
+        "type": "tool_result",
+        "message": "{\n  \"isError\": false,\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"Đã sửa calc.js: thay 1 chỗ (dòng 2).\\nsha256: f4acb3ec3a25b27fec5950d54fc85292c1ddaf5b44dd7abe75f3fc42efa6d2f7\\n     1\\tfunction add(a, b) {\\n     2\\t  return /* probe */ a - b;\\n     3\\t}\\n     4\\t\\n     5\\tmodule.exports = { add };\"\n    }\n  ],\n  \"structuredContent\": {\n    \"path\": \"calc.js\",\n    \"replacements\": 1,\n    \"firstLine\": 2,\n    \"sha256\": \"f4acb3ec3a25b27fec5950d54fc85292c1ddaf5b44dd7abe75f3fc42efa6d2f7\",\n    \"previousSha\": \"b641cc0765ed98d38709eafaedd083e57e19a68d3d28b2448c95116698dfb120\"\n  }\n}",
+        "state": "running",
+        "toolName": "local.edit_file",
+        "callId": "call_mock_4",
+        "input": {
+          "path": "calc.js"
+        },
+        "status": "completed",
+        "checkpointId": "469ee56c-4eff-4811-a0bc-65768734e3ad"
+      },
+      {
+        "at": "2026-11-06T19:38:41.603Z",
+        "type": "goal_evidence",
+        "message": "",
+        "state": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.607Z",
+        "type": "model",
+        "message": "",
+        "state": "running",
+        "status": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.623Z",
+        "type": "assistant",
+        "message": "WRITE-DONE all good.",
+        "state": "running"
+      },
+      {
+        "at": "2026-11-06T19:38:41.629Z",
+        "type": "completed",
+        "message": "",
+        "state": "completed",
+        "status": "completed"
+      }
+    ]
+  }
+}

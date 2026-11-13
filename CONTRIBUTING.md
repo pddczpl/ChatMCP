@@ -6,6 +6,7 @@ Thank you for helping with DatGold, a local-first AI coding agent for Windows 10
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
 - [Build and test](#build-and-test)
 - [Commit conventions](#commit-conventions)
+- [Documentation languages](#documentation-languages)
 - [Pull requests](#pull-requests)
 - [AI-assisted contributions](#ai-assisted-contributions)
 - [Security reports](#security-reports)
@@ -77,7 +78,7 @@ git commit --amend --signoff --no-edit
 git rebase --signoff origin/main
 ```
 
-The **DCO** workflow ([.github/workflows/dco.yml](.github/workflows/dco.yml)) fails a pull request when a commit has no valid `Signed-off-by` trailer. Merge commits and commits authored by `github-actions[bot]`, `dependabot[bot]` and `semantic-release-bot` are exempt. You can run the same check locally:
+The **DCO** workflow ([.github/workflows/dco.yml](.github/workflows/dco.yml)) fails a pull request when a commit has no valid `Signed-off-by` trailer. Merge commits and commits authored by `github-actions[bot]`, `dependabot[bot]` and `semantic-release-bot` are exempt. You can run the same check locally, from the repository root:
 
 ```bash
 node scripts/check-dco.mjs --base origin/main --head HEAD
@@ -87,22 +88,22 @@ The sign-off is recorded in the public history forever (point (d)); use a name y
 
 ## Build and test
 
-You need Node.js 22.12 or newer and Git. A Windows machine is needed for the installer, the native desktop shell (.NET SDK 10, WebView2 Runtime) and the PowerShell scripts, which must stay Windows PowerShell 5.1 compatible and ASCII-only. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) has the complete list of prerequisites and test suites.
+You need Node.js 22.12 or newer (`engines` in `DATGOLD-HUB/package.json`; the launcher refuses an older one) and Git. A Windows machine is needed for the installer, the native desktop shell (.NET SDK 10, WebView2 Runtime) and the PowerShell scripts, which must stay Windows PowerShell 5.1 compatible and ASCII-only. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) has the complete list of prerequisites and test suites.
 
-Hub (no build step):
+Hub (no build step), from the repository root:
 
 ```bash
 cd DATGOLD-HUB
 node tests/run-all.mjs
 ```
 
-`run-all.mjs` runs every `tests/verify-*.mjs` suite in its own process and exits non-zero if one fails. Useful options: `--list`, `--filter <text>`, `--verbose`, and `--no-skip all` (CI uses it: a skipped suite counts as a failure). Some suites report SKIP when their prerequisites are missing; install the pinned Python packages to run them:
+`run-all.mjs` runs every `tests/verify-*.mjs` suite in its own process and exits non-zero if one fails. Useful options: `--list`, `--filter <text>`, `--verbose`, and `--no-skip all` (CI uses it: a skipped suite counts as a failure). Some suites report SKIP when their prerequisites are missing; install the pinned Python packages to run them, from the repository root:
 
 ```bash
 python -m pip install -r DATGOLD-HUB/tests/requirements-e2e.txt
 ```
 
-React user interface (TypeScript, Vite):
+React user interface (TypeScript, Vite), from the repository root. The built page in `DATGOLD-HUB/web/dist` is committed: rebuild it and commit it with the source change that alters it, never edit it by hand.
 
 ```bash
 cd DATGOLD-HUB/ui
@@ -113,7 +114,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Windows installer payload and native pieces (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)):
+Windows installer payload and native pieces (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)), from the repository root:
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-InstallerPayload.ps1
@@ -123,20 +124,41 @@ A model's statement that tests pass is not evidence. Run the commands above and 
 
 ## Commit conventions
 
-The history uses short, one-purpose commits with a lower-case type prefix and no scope:
+The subject is `type(area): what`, in English, lower case, without a trailing period. The area is optional and names the part of the product the commit changes:
 
 ```text
-feat: add explicit cost rate validation and incomplete-usage ledger
-fix: continue completed conversations after workspace lock cleanup
-test: exercise actual CRLF injection in custom header validation
-docs: document Responses protocol and preserve historic preset counts
-chore: align React, native lifecycle and changelog with v3.9.0
+fix(hub): an expired approval is not recorded again as cancelled, replace_all counts every place
+feat(ui): the Review tab, its dialog, the offer under a turn and the link in a receipt
+test(e2e): look for the "accepted" badge of a file in its header
+build(ui): rebuild web/dist for the Review tab
+docs: sixteen statements that the repository or the published releases contradict
 ```
 
-- Types: `feat`, `fix`, `test`, `docs`, `chore`; `release` is reserved for maintainers' release commits.
-- Write the subject in the imperative mood, lower case, without a trailing period.
+- Types, by how often the last 150 commits use them: `test`, `fix`, `docs`, `build`, `feat`, `refactor`, `chore`, `ci`; `release` is reserved for the owner's release commits (the publish workflow of a version runs only on its release commit).
+- `build` is a rebuilt artifact or a build script (most often `build(ui)`: `web/dist` after a UI change); `refactor` changes code without changing behaviour; `ci` changes a workflow.
+- Common areas: `ui`, `hub`, `e2e`, `installer`, `updater-e2e`, `git-push`, `skills`, `catalog`.
+- The subject may state what is now true ("an expired approval is not recorded again") or what the commit does ("add ..."); both are in the history.
 - Use the body to say the cause, the evidence (which tests you ran) and what is *not* verified.
 - Keep a commit to one purpose, and end it with your `Signed-off-by` line (see above).
+
+## Documentation languages
+
+The owner's rule: documents that a person **using** DatGold reads are written in **Vietnamese**; everything **technical** is written in **English**. Code, comments, commit messages and pull request text are English.
+
+- Vietnamese (user-facing guides): [docs/USER-GUIDE.md](docs/USER-GUIDE.md), [docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md), [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md), [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), [HUONG-DAN.txt](HUONG-DAN.txt).
+- English (technical): README.md, SECURITY.md, CONTRIBUTING.md, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) and the feature documents in `docs/` (HOOKS, GIT-PUSH, REVIEW-API, APPROVAL-PREVIEW, HUB-AUTH, COMPANION-PRIVACY and the like).
+- Historical documents (`docs/PHASE*`, `docs/archive/`, past release notes, `CHANGELOG.md` entries) stay in the language they were written in.
+
+Not every document follows the rule yet; they are translated in changes of their own, not along with other work. Share of prose lines with Vietnamese letters on 2026-11-12 (tables and code left out):
+
+| Document | Should be | Today |
+|---|---|---|
+| docs/ARCHITECTURE.md | English | 62 % Vietnamese |
+| docs/DEVELOPMENT.md | English | 51 % Vietnamese |
+| docs/TESTING-WITH-REAL-MODELS.md | English (a technical guide) | 55 % Vietnamese |
+| docs/DEPLOYMENT.md | English (a short historical notice) | Vietnamese |
+| docs/WINDOWS-SETUP.md | Vietnamese | 22 % Vietnamese, mostly English |
+| docs/DESKTOP-APP.md | Vietnamese | 53 % Vietnamese, the rest English |
 
 ## Pull requests
 

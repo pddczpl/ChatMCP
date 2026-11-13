@@ -1,32 +1,10 @@
-COMPANION 1.5.2 FIX: background worker forwards resumeStart=true to content script during first user-initiated continuation. See ../STUDIO-2.2.3.md.
+DATGOLD HUB COMPANION 1.5.2 — HƯỚNG DẪN SỬ DỤNG (CHATGPT WEB)
 
-CHATMCP HUB COMPANION 1.4.0 — Tiếp tục phiên ChatGPT Web sau Hub restart
-
-Khi người dùng chọn một phiên cũ và yêu cầu Tiếp tục, Hub gửi đúng saved chat URL kèm cờ resumeStart cho gói đầu tiên. Companion tìm tab cũ hoặc mở đúng URL đã lưu, không mở trang ChatGPT home để tạo chat mới. Tác vụ trong Hub vẫn dùng ID cũ, và sau lần đầu mọi gói MCP tiếp theo phải xác minh lượt trước theo quy tắc bình thường. Ngay cả nếu journal cũ bị lỗi hoặc Hub thay instanceId, một lượt tiếp tục do người dùng chủ động gửi được khởi chạy từ cùng chat URL; không tự phát lại lượt gửi cũ chưa xác minh. Bản 1.4.0 giữ các cơ chế chờ mạng và chống gửi trùng của bản 1.3.7.
-
-Companion 1.3.7 vẫn chỉ dành cho chế độ ChatGPT Web. Chế độ API Gateway mới chạy trong Hub, không cần Companion. Companion cũng hỗ trợ ghi chú tiến độ công khai trong các lệnh JSON nếu model tự cung cấp (trường progress).
-
-CHATMCP HUB COMPANION 1.3.7
-
-BẢN 1.3.7 — MẠNG LAN NGẮT NGẮN RỒI KẾT NỐI LẠI:
-  - Đừng tự bấm Gửi lần nữa khi popup báo "đang kiểm tra lượt đã gửi".
-  - Companion giữ journal qua restart service worker; sau khi Hub và ChatGPT
-    kết nối lại, khớp message/task/turn/nonce ở cùng tab để tiếp tục.
-  - Nếu biết chắc chưa click (offline trước nút Gửi), nó sẽ tự click một lần
-    khi online. Nếu đã click nhưng không còn chứng cứ, chỉ chờ, không gửi lại.
-  - Mất xác nhận MCP ghi/xóa KHÔNG được tự thử lần hai.
-  - Chỉ hoạt động khi Hub Windows còn chạy; nếu Hub bị tắt/restart,
-    tác vụ trước đó phải kiểm tra thủ công và tạo mới nếu cần.
-
+Companion là tiện ích Chrome / Microsoft Edge (bản 120 trở lên) cho chế độ
+ChatGPT Web của DatGold. Chế độ Model API chạy hoàn toàn trong Hub, không cần
+Companion. Hướng dẫn cài bằng tiếng Anh nằm cạnh tệp này: INSTALL-EXTENSION.txt.
 
 CHẾ ĐỘ CHÍNH: GIAO VIỆC TRÊN LOCALHOST, DÙNG CHATGPT CHAT THÔNG THƯỜNG
-
-BẢN 1.3.5: Một tin nhắn đầu dài có thể bị ChatGPT chuyển thành tệp
-Pasted text; Hub nay dùng hướng dẫn ngắn, tìm tool qua catalog và
-chia trang các kết quả MCP dài. Đồng bộ URL/DOM chờ tối đa 30 giây,
-khớp nội dung user message trong bubble không phụ thuộc Copy/Edit.
-Nếu không xác nhận được, báo submitted_user_message_unverified và
-không tự gửi lại. Chưa xác minh trên Edge thật của người dùng.
 
 Hub nhận prompt và chọn workspace trên máy. Companion mở một tab ChatGPT
 riêng cho tác vụ, đưa yêu cầu vào ô chat thông thường và bấm gửi sau khi Hub
@@ -40,6 +18,9 @@ cookie/token tài khoản hoặc thủ thuật thay CSP. Hạn mức và model v
 chế độ đang chọn trên trang ChatGPT. Extension không chọn model/tài khoản
 hoặc tự chuyển từ Work sang Chat. Giao diện không nhận diện được sẽ dừng.
 
+Model có thể tự thêm ghi chú tiến độ công khai vào lệnh JSON (trường progress);
+Companion chuyển ghi chú đó về Hub.
+
 CÀI VÀ GHÉP MỘT LẦN
 
 1. Tắt hoặc gỡ bản ChatMCP Button Fix/Companion cũ. Chỉ bật một bản Companion.
@@ -47,10 +28,11 @@ CÀI VÀ GHÉP MỘT LẦN
    MCP SuperAssistant không cần thiết cho vòng chạy mới và có đường Auto
    riêng mà Companion không kiểm soát.
 2. Mở chrome://extensions hoặc edge://extensions. Bật Developer mode,
-   chọn Load unpacked và chọn chính thư mục extension chứa manifest.json.
-   Nếu đã nạp cùng thư mục trước đây, bấm Reload. Cần Chrome/Edge 120 trở lên.
-3. Chạy launcher theo README của Hub. Mở http://127.0.0.1:3007/, chọn workspace
-   và tạo mã ghép trên Hub. Mã có 8 chữ số, hết hạn sau 5 phút.
+   chọn Load unpacked và chọn thư mục chứa manifest.json: thư mục đã giải nén
+   từ DatGold-Browser-Companion.zip, hoặc DATGOLD-HUB\extension trong thư mục
+   cài đặt. Nếu đã nạp cùng thư mục trước đây, bấm Reload.
+3. Mở DatGold Studio, chọn workspace, vào Cài đặt, chọn chế độ ChatGPT Web và
+   tạo mã ghép mới. Mã có 8 chữ số, hết hạn sau 5 phút.
 4. Mở popup DatGold Hub Companion. Dán mã vào “Mã ghép lấy trên Hub” rồi bấm
    “Ghép và bật”. Đây là bước cho phép các yêu cầu bạn gửi trên localhost
    được tự đưa qua ô chat ChatGPT.
@@ -66,6 +48,28 @@ cầu của bạn. Nếu muốn giữ bản nháp cá nhân, hãy dùng tab khá
 đổi cuộc chat hoặc đóng tab tác vụ sẽ làm dừng điều phối. Theo dõi và hủy từ
 Hub. Popup “Cập nhật” chỉ đọc trạng thái; “Ngắt ghép” dừng nhận yêu cầu mới
 và báo dừng tác vụ đang gắn với extension. Ghép lại bằng mã mới khi cần.
+
+TIẾP TỤC MỘT PHIÊN CŨ
+
+Khi bạn chọn một phiên cũ trên Hub và yêu cầu Tiếp tục, Hub gửi đúng địa chỉ
+chat đã lưu kèm cờ resumeStart cho gói đầu tiên; service worker của Companion
+chuyển cờ đó cho tab. Companion tìm tab cũ hoặc mở đúng địa chỉ đã lưu, không
+mở trang chủ ChatGPT để tạo chat mới. Tác vụ trong Hub giữ ID cũ, và sau lần
+đầu mọi gói tiếp theo phải xác minh lượt trước theo quy tắc bình thường. Kể cả
+khi journal cũ bị lỗi hoặc Hub đã khởi động lại, một lượt tiếp tục do bạn chủ
+động gửi được bắt đầu từ cùng địa chỉ chat; lượt gửi cũ chưa xác minh không
+bao giờ được tự phát lại.
+
+KHI MẠNG NGẮT NGẮN RỒI KẾT NỐI LẠI
+
+  - Đừng tự bấm Gửi lần nữa khi popup báo "đang kiểm tra lượt đã gửi".
+  - Companion giữ journal qua lần khởi động lại của service worker; sau khi Hub
+    và ChatGPT kết nối lại, nó khớp message/task/turn/nonce ở cùng tab để tiếp tục.
+  - Nếu biết chắc chưa bấm (mất mạng trước nút Gửi), nó tự bấm một lần khi có
+    mạng lại. Nếu đã bấm nhưng không còn chứng cứ, nó chỉ chờ, không gửi lại.
+  - Một lệnh MCP ghi/xóa bị mất xác nhận KHÔNG được tự thử lần hai.
+  - Chỉ hoạt động khi Hub còn chạy; nếu Hub bị tắt hoặc khởi động lại giữa
+    chừng, hãy kiểm tra tác vụ trước đó bằng tay và tạo tác vụ mới nếu cần.
 
 KHÔNG CẦN NÚT RUN TRONG CHẾ ĐỘ HUB
 
@@ -91,7 +95,7 @@ GIỚI HẠN VÀ CÁCH DỪNG
   kèm số đếm chẩn đoán cố định, không chứa prompt/token/nội dung tài khoản.
 - Dùng chung bộ đọc URL ở Companion, Hub và dashboard. Hỗ trợ /, /c/<id>,
   /chat/<id>, /g/<scope>/c/<id>; bỏ query/hash/dấu slash cuối khi so sánh.
-  Từ 1.3.5 nhận URL tạm thực tế /c/local-chatgpt%3A<UUID> rồi chuyển sang
+  Companion nhận URL tạm thực tế /c/local-chatgpt%3A<UUID> rồi chuyển sang
   /c/<mã chính thức>. Chỉ tiền tố local-chatgpt với UUID đúng cấu trúc mới
   nhận dấu : hoặc %3A/%3a; không giải mã mọi segment hoặc nới mọi URL.
   Trong lượt đầu, URL mới phải đi cùng đúng tin user vừa gửi; có khoảng

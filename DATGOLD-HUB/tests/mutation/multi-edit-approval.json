@@ -34,7 +34,7 @@
       "name": "A5",
       "what": "the summary of a call with several edits does not say how many",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "summary: (a) => (Array.isArray(a.edits) ? `Sửa ${a.path} (${a.edits.length} chỉnh sửa)` : `Sửa ${a.path}`), run: (a) => this.#editFile(a),", "new": "summary: (a) => `Sửa ${a.path}`, run: (a) => this.#editFile(a)," }
+        { "file": "lib/local-tools.mjs", "old": "summary: (a) => (Array.isArray(a.edits) ? `Sửa ${a.path} (${a.edits.length} chỉnh sửa)` : `Sửa ${a.path}`), run: (a, ctx) => this.#editFile(a, ctx),", "new": "summary: (a) => `Sửa ${a.path}`, run: (a, ctx) => this.#editFile(a, ctx)," }
       ]
     }
   ]

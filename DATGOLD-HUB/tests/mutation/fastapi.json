@@ -35,8 +35,8 @@
    "patches": [
     {
      "file": "lib/local-tools.mjs",
-     "old": "if (!parentStat) await fs.mkdir(parent, { recursive: true });",
-     "new": "if (!parentStat) throw fault('parent_missing', 'no parent');"
+     "old": "if (!stat) await fs.mkdir(path.dirname(target.absolute), { recursive: true });",
+     "new": "if (!stat) throw fault('parent_missing', 'no parent');"
     }
    ]
   },

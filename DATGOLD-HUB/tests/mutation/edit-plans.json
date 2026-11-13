@@ -1,0 +1,765 @@
+{
+  "suite": "verify-edit-plans.mjs",
+  "description": "The planners of the file tools (planEdit, planApplyPatch, planWrite, planWriteBatch in lib/local-tools.mjs, and the edit list they share): what an edit, a patch, a write and a batch leave on disk, with the rules and the refusals of the tools, judged by tests/verify-edit-plans.mjs (the planners on bytes in memory, then 960 seeded calls on real files against an oracle written from the rules).",
+  "mutations": [
+    {
+      "name": "EP-edit-sha-skipped",
+      "what": "planEdit does not check expected_sha256",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (args.expected_sha256 && baseSha !== args.expected_sha256.toLowerCase())",
+          "new": "if (false && baseSha !== args.expected_sha256.toLowerCase())"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-sha-case",
+      "what": "planEdit compares the sha as it was quoted, not in lower case",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "baseSha !== args.expected_sha256.toLowerCase()",
+          "new": "baseSha !== args.expected_sha256"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-decode-code",
+      "what": "every file that cannot be read is refused as binary",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (!decoded.ok) throw decodeFault(relative, decoded.reason);",
+          "new": "if (!decoded.ok) throw decodeFault(relative, 'binary');"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-crlf-off",
+      "what": "a CRLF file is edited as an LF file",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const crlf = decoded.eol === 'crlf';",
+          "new": "const crlf = false;"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-hay-crlf",
+      "what": "the text of a CRLF file is searched with its CR LF",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const hay = crlf ? toLf(decoded.text) : decoded.text;",
+          "new": "const hay = decoded.text;"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-old-lf",
+      "what": "old_string is not turned to LF for a CRLF file",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "oldString: crlf ? toLf(edit.old_string) : edit.old_string,",
+          "new": "oldString: edit.old_string,"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-new-lf",
+      "what": "new_string is not turned to LF for a CRLF file",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "newString: crlf ? toLf(edit.new_string) : edit.new_string,",
+          "new": "newString: edit.new_string,"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-crlf-back",
+      "what": "a CRLF file is written with LF",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const newText = crlf ? updatedLf.replace(/\\n/g, '\\r\\n') : updatedLf;",
+          "new": "const newText = updatedLf;"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-encoding",
+      "what": "an edited file is written as plain UTF-8 whatever it was",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const data = encodeText(newText, decoded.encoding);",
+          "new": "const data = encodeText(newText, 'utf8');"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-unchanged",
+      "what": "edits that cancel out are written as a change",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (updatedLf === hay) return { ...plan, unchanged: true,",
+          "new": "if (false) return { ...plan, unchanged: true,"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-unchanged-data",
+      "what": "when nothing changes the data is the text re-encoded, not the file",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "data: buffer, sha256: baseSha,",
+          "new": "data: Buffer.from(decoded.text), sha256: baseSha,"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-base-sha",
+      "what": "the base of an edit is the hash of another part of the file",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const baseSha = sha256(buffer);",
+          "new": "const baseSha = sha256(buffer.subarray(1));"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-count",
+      "what": "the number of places replaced is the number of edits",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "replacements: steps.reduce((sum, step) => sum + step.count, 0),",
+          "new": "replacements: steps.length,"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-first-line",
+      "what": "the line of the first edit is the line of the last one",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const [{ firstLine, replacedLines }] = steps;",
+          "new": "const [{ firstLine, replacedLines }] = [...steps].reverse();"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-hunks-lf",
+      "what": "the hunks are drawn from the text with its line endings turned to LF",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "...diffHunks(decoded.text, newText) };",
+          "new": "...diffHunks(toLf(decoded.text), toLf(newText)) };"
+        }
+      ]
+    },
+    {
+      "name": "EP-edit-edits",
+      "what": "the number of edits is always one",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "edits: list.length, many,",
+          "new": "edits: 1, many,"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-many",
+      "what": "a list of edits is treated like one edit",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const many = edits !== undefined;",
+          "new": "const many = false;"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-form",
+      "what": "old_string and edits together are accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (wrongForm) throw fault(",
+          "new": "if (false) throw fault("
+        }
+      ]
+    },
+    {
+      "name": "EP-list-empty",
+      "what": "an empty list of edits is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (!Array.isArray(list) || !list.length) throw fault('bad_edit', 'edits không được rỗng.');",
+          "new": "if (!Array.isArray(list)) throw fault('bad_edit', 'edits không được rỗng.');"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-max",
+      "what": "fifty-one edits are accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (list.length > MAX_EDITS)",
+          "new": "if (list.length > MAX_EDITS + 1)"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-types",
+      "what": "an edit whose strings are not strings is not refused as an edit",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (typeof edit?.old_string !== 'string' || typeof edit?.new_string !== 'string') throw",
+          "new": "if (false) throw"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-empty-old",
+      "what": "an empty old_string is not refused before the file is looked at",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (!edit.old_string) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');",
+          "new": "if (false) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-same",
+      "what": "an edit whose strings are equal is not refused before the file is looked at",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (edit.old_string === edit.new_string) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');",
+          "new": "if (false) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-position",
+      "what": "the refusal of a list does not say which edit",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "} catch (error) { throw many ? editFailure(error, index, list.length) : error; }",
+          "new": "} catch (error) { throw error; }"
+        }
+      ]
+    },
+    {
+      "name": "EP-list-position-apply",
+      "what": "the refusal of an edit that does not fit does not say which edit",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "} catch (failure) { throw many ? editFailure(failure, index, list.length) : failure; }",
+          "new": "} catch (failure) { throw failure; }"
+        }
+      ]
+    },
+    {
+      "name": "EP-failure-index",
+      "what": "the position is one too low",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "`Chỉnh sửa ${index + 1}/${total} thất bại",
+          "new": "`Chỉnh sửa ${index}/${total} thất bại"
+        }
+      ]
+    },
+    {
+      "name": "EP-failure-nothing",
+      "what": "the refusal does not say that nothing was written",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "thất bại, chưa ghi gì:",
+          "new": "thất bại:"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-mask",
+      "what": "the lines the model reads back after an edit are not masked",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = line;"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-key-place",
+      "what": "the lines of a private key are not hidden in the answer",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow({ ...keys, body: new Set() }, from - 1 + i, line), registered);"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-key-offset",
+      "what": "the place of a line of a key is one line off in the answer",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow(keys, from + i, line), registered);"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-registered",
+      "what": "the registered secrets are not used in the answer",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), []);"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-note",
+      "what": "the answer does not say that something was hidden",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (shown !== line) masked = true;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-secrets-option",
+      "what": "the tools are not given the secrets of the Hub",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "    this.secrets = secrets;",
+          "new": "    this.secrets = () => [];"
+        }
+      ]
+    },
+    {
+      "name": "EP-patch-all",
+      "what": "a patch replaces every match",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "return planEdit({ path: p, old_string: oldText, new_string: newText, replace_all: false, expected_sha256: expectedSha }, buffer, context);",
+          "new": "return planEdit({ path: p, old_string: oldText, new_string: newText, replace_all: true, expected_sha256: expectedSha }, buffer, context);"
+        }
+      ]
+    },
+    {
+      "name": "EP-patch-sha",
+      "what": "a patch does not check the sha",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "return planEdit({ path: p, old_string: oldText, new_string: newText, replace_all: false, expected_sha256: expectedSha }, buffer, context);",
+          "new": "return planEdit({ path: p, old_string: oldText, new_string: newText, replace_all: false }, buffer, context);"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-encoding",
+      "what": "an overwritten file loses its encoding",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (old.ok) { encoding = old.encoding; if (old.eol === 'crlf') text = applyEol(content, 'crlf'); }",
+          "new": "if (old.ok) { if (old.eol === 'crlf') text = applyEol(content, 'crlf'); }"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-eol",
+      "what": "an overwritten CRLF file loses its CRLF",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (old.ok) { encoding = old.encoding; if (old.eol === 'crlf') text = applyEol(content, 'crlf'); }",
+          "new": "if (old.ok) { encoding = old.encoding; }"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-unchanged",
+      "what": "a write of the same bytes is a change",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "const unchanged = existing !== null && data.equals(existing);",
+          "new": "const unchanged = false;"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-unreadable",
+      "what": "a file that is not text is not named as such",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "...(existing && !readable ? { oldUnreadable: true } : {}),",
+          "new": "...{},"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-baseline",
+      "what": "the old text is not the baseline of the diff",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "diffHunks(readable ? old.text : '', text)",
+          "new": "diffHunks('', text)"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-base-sha",
+      "what": "a write has no base",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "baseSha: existing ? sha256(existing) : null,",
+          "new": "baseSha: null,"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-created",
+      "what": "every write creates a file",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "created: existing === null,",
+          "new": "created: true,"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-sha",
+      "what": "write_file does not check expected_sha256",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (sha256(existing) !== expectedSha.toLowerCase()) throw fault('stale_revision'",
+          "new": "if (false) throw fault('stale_revision'"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-sha-case",
+      "what": "write_file compares the sha as it was quoted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (sha256(existing) !== expectedSha.toLowerCase())",
+          "new": "if (sha256(existing) !== expectedSha)"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-overwrite",
+      "what": "write_file replaces a file without expected_sha256 or overwrite",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "} else if (!overwrite) {",
+          "new": "} else if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-sha-ignored",
+      "what": "write_file ignores expected_sha256 when it is given",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "    if (expectedSha) {",
+          "new": "    if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-bytes",
+      "what": "the size of the content is counted in characters",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (Buffer.byteLength(content, 'utf8') > LIMITS.writeBytes)",
+          "new": "if (content.length > LIMITS.writeBytes)"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-limit",
+      "what": "the limit of a write is twice as high",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "> LIMITS.writeBytes) throw fault('content_too_large'",
+          "new": "> LIMITS.writeBytes * 2) throw fault('content_too_large'"
+        }
+      ]
+    },
+    {
+      "name": "EP-write-nul",
+      "what": "a NUL in the content is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (content.includes('\\0')) throw fault('bad_content', 'Nội dung chứa ký tự NUL; công cụ chỉ ghi file văn bản.');",
+          "new": "if (false) throw fault('bad_content', 'Nội dung chứa ký tự NUL; công cụ chỉ ghi file văn bản.');"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-max",
+      "what": "fifty-one files are accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (files.length > 50) throw fault",
+          "new": "if (files.length > 51) throw fault"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-empty",
+      "what": "an empty batch is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (!Array.isArray(files) || !files.length) throw fault('bad_files'",
+          "new": "if (!Array.isArray(files)) throw fault('bad_files'"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-path",
+      "what": "an empty path is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "typeof item.path !== 'string' || !item.path.trim())",
+          "new": "typeof item.path !== 'string')"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-content-type",
+      "what": "content that is not text is not refused as such",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (typeof item.content !== 'string') {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-nul",
+      "what": "a NUL in the content of an item is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (item.content.includes('\\0')) throw fault('bad_content', `Nội dung file",
+          "new": "if (false) throw fault('bad_content', `Nội dung file"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-sha-format",
+      "what": "any hex string is a sha",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "/^[a-f0-9]{64}$/i.test(item.expected_sha256)",
+          "new": "/^[a-f0-9]{6,}$/i.test(item.expected_sha256)"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-duplicate",
+      "what": "a path twice in a batch is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (seenPaths.has(relative)) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-sha-mismatch",
+      "what": "a wrong sha in a batch is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (currentSha !== item.expected_sha256.toLowerCase()) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-sha-case",
+      "what": "a batch compares the sha as it was quoted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (currentSha !== item.expected_sha256.toLowerCase()) {",
+          "new": "if (currentSha !== item.expected_sha256) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-overwrite",
+      "what": "a batch replaces a file without a sha or overwrite",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "} else if (item.overwrite !== true) {",
+          "new": "} else if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-absent-sha",
+      "what": "a sha for a file that is not there is accepted",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "throw fault('stale_revision', `File \"${relative}\" không tồn tại trên đĩa nhưng có expected_sha256.`, 409);",
+          "new": "void 0;"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-parent",
+      "what": "a folder that is a file is accepted as a parent",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (loaded.parentIsFile) throw fault('not_directory'",
+          "new": "if (false) throw fault('not_directory'"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-size",
+      "what": "a file over the limit is accepted in a batch",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (plan.data.length > LIMITS.writeBytes) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-exists",
+      "what": "files that exist do not stop the batch",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "if (alreadyThere.length) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-names",
+      "what": "only the first file that exists is named",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "${alreadyThere.slice(0, 10).join(', ')}",
+          "new": "${alreadyThere.slice(0, 1).join(', ')}"
+        }
+      ]
+    },
+    {
+      "name": "EP-batch-plan",
+      "what": "a plan of a batch does not carry the path the loader found",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "plans.push({ ...plan, absolute: loaded.absolute, mode: loaded.mode, existing });",
+          "new": "plans.push({ ...plan, mode: loaded.mode, existing });"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-framed",
+      "what": "the key material in a line that holds a frame (text after the BEGIN frame, text before the END frame) is shown in the answer",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);",
+          "new": "      const shown = maskSecrets(hideKeyRow({ ...keys, framed: new Map() }, from - 1 + i, line), registered);"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-keys-none",
+      "what": "the lines of the text are not looked at for keys",
+      "patches": [
+        {
+          "file": "lib/local-tools.mjs",
+          "old": "    const keys = keyLines(plan.lfText);",
+          "new": "    const keys = keyLines('');"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-runs-row",
+      "what": "the answer of an edit keeps the runs of base64 in a row of a body that is more than one token (echo \"...\" >> key)",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return looksLikeKey(text, true) ? `[REDACTED]${endingOf(text)}` : hideKeyRuns(text);",
+          "new": "  return looksLikeKey(text, true) ? `[REDACTED]${endingOf(text)}` : text;"
+        }
+      ]
+    },
+    {
+      "name": "EP-echo-runs-part",
+      "what": "the answer of an edit keeps the runs of base64 in a one-line key",
+      "patches": [
+        {
+          "file": "lib/approval-preview.mjs",
+          "old": "  return looksLikeKey(part) ? '[REDACTED]' : hideKeyRuns(part);",
+          "new": "  return looksLikeKey(part) ? '[REDACTED]' : part;"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "note": "A pending approval as the Hub 3.11.2 publishes it in /api/state studio.permissions.pending (probe of 2026-11-07, Review mode, write_file creating out.txt). The words of reason and summary are the Hub's own.",
+  "request": {
+    "id": "bf8fcd05-f2e2-4aac-84bb-34bb3c17bf59",
+    "taskId": "6281fa4b-8564-4560-9725-835fa19d2da9",
+    "toolName": "local.write_file",
+    "category": "workspace_edit",
+    "reason": "Ghi file",
+    "summary": "Ghi out.txt (11 B)",
+    "preview": "{\"kind\":\"write\",\"path\":\"out.txt\",\"bytes\":11,\"overwrite\":false,\"head\":\"from probe\\n\"}",
+    "detail": {
+      "kind": "write",
+      "path": "out.txt",
+      "bytes": 11,
+      "overwrite": false,
+      "head": "from probe\n",
+      "preview": {
+        "files": [
+          {
+            "path": "out.txt",
+            "action": "create",
+            "baseSha": null,
+            "additions": 1,
+            "deletions": 0,
+            "unchanged": false,
+            "hunks": [
+              {
+                "baselineStart": 0,
+                "baselineEnd": 0,
+                "currentStart": 0,
+                "currentEnd": 1,
+                "removed": 0,
+                "added": 1,
+                "invisibleOnly": false,
+                "rows": [
+                  {
+                    "kind": "added",
+                    "text": "from probe\n"
+                  }
+                ]
+              }
+            ],
+            "shownRows": 1,
+            "hiddenRows": 0,
+            "truncated": false
+          }
+        ],
+        "fileCount": 1,
+        "hiddenFiles": 0,
+        "truncated": false
+      }
+    },
+    "at": "2026-11-06T19:38:41.227Z",
+    "expiresAt": "2026-11-06T19:48:41.227Z"
+  }
+}

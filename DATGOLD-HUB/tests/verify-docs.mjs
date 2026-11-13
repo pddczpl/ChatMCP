@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { PRESETS } from '../lib/provider-presets.mjs';
+import { STUDIO_TOOLS } from '../lib/studio-tools.mjs';
 import { TASK_STATES, TRANSITIONS } from '../lib/task-state.mjs';
 
 let checks = 0;
@@ -123,7 +124,7 @@ if (!existsSync(path.join(REPO, 'docs', 'ARCHITECTURE.md')) || !existsSync(path.
   process.exit(0);
 }
 
-const DOC_FILES = ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'THIRD-PARTY-NOTICES.md']
+const DOC_FILES = ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'THIRD-PARTY-NOTICES.md', 'AGENTS.md']
   .filter((name) => existsSync(path.join(REPO, name)))
   .concat(readdirSync(path.join(REPO, 'docs')).filter((name) => name.endsWith('.md')).map((name) => `docs/${name}`));
 const docs = Object.fromEntries(DOC_FILES.map((name) => [name, read(path.join(REPO, name)).normalize('NFC')]));
@@ -252,6 +253,11 @@ function anchorsOf(markdown) {
   }
   expectNone(problems, 'local tool counts');
   assert.ok(claims >= 2, `expected the documents to quote the number of local tools at least twice, found ${claims}`);
+  // docs/AGENT-TOOL-CAPABILITIES.md quotes both catalogs in one phrase.
+  const studioTools = STUDIO_TOOLS.length;
+  const pair = docs['docs/AGENT-TOOL-CAPABILITIES.md']?.match(/\*\*(\d+) LocalTools \+ (\d+) declared StudioTools\*\*/);
+  assert.ok(pair, 'docs/AGENT-TOOL-CAPABILITIES.md must state "**<n> LocalTools + <m> declared StudioTools**"');
+  assert.deepEqual([Number(pair[1]), Number(pair[2])], [tools, studioTools], `docs/AGENT-TOOL-CAPABILITIES.md says ${pair[1]} LocalTools + ${pair[2]} StudioTools, the code has ${tools} + ${studioTools}`);
 
   const presets = PRESETS.length;
   const presetProblems = [];
@@ -276,7 +282,7 @@ function anchorsOf(markdown) {
     for (const match of text.matchAll(/(\d+) trạng thái/g)) if (Number(match[1]) !== TASK_STATES.length) stateProblems.push(`${name}: says ${match[1]} states, task-state.mjs has ${TASK_STATES.length}`);
   }
   expectNone(stateProblems, 'task states');
-  ok(`quoted numbers match the code: ${tools} local tools, ${presets} presets, ${TASK_STATES.length} task states`);
+  ok(`quoted numbers match the code: ${tools} local tools, ${studioTools} studio tools, ${presets} presets, ${TASK_STATES.length} task states`);
 }
 
 {

@@ -33,5 +33,7 @@
     <None Include="../../../docs/WINDOWS-SETUP.md" Link="WINDOWS-SETUP.md" CopyToOutputDirectory="PreserveNewest" />
     <!-- The retained update that the lifecycle script makes on a hosted runner is made here too, by its own function, and repaired by the real repair (RecoverRefusalTests.cs). -->
     <None Include="../Test-NativeLifecycle.ps1" Link="Test-NativeLifecycle.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The version the code under test must say: the desktop shell's (Program.cs reads it; the version of this project is kept with it by set-build-version.mjs). -->
+    <None Include="../../../desktop-shell/ChatMCP.csproj" Link="desktop-shell.csproj" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -18,6 +18,9 @@ import { PRIVATE_DIRECTORIES, isProtectedPath } from './protected-paths.mjs';
 import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
 import { executePush, planPush, pushApprovalDetail, pushArgumentProblems, PUSH_LIMITS } from './git-push.mjs';
+import { diffHunks } from './line-diff.mjs';
+import { FILE_CHANGE_TOOLS, buildApprovalGuard, buildChangePreview, guardMatches, hideKeyRow, keyLines } from './approval-preview.mjs';
+import { maskSecrets } from './permissions.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
@@ -116,9 +119,202 @@ export function applyEditToText(hay, { oldString, newString, replaceAll = false 
   if (positions.length > 1 && !replaceAll) {
     throw fault('ambiguous_match', `old_string xuất hiện ${positions.length} lần (dòng ${positions.slice(0, 10).map(lineAt).join(', ')}${positions.length > 10 ? ', ...' : ''}). Thêm vài dòng ngữ cảnh xung quanh để duy nhất, hoặc đặt replace_all=true.`, 409);
   }
-  const text = replaceAll ? hay.split(oldString).join(newString) : hay.slice(0, positions[0]) + newString + hay.slice(positions[0] + oldString.length);
-  return { text, count: replaceAll ? positions.length : 1, firstLine: lineAt(positions[0]), replacedLines: newString ? newString.split('\n').length : 1 };
+  // The search above stops at 5000 places (enough to tell an ambiguous match); a replace_all replaces every place, so its count comes from the split itself.
+  const parts = replaceAll ? hay.split(oldString) : null;
+  const text = parts ? parts.join(newString) : hay.slice(0, positions[0]) + newString + hay.slice(positions[0] + oldString.length);
+  return { text, count: parts ? parts.length - 1 : 1, firstLine: lineAt(positions[0]), replacedLines: newString ? newString.split('\n').length : 1 };
 }
+/** The fault for a file that cannot be read as text. */
+function decodeFault(relative, reason) {
+  if (reason === 'binary') return fault('binary_file', `"${relative}" là file nhị phân; công cụ chỉ làm việc với file văn bản.`, 415);
+  if (reason === 'utf16be') return fault('unsupported_encoding', `"${relative}" là UTF-16BE; công cụ không đọc/sửa để tránh làm hỏng nội dung.`, 415);
+  return fault('unsupported_encoding', `"${relative}" không phải UTF-8 (hoặc UTF-16LE có BOM) — có thể là mã hóa cũ như cp1252. Công cụ không đọc/sửa để tránh làm hỏng nội dung; dùng run_command (iconv, Get-Content -Encoding) nếu thật sự cần.`, 415);
+}
+
+/** The same fault, with the position of the edit that failed in front of its message (a call with several edits writes nothing when one of them fails). */
+function editFailure(error, index, total) {
+  if (!error?.code || !error?.message) return error;
+  return Object.assign(new Error(`Chỉnh sửa ${index + 1}/${total} thất bại, chưa ghi gì: ${error.message}`), { code: error.code, statusCode: error.statusCode });
+}
+
+/**
+ * What an edit_file call asks for, as a list of {old_string, new_string, replace_all}: either one edit (old_string + new_string) or `edits`, never both. A call that
+ * could not do anything is refused here, before the file is opened, with the position of the edit that is wrong when there are several.
+ * @returns {{list: {old_string: string, new_string: string, replace_all: boolean}[], many: boolean}}
+ */
+function editList({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits }) {
+  const many = edits !== undefined;
+  // call() and validate() have refused a wrong form already, before any approval; this is for a caller that reaches the tool another way.
+  const wrongForm = editFormErrors({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits })[0];
+  if (wrongForm) throw fault('bad_edit', `${wrongForm[0].toUpperCase()}${wrongForm.slice(1)}.`);
+  const list = many ? edits : [{ old_string: oldString, new_string: newString, replace_all: replaceAll === true }];
+  if (!Array.isArray(list) || !list.length) throw fault('bad_edit', 'edits không được rỗng.');
+  if (list.length > MAX_EDITS) throw fault('bad_edit', `Tối đa ${MAX_EDITS} chỉnh sửa trong một lần gọi; chia nhỏ.`);
+  list.forEach((edit, index) => {
+    try {
+      if (typeof edit?.old_string !== 'string' || typeof edit?.new_string !== 'string') throw fault('bad_edit', 'Mỗi chỉnh sửa cần old_string và new_string (chuỗi).');
+      if (!edit.old_string) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
+      if (edit.old_string === edit.new_string) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
+    } catch (error) { throw many ? editFailure(error, index, list.length) : error; }
+  });
+  return { list: list.map((edit) => ({ old_string: edit.old_string, new_string: edit.new_string, replace_all: edit.replace_all === true })), many };
+}
+
+// ------------------------------------------------------------------ planners
+// A planner says, from the bytes of a file (or of the files) and the arguments of a call, what the call would leave on disk: the text, the bytes, their hash, the hunks and how many
+// lines they add and take away. It reads nothing and writes nothing, and it refuses with the fault the tool gives. The tools write what their plan says (so the plan IS the write) and
+// the approval card is drawn from the same plan before the owner answers (lib/approval-preview.mjs), so what the owner is shown is what is written, whatever the line endings are.
+
+/**
+ * An edit_file call on a file.
+ * @param {object} args  the arguments of the call (path, old_string + new_string + replace_all, or edits; expected_sha256)
+ * @param {Buffer} buffer  the file as it is on disk
+ * @param {{relative: string}} context  the path as the tool names it
+ */
+export function planEdit(args, buffer, { relative }) {
+  const { list, many } = editList(args);
+  const baseSha = sha256(buffer);
+  if (args.expected_sha256 && baseSha !== args.expected_sha256.toLowerCase()) throw fault('stale_revision', `"${relative}" đã thay đổi kể từ lần đọc (sha256 khác). Đọc lại trước khi sửa.`, 409);
+  const decoded = decodeText(buffer);
+  if (!decoded.ok) throw decodeFault(relative, decoded.reason);
+  const crlf = decoded.eol === 'crlf';
+  const hay = crlf ? toLf(decoded.text) : decoded.text;
+  // The edits apply in order, each to the text the one before left, in memory: the file is written once, after all of them fit, or not at all.
+  let updatedLf = hay;
+  const steps = [];
+  list.forEach((edit, index) => {
+    try {
+      const step = applyEditToText(updatedLf, { oldString: crlf ? toLf(edit.old_string) : edit.old_string, newString: crlf ? toLf(edit.new_string) : edit.new_string, replaceAll: edit.replace_all }, relative);
+      updatedLf = step.text;
+      steps.push(step);
+    } catch (failure) { throw many ? editFailure(failure, index, list.length) : failure; }
+  });
+  const [{ firstLine, replacedLines }] = steps;
+  const plan = {
+    kind: 'edit', relative, baseSha, encoding: decoded.encoding, edits: list.length, many, replacements: steps.reduce((sum, step) => sum + step.count, 0), firstLine, replacedLines, lfText: updatedLf, oldText: decoded.text,
+    steps: steps.map((step) => ({ firstLine: step.firstLine, count: step.count })),
+  };
+  if (updatedLf === hay) return { ...plan, unchanged: true, newText: decoded.text, data: buffer, sha256: baseSha, hunks: [], additions: 0, deletions: 0 };
+  const newText = crlf ? updatedLf.replace(/\n/g, '\r\n') : updatedLf;
+  const data = encodeText(newText, decoded.encoding);
+  return { ...plan, unchanged: false, newText, data, sha256: sha256(data), ...diffHunks(decoded.text, newText) };
+}
+
+/** A files_apply_patch call is an edit_file call with one edit that is never replace_all. */
+export function planApplyPatch({ path: p, old_text: oldText, new_text: newText, expected_sha256: expectedSha }, buffer, context) {
+  return planEdit({ path: p, old_string: oldText, new_string: newText, replace_all: false, expected_sha256: expectedSha }, buffer, context);
+}
+const patchAsEdit = ({ path: p, old_text: oldText, new_text: newText, expected_sha256: expectedSha }) => ({ path: p, old_string: oldText, new_string: newText, replace_all: false, expected_sha256: expectedSha });
+
+/** What a write must satisfy before a file is opened: not too big, text only. */
+function checkWriteContent(content) {
+  if (Buffer.byteLength(content, 'utf8') > LIMITS.writeBytes) throw fault('content_too_large', `Nội dung vượt ${formatBytes(LIMITS.writeBytes)}; chia nhỏ file.`, 413);
+  if (content.includes('\0')) throw fault('bad_content', 'Nội dung chứa ký tự NUL; công cụ chỉ ghi file văn bản.');
+}
+
+/**
+ * `content` as the file it replaces is encoded, so overwriting a file never silently changes its encoding or line endings: a UTF-8 BOM file stays UTF-8 BOM, a UTF-16LE file stays
+ * UTF-16LE, a CRLF file stays CRLF. A file that does not exist (or cannot be decoded losslessly) is written as plain UTF-8 with the line endings the caller used.
+ */
+function encodeLike(existing, content) {
+  let encoding = 'utf8';
+  let text = content;
+  let old = null;
+  if (existing) {
+    old = decodeText(existing);
+    if (old.ok) { encoding = old.encoding; if (old.eol === 'crlf') text = applyEol(content, 'crlf'); }
+  }
+  return { data: encodeText(text, encoding), text, encoding, old };
+}
+
+/** The plan of putting `content` in a file (`existing` is its bytes, or null when it is not there). Shared by write_file and files_write_batch, after each has applied its own rules. */
+function writePlan({ relative, existing, content }) {
+  const { data, text, encoding, old } = encodeLike(existing, content);
+  const unchanged = existing !== null && data.equals(existing);
+  const readable = old?.ok === true;
+  return {
+    kind: 'write', relative, oldText: readable ? old.text : '', created: existing === null, baseSha: existing ? sha256(existing) : null, newText: text, data, sha256: sha256(data), encoding, unchanged,
+    // A file that exists but is not text (binary, legacy encoding) is replaced as UTF-8; its old content cannot be shown, so every new line counts as added.
+    ...(existing && !readable ? { oldUnreadable: true } : {}),
+    ...(unchanged ? { hunks: [], additions: 0, deletions: 0 } : diffHunks(readable ? old.text : '', text)),
+  };
+}
+
+/**
+ * A write_file call. An existing file is replaced only when the caller proves what it last saw (expected_sha256) or says overwrite:true on purpose.
+ * @param {Buffer|null} existing  the file as it is on disk, or null when it is not there
+ */
+export function planWrite({ content, overwrite = false, expected_sha256: expectedSha }, existing, { relative }) {
+  checkWriteContent(content);
+  if (existing) {
+    if (expectedSha) {
+      if (sha256(existing) !== expectedSha.toLowerCase()) throw fault('stale_revision', `"${relative}" đã thay đổi kể từ lần đọc (sha256 khác). Đọc lại trước khi ghi.`, 409);
+    } else if (!overwrite) {
+      throw fault('file_exists', `"${relative}" đã tồn tại. Đọc file (read_file) rồi truyền expected_sha256, hoặc đặt overwrite=true nếu thật sự muốn ghi đè toàn bộ.`, 409);
+    }
+  }
+  return writePlan({ relative, existing: existing ?? null, content });
+}
+
+/**
+ * A files_write_batch call. EVERY item is judged before the first byte is written, so a refusal never leaves a partial batch. The rules are those of write_file: an existing file is
+ * replaced only when the caller proves what it last saw (expected_sha256) or says overwrite:true on purpose; a symlink, a directory, a protected file and a file name that is not valid
+ * are never written. The files themselves come from `load(item)` (the tool reads the disk; a test can answer from memory): it resolves the path and answers
+ * `{relative, absolute, existing, mode, parentIsFile}` or refuses with a fault.
+ * @returns {Promise<object[]>} one plan per item, in order, each with the `absolute`, `mode` and `existing` that `load` found
+ */
+export async function planWriteBatch(files, load) {
+  if (!Array.isArray(files) || !files.length) throw fault('bad_files', 'Cần danh sách files.');
+  if (files.length > 50) throw fault('bad_files', 'Tối đa 50 file trong một lần ghi.');
+  const plans = [];
+  const seenPaths = new Set();
+  const alreadyThere = [];
+  for (const item of files) {
+    if (!item || typeof item.path !== 'string' || !item.path.trim()) {
+      throw fault('bad_path', 'Đường dẫn file không hợp lệ trong danh sách.');
+    }
+    if (typeof item.content !== 'string') {
+      throw fault('bad_content', `Nội dung file "${item.path}" phải là chuỗi text.`);
+    }
+    if (item.content.includes('\0')) throw fault('bad_content', `Nội dung file "${item.path}" chứa ký tự NUL; công cụ chỉ ghi file văn bản.`);
+    if (item.expected_sha256 !== undefined && (typeof item.expected_sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(item.expected_sha256))) {
+      throw fault('bad_revision', `expected_sha256 của file "${item.path}" không phải mã SHA-256 hợp lệ.`);
+    }
+    const loaded = await load(item);
+    const { relative } = loaded;
+    const existing = loaded.existing ?? null;
+    if (seenPaths.has(relative)) {
+      throw fault('duplicate_path', `Đường dẫn "${relative}" bị lặp lại trong danh sách.`);
+    }
+    seenPaths.add(relative);
+    if (existing) {
+      if (item.expected_sha256) {
+        const currentSha = sha256(existing);
+        if (currentSha !== item.expected_sha256.toLowerCase()) {
+          throw fault('stale_revision', `File "${relative}" đã bị thay đổi kể từ lần đọc trước (SHA hiện tại ${currentSha.slice(0, 8)} khác với ${item.expected_sha256.slice(0, 8)}). Đọc lại trước khi ghi.`, 409);
+        }
+      } else if (item.overwrite !== true) {
+        alreadyThere.push(relative);
+        continue;
+      }
+    } else {
+      if (item.expected_sha256) {
+        throw fault('stale_revision', `File "${relative}" không tồn tại trên đĩa nhưng có expected_sha256.`, 409);
+      }
+      if (loaded.parentIsFile) throw fault('not_directory', `Thư mục cha của "${relative}" là một file.`);
+    }
+    const plan = writePlan({ relative, existing, content: item.content });
+    if (plan.data.length > LIMITS.writeBytes) {
+      throw fault('file_too_large', `File "${relative}" (${formatBytes(plan.data.length)}) vượt giới hạn ${formatBytes(LIMITS.writeBytes)}.`);
+    }
+    plans.push({ ...plan, absolute: loaded.absolute, mode: loaded.mode, existing });
+  }
+  if (alreadyThere.length) {
+    throw fault('file_exists', `${alreadyThere.length} file đã tồn tại: ${alreadyThere.slice(0, 10).join(', ')}${alreadyThere.length > 10 ? ', ...' : ''}. Chưa ghi file nào. Đọc từng file (read_file) rồi truyền expected_sha256 cho mục tương ứng, hoặc đặt overwrite=true cho mục nào thật sự muốn ghi đè toàn bộ.`, 409);
+  }
+  return plans;
+}
+
 const encodingLabel = (encoding) => ({ utf8: 'UTF-8', 'utf8-bom': 'UTF-8 BOM', utf16le: 'UTF-16LE' })[encoding] ?? encoding;
 const eolLabel = (eol) => ({ lf: 'LF', crlf: 'CRLF', mixed: 'hỗn hợp', none: 'không có xuống dòng' })[eol] ?? eol;
 
@@ -160,6 +356,7 @@ export class LocalTools {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('LocalTools cần workspace có resolve().');
     this.workspace = workspace;
     this.stateDirectory = stateDirectory;
+    this.secrets = secrets;
     this.shell = shell ?? new ShellRunner({ workspace, stateDirectory, secrets });
     this.git = git ?? new GitRunner({ workspace, hooksDirectory: path.join(stateDirectory ?? path.join(os.tmpdir(), `chatmcp-${process.pid}`), 'no-hooks'), secrets });
     this.tools = new Map();
@@ -290,21 +487,53 @@ export class LocalTools {
    * exceptions. Cancellation rejects (the call was stopped before or while it ran), except run_command,
    * which resolves with `cancelled: true` and the output captured so far.
    */
-  async call(name, args = {}, { taskId, signal } = {}) {
+  async call(name, args = {}, { taskId, signal, guard = null } = {}) {
     signal?.throwIfAborted();
     const tool = this.#lookup(name);
     if (!tool) return failure('unknown_tool', `Không có công cụ ${name}.`, { executed: false });
     const checked = validateArguments(tool.schema, args ?? {});
     const errors = checked.ok ? this.#crossFieldErrors(tool, checked.value) : checked.errors;
     if (errors.length) return failure('invalid_arguments', `Tham số không hợp lệ cho ${tool.name}: ${errors.join('; ')}.`, { executed: false, details: errors });
+    // `guard` is what the owner was shown when the gate asked (previewChanges). It belongs to one call: another tool or other arguments have not been shown to anyone.
+    if (guard && !guardMatches(guard, tool.name, args ?? {})) {
+      return failure('stale_after_approval', 'Bản thay đổi mà bạn đã duyệt thuộc về một lệnh gọi khác (công cụ hoặc tham số không khớp), nên chưa ghi gì. Gọi lại công cụ để có thẻ duyệt mới.', { executed: false });
+    }
     try {
-      return await tool.run(checked.value, { taskId, signal });
+      return await tool.run(checked.value, { taskId, signal, guard });
     } catch (error) {
       if (signal?.aborted) throw signal.reason ?? error;
       const subject = ['path', 'source', 'cwd'].map((key) => checked.value[key]).find((value) => typeof value === 'string' && value) ?? '';
       const info = describeError(error, subject);
-      return failure(info.code, info.message);
+      return failure(info.code, info.message, error?.executed === false ? { executed: false } : {});
     }
+  }
+
+  /**
+   * What the owner is shown before answering for a call that changes files (write_file, edit_file, files_apply_patch, files_write_batch): the plan of the call, cut to what a person can
+   * look at (lib/approval-preview.mjs), and the guard that the call which follows the answer is held to. The plan is made by the planners that the tools write with, from the files as
+   * they are now; nothing is written and no folder is made. A call that would be refused when it runs gets a card that says why, and no guard. Null for any other tool, and for a call
+   * whose arguments are not valid (it is refused before anyone is asked).
+   * @returns {Promise<{preview: object, guard: object|null}|null>}
+   */
+  async previewChanges(name, args = {}, { signal } = {}) {
+    const op = String(name).replace(/^local\./, '');
+    const tool = FILE_CHANGE_TOOLS.includes(op) ? this.#lookup(name) : null;
+    if (!tool) return null;
+    const checked = validateArguments(tool.schema, args ?? {});
+    if (!checked.ok || this.#crossFieldErrors(tool, checked.value).length) return null;
+    const value = checked.value;
+    let plans = null;
+    let failed = null;
+    try {
+      signal?.throwIfAborted();
+      if (op === 'files_write_batch') plans = await planWriteBatch(value.files, (item) => this.#loadBatchItem(item));
+      else if (op === 'write_file') plans = [(await this.#preflightWrite(value)).plan];
+      else plans = [(await this.#preflightEdit(op === 'files_apply_patch' ? patchAsEdit(value) : value)).plan];
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
+      failed = describeError(error, typeof value.path === 'string' ? value.path : '');
+    }
+    return { preview: buildChangePreview(plans, failed), guard: failed ? null : buildApprovalGuard(op, args ?? {}, plans) };
   }
 
   /** Environment facts the UI shows during onboarding (never throws). */
@@ -367,11 +596,7 @@ export class LocalTools {
     } catch { return input; }
   }
 
-  #decodeError(relative, reason) {
-    if (reason === 'binary') return fault('binary_file', `"${relative}" là file nhị phân; công cụ chỉ làm việc với file văn bản.`, 415);
-    if (reason === 'utf16be') return fault('unsupported_encoding', `"${relative}" là UTF-16BE; công cụ không đọc/sửa để tránh làm hỏng nội dung.`, 415);
-    return fault('unsupported_encoding', `"${relative}" không phải UTF-8 (hoặc UTF-16LE có BOM) — có thể là mã hóa cũ như cp1252. Công cụ không đọc/sửa để tránh làm hỏng nội dung; dùng run_command (iconv, Get-Content -Encoding) nếu thật sự cần.`, 415);
-  }
+  #decodeError(relative, reason) { return decodeFault(relative, reason); }
 
   /** Depth-first walk that never follows symlinks and skips Git internals, secrets and (optionally) noise folders. */
   async *#walk(startAbsolute, rootAbsolute, { includeIgnored = false, state, signal }) {
@@ -517,7 +742,7 @@ export class LocalTools {
       description: 'Create a file or replace its whole content (parent folders are created). To replace an existing file you must pass expected_sha256 from read_file, or overwrite:true. Existing line endings (CRLF) and BOM are preserved. Prefer edit_file for small changes. Secrets and .git are refused.',
       schema: obj({ path: str('File path relative to the workspace.'), content: str('Complete new file content.'), overwrite: bool('Allow replacing an existing file without expected_sha256.'), expected_sha256: EXPECTED_SHA }, ['path', 'content']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Ghi file', pathArgs: ['path'],
-      summary: (a) => `Ghi ${a.path} (${formatBytes(Buffer.byteLength(String(a.content ?? '')))})`, run: (a) => this.#writeFile(a),
+      summary: (a) => `Ghi ${a.path} (${formatBytes(Buffer.byteLength(String(a.content ?? '')))})`, run: (a, ctx) => this.#writeFile(a, ctx),
     });
     define('edit_file', {
       description: 'Replace an exact piece of text in a file. old_string must match exactly (including indentation) and be unique unless replace_all is true; include enough surrounding lines to make it unique. Line endings are handled for you. Read the file first. '
@@ -533,7 +758,7 @@ export class LocalTools {
       }, ['path']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Sửa file', pathArgs: ['path'],
       check: (a) => editFormErrors(a),
-      summary: (a) => (Array.isArray(a.edits) ? `Sửa ${a.path} (${a.edits.length} chỉnh sửa)` : `Sửa ${a.path}`), run: (a) => this.#editFile(a),
+      summary: (a) => (Array.isArray(a.edits) ? `Sửa ${a.path} (${a.edits.length} chỉnh sửa)` : `Sửa ${a.path}`), run: (a, ctx) => this.#editFile(a, ctx),
     });
     define('make_directory', {
       description: 'Create a directory (and missing parents) inside the workspace.',
@@ -627,13 +852,13 @@ export class LocalTools {
         },
       }, ['files']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Ghi nhiều file',
-      summary: (a) => `Ghi ${a.files?.length ?? 0} file`, run: (a) => this.#filesWriteBatch(a),
+      summary: (a) => `Ghi ${a.files?.length ?? 0} file`, run: (a, ctx) => this.#filesWriteBatch(a, ctx),
     });
     define('files_apply_patch', {
       description: 'Apply exact replacement patch in a file, guarded by expected_sha256.',
       schema: obj({ path: str('File path relative to workspace.'), old_text: str('Exact text to replace.'), new_text: str('Replacement text.'), expected_sha256: EXPECTED_SHA }, ['path', 'old_text', 'new_text']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Sửa file bằng patch', pathArgs: ['path'],
-      summary: (a) => `Patch ${a.path}`, run: (a) => this.#filesApplyPatch(a),
+      summary: (a) => `Patch ${a.path}`, run: (a, ctx) => this.#filesApplyPatch(a, ctx),
     });
     define('git_checkout', {
       description: 'Checkout an existing Git branch/ref, or create and checkout a new branch (create: true).',
@@ -985,26 +1210,27 @@ export class LocalTools {
 
   // ------------------------------------------------------------------ write tools
   /**
-   * Encodes `content` the way the file it replaces is encoded, so overwriting a file never silently changes its encoding or line
-   * endings: a UTF-8 BOM file stays UTF-8 BOM, a UTF-16LE file stays UTF-16LE, a CRLF file stays CRLF. A file that does not exist
-   * (or cannot be decoded losslessly) is written as plain UTF-8 with the line endings the caller used. Shared by write_file and
-   * files_write_batch.
-   * @returns {{data: Buffer, text: string, encoding: string}}
+   * A call that came through an approval is held to the files the owner was shown: a file that is not the one the card was drawn from (it changed, was created or was deleted since;
+   * or it is not a file of the card at all) is not written. `current` is the sha256 of the bytes on disk now, or null when the file is not there.
    */
-  #encodeLike(existing, content) {
-    let encoding = 'utf8';
-    let text = content;
-    if (existing) {
-      const old = decodeText(existing);
-      if (old.ok) { encoding = old.encoding; if (old.eol === 'crlf') text = applyEol(content, 'crlf'); }
-    }
-    return { data: encodeText(text, encoding), text, encoding };
+  #holdToApproved(guard, relative, current) {
+    if (!guard) return;
+    const shown = guard.files.find((file) => file.path === relative);
+    if (shown && shown.baseSha === current) return;
+    const what = !shown ? `"${relative}" không nằm trong bản thay đổi mà bạn đã duyệt`
+      : current === null ? `"${relative}" đã bị xóa sau khi bạn được cho xem bản thay đổi`
+        : shown.baseSha === null ? `"${relative}" đã được tạo sau khi bạn được cho xem bản thay đổi`
+          : `"${relative}" đã thay đổi sau khi bạn được cho xem bản thay đổi (${shown.baseSha.slice(0, 8)} → ${current.slice(0, 8)})`;
+    throw Object.assign(fault('stale_after_approval', `${what}, nên chưa ghi gì. Đọc lại file rồi gọi lại công cụ để có thẻ duyệt mới.`, 409), { executed: false });
   }
 
-  async #writeFile({ path: p, content, overwrite = false, expected_sha256: expectedSha }) {
-    const target = await this.#target(p, { write: true });
-    if (Buffer.byteLength(content, 'utf8') > LIMITS.writeBytes) throw fault('content_too_large', `Nội dung vượt ${formatBytes(LIMITS.writeBytes)}; chia nhỏ file.`, 413);
-    if (content.includes('\0')) throw fault('bad_content', 'Nội dung chứa ký tự NUL; công cụ chỉ ghi file văn bản.');
+  /**
+   * Looks at the file a write_file call names and plans the write: every check and the plan itself, and not a byte written, no folder made. The tool writes what this plans,
+   * and previewChanges() asks it before the owner answers, so there is one place where a write is decided.
+   */
+  async #preflightWrite(args, { guard = null } = {}) {
+    const target = await this.#target(args.path, { write: true });
+    checkWriteContent(args.content);
     const stat = await fs.lstat(target.absolute).catch((error) => { if (error.code === 'ENOENT') return null; throw error; });
     let existing = null;
     if (stat) {
@@ -1012,100 +1238,68 @@ export class LocalTools {
       if (stat.isDirectory()) throw fault('is_directory', `"${target.relative}" là thư mục.`);
       if (!stat.isFile()) throw fault('not_file', `"${target.relative}" không phải file thông thường.`);
       existing = await fs.readFile(target.absolute);
-      const current = sha256(existing);
-      if (expectedSha) {
-        if (current !== expectedSha.toLowerCase()) throw fault('stale_revision', `"${target.relative}" đã thay đổi kể từ lần đọc (sha256 khác). Đọc lại trước khi ghi.`, 409);
-      } else if (!overwrite) {
-        throw fault('file_exists', `"${target.relative}" đã tồn tại. Đọc file (read_file) rồi truyền expected_sha256, hoặc đặt overwrite=true nếu thật sự muốn ghi đè toàn bộ.`, 409);
-      }
     } else {
-      const parent = path.dirname(target.absolute);
-      const parentStat = await fs.stat(parent).catch(() => null);
+      const parentStat = await fs.stat(path.dirname(target.absolute)).catch(() => null);
       if (parentStat && !parentStat.isDirectory()) throw fault('not_directory', 'Thư mục cha là một file.');
-      if (!parentStat) await fs.mkdir(parent, { recursive: true });
     }
-    const { data, text } = this.#encodeLike(existing, content);
-    const digest = sha256(data);
-    if (existing && data.equals(existing)) return ok(`${target.relative}: nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, sha256: digest });
-    await writeFileAtomic(target.absolute, data, { mode: this.#fileMode(stat?.mode), expectedSha: existing ? sha256(existing) : null });
-    return ok(`${existing ? 'Đã ghi đè' : 'Đã tạo'} ${target.relative} (${formatBytes(data.length)}, ${splitLines(text).length} dòng).\nsha256: ${digest}`,
-      { path: target.relative, created: !existing, bytes: data.length, sha256: digest, previousSha: existing ? sha256(existing) : null });
+    this.#holdToApproved(guard, target.relative, existing ? sha256(existing) : null);
+    return { target, stat, existing, plan: planWrite(args, existing, { relative: target.relative }) };
   }
 
-  /**
-   * What an edit_file call asks for, as a list of {old_string, new_string, replace_all}: either one edit (old_string + new_string) or `edits`, never both. A call that
-   * could not do anything is refused here, before the file is opened, with the position of the edit that is wrong when there are several.
-   * @returns {{list: {old_string: string, new_string: string, replace_all: boolean}[], many: boolean}}
-   */
-  #editList({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits }) {
-    const many = edits !== undefined;
-    // call() and validate() have refused a wrong form already, before any approval; this is for a caller that reaches the tool another way.
-    const wrongForm = editFormErrors({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits })[0];
-    if (wrongForm) throw fault('bad_edit', `${wrongForm[0].toUpperCase()}${wrongForm.slice(1)}.`);
-    const list = many ? edits : [{ old_string: oldString, new_string: newString, replace_all: replaceAll === true }];
-    if (!Array.isArray(list) || !list.length) throw fault('bad_edit', 'edits không được rỗng.');
-    if (list.length > MAX_EDITS) throw fault('bad_edit', `Tối đa ${MAX_EDITS} chỉnh sửa trong một lần gọi; chia nhỏ.`);
-    list.forEach((edit, index) => {
-      try {
-        if (typeof edit?.old_string !== 'string' || typeof edit?.new_string !== 'string') throw fault('bad_edit', 'Mỗi chỉnh sửa cần old_string và new_string (chuỗi).');
-        if (!edit.old_string) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
-        if (edit.old_string === edit.new_string) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
-      } catch (error) { throw many ? this.#editFailure(error, index, list.length) : error; }
+  async #writeFile(args, { guard = null } = {}) {
+    const { target, stat, existing, plan } = await this.#preflightWrite(args, { guard });
+    if (existing && plan.unchanged) return ok(`${target.relative}: nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, sha256: plan.sha256 });
+    if (!stat) await fs.mkdir(path.dirname(target.absolute), { recursive: true });
+    await writeFileAtomic(target.absolute, plan.data, { mode: this.#fileMode(stat?.mode), expectedSha: existing ? plan.baseSha : null });
+    return ok(`${existing ? 'Đã ghi đè' : 'Đã tạo'} ${target.relative} (${formatBytes(plan.data.length)}, ${splitLines(plan.newText).length} dòng).\nsha256: ${plan.sha256}`,
+      { path: target.relative, created: !existing, bytes: plan.data.length, sha256: plan.sha256, previousSha: plan.baseSha });
+  }
+
+  /** Looks at the file an edit_file call names and plans the edit: every check and the plan itself, and not a byte written. */
+  async #preflightEdit(args, { guard = null } = {}) {
+    editList(args); // a call that could not do anything is refused before the file is opened
+    const target = await this.#target(args.path, { write: true });
+    const stat = await fs.lstat(target.absolute).catch((error) => {
+      if (error.code === 'ENOENT') this.#holdToApproved(guard, target.relative, null);
+      throw error;
     });
-    return { list: list.map((edit) => ({ old_string: edit.old_string, new_string: edit.new_string, replace_all: edit.replace_all === true })), many };
-  }
-
-  /** The same fault, with the position of the edit that failed in front of its message (a call with several edits writes nothing when one of them fails). */
-  #editFailure(error, index, total) {
-    if (!error?.code || !error?.message) return error;
-    return Object.assign(new Error(`Chỉnh sửa ${index + 1}/${total} thất bại, chưa ghi gì: ${error.message}`), { code: error.code, statusCode: error.statusCode });
-  }
-
-  async #editFile({ path: p, old_string: oldString, new_string: newString, replace_all: replaceAll, edits, expected_sha256: expectedSha }) {
-    const { list, many } = this.#editList({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits });
-    const target = await this.#target(p, { write: true });
-    const stat = await fs.lstat(target.absolute);
     if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink; không sửa qua symlink.`, 403);
     if (!stat.isFile()) throw fault(stat.isDirectory() ? 'is_directory' : 'not_file', `"${target.relative}" không phải file thông thường.`);
     if (stat.size > LIMITS.editBytes) throw fault('file_too_large', `File ${formatBytes(stat.size)} vượt giới hạn sửa ${formatBytes(LIMITS.editBytes)}.`, 413);
     const buffer = await fs.readFile(target.absolute);
-    const before = sha256(buffer);
-    if (expectedSha && before !== expectedSha.toLowerCase()) throw fault('stale_revision', `"${target.relative}" đã thay đổi kể từ lần đọc (sha256 khác). Đọc lại trước khi sửa.`, 409);
-    const decoded = decodeText(buffer);
-    if (!decoded.ok) throw this.#decodeError(target.relative, decoded.reason);
-    const crlf = decoded.eol === 'crlf';
-    const hay = crlf ? toLf(decoded.text) : decoded.text;
-    // The edits apply in order, each to the text the one before left, in memory: the file is written once, after all of them fit, or not at all.
-    let updatedLf = hay;
-    const steps = [];
-    list.forEach((edit, index) => {
-      try {
-        const step = applyEditToText(updatedLf, { oldString: crlf ? toLf(edit.old_string) : edit.old_string, newString: crlf ? toLf(edit.new_string) : edit.new_string, replaceAll: edit.replace_all }, target.relative);
-        updatedLf = step.text;
-        steps.push(step);
-      } catch (failure) { throw many ? this.#editFailure(failure, index, list.length) : failure; }
-    });
-    const count = steps.reduce((sum, step) => sum + step.count, 0);
-    if (updatedLf === hay) {
-      return ok(`${target.relative}: các chỉnh sửa triệt tiêu nhau, nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, edits: list.length, replacements: count, sha256: before, previousSha: before });
+    this.#holdToApproved(guard, target.relative, sha256(buffer));
+    return { target, stat, plan: planEdit(args, buffer, { relative: target.relative }) };
+  }
+
+  async #editFile(args, { guard = null } = {}) {
+    const { target, stat, plan } = await this.#preflightEdit(args, { guard });
+    if (plan.unchanged) {
+      return ok(`${target.relative}: các chỉnh sửa triệt tiêu nhau, nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, edits: plan.edits, replacements: plan.replacements, sha256: plan.baseSha, previousSha: plan.baseSha });
     }
-    const updated = crlf ? updatedLf.replace(/\n/g, '\r\n') : updatedLf;
-    const data = encodeText(updated, decoded.encoding);
-    await writeFileAtomic(target.absolute, data, { mode: this.#fileMode(stat.mode), expectedSha: before });
-    const digest = sha256(data);
-    const [{ firstLine, replacedLines }] = steps;
-    const outLines = updatedLf.split('\n');
+    await writeFileAtomic(target.absolute, plan.data, { mode: this.#fileMode(stat.mode), expectedSha: plan.baseSha });
+    const { firstLine, replacedLines, replacements: count } = plan;
+    const outLines = plan.lfText.split('\n');
     const from = Math.max(1, firstLine - 3);
     const to = Math.min(outLines.length, firstLine + replacedLines - 1 + 3);
-    const snippet = outLines.slice(from - 1, to).map((line, i) => renderLine(line, from + i)).join('\n');
-    if (!many) {
-      return ok(`Đã sửa ${target.relative}: thay ${count} chỗ${count === 1 ? ` (dòng ${firstLine})` : ''}.\nsha256: ${digest}\n${snippet}`,
-        { path: target.relative, replacements: count, firstLine, sha256: digest, previousSha: before });
+    // The lines the model gets back are the ones around its edit. A secret in them is hidden in this answer (the file keeps it), as it is on the owner's card: by its spelling, a line of the body
+    // of a private key (by its place between two frames; what is hidden in it is every run of 16 characters or more of base64, and a row that is one token of it), and the key material in a line that
+    // holds a frame (text after the BEGIN frame, text before the END frame) the way the card hides it. Code after a BEGIN frame has no run of base64 and is in the answer.
+    const keys = keyLines(plan.lfText);
+    const registered = this.secrets?.() ?? [];
+    let masked = false;
+    const snippet = outLines.slice(from - 1, to).map((line, i) => {
+      const shown = maskSecrets(hideKeyRow(keys, from - 1 + i, line), registered);
+      if (shown !== line) masked = true;
+      return renderLine(shown, from + i);
+    }).join('\n') + (masked ? '\n[Giá trị giống bí mật trong các dòng trên đã được che trong câu trả lời này; file vẫn giữ nguyên chúng.]' : '');
+    if (!plan.many) {
+      return ok(`Đã sửa ${target.relative}: thay ${count} chỗ${count === 1 ? ` (dòng ${firstLine})` : ''}.\nsha256: ${plan.sha256}\n${snippet}`,
+        { path: target.relative, replacements: count, firstLine, sha256: plan.sha256, previousSha: plan.baseSha });
     }
     // The line of an edit is the line it found its text on at its turn, after the edits before it.
-    const account = steps.map((step, index) => `  ${index + 1}. dòng ${step.firstLine}: ${step.count} chỗ`).join('\n');
-    return ok(`Đã sửa ${target.relative}: ${list.length} chỉnh sửa, ${count} chỗ thay (một lần ghi).\n${account}\nsha256: ${digest}\n${snippet}`,
-      { path: target.relative, edits: list.length, replacements: count, firstLine, sha256: digest, previousSha: before });
+    const account = plan.steps.map((step, index) => `  ${index + 1}. dòng ${step.firstLine}: ${step.count} chỗ`).join('\n');
+    return ok(`Đã sửa ${target.relative}: ${plan.edits} chỉnh sửa, ${count} chỗ thay (một lần ghi).\n${account}\nsha256: ${plan.sha256}\n${snippet}`,
+      { path: target.relative, edits: plan.edits, replacements: count, firstLine, sha256: plan.sha256, previousSha: plan.baseSha });
   }
 
   async #makeDirectory({ path: p }) {
@@ -1606,76 +1800,41 @@ export class LocalTools {
   }
 
   // ------------------------------------------------------------------ batch & patch
-  async #filesWriteBatch({ files }) {
-    if (!Array.isArray(files) || !files.length) throw fault('bad_files', 'Cần danh sách files.');
-    if (files.length > 50) throw fault('bad_files', 'Tối đa 50 file trong một lần ghi.');
-
-    // PREFLIGHT: every item is judged before the first byte is written, so a refusal never leaves a partial batch. The rules are
-    // those of write_file: an existing file is replaced only when the caller proves what it last saw (expected_sha256) or says
-    // overwrite:true on purpose; a symlink, a directory, a protected file and a file name that is not valid are never written.
-    const preflight = [];
-    const seenPaths = new Set();
-    const alreadyThere = [];
-    for (const item of files) {
-      if (!item || typeof item.path !== 'string' || !item.path.trim()) {
-        throw fault('bad_path', 'Đường dẫn file không hợp lệ trong danh sách.');
-      }
-      if (typeof item.content !== 'string') {
-        throw fault('bad_content', `Nội dung file "${item.path}" phải là chuỗi text.`);
-      }
-      if (item.content.includes('\0')) throw fault('bad_content', `Nội dung file "${item.path}" chứa ký tự NUL; công cụ chỉ ghi file văn bản.`);
-      if (item.expected_sha256 !== undefined && (typeof item.expected_sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(item.expected_sha256))) {
-        throw fault('bad_revision', `expected_sha256 của file "${item.path}" không phải mã SHA-256 hợp lệ.`);
-      }
-      const target = await this.#target(item.path, { write: true });
-      if (seenPaths.has(target.relative)) {
-        throw fault('duplicate_path', `Đường dẫn "${target.relative}" bị lặp lại trong danh sách.`);
-      }
-      seenPaths.add(target.relative);
-
-      const stat = await fs.lstat(target.absolute).catch((error) => { if (error.code === 'ENOENT') return null; throw error; });
-      let existing = null;
-      if (stat) {
-        if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink; không ghi qua symlink.`, 403);
-        if (stat.isDirectory()) throw fault('is_directory', `"${target.relative}" là thư mục, không thể ghi đè.`);
-        if (!stat.isFile()) throw fault('not_file', `"${target.relative}" không phải file thông thường.`);
-        existing = await fs.readFile(target.absolute);
-        if (item.expected_sha256) {
-          const currentSha = sha256(existing);
-          if (currentSha !== item.expected_sha256.toLowerCase()) {
-            throw fault('stale_revision', `File "${target.relative}" đã bị thay đổi kể từ lần đọc trước (SHA hiện tại ${currentSha.slice(0, 8)} khác với ${item.expected_sha256.slice(0, 8)}). Đọc lại trước khi ghi.`, 409);
-          }
-        } else if (item.overwrite !== true) {
-          alreadyThere.push(target.relative);
-          continue;
-        }
-      } else {
-        if (item.expected_sha256) {
-          throw fault('stale_revision', `File "${target.relative}" không tồn tại trên đĩa nhưng có expected_sha256.`, 409);
-        }
-        const parentStat = await fs.stat(path.dirname(target.absolute)).catch(() => null);
-        if (parentStat && !parentStat.isDirectory()) throw fault('not_directory', `Thư mục cha của "${target.relative}" là một file.`);
-      }
-
-      const { data } = this.#encodeLike(existing, item.content);
-      if (data.length > LIMITS.writeBytes) {
-        throw fault('file_too_large', `File "${target.relative}" (${formatBytes(data.length)}) vượt giới hạn ${formatBytes(LIMITS.writeBytes)}.`);
-      }
-      preflight.push({
-        relative: target.relative,
-        absolute: target.absolute,
-        data,
-        sha: sha256(data),
-        existed: existing !== null,
-        originalBuffer: existing,
-        previousSha: existing ? sha256(existing) : null,
-        mode: stat?.mode,
-        unchanged: existing !== null && data.equals(existing),
-      });
+  /**
+   * Resolves and reads one item of a files_write_batch call for planWriteBatch(): the protected path, the symlink, the directory and the folder that is a file are refused here, a file
+   * that exists is read, a path that is not there is not made. Nothing is written. The tool and previewChanges() both plan the batch with it.
+   */
+  async #loadBatchItem(item, guard = null) {
+    const target = await this.#target(item.path, { write: true });
+    const stat = await fs.lstat(target.absolute).catch((error) => { if (error.code === 'ENOENT') return null; throw error; });
+    let existing = null;
+    let parentIsFile = false;
+    if (stat) {
+      if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink; không ghi qua symlink.`, 403);
+      if (stat.isDirectory()) throw fault('is_directory', `"${target.relative}" là thư mục, không thể ghi đè.`);
+      if (!stat.isFile()) throw fault('not_file', `"${target.relative}" không phải file thông thường.`);
+      existing = await fs.readFile(target.absolute);
+    } else {
+      const parentStat = await fs.stat(path.dirname(target.absolute)).catch(() => null);
+      parentIsFile = Boolean(parentStat && !parentStat.isDirectory());
     }
-    if (alreadyThere.length) {
-      throw fault('file_exists', `${alreadyThere.length} file đã tồn tại: ${alreadyThere.slice(0, 10).join(', ')}${alreadyThere.length > 10 ? ', ...' : ''}. Chưa ghi file nào. Đọc từng file (read_file) rồi truyền expected_sha256 cho mục tương ứng, hoặc đặt overwrite=true cho mục nào thật sự muốn ghi đè toàn bộ.`, 409);
-    }
+    this.#holdToApproved(guard, target.relative, existing ? sha256(existing) : null);
+    return { relative: target.relative, absolute: target.absolute, existing, mode: stat?.mode, parentIsFile };
+  }
+
+  async #filesWriteBatch({ files }, { guard = null } = {}) {
+    // PREFLIGHT: every item is judged before the first byte is written, so a refusal never leaves a partial batch (planWriteBatch has the rules).
+    const preflight = (await planWriteBatch(files, (item) => this.#loadBatchItem(item, guard))).map((plan) => ({
+      relative: plan.relative,
+      absolute: plan.absolute,
+      data: plan.data,
+      sha: plan.sha256,
+      existed: plan.existing !== null,
+      originalBuffer: plan.existing,
+      previousSha: plan.baseSha,
+      mode: plan.mode,
+      unchanged: plan.unchanged,
+    }));
 
     const written = [];
     try {
@@ -1737,8 +1896,8 @@ export class LocalTools {
     return ok(`Đã ghi thành công ${changed} file${changed === results.length ? '' : ` (${results.length - changed} file không đổi)`}:\n${results.map((r) => `- ${r.path} (${r.bytes} B, ${r.unchanged ? 'không đổi' : r.created ? 'tạo mới' : 'ghi đè'}) sha256: ${r.sha256}`).join('\n')}`, { count: results.length, changed, files: results });
   }
 
-  async #filesApplyPatch({ path: p, old_text: oldText, new_text: newText, expected_sha256: expectedSha }) {
-    return await this.#editFile({ path: p, old_string: oldText, new_string: newText, replace_all: false, expected_sha256: expectedSha });
+  async #filesApplyPatch(args, context) {
+    return await this.#editFile(patchAsEdit(args), context);
   }
 
   // ------------------------------------------------------------------ advanced git

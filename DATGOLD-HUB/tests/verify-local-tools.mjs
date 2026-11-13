@@ -166,6 +166,27 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
     assert.ok(!textOf(r).includes('topsecret123') && !textOf(r).includes('hunter2'), `${secret} leaked`);
   }
   assert.equal((await call('read_file', { path: '.env.example' })).isError, false);
+  // Credential stores of command-line tools and cloud state (P42): refused where they are secret, readable where the same name is ordinary.
+  const stores = { '.docker/config.json': 'app/config.json', '.config/gh/hosts.yml': 'inventory/hosts.yml', '.azure/accessTokens.json': 'data/accessTokens.json',
+    '.terraform.d/credentials.tfrc.json': 'infra/main.tf', 'infra/terraform.tfstate': 'infra/variables.tf', 'infra/terraform.tfstate.backup': 'infra/outputs.tf',
+    'service-account.json': 'service.json', '.config/gcloud/application_default_credentials.json': '.config/gcloud/properties.json' };
+  for (const [secret, ordinary] of Object.entries(stores)) {
+    await put(secret, '{"token":"hunter2-store"}\n');
+    await put(ordinary, '{"plain":"readable-twin"}\n');
+    const refused = await call('read_file', { path: secret });
+    assert.equal(errorCode(refused), 'protected_path', secret);
+    assert.ok(!textOf(refused).includes('hunter2-store'), `${secret} leaked`);
+    assert.equal(errorCode(await call('write_file', { path: secret, content: 'x', overwrite: true })), 'protected_path', `${secret} (write)`);
+    const read = await call('read_file', { path: ordinary });
+    assert.equal(read.isError, false, ordinary);
+    assert.ok(textOf(read).includes('readable-twin'), `${ordinary} is an ordinary file`);
+  }
+  // the pattern is echoed in the answer, so it is written without either marker
+  const found = textOf(await call('search_files', { pattern: '-(store|twin)"', regex: true, path: 'infra' })) + textOf(await call('search_files', { pattern: '-(store|twin)"', regex: true, path: 'app' }));
+  assert.ok(!found.includes('hunter2-store'), 'a search does not print a line of Terraform state');
+  assert.ok(found.includes('readable-twin'), 'and it does print the ordinary config.json');
+  for (const name of [...Object.keys(stores), ...Object.values(stores)]) await fs.rm(path.join(work, name), { force: true });
+  for (const folder of ['.docker', '.config', '.azure', '.terraform.d', 'infra', 'app', 'inventory', 'data']) await fs.rm(path.join(work, folder), { recursive: true, force: true });
   let linked = false;
   try { await fs.symlink('.env', path.join(work, 'innocent.txt')); linked = true; } catch { /* no symlink privilege */ }
   if (linked) {
