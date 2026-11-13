@@ -3,11 +3,9 @@
 #   repository; files already committed with CRLF are NOT rewritten by Git
 #   (text=auto leaves CRLF-in-index files alone unless you run
 #   "git add --renormalize").
-# - Shell scripts must stay LF (Docker, WSL, Linux). Windows scripts stay CRLF.
+# - Windows scripts stay CRLF.
 * text=auto
-*.sh   eol=lf
 *.cmd  eol=crlf
-*.bat  eol=crlf
 *.ps1  eol=crlf
 # The license text is distributed byte for byte (it is compared with the canonical Apache-2.0 text).
 LICENSE eol=lf
@@ -31,18 +29,12 @@ DATGOLD-HUB/lib/acp/schema/schema.json linguist-generated
 
 # Binary files
 *.png   binary
-*.jpg   binary
-*.jpeg  binary
-*.gif   binary
 *.ico   binary
 *.zip   binary
 *.dpapi binary
 
 # Retained acceptance evidence carries exact byte hashes. Preserve those bytes.
 docs/agent-handoffs/evidence/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
-
-# Vendored third-party browser code: keep out of language statistics
-*.min.js -diff linguist-vendored
 
 # Generated data: the models.dev snapshot that scripts/update-model-catalog.mjs rebuilds (one line, hash-checked).
 DATGOLD-HUB/lib/model-catalog.data.json -diff linguist-generated

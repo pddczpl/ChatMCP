@@ -333,7 +333,7 @@ Bản này nối tiếp bản cài đặt `v2.4.0` (giao diện React/Vite/Tailw
 
 Định dạng theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Phiên bản Hub (`CHATMCP-HUB/package.json`) và UI_BUILD hiện tại (`2.6.0-react-agent`) được đồng bộ; bản 2.5.0 được giữ trong phần lịch sử.
 
-Các bản trước 2.3.0 (2.0.0 … 2.2.8) có ghi chú riêng ở `CHATMCP-HUB/STUDIO-*.md`, `UPGRADE-*.md`, `TEST-RESULTS-*.txt`; chúng là tài liệu lịch sử và không được cập nhật.
+Các bản trước 2.3.0 (2.0.0 … 2.2.8) có ghi chú riêng ở `STUDIO-*.md`, `UPGRADE-*.md`, `TEST-RESULTS-*.txt`, nay nằm trong [docs/archive/hub/](docs/archive/README.md) (trước đây ở `CHATMCP-HUB/`); chúng là tài liệu lịch sử và không được cập nhật.
 
 ## [2.3.0] — nhánh `dev/chatmcp-agent` (đã gộp vào `main`; không có tag riêng)
 

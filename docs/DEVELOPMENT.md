@@ -385,7 +385,6 @@ DATGOLD-HUB/       Hub (hub.mjs, lib/, web/, extension/, tests/, windows/, worke
   tests/           verify-*.mjs (Node), verify-*.py (Playwright), e2e/ (khung E2E)
 scripts/           Windows packaging, local developer tooling, tests
 docs/              kiến trúc, thiết kế, audit, hướng dẫn
-manifest.json, bridge.js, popup.*, compat.js, code-intelligence*.mjs, context-compaction*.mjs (ở thư mục gốc) …   legacy, không còn được dùng
 ```
 
 ## Giới hạn đã biết của quy trình
