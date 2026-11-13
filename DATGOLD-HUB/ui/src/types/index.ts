@@ -715,16 +715,6 @@ export interface TerminalState {
   logs?: { message: string; type?: string; seq?: number; at?: string }[];
 }
 
-export interface VerificationRun {
-  id: string;
-  terminalId?: string;
-  command: string;
-  status: string;
-  exitCode: number | null;
-  startedAt: string;
-  outputPreview?: string;
-}
-
 export interface PlanItem {
   text: string;
   status: 'todo' | 'doing' | 'done' | 'blocked';
@@ -791,20 +781,6 @@ export interface TaskReviewAnswer {
   truncated: boolean;
   omitted: { protected: number };
   limitations: ReviewLimitation[];
-}
-
-export interface CodeMatch {
-  path: string;
-  line?: number;
-  text: string;
-}
-
-export interface SymbolMatch {
-  name: string;
-  path: string;
-  line: number;
-  kind: string;
-  precision: string;
 }
 
 export interface MarketplacePlugin {

@@ -14,7 +14,7 @@ import { AiProfiles } from '../lib/ai-profiles.mjs';
 import { createHubServer } from '../hub.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
 import { PRESETS, detectEnvKeys, isLoopbackUrl, presetById, presetForBaseUrl, publicPresets, supportsPromptCaching } from '../lib/provider-presets.mjs';
-import { compactHistory, estimateTokens, historyBytes, pairToolCalls, safeToolId } from '../lib/model-history.mjs';
+import { compactHistory, historyBytes, pairToolCalls, safeToolId } from '../lib/model-history.mjs';
 import { ANTHROPIC_VERSION, anthropicEndpoint, anthropicHeaders, asAnthropicMessages, buildAnthropicBody, normalizeAnthropic, parseAnthropicModels } from '../lib/anthropic-api.mjs';
 import { asChatMessages, buildChatBody, normalizeChatCompletion } from '../lib/openai-chat-api.mjs';
 import { backoffMs, classifyHttpError, errorDetail, outputTokenLimit, readBodyText, retryAfterMs, sleep } from '../lib/model-http.mjs';
@@ -89,7 +89,6 @@ try {
   check(!noop.changed && noop.history === convo, 'nothing changes when the history already fits');
   const impossible = compactHistory(convo, { maxBytes: 100, keepRecent: 4 });
   check(impossible.changed && !impossible.fits, 'a budget that cannot be met is reported, not hidden');
-  check(estimateTokens({ input: convo, instructions: 'x', tools: TOOLS }) > before / 4, 'token estimate is in the right range');
 
   // ---------------------------------------------------------------------------------------------------------------
   // Anthropic Messages wire format
@@ -366,8 +365,6 @@ try {
     check(!JSON.stringify(verdict).includes(KEY) && JSON.stringify(provider.state()) === snapshot, 'validation neither leaks nor applies');
     same(provider.normalizeError(Object.assign(new Error(`bad ${KEY}`), { code: 'gateway_rate_limit', kind: 'rate_limit', upstreamStatus: 429 })), { code: 'gateway_rate_limit', kind: 'rate_limit', retryable: true, status: 429, message: 'bad [REDACTED]' });
     same(provider.normalizeError(new Error('x')).retryable, false);
-    const usage = provider.estimateUsage({ input: [userMsg('hello')], instructions: 'S', tools: TOOLS });
-    check(usage.estimated && usage.inputTokens > 0 && usage.fraction === null, 'usage estimate without a known window');
   }
 
   // keys from the environment: only for the matching provider, never written anywhere

@@ -116,54 +116,30 @@ These are the gaps that remain after this change. None of them is hidden by the 
 ## UI libraries compiled into the dashboard
 
 <!-- BEGIN GENERATED: ui-production-packages (scripts/generate-licenses.mjs) -->
-167 packages of the production dependency closure of DATGOLD-HUB/ui/package-lock.json (MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the `license` field of the lockfile entry.
+143 packages of the production dependency closure of DATGOLD-HUB/ui/package-lock.json (MIT 137, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1). Tree shaking means web/dist contains only the parts that are imported, so this list is an upper bound. The license is the `license` field of the lockfile entry.
 
 | Package | Version | License |
 |---|---|---|
-| `@floating-ui/core` | 1.8.0 | MIT |
-| `@floating-ui/dom` | 1.8.0 | MIT |
-| `@floating-ui/react-dom` | 2.1.9 | MIT |
-| `@floating-ui/utils` | 0.2.12 | MIT |
 | `@fontsource-variable/inter` | 5.3.0 | OFL-1.1 |
 | `@fontsource/jetbrains-mono` | 5.3.0 | OFL-1.1 |
-| `@radix-ui/number` | 1.1.3 | MIT |
 | `@radix-ui/primitive` | 1.1.7 | MIT |
-| `@radix-ui/react-alert-dialog` | 1.1.24 | MIT |
-| `@radix-ui/react-arrow` | 1.1.16 | MIT |
-| `@radix-ui/react-collection` | 1.1.16 | MIT |
 | `@radix-ui/react-compose-refs` | 1.1.5 | MIT |
 | `@radix-ui/react-context` | 1.2.2 | MIT |
 | `@radix-ui/react-dialog` | 1.2.0 | MIT |
-| `@radix-ui/react-direction` | 1.1.5 | MIT |
 | `@radix-ui/react-dismissable-layer` | 1.1.20 | MIT |
-| `@radix-ui/react-dropdown-menu` | 2.1.25 | MIT |
 | `@radix-ui/react-focus-guards` | 1.1.6 | MIT |
 | `@radix-ui/react-focus-scope` | 1.2.0 | MIT |
 | `@radix-ui/react-id` | 1.1.4 | MIT |
-| `@radix-ui/react-menu` | 2.1.25 | MIT |
-| `@radix-ui/react-popover` | 1.2.0 | MIT |
-| `@radix-ui/react-popper` | 1.3.8 | MIT |
 | `@radix-ui/react-portal` | 1.1.18 | MIT |
 | `@radix-ui/react-presence` | 1.1.11 | MIT |
 | `@radix-ui/react-primitive` | 2.1.11 | MIT |
-| `@radix-ui/react-roving-focus` | 1.1.20 | MIT |
-| `@radix-ui/react-scroll-area` | 1.3.0 | MIT |
 | `@radix-ui/react-slot` | 1.4.0 | MIT |
-| `@radix-ui/react-tabs` | 1.1.22 | MIT |
-| `@radix-ui/react-tooltip` | 1.3.0 | MIT |
 | `@radix-ui/react-use-callback-ref` | 1.1.4 | MIT |
 | `@radix-ui/react-use-controllable-state` | 1.2.6 | MIT |
 | `@radix-ui/react-use-effect-event` | 0.0.5 | MIT |
-| `@radix-ui/react-use-is-hydrated` | 0.1.3 | MIT |
 | `@radix-ui/react-use-layout-effect` | 1.1.4 | MIT |
-| `@radix-ui/react-use-rect` | 1.1.4 | MIT |
-| `@radix-ui/react-use-size` | 1.1.5 | MIT |
-| `@radix-ui/react-visually-hidden` | 1.2.12 | MIT |
-| `@radix-ui/rect` | 1.1.3 | MIT |
 | `@tanstack/query-core` | 5.104.1 | MIT |
 | `@tanstack/react-query` | 5.104.1 | MIT |
-| `@tanstack/react-virtual` | 3.14.15 | MIT |
-| `@tanstack/virtual-core` | 3.19.0 | MIT |
 | `@types/debug` | 4.1.13 | MIT |
 | `@types/estree` | 1.0.9 | MIT |
 | `@types/estree-jsx` | 1.0.5 | MIT |

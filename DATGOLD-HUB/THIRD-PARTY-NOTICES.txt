@@ -42,7 +42,7 @@ RUNTIME COMPONENTS
     Status: pending.
 14. (Removed.) The React 16.0.0 and ReactDOM 16.0.1 UMD files of the older dashboards are no longer in the repository or in the installer; the
     number stays so that the other items keep theirs.
-15. UI libraries compiled into DATGOLD-HUB/web/dist (167 packages: MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1; the complete list is in
+15. UI libraries compiled into DATGOLD-HUB/web/dist (143 packages: MIT 137, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1; the complete list is in
     THIRD-PARTY-NOTICES.md). Status: pending (the bundle keeps the license comments of React and lucide-react only).
 16. Model catalog data from models.dev (DATGOLD-HUB/lib/model-catalog.data.json: a compact extract of https://models.dev/api.json, dated inside the
     file; data only, nothing is downloaded when the Hub runs) - MIT. The permission text is at the end of this file. Status: shipped.

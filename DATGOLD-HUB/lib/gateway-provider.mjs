@@ -12,11 +12,10 @@ import { createGeminiStreamReader, geminiStreamEndpoint } from './gemini-stream.
 import { createStreamClock, deliverText, isEventStream, isStreamFallback, streamInvalid } from './model-stream.mjs';
 import { readSse } from './sse.mjs';
 import { respondOpenAIResponses, normalizeResponsesResponse } from './openai-responses-api.mjs';
-import { estimateTokens } from './model-history.mjs';
+import { contentText, outputText } from './model-history.mjs';
 import { classifyHttpError, sleep as waitFor } from './model-http.mjs';
 import { fetchModelList } from './model-list.mjs';
 import { probeToolCalling } from './tool-probe.mjs';
-import { reportedTokenCount } from './request-budget.mjs';
 import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from './gateway-custom-headers.mjs';
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, contextWindowRangeText, parseContextWindow } from './context-window.mjs';
 import { isTrusted, lookup as catalogLookup } from './model-catalog.mjs';
@@ -126,22 +125,6 @@ function geminiSchema(schema) {
   if (typeof schema.minimum === 'number') result.minimum = schema.minimum;
   if (typeof schema.maximum === 'number') result.maximum = schema.maximum;
   return result;
-}
-function contentText(items) {
-  if (typeof items === 'string') return items;
-  if (!Array.isArray(items)) return '';
-  return items.map((x) => x?.text || '').filter(Boolean).join('\n');
-}
-function outputText(output) {
-  if (typeof output === 'string') return output;
-  if (Array.isArray(output)) {
-    return output.map((x) => {
-      if (x?.type === 'input_text') return x.text || '';
-      if (x?.type === 'input_image') return '[Image returned by MCP. This gateway adapter cannot inspect the image; do not claim to have viewed it.]';
-      return JSON.stringify(x);
-    }).join('\n');
-  }
-  return JSON.stringify(output ?? null);
 }
 function referencedCalls(history) {
   return new Map(history.filter((x) => x?.type === 'function_call' && x.call_id && x.name)
@@ -496,12 +479,6 @@ export class GatewayProvider {
     this.toolCalling = 'unchecked'; this.toolCallingNote = '';
     this.lastError = ''; this.geminiDialect = 'native'; this.dialectConfirmed = false;
     return this.state();
-  }
-  /** Rough size of a request, for budgets and the context meter. Estimated, not billed. */
-  estimateUsage({ input = [], instructions = '', tools = [] } = {}) {
-    const inputTokens = estimateTokens({ input, instructions, tools });
-    const window = this.effectiveContextWindow();
-    return { estimated: true, inputTokens, contextWindowTokens: window, fraction: window ? inputTokens / window : null };
   }
   /** An error from any model call in one shape the UI and the agent can rely on. Never contains the key. */
   normalizeError(error) {

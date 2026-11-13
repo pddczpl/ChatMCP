@@ -18,14 +18,3 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
   ({ className, children, ...props }, ref) => <select ref={ref} className={cn(controlClass, 'h-9 pr-8', className)} {...props}>{children}</select>,
 );
 Select.displayName = 'Select';
-
-/** A label above a control, with an optional hint underneath. */
-export function Field({ label, hint, htmlFor, className, children }: { label: React.ReactNode; hint?: React.ReactNode; htmlFor?: string; className?: string; children: React.ReactNode }) {
-  return (
-    <div className={cn('space-y-1.5', className)}>
-      <label htmlFor={htmlFor} className="block text-[13px] font-medium text-fg">{label}</label>
-      {children}
-      {hint && <p className="text-[12px] leading-4 text-faint">{hint}</p>}
-    </div>
-  );
-}
