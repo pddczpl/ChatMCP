@@ -18,9 +18,6 @@ Hub mặc định chạy trên **127.0.0.1:3007** dưới tài khoản Windows h
 ~~~powershell
 git clone https://github.com/pddczpl/ChatMCP.git
 cd ChatMCP
-# Chỉ khi kiểm thử nhánh PR local-only chưa merge:
-# git fetch origin
-# git switch refactor/local-only-remove-cloud
 npm ci --prefix .\DATGOLD-HUB\ui
 npm run build --prefix .\DATGOLD-HUB\ui
 ~~~
