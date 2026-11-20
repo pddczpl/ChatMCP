@@ -80,8 +80,10 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
 
   // ---- unit: the most expensive tier is the one sent to the ledger ------------------------------------------------------------------------
   t.equal(conservativeRates({ input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }, [{ aboveInputTokens: 100000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }]),
-    { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }, 'a provider with price tiers is charged at its highest tier');
-  t.equal(conservativeRates({ input: 0.15, output: 0.6, cacheRead: 0.003, cacheWrite: null }, []), { input: 0.15, output: 0.6, cacheRead: 0.003 }, 'no tiers: the rates as they are (an unknown cache-write rate is left out)');
+    { input: 0.5, output: 2.5, cacheWrite: 0.625 }, 'a provider with price tiers is charged at its highest tier, with its cache-write surcharge and without a cache-read discount');
+  t.equal(conservativeRates({ input: 0.15, output: 0.6, cacheRead: 0.003, cacheWrite: null }, []), { input: 0.15, output: 0.6 }, 'no tiers: input and output; no cache-read discount, an unknown cache-write rate left out');
+  t.equal(conservativeRates({ input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.5 }, []), { input: 1, output: 2 }, 'a cache write cheaper than input is charged as input');
+  t.equal(conservativeRates({ input: 1, output: 2 }, [{ aboveInputTokens: 10, input: 0.5, output: 1 }]), { input: 1, output: 2 }, 'a tier cheaper than the base is not chosen');
 
   // ---- unit: the environment of the Hub --------------------------------------------------------------------------------------------------
   const home = t.dir('env-home');
@@ -192,7 +194,7 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   t.equal(report.stoppedBy, null, 'nothing stopped the run');
   t.equal(report.preflight.toolCalling, 'supported', 'the tool-calling check passed first');
   t.equal(report.hub.providerKeyVariables, ['DEEPSEEK_API_KEY'], 'the Hub itself sees exactly one provider key variable, the allow-listed one (decoys OPENAI/ANTHROPIC/GEMINI were planted)');
-  t.equal(report.provider.ratesUsdPerMillion, { input: 1, output: 2, cacheRead: 0.1 }, 'the report names the rates the ledger was given');
+  t.equal(report.provider.ratesUsdPerMillion, { input: 1, output: 2 }, 'the report names the rates the ledger was given');
   t.equal(report.tasks[0].effectiveProfile, 'live-mock', 'the task ran on the profile the runner made');
   t.check(report.tasks[0].modelCost.pricedResponses > 0 && report.tasks[0].modelCost.unpricedResponses === 0 && report.spentUsd > 0, 'the cost ledger priced every response', JSON.stringify(report.tasks[0].modelCost));
   t.check(report.spentUsd <= 1, 'the spend stayed inside the budget', String(report.spentUsd));
