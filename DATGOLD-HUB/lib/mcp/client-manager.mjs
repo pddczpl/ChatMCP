@@ -57,6 +57,14 @@ import { defaultRuntimeRoots, loadMcpSdk, locateMcpRuntime } from './sdk.mjs';
 import { McpServerStore } from './server-config.mjs';
 
 export const MAX_LIST_PAGES = 1000;
+// A whole listing (all its pages) is refused past these, before anything is sanitized: the Hub never holds more than this of one list.
+export const MAX_LIST_ITEMS = 10_000;
+export const MAX_LIST_BYTES = 16 * 1024 * 1024;
+// How long the task preflight waits for the servers in all; a connect still running goes on and its tools are offered from the next task.
+export const PREPARE_WAIT_MS = 3000;
+// A server whose connect failed is not tried again by the preflight before this (1, 2, 5, then 15 minutes for each failure in a row). An explicit
+// connect() (the owner or a test asking for that server) is not held back; reload(), a successful connect and a new launch approval clear it.
+export const RETRY_BACKOFF_MS = Object.freeze([60_000, 120_000, 300_000, 900_000]);
 export const MAX_NAME_LENGTH = LIMITS.nameMaxLength;
 export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
 export const APPROVALS_FILE = 'mcp-approvals.json';
@@ -110,19 +118,24 @@ export function interceptMessages(transport, onUnknown) {
  * Walks one list method page by page. A repeated or malformed cursor, or more than `maxPages` pages, is an error. Names are not checked here:
  * every item goes through sanitizeList afterwards, which refuses a bad or duplicate name per item (the one name rule of the Hub).
  */
-export async function listAll(request, kind, { signal, timeout, maxPages = MAX_LIST_PAGES } = {}) {
+export async function listAll(request, kind, { signal, timeout, maxPages = MAX_LIST_PAGES, maxItems = MAX_LIST_ITEMS, maxBytes = MAX_LIST_BYTES } = {}) {
   const spec = LISTS[kind];
   if (!spec) throw new TypeError(`unknown list ${kind}`);
   const items = [];
   const seen = new Set();
   let cursor;
   let pages = 0;
+  let bytes = 0;
   do {
     signal?.throwIfAborted();
     if (pages >= maxPages) throw fault('mcp_list_too_many_pages', `${spec.method} did not end after ${maxPages} pages; the list is refused rather than cut short.`);
     pages += 1;
     const page = await request({ method: spec.method, params: cursor === undefined ? {} : { cursor } }, { signal, timeout });
     if (!isObject(page) || !Array.isArray(page[spec.field])) throw fault('mcp_list_invalid', `${spec.method} did not return a list of ${spec.field}.`);
+    bytes += Buffer.byteLength(JSON.stringify(page[spec.field]) ?? '');
+    if (items.length + page[spec.field].length > maxItems || bytes > maxBytes) {
+      throw fault('mcp_list_too_large', `${spec.method} passed ${maxItems} items or ${maxBytes} bytes in all; the list is refused rather than held.`);
+    }
     items.push(...page[spec.field]);
     cursor = page.nextCursor ?? undefined;
     if (cursor !== undefined) {
@@ -385,6 +398,8 @@ export class McpClientManager {
     this.pins = createPinStore({ directory: this.directory, log: (line) => this.log(`MCP pins: ${line}`) });
     this.runtime = locateMcpRuntime(this.roots);
     this.connections = new Map();
+    // id -> {failures, retryAt (ms)}: the preflight's back-off of a server whose connect failed.
+    this.backoff = new Map();
     this.disposals = new Set();
     this.closed = false;
     this.closing = null;
@@ -407,7 +422,8 @@ export class McpClientManager {
       const connection = this.connections.get(server.id);
       const approved = this.approvals?.launch?.[server.id] ?? null;
       const launch = { required: server.transport === 'stdio', approved: server.transport !== 'stdio' || Boolean(approved), fingerprint: approved?.fingerprint ?? null };
-      return { ...(connection ? connection.summary() : { id: server.id, transport: server.transport, state: 'idle', review: null, launch, refused: { tools: 0, prompts: 0, resources: 0 }, stderr: null, protocolVersion: null, era: null, server: null, tools: null, fingerprint: null, connectedAt: null, calls: 0, unknownResultTypes: 0, lastError: null }), enabled: server.enabled };
+      const retry = this.backoff.get(server.id);
+      return { ...(connection ? connection.summary() : { id: server.id, transport: server.transport, state: 'idle', review: null, launch, refused: { tools: 0, prompts: 0, resources: 0 }, stderr: null, protocolVersion: null, era: null, server: null, tools: null, fingerprint: null, connectedAt: null, calls: 0, unknownResultTypes: 0, lastError: null }), enabled: server.enabled, retryAt: retry ? new Date(retry.retryAt).toISOString() : null };
     }) : [];
     return { runtime, configLoaded: this.store.loaded, closed: this.closed, servers };
   }
@@ -416,6 +432,7 @@ export class McpClientManager {
   async reload() {
     const servers = await this.store.load();
     this.approvals = null;
+    this.backoff.clear();
     await this.#loadApprovals().catch((error) => this.log(`MCP: ${APPROVALS_FILE} was not read (${error.message}); every stdio server needs its launch approved again.`));
     return servers;
   }
@@ -482,6 +499,7 @@ export class McpClientManager {
     });
     this.approvalWrites = write.catch(() => {});
     await write;
+    this.backoff.delete(serverId);
     this.log(`MCP ${serverId}: the owner approved the launch record ${current.fingerprint.slice(0, 12)}.`);
     return { ok: true, fingerprint: current.fingerprint };
   }
@@ -527,6 +545,10 @@ export class McpClientManager {
   async connect(serverId, { signal } = {}) {
     this.#assertOpen();
     signal?.throwIfAborted();
+    return await this.#connect(serverId, { signal });
+  }
+
+  async #connect(serverId, { signal } = {}) {
     let connection = this.connections.get(serverId);
     if (!connection || !['connected', 'connecting'].includes(connection.state)) {
       const config = await this.store.resolveForConnect(serverId, { parentEnv: this.env, platform: this.platform });
@@ -613,6 +635,7 @@ export class McpClientManager {
       connection.state = 'connected';
       connection.connectedAt = new Date().toISOString();
       connection.lastError = null;
+      this.backoff.delete(connection.id);
       const channel = connection.channel;
       client.onclose = () => {
         if (connection.state !== 'connected') return;
@@ -639,6 +662,10 @@ export class McpClientManager {
 
   #failed(connection, error) {
     connection.state = 'failed';
+    if (!this.closed) {
+      const failures = (this.backoff.get(connection.id)?.failures ?? 0) + 1;
+      this.backoff.set(connection.id, { failures, retryAt: Date.now() + RETRY_BACKOFF_MS[Math.min(failures, RETRY_BACKOFF_MS.length) - 1] });
+    }
     const message = redact(String(error?.message ?? error ?? 'The connection failed.'), [...(this.secrets() ?? []), ...connection.secrets]).slice(0, 500);
     connection.lastError = { code: typeof error?.code === 'string' && /^mcp_/.test(error.code) ? error.code : 'mcp_connect_failed', message };
     this.log(`MCP ${connection.id}: could not connect (${connection.lastError.code}): ${message}`, connection);
@@ -808,24 +835,31 @@ export class McpClientManager {
   /**
    * Task preflight (HubManager.createAgentSession): every enabled server is connected if it may start (a stdio server whose launch is not
    * approved is left alone: nothing is spawned), and the lists of a connected one are read again, so a change since the last task is caught by
-   * the pin check before the catalog is built. Never throws: what fails is logged and is simply not in the catalog.
+   * the pin check before the catalog is built. It waits `waitMs` (PREPARE_WAIT_MS) in all: a connect or a listing still running goes on, and what
+   * it brings is offered from the next task. A server whose connect failed is backed off (RETRY_BACKOFF_MS, `retryAt` in status()) and not
+   * tried again here before then. Never throws: what fails is logged and is simply not in the catalog.
    */
-  async prepare({ signal } = {}) {
+  async prepare({ signal, waitMs = PREPARE_WAIT_MS } = {}) {
     if (this.closed) return this.status();
     if (!this.store.loaded) await this.reload().catch((error) => this.log(`MCP: mcp-servers.json was not read (${error.message}).`));
     if (!this.store.loaded) return this.status();
     if (this.runtime.state !== 'ready') this.runtime = locateMcpRuntime(this.roots);
     const servers = this.store.list().filter((server) => server.enabled);
     if (servers.length && this.runtime.state !== 'ready') return this.status();
-    await Promise.allSettled(servers.map(async ({ id }) => {
+    const now = Date.now();
+    const work = Promise.allSettled(servers.map(async ({ id }) => {
       const connection = this.connections.get(id);
+      if (connection?.state !== 'connected' && connection?.state !== 'connecting' && (this.backoff.get(id)?.retryAt ?? 0) > now) return;
       try {
         if (connection?.state === 'connected') await this.#refreshLists(connection, { signal, timeout: connection.timeouts.connectMs });
-        else await this.connect(id, { signal });
+        else await this.#connect(id, { signal });
       } catch (error) {
         if (error?.code !== 'mcp_launch_not_approved' && !signal?.aborted) this.log(`MCP ${id}: not available for this task (${error?.code ?? 'error'}).`);
       }
     }));
+    let timer;
+    const waited = new Promise((resolve) => { timer = setTimeout(resolve, Math.max(0, waitMs)); timer.unref?.(); });
+    try { await Promise.race([work, waited]); } finally { clearTimeout(timer); }
     return this.status();
   }
 

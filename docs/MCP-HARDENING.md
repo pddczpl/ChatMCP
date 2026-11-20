@@ -124,6 +124,9 @@ approvals are given only by code (the tests, `scripts/Verify-McpRuntime.mjs`): o
 - **Reading stdio.** The client manager reads the newline-delimited JSON itself (`LineReader`), not with the SDK's `ReadBuffer` (which copies its whole
   buffer on each chunk and caps the buffer at 10 MiB in all, not per message): one message over 64 MiB (`MAX_MESSAGE_BYTES`) closes the connection
   before it is parsed, with `mcp_message_too_large` in the status and on the call. 64 MiB lets a 50 MB result be read and then cut to the 8 MiB ceiling.
+- **Listings** are refused whole past 10,000 items or 16 MiB in all pages (`mcp_list_too_large`), before anything is sanitized.
+- **Preflight** waits 3 s in all and backs off a server whose connect failed (1, 2, 5, 15 minutes; `retryAt`), so a server that is down does not
+  hold every task start for its connect timeout.
 - **stderr** goes into `createStderrCollector` (64 KiB, `status().servers[].stderr` has its counts); the first 200 lines also go to the Hub log, masked.
 - **Calls.** A hung call ends at its timeout and is never sent again; a caller's abort after the request went out is `mcp_call_aborted` with
   `executed: 'unknown'` (an abort before anything was sent rejects with the signal's reason).

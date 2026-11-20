@@ -348,6 +348,7 @@ try {
       await hung.prepare();
       const second = Date.now() - started;
       assert.ok(second < 500, `the next preflight waited ${second} ms for servers that are backed off`);
+      console.log(`  (preflight with two servers that never answer, connectMs 5000: ${first} ms, then ${second} ms while they are backed off)`);
       await delay(300);
       assert.equal(readFileSync(spawns, 'utf8').length, 1, 'a backed-off server is not started again by the preflight');
       // reload() (the owner changed the list) clears the back-off: the next preflight tries again

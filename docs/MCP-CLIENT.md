@@ -76,6 +76,9 @@ Nothing imports the SDK when the Hub starts: without it the Hub starts, serves `
   where `<tool>` is the server's own name of the tool (without `<server>.`). A tool's rule wins over the default; nothing set is `ask`. An
   unknown key or word is refused when the file is read (the whole file, like every other fault). What the gate then does is in
   [THREAT-MODEL.md](THREAT-MODEL.md) Surface 10: `deny` refuses everywhere, Full Access runs, `destructiveHint: true` still asks.
+- **A secret belongs in `env` (or `headers`), referenced as `${NAME}`**, never typed into `command` or `args`. The approval card and the launch
+  record show the command and the args as stored (the card with the `${NAME}` references, the record with the values of secret entries replaced by
+  `[secret]`); a token typed straight into an argument is not a registered secret, so only the pattern masker of the gate may hide it.
 - `trust: {"annotations": true}` lets the gate believe the server's `readOnlyHint` (Read Only runs an `allow`ed tool only then); default false.
 - `touchesWorkspace: true` makes the Hub take a workspace checkpoint before every call of that server (an external tool is not checkpointed
   otherwise; RR-42); default false.
@@ -129,7 +132,8 @@ await mcp.disconnect(id); await mcp.close();
   `input_required` result is an error (`autoFulfill: false`), so a call is never re-sent with answers. There is no HTTP+SSE fallback. A
   result whose `resultType` the SDK does not know is treated as complete (the SDK 2.4.0 itself refuses one on a 2026-07-28 connection).
 - **Lists** are walked page by page by the manager, not by the SDK: a repeated cursor (also A, B, A), an empty cursor or more than 1,000 pages
-  refuse the whole list (`mcp_list_cursor_repeated`, `mcp_list_cursor_invalid`, `mcp_list_too_many_pages`). Every item then goes through
+  refuse the whole list (`mcp_list_cursor_repeated`, `mcp_list_cursor_invalid`, `mcp_list_too_many_pages`), as does a listing past 10,000 items or
+  16 MiB in all (`mcp_list_too_large`, `MAX_LIST_ITEMS`, `MAX_LIST_BYTES`). Every item then goes through
   `sanitizeList` (lib/mcp/sanitize.mjs), the **one name rule** of the Hub: 1 to 128 characters of `[A-Za-z0-9_.-]` (the MCP tool-name rule),
   checked per item. A bad name, and the second of two items with one name, are refused alone and counted in `status().servers[].refused`; the
   rest of the list stays. (Slice A refused the whole list for a bad or duplicate name, at 128 characters, while the sanitizer allowed 256 per
@@ -150,7 +154,10 @@ await mcp.disconnect(id); await mcp.close();
   prompts (`<server>.<prompt>`, `server`) and resources (`uri`, `name`, `mimeType`, `server`) are in `catalog.prompts` / `catalog.resources`.
 - **Preflight.** `createAgentSession` (every run of the agent, a spawned agent and the web transport) first awaits `mcp.prepare()`: every
   enabled server that may start is connected (once; then pooled) and a connected one is listed again, so a change since the last task is caught
-  by the pin before the catalog is built. It never fails the task: a server that cannot be reached is not in the catalog.
+  by the pin before the catalog is built. It waits 3 s in all (`PREPARE_WAIT_MS`): a connect or a listing still running goes on, and what it
+  brings is offered from the next task. A server whose connect failed is not tried again by the preflight for 1, 2, 5, then 15 minutes
+  (`RETRY_BACKOFF_MS`, `retryAt` in the status); `reload()`, a successful connect and a new launch approval clear that, and an explicit
+  `connect()` is not held back. It never fails the task: a server that cannot be reached is not in the catalog.
 - **Calls.** A call to `<server>.<tool>` passes the same guard as the Hub's own (`#guardCalls`: the gate with the owner's policy, the
   PreToolUse hooks under the name and the alias `mcp__<server>__<tool>`, the workflow, a checkpoint only for a `touchesWorkspace` server), then
   `mcp.callTool`. What the server never received (quarantined lists, an unknown tool) and a JSON-RPC error answer are `isError` results the model
