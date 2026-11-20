@@ -1,6 +1,6 @@
 // lib/mcp/sanitize.mjs: what of an MCP server's lists may reach the model or an approval dialog (P2 slice C1, plan task ext-13).
 //
-//  1. names: the character set [A-Za-z0-9_.-], 1-256 characters, three reserved words; a bad name is refused with a reason, never rewritten
+//  1. names: the character set [A-Za-z0-9_.-], 1-128 characters (the MCP tool-name rule), three reserved words; a bad name is refused with a reason, never rewritten
 //  2. text (descriptions, titles): the hidden classes are removed BEFORE the cut, the cut is by UTF-8 bytes at a code point, the marker fits inside the limit
 //  3. property tests over seeded random Unicode (astral, lone surrogates, every removed class): never throws, never over the limit, never a removed class
 //  4. input schemas: depth 32, 64 KB, plain JSON only, no __proto__, no hidden characters in keys or values, local $ref only, cycles end
@@ -51,7 +51,7 @@ function firstNamed(text) {
 
 // ------------------------------------------------------------------ 1. names
 {
-  for (const name of ['read_file', 'a', 'A-Z.0_9', 'x'.repeat(256), 'git.status', '...', '-', 'Read_File-2']) assert.deepEqual(checkName(name), { ok: true, name });
+  for (const name of ['read_file', 'a', 'A-Z.0_9', 'x'.repeat(128), 'git.status', '...', '-', 'Read_File-2']) assert.deepEqual(checkName(name), { ok: true, name });
   const refused = (value, reason, options) => {
     const result = checkName(value, options);
     assert.equal(result.ok, false, `${preview(value)} must be refused`);
@@ -59,7 +59,7 @@ function firstNamed(text) {
     assert.equal(typeof result.preview, 'string');
     return result;
   };
-  refused('x'.repeat(257), 'name_too_long');
+  refused('x'.repeat(129), 'name_too_long');
   refused('', 'name_empty');
   for (const value of [undefined, null, 42, {}, [], true, Symbol('s'), 1n]) refused(value, 'name_not_a_string');
   for (const bad of ['read file', 'read/file', 'read:file', 'r\u00e9ad', 'read\u200Bfile', 'read\u202Efile', `read${cp(0xe0041)}`, 'tab\there', 'new\nline', 'a\u0000b', '\uD800',
@@ -76,8 +76,8 @@ function firstNamed(text) {
   refused('a'.repeat(10_000_000), 'name_too_long');
   refused(`${'a'.repeat(200)} `, 'name_bad_characters');
   assert.ok(performance.now() - started < 200, 'a 10 MB name is refused by its length before the pattern runs');
-  assert.equal(LIMITS.nameMaxLength, 256);
-  ok('names: [A-Za-z0-9_.-]{1,256}, reserved words refused, a refusal names the reason and an escaped preview, never a rewrite');
+  assert.equal(LIMITS.nameMaxLength, 128);
+  ok('names: [A-Za-z0-9_.-]{1,128}, reserved words refused, a refusal names the reason and an escaped preview, never a rewrite');
 }
 
 // ------------------------------------------------------------------ 2. text
@@ -255,12 +255,12 @@ const CASES = 6000;
     const length = pick(0, index % 50 === 0 ? 300 : 12);
     let name = '';
     for (let i = 0; i < length; i += 1) name += random() < 0.8 ? 'aZ09_.-'[pick(0, 6)] : POOLS[pick(0, POOLS.length - 1)]();
-    const expected = /^[A-Za-z0-9_.-]{1,256}$/.test(name) && !['__proto__', 'constructor', 'prototype'].includes(name);
+    const expected = /^[A-Za-z0-9_.-]{1,128}$/.test(name) && !['__proto__', 'constructor', 'prototype'].includes(name);
     assert.equal(checkName(name).ok, expected, `name ${JSON.stringify(name)}`);
     if (expected) accepted += 1;
   }
   assert.ok(accepted > 500 && accepted < 2900, `names accepted: ${accepted}`);
-  ok(`property: 3000 random names (${accepted} accepted) are accepted exactly when they match [A-Za-z0-9_.-]{1,256} and are not reserved`);
+  ok(`property: 3000 random names (${accepted} accepted) are accepted exactly when they match [A-Za-z0-9_.-]{1,128} and are not reserved`);
 }
 
 // ------------------------------------------------------------------ 4. input schemas

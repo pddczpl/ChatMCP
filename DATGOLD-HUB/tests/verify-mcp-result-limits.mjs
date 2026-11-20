@@ -9,7 +9,7 @@
 //  6. the stderr collector: at most N bytes kept (the first half and the last half), the rest counted, whole UTF-8 characters, control characters removed
 //  7. totality and timing
 import assert from 'node:assert/strict';
-import { RESULT_LIMITS, STDERR_DEFAULT_BYTES, createStderrCollector, limitToolResult } from '../lib/mcp/result-limits.mjs';
+import { PROVIDER_IMAGE_TYPES, RESULT_LIMITS, STDERR_DEFAULT_BYTES, createStderrCollector, limitToolResult } from '../lib/mcp/result-limits.mjs';
 import { setTokenProfile } from '../lib/token-optimization.mjs';
 
 let checks = 0;
@@ -123,6 +123,16 @@ const png = (decodedBytes) => Buffer.alloc(decodedBytes, 7).toString('base64');
     { type: 'image', data: png(3) }, { type: 'image', data: png(3), mimeType: 'image/svg+xml\u202E' }]) {
     assert.deepEqual(limitToolResult({ content: [bad] }).notes, ['1 item(s) dropped: not base64 data of an image type'], JSON.stringify(bad).slice(0, 80));
   }
+  // Only the types the model providers accept are passed on as images; any other image type becomes a note, never an image block.
+  assert.deepEqual(PROVIDER_IMAGE_TYPES, ['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+  for (const mimeType of ['image/png', 'image/jpeg', 'image/gif', 'image/webp']) assert.equal(limitToolResult({ content: [image(3, mimeType)] }).result.content[0].type, 'image', mimeType);
+  for (const mimeType of ['image/svg+xml', 'image/bmp', 'image/tiff', 'image/x-icon', 'image/heic']) {
+    const other = limitToolResult({ content: [image(3, mimeType)] });
+    assert.deepEqual(other.result.content.map((item) => item.type), ['text'], mimeType);
+    assert.deepEqual(other.notes, ['1 item(s) dropped: an image of a type the model providers do not accept (only image/png, image/jpeg, image/gif and image/webp)'], mimeType);
+  }
+  const svgBlob = limitToolResult({ content: [{ type: 'resource', resource: { uri: 'mem://s', mimeType: 'image/svg+xml', blob: png(3) } }] });
+  assert.deepEqual(svgBlob.result.content.map((item) => item.type), ['text'], 'an embedded SVG blob is not an image either');
   const audio = (decoded) => ({ type: 'audio', data: png(decoded), mimeType: 'audio/wav' });
   const three = limitToolResult({ content: [audio(10), audio(10), audio(10)] });
   assert.deepEqual([three.result.content.filter((item) => item.type === 'audio').length, three.notes], [2, ['1 item(s) dropped: more than 2 audio clips']]);
