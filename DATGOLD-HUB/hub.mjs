@@ -29,6 +29,7 @@ import { createUpdateChecker, updateOptionsFromEnvironment } from './lib/update-
 import { createUpdateDownloader } from './lib/update-download.mjs';
 import { createAppliedNote } from './lib/update-applied.mjs';
 import { loadReleaseKeys } from './lib/release-signature.mjs';
+import { createProtector } from './lib/secret-box.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.11.2-react-agent';
@@ -842,6 +843,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   let initialized=false,closing=false;
   let releaseInstance=async()=>{};
   let session=null;
+  let mcpServer=null;
   const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,updates,downloads,applied,
     isInitialized:()=>initialized});
   const url=`http://127.0.0.1:${options.port}`;
@@ -881,6 +883,13 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   if (!existsSync(path.join(BUNDLE_ROOT, UI_INDEX))) manager.log(`${UI_NOT_BUILT.error} (the dashboard answers 503 until then).`);
   manager.log(`Dashboard: ${url}`);
   manager.log(`Local-only Hub: 127.0.0.1 · Data: ${manager.hubDirectory}`);
+  // The MCP server for local clients (docs/MCP-SERVER.md): its own listener, off unless the owner turned it on (CHATMCP_MCP_SERVER or
+  // <data>/mcp-server.json). It never throws here: a missing SDK, a bad or busy port is a status and one log line, and the Hub runs on.
+  const { hubMcpProvider, startHubMcpServer } = await import('./lib/mcp/server.mjs');
+  mcpServer = await startHubMcpServer({ env, directory: manager.hubDirectory, protector: createProtector({ bundleRoot: BUNDLE_ROOT, directory: manager.hubDirectory, env }),
+    name: 'DatGold Hub', version: VERSION, dashboardPort: options.port, log: (line) => manager.log(line), registerSecret: (value) => manager.registerSecret(value), ...hubMcpProvider({ version: VERSION }) })
+    .catch((error) => { manager.log(`MCP server: not started (${error?.code ?? 'error'}).`); return null; });
+  manager.mcpServer = mcpServer;
   if (options.open) await openDashboard(url, manager, dashboardUrl(url, server.issueBootstrapTicket()));
   if (manager.workspace) void manager.start().catch(() => {});
   else manager.log('Chọn thư mục workspace trên trang localhost để bắt đầu.');
@@ -904,6 +913,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     mark('terminal'); await manager.terminal?.close(); manager.intelligence?.close();
     mark('agent'); await agent.shutdown().catch(() => {});
     mark('manager'); await manager.shutdown().catch(() => {});
+    mark('mcp server'); await mcpServer?.close().catch(() => {});
     mark('server'); server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     mark('session'); await session?.remove().catch(() => {});

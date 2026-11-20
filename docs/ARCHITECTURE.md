@@ -123,7 +123,7 @@ Node.js >=22.12 khi chạy từ source, Git for Windows để sử dụng Git/wo
 
 Các nguồn Cloud Harness proxy và Render/Docker public-hosting không còn là phụ thuộc sản phẩm.
 
-The MCP client SDK (`@modelcontextprotocol/client` and its closure, pinned in `scripts/mcp-runtime`) is not a dependency of the Hub either: the installer stages it into `DATGOLD-HUB/runtimes/mcp` like the intelligence runtime, and `lib/mcp/sdk.mjs` imports it only when an external MCP server is connected ([MCP-CLIENT.md](MCP-CLIENT.md)).
+The MCP client SDK (`@modelcontextprotocol/client` and its closure, pinned in `scripts/mcp-runtime`) is not a dependency of the Hub either: the installer stages it into `DATGOLD-HUB/runtimes/mcp` like the intelligence runtime, and `lib/mcp/sdk.mjs` imports it only when an external MCP server is connected ([MCP-CLIENT.md](MCP-CLIENT.md)). The same runtime holds the server SDK and its Node adapter, which `lib/mcp/server-sdk.mjs` imports only when the owner has turned the Hub's own MCP server on ([MCP-SERVER.md](MCP-SERVER.md)).
 
 ## 16. Độ lệch so với thiết kế và hạng mục chưa làm
 
