@@ -9,7 +9,7 @@
 import http from 'node:http';
 import { signatureFor } from '../support/release-keys.mjs';
 
-/** The manifest the publish workflow writes (publish-v3.10.2.yml), with the installer name of the next release. Extra keys on purpose: the real file has some the Hub does not use. */
+/** The manifest the release workflow writes (.github/workflows/release.yml, before it publish-v3.10.2.yml), with the installer name of the next release. Extra keys on purpose: the real file has some the Hub does not use. */
 export function feedManifest(overrides = {}) {
   return {
     version: '3.10.3',

@@ -427,7 +427,7 @@
       "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "reason": "Enforced by .github/workflows/publish-v3.9.0.yml; no suite reads or runs it.",
+      "reason": "Enforced by the verify job of .github/workflows/release.yml (publish-v3.9.0.yml at the time of the claim); tests/verify-ci-triggers.mjs only checks that the gate is still in the file, no suite runs it.",
       "phase": null
     },
     {
