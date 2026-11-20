@@ -58,7 +58,11 @@ name instead of holding its teardown until the test timeout. Both cases are in
 `updates.spec.mjs` is the update notice against the real Hub and the production build, with a loopback server standing in for GitHub (`tests/e2e/update-feed-server.mjs`, the only thing the Hub is pointed at: one test hook that takes a loopback address and nothing else). The strip under the header asks the owner once, a yes makes one look, the release on offer is announced with the address, target and rel of its notes link (read, never clicked: it is the internet) and a button to skip it, and the skip, the choice and the notice survive a reload and a Hub restart; a no keeps the Hub quiet (zero requests in the timing in which a yes asks once), Settings → Cập nhật / Updates shows the versions, "Check now" and its minute, a failed look is said in words, the text and the buttons of the strip are read at a contrast of 4.5:1 or better in both themes (measured on what they are drawn on, after the buttons' 150 ms transition), and the screens are read for Vietnamese in English. Beside the link there is a Copy button (in the desktop shell the link may open nothing), read at the same contrast. The last test is the only one that hands the page an answer the Hub did not give: it is told of a look whose minute is already over, as a window that had been asleep would be, and "Check now" must not stay held back. Screenshots (light, dark, narrow) are attached.
 
 Playwright writes its JSON result, Hub logs, and failure screenshots/traces to
-`test-results/`. The required reporter also fails a run containing skipped tests;
+`test-results/`. On the Windows job of CI (`CI` set, `win32`) the browser also writes a
+Chromium NetLog per worker, `test-results/netlog/chromium-<pid>.json` (`playwright.config.mjs`),
+for the `net::ERR_NO_BUFFER_SPACE` that [docs/CI-HEALTH.md](../../../docs/CI-HEALTH.md) describes:
+it records the browser's connects and what the socket pool was doing around them (open it at
+`chrome://net-import`). The required reporter also fails a run containing skipped tests;
 `tests/e2e-gate.test.mjs` checks real process exit codes for skips and malformed
 API responses using a temporary local HTTP server and isolated reports.
 Delayed-body cases verify cleanup still catches malformed responses. CI runs

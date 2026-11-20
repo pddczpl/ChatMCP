@@ -136,6 +136,81 @@ The loops alone prove little. Of the 320 repeats of each set of fixtures (240 wi
 
 The Hub did get what the first plan wanted, as hardening and not as the cure: `close()` writes one `Stop: <step> (+N ms)` line per step, `Stop: done` before the exit and `Stop: still in <step> after 12 s, exiting` from its deadline; `tests/e2e/hub-process.mjs` gives `taskkill` 10 s, bounds the wait after the kill (15 s), prints the last 60 lines of the Hub log when the 8 s grace runs out and puts them in the error when a Hub survives the kill. Not covered: a native call that blocks the Hub's event loop would still keep the 12 s timer from firing (the bound in `hub-process.mjs` is what ends such a Hub); `framenavigated` also fires for a navigation inside the page (`history.replaceState`), which cancels nothing, so a body that truly hangs across such an event is let go with a warning instead of failing the test (the rule that decides whether a read error comes from a navigation had the same imprecision); and the fixture that now reports a `stop()` that throws only after the mock, the log and the folder are dealt with is tested through `stop()`, not through a Playwright test with a Hub that cannot be stopped.
 
+## A port the machine would not give: `net::ERR_NO_BUFFER_SPACE` in the React E2E on `windows-latest` (read with `gh` on 2026-11-06)
+
+`React / real Local Hub E2E (windows-latest)` has failed with the same line three times in the 174 attempts that reached its E2E step since 2026-10-24 (196 attempts; 20 were cancelled and 2 never got that far): `net::ERR_NO_BUFFER_SPACE`, Chromium's name for Windows' WSAENOBUFS (10055). Each time exactly one test failed (`1 failed / 67 passed`, `1 failed / 79 passed`) and the Hub's log is a normal stop. Where the job was run again (42173255093: attempts 1 and 3) or the branch went on (42169801756: the next head) it passed; the first failure's pull request has no later run. `ubuntu-latest` never showed it. The failures sit in 3 of 174 attempts, about one in sixty; two of them are from the same day.
+
+| Run (job) | Test (place in the run) | The request the system refused |
+|---|---|---|
+| 40724235428 (122943038523), 2026-10-28 | `project-instructions.spec.mjs:225` (30 of 68) | a font, `inter-vietnamese-wght-normal-CBcvBZtf.woff2` |
+| 42169801756 attempt 1 (127734696746), 2026-11-06 | `project-instructions.spec.mjs:225` (33 of 80) | a font, `jetbrains-mono-latin-400-normal-V6pRDFza.woff2` |
+| 42173255093 attempt 2 (127765820759), 2026-11-06 | `updates.spec.mjs:791` (80 of 80) | `page.goto` of the page itself (the `localStorage` error beside it is the error page's) |
+
+In the traces of the first two the shape is the same: the first wave of the page (the document, the stylesheet, three scripts) takes four new connections; some 250 ms later the second wave starts (fonts, `/api/state`, `/api/studio/coding`, the event stream), and **the first request of that wave** fails without a byte sent, while the others of the wave are answered on sockets that are already open. It is a new connection from the browser to a Hub that was started a moment before. In the third, it is the first connection of the context.
+
+### Where the system refused
+
+Run 42198347379 (a throwaway branch, deleted; the run and its artifacts stay while GitHub keeps them) repeated `project-instructions.spec.mjs:225` and, as a control, `session.spec.mjs:8` for 14 minutes in four jobs of 2 to 4 workers, two of them with an ETW trace of `Microsoft-Windows-TCPIP` and `Microsoft-Windows-Winsock-AFD`. The test ran 546 times and the control 548. **One run of the test failed with `net::ERR_NO_BUFFER_SPACE`**, in a job with the trace and 3 workers (CI runs 1), and the request was the font of the first row, `inter-vietnamese-wght-normal-CBcvBZtf.woff2`, 2.6 s into the test. (Four other runs of the test, in the jobs of 3 and 4 workers, failed another way: the check that waits for the workspace path timed out after 15 s with `null`. That is not this error and was not looked into; the 6-worker jobs of the run before showed failures of the first-run setup under load, below. The control never failed.)
+
+The trace of that job has 1.5 million events, none lost. It was taken with `logman start diagsock -ets -pf providers.txt -o sock.etl -f bincirc -max 1500 -nb 16 256 -bs 1024` (`providers.txt`: the two lines `Microsoft-Windows-TCPIP 0xffffffffffffffff 0x4` and `Microsoft-Windows-Winsock-AFD 0xffffffffffffffff 0x4`) and read with `tracerpt sock.etl -of CSV`. It has **one** failed bind, at 10:06:46.466 UTC: a `Microsoft-Windows-TCPIP` event 1006 and the matching Winsock-AFD bind, both with the status text "The transport address could not be opened because all the available addresses are in use", for a browser process (the Hub and the harness get consecutive ports in the trace, 63128-63140; the browser's processes get scattered ones). The bind is to `0.0.0.0` with no port, the bind that precedes every outgoing connection of the browser in the trace (`ConnectEx` needs a bound socket), and no connect for that socket follows. Winsock turns the status into WSAENOBUFS and Chromium into `ERR_NO_BUFFER_SPACE`. No other bind of the trace failed; the sampler, 0.17 s earlier, counted 332 of the 16,384 dynamic ports in use (280 in `TIME_WAIT`, 52 established) and 12.5 GB of memory free; and the same process had connected to the same Hub 0.56 s before, with its port given at once. What the trace does not say is why the system found no port among some 16,000 free ones.
+
+### What it is not
+
+| Suspect | What was measured (eight instrumented runs of the whole suite on `windows-latest`, 87 tests each) | Verdict |
+|---|---|---|
+| Workers times Hubs | `workers: 1` and `fullyParallel: false`: one browser and one Hub at a time | no, and there are no fewer workers to ask for |
+| Connections used up | 1,268-1,346 connections opened per run (15 a test); at most 299 sockets in `TIME_WAIT` and 318 of the 16,384 ports of the dynamic range in use at once | no, a fiftieth of the range |
+| Sockets left open | at the end of a run the socket table holds the system's listeners, a dozen established and about 300 `TIME_WAIT`, and no listener of a test | no |
+| Memory | non-paged pool 165-247 MB, about 13 GB free | no |
+| One image, one region | the failures ran on three images (`20261021.278.1`, `20261030.294.1`, `20261103.298.1`) in three regions; both images of 2026-11-06 are Windows build 26100.33674 | no |
+| A slow loopback | every loopback connect in two of the traces took 0.1-0.4 ms (2.3 ms at the most), the browser's included | no, the system does not answer slowly and then give up |
+| Another status in the system | the traces of five runs: every socket, bind, connect and accept ended in `STATUS_SUCCESS`, except what is expected (the harness polling a Hub that does not listen yet: refused; an IPv6 probe: unreachable; accepts cancelled at shutdown; reads that would block; a few connections reset or aborted at teardown) | nothing to see in a run that passes |
+
+### What was run to make it happen
+
+All on `windows-latest`. Everything that ran the suite, the tests or the browser was green or failed otherwise than with this error, except the one failure above:
+
+| Run | What | Executions |
+|---|---|---|
+| 42194064573, 42194780316 | the whole suite with a per-second sampler (TCP counters, socket states, pool, CPU, the busiest processes); three with the ETW trace | 8 runs of 87 tests |
+| 42194064573 | a Hub-like server in its own process and a client that opens its connections like a page load, at rest and with three busy processes | 1,815 cycles, 49,000 requests, 11,600 connections |
+| 42194064573 | real headless Chromium against a Hub-like server: one context at a time, three at a time, and with three busy processes | 3,117 page loads, 19,200 connections |
+| 42197225737 | the real tests that load the page (`session.spec.mjs`, three `studio.spec.mjs`, one `model-picker.spec.mjs`), repeated for 14 minutes: 3 workers, 3 with an ETW trace, 6, 6 with a trace, 3 beside two busy processes | 3,021 test runs, no `ERR_NO_BUFFER_SPACE` |
+| 42198347379 | `project-instructions.spec.mjs:225` and, as a control, `session.spec.mjs:8`: 3, 3 with a trace, 4 and 2 with a trace workers | 546 and 548 test runs, **1 `ERR_NO_BUFFER_SPACE`** |
+
+The 6-worker jobs of 42197225737 showed other failures that only a loaded machine makes, and they are not this one: about twenty `403` with code `csrf` from `POST /api/workspace/select` in the first-run setup, three `POST /api/session/redeem` whose body did not arrive in 10 s, two `401` from `/api/state` (none looked into here). At the job's own single worker none of them appeared in eight runs.
+
+### The same error from a loop of `bind(0)`
+
+Runs 42202695362 and 42202977330 asked whether the error can be made without the browser. A Python process called `bind(('0.0.0.0', 0))` and `bind(('127.0.0.1', 0))` in a loop, once with nothing else held and once with K sockets held on random ports of the range (the way the ports of many finished connections are scattered), on the default range (49152-65535) and on a range widened with `netsh int ipv4 set dynamicport tcp start=10000 num=55535` (10000-65534):
+
+| Range | Held | Binds | Errors |
+|---|---|---|---|
+| default | none | 8,000,000 | 0 |
+| widened | none | 8,000,000 | 0 |
+| default | 4,000 (24% of it) | 4,000,000 | **329, all 10055** |
+| widened | 4,000 (7% of it) | 4,000,000 | 0 |
+| real headless Chromium, 3 workers loading pages for 4 minutes beside the held ports (default: 0, 4,000, 8,000; widened: 4,000, 8,000) | | 3,261 page loads | 0 |
+
+The loop wrote down 283 of the 329 errors (it keeps the first 200 of a run: 200 of the 246 on the wildcard address, all 83 on `127.0.0.1`). All 283 came right after the same six binds, which had been handed ports 65526-65532 (65533 on `127.0.0.1`; a held port skipped), and they came every 12,139 to 12,163 binds, once per lap of the range. That reads like the allocator coming to the end of the range with every port up to it taken and not wrapping round in the same call; the probe did not write down which ports were held, so it is a reading and not a measurement. The wide range removed it, which mixes two changes (the density of held ports, and the length of a lap).
+
+It is a different case from the one in CI, and nothing shows that they are the same: the TCP ports handed out in the second before the refusal in CI were 63128-63140 and 64441 (the Hub and the harness) and, for the browser's processes, 54000, 54660, 55400, 55405, 56421, 57775, 58574, 60344 and 64440: the highest is 1,094 below the end of the range; 2% of the range was in use, not 24%; Chromium beside 8,000 held ports (49% of the range) loaded 776 pages without an error. What they share is the status. One more thing is known: the end-of-run socket tables of three of the six runs that were read hold `TIME_WAIT` sockets at the top of the range (ports 65514-65518, 65422 and 65447), so the ports of the suite do reach the end of the range, and the end of it is where the probe failed.
+
+### What is not proven
+
+- That the failure of the loop is what happens in CI, or that Chromium's refusal has the same cause. The cause of the refusal in CI is not known: the trace shows the call and its status, not the reason.
+- That the wider range lowers the rate in CI. At one failure in sixty runs it takes far more than a hundred green runs to see a drop, and the three green runs that a pull request needs are the gate, not evidence: three greens come about 95% of the time with no change at all.
+- Why `project-instructions.spec.mjs:225` is where three of the four failures that have a place were (the fourth is the last test of a run). It types Vietnamese text, which makes the page ask for the `inter-vietnamese` font after the first wave, and the other font in the table is also a late request; a new connection that late is the guess, and no test of it was made.
+- Anything about `ubuntu-latest`.
+
+### What changed, and what to do if it comes back
+
+- On the Windows job of CI the browser writes a Chromium NetLog (`playwright.config.mjs`, `netLogArguments`): `test-results/netlog/chromium-<pid>.json`, one file per worker, in the artifact `react-e2e-windows-latest` (45 MB for the 87 tests of a whole run, as measured in the artifact of the first green run, where the whole artifact is 8.8 MB zipped; 3.1 MB for 9 tests on a developer machine). That green run's file is complete JSON with 302,130 events and 476 `TCP_CONNECT_ATTEMPT`, every one ending `net::OK`: that is what a run without the error looks like. Open a file at `chrome://net-import` and look for the events that carry `net_error` -176: they should say which request was refused and when (expected: the end of a `TCP_CONNECT_ATTEMPT` or `TCP_CONNECT_JOB_CONNECT`, whose begin event holds the address), and the `SOCKET_POOL` and `HTTP_STREAM_JOB_INIT_CONNECTION` events before them say how many sockets the browser held and which requests wanted one. No real failure has been captured with it yet, so what it shows is an expectation. It does not say why the system refused; for that, a trace as above is needed.
+- The failure message of the fixture now says what `net::ERR_NO_BUFFER_SPACE` is (the system refusing a port for a new connection, not the page) and points here. It is still a failure (`e2e/refused-socket.mjs`, held by `tests/e2e-gate.test.mjs`).
+- The job widens the IPv4 dynamic port range before it installs or runs anything (step `Widen the dynamic TCP port range (Windows)` of `react-e2e`, held by `tests/ci-windows-port-range.test.mjs`). It is a hedge on the evidence of the loop above and nothing more; the job log of the first green run printed `Start Port : 10000` and `Number of Ports : 55535`. The IPv6 range is as it was (the Hub is reached on `127.0.0.1`). The wider range gives the ports 10000-49151 to outgoing connections, and the job listens on no fixed port among them: the Hub, the mock providers and the update feed take port 0 or `freePort()`, and the one fixed port, 3007 in `companion-ipc.spec.mjs`, is below. If the error comes back with the step in place, the widening was not the answer: say so here and take the step out (it is a commit of its own).
+
+No retry was added: the rules below are for the Node suites of `run-all.mjs` and say nothing of this one. A retry that keeps every assertion would have to be limited to this single signature: `retries: 1` for the Windows job in the Playwright configuration, and a reporter that turns the run red unless every retried test failed first with only `net::ERR_NO_BUFFER_SPACE` (and, for the page that never loaded, the `localStorage` error of the error page), with a `::warning` for each. That is a change of the rules and the owner's to make; it is not made here.
+
 ## Retry, `FLAKY`, and the streak gate
 
 `node tests/run-all.mjs --retry-failed-once` (used by `ci.yml`) runs a suite that **failed or timed out** a second time, once.

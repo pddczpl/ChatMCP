@@ -34,7 +34,7 @@ test('browser error gate rejects malformed API responses and accepts explicit no
   const fixtures = new URL('../e2e/fixtures.mjs', import.meta.url).href;
   const taskId = '00000000-0000-0000-0000-000000000000';
   const cases = [
-    { title: 'malformed JSON', route: '/api/plugins/marketplace', contentType: 'application/json', body: '<html>fallback</html>', error: 'Invalid API JSON' },
+    { title: 'malformed JSON', route: '/api/plugins/marketplace', contentType: 'application/json', body: '<html>fallback</html>', error: 'Invalid API JSON', without: 'refusing a port' },
     { title: 'HTML fallback', route: '/api/plugins/registry', contentType: 'text/html', body: '<html>fallback</html>', error: 'Unexpected API content type' },
     { title: 'SSE on a JSON route', route: '/api/plugins/marketplace', contentType: 'text/event-stream', body: ': connected\n\n', error: 'Unexpected API content type' },
     { title: 'optional JSON null', route: '/api/studio/delegates', contentType: 'application/json; charset=utf-8', body: 'null' },
@@ -50,6 +50,9 @@ test('browser error gate rejects malformed API responses and accepts explicit no
     { title: 'JSON body cut off by a reload', route: '/api/state', contentType: 'application/json', body: '{"half":', hold: true, reload: true, warning: 'API response dropped by a navigation: GET ', within: 8000 },
     // Without a navigation nothing explains a body that does not come: that is a real hang of the response, and it fails the test at once (after the 1,500 ms the test asks for).
     { title: 'JSON body that never arrives on a page that stays', route: '/api/state', contentType: 'application/json', body: '{"half":', hold: true, error: 'API response body did not arrive in 1500 ms: GET ', within: 8000 },
+    // The system refusing a port (WSAENOBUFS) is still an error that fails the test; its message only says what it is and where the evidence is (docs/CI-HEALTH.md). The browser cannot be made to
+    // report it, so the case puts the line the fixture would have recorded into the list, which is all the fixture reads.
+    { title: 'a port the system refused', route: '/api/state', contentType: 'application/json', body: '{}', inject: 'Network: http://127.0.0.1:1/assets/font.woff2: net::ERR_NO_BUFFER_SPACE', error: 'net::ERR_NO_BUFFER_SPACE is the system refusing a port for a new connection' },
   ];
   try {
     const config = path.join(temp, 'playwright.config.mjs');
@@ -62,6 +65,7 @@ test('browser error gate rejects malformed API responses and accepts explicit no
       test.use({ bodyLimitMs: 1500 });
       for (const entry of ${JSON.stringify(cases)}) {
         test(entry.title, async ({ page, browserErrors }) => {
+          if (entry.inject) browserErrors.errors.push(entry.inject);
           const server = http.createServer((request, response) => {
             if (request.url === entry.route) {
               response.writeHead(200, { 'content-type': entry.contentType });
@@ -116,6 +120,8 @@ test('browser error gate rejects malformed API responses and accepts explicit no
       const outcome = recorded.find(spec => spec.title === entry.title)?.tests[0]?.results[0];
       assert.equal(outcome?.status, entry.error ? 'failed' : 'passed', `${entry.title}: ${JSON.stringify(outcome)}`);
       if (entry.error) assert.ok(outcome.errors.some(error => error.message.includes(entry.error)), `${entry.title}: ${JSON.stringify(outcome.errors)}`);
+      // A failure that is not the system refusing a port does not claim to be.
+      if (entry.without) assert.ok(!outcome.errors.some(error => error.message.includes(entry.without)), `${entry.title}: ${JSON.stringify(outcome.errors)}`);
       if (entry.within) assert.ok(outcome.duration <= entry.within, `${entry.title}: took ${outcome.duration} ms, more than ${entry.within} ms`);
       // What the gate let go of is not an error, but it is written down where a person reading the result finds it.
       if (entry.warning) {
