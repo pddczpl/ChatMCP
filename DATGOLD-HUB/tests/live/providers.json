@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "source": {
+    "file": "DATGOLD-HUB/lib/model-catalog.data.json",
+    "generatedAt": "2026-10-28",
+    "upstream": "https://models.dev/api.json",
+    "sha256": "345907ca184b38c0cf37dd74064e61748f74ce2440ee7b42abccf86d575191d0",
+    "note": "Model ids, context windows and USD-per-million-token prices are copied from the rows of that snapshot (catalog.provider / catalog.model name the row); tests/verify-live-runner.mjs compares every number with the snapshot. A value the snapshot lacks is null, with a note, and the runner refuses a provider whose input or output price is null. Prices are a dated public list, not a bill: check them before a paid run."
+  },
+  "providers": {
+    "deepseek-flash": {
+      "preset": "deepseek",
+      "protocol": "openai-chat",
+      "apiBaseUrl": "https://api.deepseek.com",
+      "model": "deepseek-flash",
+      "contextWindow": 1048576,
+      "keyEnv": "DEEPSEEK_API_KEY",
+      "ratesUsdPerMillion": { "input": 0.15, "output": 0.6, "cacheRead": 0.003, "cacheWrite": null },
+      "tiers": [],
+      "catalog": { "provider": "deepseek", "model": "deepseek-flash" },
+      "note": "The plan says deepseek flash/chat: the snapshot lists no deepseek-chat under the deepseek provider, so the entry is deepseek-flash (also the Hub preset's default model). The snapshot has no cache-write price (null)."
+    },
+    "claude-haiku-5-5": {
+      "preset": "anthropic",
+      "protocol": "anthropic",
+      "apiBaseUrl": "https://api.anthropic.com",
+      "model": "claude-haiku-5-5",
+      "contextWindow": 1000000,
+      "keyEnv": "ANTHROPIC_API_KEY",
+      "ratesUsdPerMillion": { "input": 0.1, "output": 0.5, "cacheRead": 0.01, "cacheWrite": 0.125 },
+      "tiers": [
+        { "aboveInputTokens": 100000, "input": 0.5, "output": 2.5, "cacheRead": 0.05, "cacheWrite": 0.625 }
+      ],
+      "catalog": { "provider": "anthropic", "model": "claude-haiku-5-5" },
+      "note": "A prompt of more than 100000 tokens is priced at the higher tier for the whole request; the runner gives the cost ledger the highest tier, so its count can only be too high, never too low."
+    },
+    "openrouter-deepseek-v4-flash": {
+      "preset": "openrouter",
+      "protocol": "openai-chat",
+      "apiBaseUrl": "https://openrouter.ai/api/v1",
+      "model": "deepseek/deepseek-v4-flash",
+      "contextWindow": 1048576,
+      "keyEnv": "OPENROUTER_API_KEY",
+      "ratesUsdPerMillion": { "input": 0.091, "output": 0.182, "cacheRead": 0.0182, "cacheWrite": null },
+      "tiers": [],
+      "catalog": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash" },
+      "note": "OpenRouter routes to one of several upstream hosts; the listed price is OpenRouter's. The snapshot has no cache-write price (null)."
+    },
+    "ollama-local": {
+      "preset": "ollama",
+      "protocol": "openai-chat",
+      "apiBaseUrl": "http://localhost:11434/v1",
+      "model": "qwen2.5-coder:7b",
+      "contextWindow": null,
+      "keyEnv": null,
+      "local": true,
+      "ratesUsdPerMillion": { "input": null, "output": null, "cacheRead": null, "cacheWrite": null },
+      "tiers": [],
+      "catalog": null,
+      "note": "A local Ollama server is not in the models.dev snapshot (only ollama-cloud is), so it has no context window and no price there: the model id is the Hub preset's default, the window depends on the server's num_ctx, and with an unknown price the runner refuses this entry. Whether a local model may be run at a price of 0 is the owner's decision."
+    }
+  }
+}
