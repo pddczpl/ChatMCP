@@ -10,11 +10,12 @@
 //  - Text (descriptions, titles): hidden characters are removed FIRST, then the text is cut to 2 KB of UTF-8 at a code point (never half of a surrogate
 //    pair), and a marker inside the limit says what happened. Hidden = every Cc and Cf code point except tab and newline (C0, DEL, C1, soft hyphen, the
 //    bidirectional marks, embeddings, overrides and isolates, the zero-width characters, word joiner, invisible operators, BOM, interlinear annotation, the
-//    tag characters), the invisible fillers U+034F, U+115F, U+1160, U+17B4, U+17B5, U+3164, U+FFA0, the variation selectors U+180B-U+180F, U+FE00-U+FE0F and
-//    U+E0100-U+E01EF, the whole tag block U+E0000-U+E007F (assigned or not), and lone surrogates. The CR of a CRLF becomes nothing without a marker.
+//    tag characters), every Default_Ignorable_Code_Point (the invisible fillers, the variation selectors, U+2065, U+FFF0-U+FFF8, the whole block
+//    U+E0000-U+E0FFF, assigned or not), and lone surrogates. The CR of a CRLF becomes nothing, and U+2028 / U+2029 become a newline, without a marker.
 //  - Input schemas: plain JSON only, 32 levels and 64 KB at most, both counted while walking (a 50 MB string, an object that contains itself or a graph of
 //    shared references ends early); no __proto__ key; no hidden character in a key or a string value, except that descriptions and titles inside are cleaned
-//    and cut like the text above; a $ref must be local ('#...'). A $ref is never resolved, so a cycle of them cannot hang anything.
+//    and cut like the text above; $ref, $dynamicRef and $recursiveRef must be local ('#...') and $id must not be an absolute URI. No reference is
+//    ever resolved, so a cycle of them cannot hang anything.
 //  - Annotations: readOnlyHint, destructiveHint, idempotentHint and openWorldHint, only as own boolean properties; everything else is named as dropped.
 
 export const LIMITS = Object.freeze({
@@ -36,11 +37,16 @@ const JSON_MAX_BYTES = 8 * 1024 * 1024;
 const JSON_MAX_DEPTH = 64;
 const MAX_DROPPED_NAMED = 16;
 
-const HIDDEN_CLASS = String.raw`[\p{Cc}\p{Cf}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u3164\uFE00-\uFE0F\uFFA0\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}\uD800-\uDFFF]`;
+const HIDDEN_CLASS = String.raw`[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Cs}]`;
 const NOT_TAB_OR_NEWLINE = String.raw`(?![\t\n])`;
 const HIDDEN_RUN = new RegExp(`(?:${NOT_TAB_OR_NEWLINE}${HIDDEN_CLASS})+`, 'gu');
 const HIDDEN_ONE = new RegExp(`${NOT_TAB_OR_NEWLINE}${HIDDEN_CLASS}`, 'u');
 const URI_BAD = new RegExp(String.raw`\s|${HIDDEN_CLASS}`, 'u');
+const LINE_BREAKS = /[\p{Zl}\p{Zp}]/gu;
+// The keywords that point somewhere must stay inside the schema; an absolute $id would move the base that every '#...' reference below it resolves against.
+// $schema only names a dialect and is never fetched, so it is not checked.
+const REFERENCES = new Set(['$ref', '$dynamicRef', '$recursiveRef']);
+const ABSOLUTE_URI = /^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/)/;
 const NAME = /^[A-Za-z0-9_.-]+$/;
 const RESERVED_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
 const MIME = /^[A-Za-z0-9!#$&^_.+-]{1,64}\/[A-Za-z0-9!#$&^_.+-]{1,64}$/;
@@ -138,7 +144,8 @@ function cleanPrefix(input, budget) {
     if (end > position) {
       const room = budget - used;
       // A UTF-16 unit is at least one byte, so a segment of more than `room` units cannot fit: look at no more of it than could.
-      const segment = input.slice(position, end - position > room ? position + room + 1 : end);
+      // U+2028 and U+2029 become a newline: one UTF-16 unit for one, so the unit counts below stay true.
+      const segment = input.slice(position, end - position > room ? position + room + 1 : end).replace(LINE_BREAKS, '\n');
       const size = utf8(segment);
       if (segment.length < end - position || size > room) return { text: text + segment.slice(0, fitUnits(segment, room)), removed, cut: true };
       text += segment;
@@ -188,7 +195,7 @@ export function stripHidden(value) {
       removed += countRun(run, value, offset);
       return '';
     });
-    return { ok: true, text, removed };
+    return { ok: true, text: text.replace(LINE_BREAKS, '\n'), removed };
   } catch {
     return { ok: false, reason: 'unreadable' };
   }
@@ -312,7 +319,8 @@ export function checkSchema(value, options) {
     state.string = (text, path, key) => {
       if (key === 'description' || key === 'title') return sanitizeText(text).text;
       if (HIDDEN_ONE.test(text)) throw new Stop('bad_string', path);
-      if (key === '$ref' && !text.startsWith('#')) throw new Stop('remote_ref', path);
+      if (REFERENCES.has(key) && !text.startsWith('#')) throw new Stop('remote_ref', path);
+      if (key === '$id' && ABSOLUTE_URI.test(text)) throw new Stop('remote_id', path);
       return text;
     };
     const schema = walkJson(value, state, 1, '', null);

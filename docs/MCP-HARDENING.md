@@ -23,17 +23,21 @@ Guarantees (each one is a test in `tests/verify-mcp-sanitize.mjs`):
 - **Descriptions and titles**: the hidden characters are removed first, then the text is cut to 2,048 UTF-8 bytes at a code point (never half of a
   surrogate pair), and a marker such as `[DatGold: invisible or control characters removed; cut to 2048 bytes]` says what happened; the marker fits
   inside the limit. Hidden means every Cc and Cf code point except tab and newline (C0, DEL, C1, soft hyphen, bidirectional marks, embeddings, overrides
-  and isolates, zero-width characters, word joiner, invisible operators, BOM, interlinear annotation, tag characters), the invisible fillers, the
-  variation selectors, the whole tag block U+E0000-U+E007F and lone surrogates. A CRLF becomes LF without a marker.
+  and isolates, zero-width characters, word joiner, invisible operators, BOM, interlinear annotation, tag characters), every Default_Ignorable_Code_Point
+  (the invisible fillers, the variation selectors, U+2065, U+FFF0-U+FFF8 and the whole block U+E0000-U+E0FFF, assigned or not) and lone surrogates. A CRLF
+  becomes LF and U+2028 / U+2029 become a newline, without a marker. A sweep checks that all 4,174 Default_Ignorable code points of Node 24's Unicode
+  tables are removed.
 - **Input schemas**: plain JSON, at most 32 levels and 64 KB, both counted while walking, so a 50 MB string, an object that contains itself or a graph of
   shared references ends early; no `__proto__` key; no hidden character in a key or a value (descriptions and titles inside the schema are cleaned and
-  cut instead); `$ref` must be local (`#...`). A `$ref` is never resolved, so a cycle of them cannot hang anything. The top level must be `type: "object"`.
+  cut instead); `$ref`, `$dynamicRef` and `$recursiveRef` must be local (`#...`) and `$id` must not be an absolute URI (it would move the base of every
+  reference under it); `$schema` is not checked, because it only names a dialect and is never fetched. No reference is resolved, so a cycle of them
+  cannot hang anything. The top level must be `type: "object"`.
 - **Annotations**: only `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`, only as own booleans; the rest is named as dropped.
 - **Lists**: at most 1,000 items are read; the first of two items with one name (or URI) wins; at most 100 refusals are listed, all are counted.
 - Sanitizing twice changes nothing (500 random dirty tools). Property test: seed `0x5eed2c1`, 6,000 random texts of random Unicode (astral characters,
   lone surrogates, every removed class): never throws, never over the limit, always well-formed, no removed class left, always a prefix of the cleaned
-  text. Timing budget, asserted: 10,000 calls on 2 KB inputs in 2.5 s and a 1 MB input in 300 ms (measured on the development machine: 500 ms and at most
-  35 ms).
+  text. Timing budget, asserted: 10,000 calls on 2 KB inputs in 2.5 s and a 1 MB input in 300 ms (measured on the development machine: about 500-600 ms
+  and at most 35 ms).
 
 It does not:
 

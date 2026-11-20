@@ -39,8 +39,8 @@ function namedClass(point) {
   return null;
 }
 // The wider set the module removes (every Cc and Cf code point plus the invisible fillers and variation selectors), used for the prefix property.
-const WIDER = /(?![\t\n])[\p{Cc}\p{Cf}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u3164\uFE00-\uFE0F\uFFA0\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}\uD800-\uDFFF]/gu;
-const independentClean = (text) => text.replace(/\r\n/g, '\n').replace(WIDER, '');
+const WIDER = /(?![\t\n])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Cs}]/gu;
+const independentClean = (text) => text.replace(/\r\n/g, '\n').replace(WIDER, '').replace(/[\p{Zl}\p{Zp}]/gu, '\n');
 function firstNamed(text) {
   for (const char of text) {
     const label = namedClass(char.codePointAt(0));
@@ -109,6 +109,30 @@ function firstNamed(text) {
   assert.deepEqual(sanitizeText('a\r\r\nb'), { ok: true, text: `a\nb ${REMOVED}`, removed: 1, cut: false }, 'only the CR of a CRLF is not counted');
   assert.deepEqual(sanitizeText(`a${'\u200B'.repeat(5)}${cp(0xe0041).repeat(3)}\u202Eb`), { ok: true, text: `ab ${REMOVED}`, removed: 9, cut: false }, 'a run counts its code points');
   ok(`text: ${count} hidden code points of ${Object.keys(classes).length} classes and lone surrogates removed, tab/newline kept, CRLF folded silently`);
+
+  // Every Default_Ignorable_Code_Point renders as nothing, so every one is removed. The audit of PR #125 found 3,738 that were kept (U+2065,
+  // U+FFF0-U+FFF8, U+E0080-U+E00FF, U+E01F0-U+E0FFF): six of them after "Lists files." gave no marker at all.
+  const ignorable = /\p{Default_Ignorable_Code_Point}/u;
+  const every = [];
+  for (let point = 0; point <= 0x10ffff; point += 1) {
+    if (point >= 0xd800 && point <= 0xdfff) continue;
+    const char = cp(point);
+    if (!ignorable.test(char)) continue;
+    const result = sanitizeText(`a${char}b`);
+    if (result.removed !== 1 || result.text !== `ab ${REMOVED}`) assert.fail(`Default_Ignorable U+${hex(point)} is kept: ${JSON.stringify(result)}`);
+    every.push(char);
+  }
+  assert.ok(every.length > 4000, `${every.length} Default_Ignorable code points`);
+  assert.deepEqual(stripHidden(every.join('')), { ok: true, text: '', removed: every.length });
+  assert.deepEqual(sanitizeText(`Lists files.${cp(0xe0080, 0xe0081, 0xe0082, 0xe0083, 0xe0084, 0xe0085)}`), { ok: true, text: `Lists files. ${REMOVED}`, removed: 6, cut: false },
+    'the audit repro');
+  for (const point of [0x2065, 0xfff0, 0xfff8, 0xe0080, 0xe00ff, 0xe01f0, 0xe0fff]) assert.equal(sanitizeText(`x${cp(point)}`).removed, 1, `U+${hex(point)}`);
+  // U+2028 and U+2029 are line breaks, not hidden characters: they become a newline without a marker, as a CRLF does
+  const lineBreaks = `a${cp(0x2028)}b${cp(0x2029)}c`;
+  assert.deepEqual(sanitizeText(lineBreaks), { ok: true, text: 'a\nb\nc', removed: 0, cut: false });
+  assert.deepEqual(stripHidden(lineBreaks), { ok: true, text: 'a\nb\nc', removed: 0 });
+  assert.deepEqual(sanitizeText(cp(0x2028).repeat(3000)), { ok: true, text: `${'\n'.repeat(KEPT)} ${CUT}`, removed: 0, cut: true }, 'a line separator costs the one byte of its newline');
+  ok(`text: all ${every.length} Default_Ignorable code points removed (the audit's 3,738 among them); U+2028 and U+2029 become a newline`);
 
   // the cut
   assert.deepEqual(sanitizeText('x'.repeat(2048)), { ok: true, text: 'x'.repeat(2048), removed: 0, cut: false }, 'exactly 2048 bytes is not cut');
@@ -182,8 +206,9 @@ const CASES = 6000;
     () => cp(pick(0x10000, 0x10ffff)), () => cp(pick(0x1f600, 0x1f64f)),
     () => String.fromCharCode(pick(0xd800, 0xdbff)), () => String.fromCharCode(pick(0xdc00, 0xdfff)),
     () => String.fromCharCode([0x2028, 0x2029, 0x00a0, 0x3000, 0x0301][pick(0, 4)]),
+    () => cp([0x2065, pick(0xfff0, 0xfff8), pick(0xe0080, 0xe00ff), pick(0xe01f0, 0xe0fff)][pick(0, 3)]),
   ];
-  const VISIBLE = [POOLS[0], POOLS[1], () => ['\t', '\n', '\r\n'][pick(0, 2)], POOLS[11], POOLS[12], POOLS[13], POOLS[14], POOLS[17]];
+  const VISIBLE = [POOLS[0], POOLS[1], () => ['\t', '\n', '\r\n'][pick(0, 2)], POOLS[11], POOLS[12], POOLS[13], POOLS[14], () => String.fromCharCode([0x00a0, 0x3000, 0x0301][pick(0, 2)])];
   assert.ok(VISIBLE.every((draw) => typeof draw === 'function'));
   let total = 0;
   let cut = 0;
@@ -205,6 +230,7 @@ const CASES = 6000;
     assert.ok(bytes(result.text) <= maxBytes, `${where}: ${bytes(result.text)} bytes`);
     assert.ok(result.text.isWellFormed(), `${where}: not well-formed`);
     assert.equal(firstNamed(result.text), null, `${where}: a removed class is still there`);
+    assert.ok(!/[\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}]/u.test(result.text), `${where}: a Default_Ignorable code point or a line separator is still there`);
     const clean = independentClean(input);
     const marker = result.cut || result.removed > 0;
     const markerPattern = /( |^)\[DatGold: (?:invisible or control characters removed|cut to \d+ bytes|invisible or control characters removed; cut to \d+ bytes)\]$/;
@@ -307,7 +333,22 @@ const base = () => ({ type: 'object', properties: { path: { type: 'string', desc
   assert.equal(cycle.ok, true, 'a $ref cycle is legal JSON Schema; it is never resolved, so it cannot hang');
   assert.deepEqual(cycle.schema.$defs.a, { $ref: '#/$defs/b' });
   assert.ok(performance.now() - started < 50);
-  ok('schemas: non-JSON values, __proto__, hidden characters in keys and values refused; descriptions inside cleaned; remote $ref refused, $ref cycles end');
+  // The audit of PR #125 (F2): $dynamicRef and $recursiveRef are references too, and an absolute $id moves the base of every reference under it.
+  for (const [keyword, value] of [['$dynamicRef', 'https://evil.example/s.json#x'], ['$recursiveRef', 'https://evil.example/s.json'], ['$dynamicRef', 'meta'], ['$recursiveRef', 'other.json']]) {
+    const refusal = checkSchema({ type: 'object', properties: { a: { [keyword]: value } } });
+    assert.deepEqual([refusal.reason, refusal.path], ['schema_remote_ref', `/properties/a/${keyword}`], `${keyword}: ${value}`);
+  }
+  assert.equal(checkSchema({ type: 'object', $defs: { m: { $dynamicAnchor: 'meta' } }, properties: { a: { $dynamicRef: '#meta' }, b: { $recursiveRef: '#' } } }).ok, true,
+    'local dynamic and recursive references are fine');
+  for (const id of ['https://evil.example/', 'urn:example:x', '//evil.example/s.json', 'file:///C:/x.json', 'HTTP://EVIL', 'C:/schemas/x.json']) {
+    const refusal = checkSchema({ $id: id, type: 'object' });
+    assert.deepEqual([refusal.reason, refusal.path], ['schema_remote_id', '/$id'], id);
+  }
+  assert.equal(checkSchema({ type: 'object', properties: { a: { $id: 'https://evil.example/a', type: 'string' } } }).reason, 'schema_remote_id', 'below the top too');
+  for (const id of ['#node', 'node.json', 'defs/node']) assert.equal(checkSchema({ $id: id, type: 'object' }).ok, true, `a relative $id (${id}) is kept`);
+  assert.equal(checkSchema({ $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object' }).ok, true, '$schema names a dialect, is never fetched and is not checked');
+  assert.equal(checkSchema({ type: 'object', properties: { $id: { type: 'string' }, $dynamicRef: { type: 'string' } } }).ok, true, 'parameters named $id and $dynamicRef are schemas');
+  ok('schemas: non-JSON values, __proto__, hidden characters in keys and values refused; descriptions inside cleaned; remote $ref, $dynamicRef, $recursiveRef and absolute $id refused, $ref cycles end');
 
   for (const value of [undefined, null]) assert.equal(checkSchema(value).reason, 'schema_missing');
   for (const value of ['x', 42, [], true, () => 1]) assert.equal(checkSchema(value).reason, 'schema_not_object');
