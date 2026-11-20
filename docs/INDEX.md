@@ -37,6 +37,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Historical Cloud Deployment Notice](DEPLOYMENT.md) — Archived notice regarding deprecated cloud infrastructure
 - [Windows Sandbox Feasibility](WINDOWS-SANDBOX-REAL-FEASIBILITY.md) — Technical feasibility analysis of Windows Sandbox integration
 - [Skill selection](SKILL-SELECTION.md) — How the Hub picks skills for a request (word overlap, no model), the labelled corpus of 347 requests, the baseline numbers and what they cannot see
+- [MCP client hardening](MCP-HARDENING.md) — What reaches the model of an MCP server (names, descriptions, schemas, annotations), the fingerprint pins against a rug pull, the bounds on results and stderr, the hostile test server, and what is not wired yet
 
 ### Phase 0: Desktop Contract Reconnection
 - [Phase 0 Audit](PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment
