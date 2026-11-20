@@ -1,115 +1,37 @@
 // lib/proof/tree-snapshot.mjs + lib/proof/git-plumbing.mjs: the content identity of a workspace tree (P4 pod-15).
 //
-// Every tree id the engine gives is compared with an independent reference: plain `git add -A && git write-tree` run by this suite in a
-// throw-away bare repository (its own index and objects, the workspace's objects as an alternate), with no system or global configuration.
+// Every tree id the engine gives is compared with an independent reference (tests/support/proof-tree-fixtures.mjs): plain
+// `git add -A && git write-tree` in a throw-away bare repository, with no system or global configuration.
 //
 //  1. object ids: blobs and trees against `git hash-object --no-filters` / `git mktree`, Git's entry order, the empty tree
-//  2. exclusions: the name globs given to Git match exactly what PRIVATE_FILE matches (checked BY GIT over a corpus of names), and the
-//     pathspecs exclude exactly what exclusionOf() excludes, for whole paths
+//  2. exclusions: the name globs given to Git match exactly what PRIVATE_FILE matches, and the exclude lines leave out exactly what
+//     exclusionOf() excludes, for whole paths; both judged BY GIT with case-sensitive matching
 //  3. fixtures: worktree (.git file), submodule, sparse checkout, LFS pointer (with and without a repository LFS filter), a clean filter
 //     whose program must NOT run (canary), fsmonitor and textconv, a long path, a symlink, an executable bit, CRLF with core.autocrlf=true
-//     in the person's own config, a same-size edit with the modification time put back, protected files, no Git, not a repository,
-//     unbounded workspaces, too many new blobs, and the repository's own .git folder unchanged byte for byte
+//     in the person's own config, a same-size edit with the modification time put back, protected files (also re-included by a
+//     .gitignore), no Git, not a repository, the limits, gitlinks, ignore-rule changes, and the repository's own .git unchanged
 //  4. budgets (gate G4 criterion 1), printed as one JSON line `PROOF_TREE_BUDGET {...}`
-//  5. a property test: 200 random create/edit/delete/rename steps (and .gitignore changes) on a 663-file and an 8,002-file repository;
-//     after each step the engine's cached snapshot equals the reference, and at fixed steps so do a full snapshot, its rawTree and raw-v1
+// The 200-step property tests are tests/verify-proof-tree-property.mjs (663 files) and tests/verify-proof-tree-property-8k.mjs (8,002).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { PRIVATE_FILE } from '../lib/protected-paths.mjs';
 import { MODE, blobId, buildTree, treeId } from '../lib/proof/git-plumbing.mjs';
 import {
-  LIMITATION, TREE_ALGORITHM, TreeSnapshotter, excludePathspecs, exclusionOf, privateFileGlobs, snapshotTree,
+  LIMITATION, TREE_ALGORITHM, TreeSnapshotter, caseless, excludeLines, exclusionOf, privateFileGlobs, snapshotTree,
 } from '../lib/proof/tree-snapshot.mjs';
+import {
+  Reference, commitAll, folderPrint, fresh, generateRepo, git, isolatedEnv, mulberry32, newRepo, percentile, scratch, snapshotter, timed, timedSync, write,
+} from './support/proof-tree-fixtures.mjs';
 
 let checks = 0;
-const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
+const suiteStart = performance.now();
+const elapsed = () => `${((performance.now() - suiteStart) / 1000).toFixed(1)} s`;
+const ok = (label) => { checks += 1; console.log(`  ok - ${label} [${elapsed()}]`); };
 const note = (label) => console.log(`  note - ${label}`);
-const SUITE_BUDGET_MS = 170_000;
-setTimeout(() => { console.error('FAIL: the proof tree suite exceeded its own time budget'); process.exit(2); }, SUITE_BUDGET_MS).unref();
-
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'proof-tree-'));
-process.on('exit', () => { try { fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 3 }); } catch { /* best effort */ } });
-let serial = 0;
-const fresh = (label) => { const dir = path.join(scratch, `${label}-${(serial += 1)}`); fs.mkdirSync(dir, { recursive: true }); return dir; };
-const emptyConfig = path.join(scratch, 'empty.gitconfig');
-fs.writeFileSync(emptyConfig, '');
-
-// Git as the person would never run it: no system or global configuration, nothing inherited from this process's GIT_* variables.
-const isolatedEnv = (extra = {}) => {
-  const env = {};
-  for (const [key, value] of Object.entries(process.env)) if (!/^GIT_/i.test(key)) env[key] = value;
-  return { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: emptyConfig, GIT_ATTR_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', ...extra };
-};
-const IDENTITY = ['-c', 'user.name=Proof Test', '-c', 'user.email=proof@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false'];
-function git(cwd, args, { env = isolatedEnv(), input, allowFail = false } = {}) {
-  const result = spawnSync('git', [...IDENTITY, ...args], { cwd, env, input, encoding: 'buffer', maxBuffer: 512 * 1024 * 1024, windowsHide: true });
-  if (result.error) throw result.error;
-  if (result.status !== 0 && !allowFail) throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${result.stderr.toString()}`);
-  return { status: result.status, stdout: result.stdout.toString('utf8'), stderr: result.stderr.toString('utf8') };
-}
-const write = (root, relative, content) => { const file = path.join(root, relative); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content); };
-const newRepo = (label) => { const dir = fresh(label); git(dir, ['init', '-q']); return dir; };
-const commitAll = (dir) => { git(dir, ['add', '-A']); git(dir, ['commit', '-q', '--allow-empty', '-m', 'fixture']); };
-
-/** The reference: a throw-away bare repository whose index and objects are its own, pointed at the workspace as its work tree. */
-class Reference {
-  constructor(workTree, { alternates = null } = {}) {
-    this.workTree = workTree;
-    this.bare = fresh('reference');
-    git(this.bare, ['init', '-q', '--bare']);
-    const objects = alternates ?? path.join(workTree, '.git', 'objects');
-    if (fs.existsSync(objects)) fs.writeFileSync(path.join(this.bare, 'objects', 'info', 'alternates'), `${objects.replaceAll('\\', '/')}\n`);
-    this.index = path.join(this.bare, 'reference.index');
-  }
-  env() { return isolatedEnv({ GIT_DIR: this.bare, GIT_WORK_TREE: this.workTree, GIT_INDEX_FILE: this.index }); }
-  reset() { fs.rmSync(this.index, { force: true }); }
-  tree(extraPathspecs = []) {
-    const config = ['-c', 'core.autocrlf=false', '-c', 'core.longpaths=true', '-c', 'core.sparseCheckout=false', '-c', 'core.fsmonitor=false'];
-    git(this.workTree, [...config, 'add', '-A', '--', '.', ...extraPathspecs], { env: this.env() });
-    return git(this.workTree, [...config, 'write-tree'], { env: this.env() }).stdout.trim();
-  }
-  freshTree(extraPathspecs) { this.reset(); return this.tree(extraPathspecs); }
-  lsTree(tree) { return git(this.workTree, ['ls-tree', '-r', '-z', tree], { env: this.env() }).stdout.split('\0').filter(Boolean); }
-}
-
-const snapshotter = (root, options = {}) => new TreeSnapshotter({ root, stateDir: fresh('state'), ...options });
-const sha1 = (text) => createHash('sha1').update(text).digest('hex');
-const percentile = (values, p) => { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)]; };
-const timed = async (fn) => { const start = performance.now(); const value = await fn(); return { value, ms: performance.now() - start }; };
-const timedSync = (fn) => { const start = performance.now(); fn(); return performance.now() - start; };
-
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Lists every file below a folder with its size, time and a hash of its bytes: the repository's .git must come out identical. */
-function folderPrint(folder) {
-  const rows = [];
-  const walk = (relative) => {
-    for (const entry of fs.readdirSync(path.join(folder, relative), { withFileTypes: true })) {
-      const child = path.join(relative, entry.name);
-      if (entry.isDirectory()) walk(child);
-      else {
-        const stat = fs.statSync(path.join(folder, child));
-        rows.push(`${child}|${stat.size}|${stat.mtimeMs}|${sha1(fs.readFileSync(path.join(folder, child)))}`);
-      }
-    }
-  };
-  walk('');
-  return rows.sort();
-}
+setTimeout(() => { console.error('FAIL: the proof tree suite exceeded its own time budget'); process.exit(2); }, 170_000).unref();
 
 // ------------------------------------------------------------------ 1. object ids
 {
@@ -147,6 +69,10 @@ function folderPrint(folder) {
   ok('treeId/buildTree equal git mktree in Git\'s entry order (file "a-", folder "a", "a.b", "a0", gitlink) and refuse duplicates and bad paths');
 }
 
+/** The untracked files that an exclude file makes Git ignore, with case-sensitive matching (the Linux default). */
+const ignoredBy = (dir, file) => git(dir, ['-c', 'core.ignorecase=false', '-c', `core.excludesFile=${file.replaceAll('\\', '/')}`, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard'])
+  .stdout.split('\0').filter(Boolean);
+
 // ------------------------------------------------------------------ 2. exclusions: parity with PRIVATE_FILE, checked by Git itself
 {
   const names = new Set([
@@ -159,12 +85,22 @@ function folderPrint(folder) {
     'secret.json', 'secrets.json', 'secret.yml', 'secrets.yaml', 'secret.toml', 'secrets.tfvars', 'secret.auto.tfvars', 'secrets.txt', 'secret', 'secretss.json',
     '.npmrc', '.pypirc', '.netrc', '.git-credentials', '.htpasswd', '.pgpass', '.dockercfg', '.vault-token', '.terraformrc', '_netrc', 'npmrc', '.npmrc.bak',
     'terraform.rc', 'credentials.tfrc.json', 'terraform.tfstate', 'a.tfstate.backup', 'x.tfstate.1', 'x.tfstate.12', 'x.tfstate.123456789', 'x.tfstate.1.backup',
-    'x.tfstate.12345.backup', 'x.tfstate.a', 'x.tfstate.1a', 'x.tfstate.', 'x.tfstate.backup.1', 'tfstate', '.tfstate', 'x.tfstatex',
+    'x.tfstate.12345.backup', 'x.tfstate.1234a', 'x.tfstate.1234567890', 'x.tfstate.a','x.tfstate.1a', 'x.tfstate.', 'x.tfstate.backup.1', 'tfstate', '.tfstate', 'x.tfstatex',
     'service-account.json', 'serviceaccount.json', 'service_account_key.json', 'service-account-key.json', 'serviceaccountkey.json', 'service-account-prod.json',
     'service_account.prod.json', 'service-account_key-x.json', 'service-account.yaml', 'service-accounts.json', 'service--account.json', 'service-account..json',
     'application_default_credentials.json', 'kubeconfig', 'kubeconfig.yml', 'kubeconfig.yaml', 'prod.kubeconfig', 'kubeconfig.json', 'kubeconfigs',
     'README.md', 'index.js', 'package.json', 'config.json', 'hosts.yml', '.gitignore', 'environment.ts', 'monkey.txt', 'keystore', 'x.tfvars',
   ]);
+  // one name drawn from every glob (a class becomes a character it allows, a star a short run), so each glob is exercised; the verdict
+  // of every name still comes from PRIVATE_FILE, not from the glob it was drawn from
+  const allowed = (set) => [...'qkz7w-_.'].find((char) => !set.includes(char));
+  const samples = [];
+  for (const glob of privateFileGlobs()) {
+    const sample = glob.replace(/\[!([^\]]+)\]/g, (_, set) => allowed(set)).replace(/\[0-9\]/g, '7').replace(/\[-_\.\]/g, '-').replace(/\?/g, 'w').replace(/\*/g, 'x1');
+    samples.push(sample);
+    names.add(sample);
+    names.add(glob.replace(/\[!([^\]]+)\]/g, (_, set) => allowed(set)).replace(/\[0-9\]/g, '0').replace(/\[-_\.\]/g, '.').replace(/[?*]/g, ''));
+  }
   // more names from the seeds: case changes and suffixes
   const random = mulberry32(15);
   for (const base of [...names]) {
@@ -176,7 +112,10 @@ function folderPrint(folder) {
   const dir = newRepo('parity');
   const byFolder = new Map();
   usable.forEach((name, index) => { const folder = `n${index}`; byFolder.set(folder, name); write(dir, `${folder}/${name}`, 'x'); });
-  const matched = git(dir, ['ls-files', '-z', '--others', '--', ...privateFileGlobs().map((glob) => `:(glob,icase)**/${glob}`)]).stdout.split('\0').filter(Boolean);
+  // the globs as the engine gives them to Git: lines of core.excludesFile, case folded by caseless(), with core.ignorecase=false
+  const namesFile = path.join(fresh('exclude'), 'names');
+  fs.writeFileSync(namesFile, `${privateFileGlobs().map(caseless).join('\n')}\n`);
+  const matched = ignoredBy(dir, namesFile);
   const matchedNames = new Set(matched.map((file) => byFolder.get(file.split('/')[0])));
   const overMatch = /\.tfstate\.\d{10,}/i;
   const wrong = [];
@@ -188,12 +127,13 @@ function folderPrint(folder) {
   assert.deepEqual(wrong, [], 'the globs given to Git must match exactly what PRIVATE_FILE matches');
   ok(`the ${privateFileGlobs().length} name globs match exactly the names PRIVATE_FILE matches (${usable.length} names, judged by git ls-files)`);
 
-  // every glob is needed: each one matches a name of the corpus
-  for (const glob of privateFileGlobs().filter((g) => !g.includes('[0-9]'))) {
-    const hits = git(dir, ['ls-files', '-z', '--others', '--', `:(glob,icase)**/${glob}`]).stdout;
-    assert.ok(hits.length > 0, `glob ${glob} matches no name of the corpus`);
+  // every glob stands for protected names: the name drawn from it is in the corpus, Git matched it, and PRIVATE_FILE protects it
+  for (const sample of samples) {
+    if (process.platform === 'win32' && /[. ]$/.test(sample)) continue;
+    assert.ok(matchedNames.has(sample), `the name ${sample} drawn from a glob is not matched`);
+    assert.ok(PRIVATE_FILE.test(sample) || overMatch.test(sample), `the glob of ${sample} matches a name PRIVATE_FILE does not protect`);
   }
-  ok('every glob without a digit class matches at least one name of the corpus (no dead glob)');
+  ok(`each of the ${samples.length} names drawn from the globs is matched by Git and protected by PRIVATE_FILE`);
 
   // whole paths: the pathspecs exclude exactly what exclusionOf() excludes
   const paths = [
@@ -203,17 +143,19 @@ function folderPrint(folder) {
     '.chatmcp/hooks.json', 'pkg/.chatmcp/hooks.json', '.chatmcp/hooks.json.bak', '.chatmcp/other.json', '.chatmcp/runs/r1/receipt.json',
     '.chatmcp/runs', '.chatmcp/runsx/a', 'sub/.chatmcp/runs/a', '.CHATMCP/RUNS/b', 'src/.env', 'src/app.js', 'docs/secrets.json/readme',
   ];
+  const linesFile = path.join(fresh('exclude'), 'lines');
+  fs.writeFileSync(linesFile, `${excludeLines().join('\n')}\n`);
   const mismatch = [];
   for (const relative of paths) {
     // one repository per path: a path that is a file in one row can be a folder in another, and .chatmcp/runs is at the top
     const pathRepo = newRepo('parity-path');
     write(pathRepo, relative, 'x');
-    const kept = git(pathRepo, ['ls-files', '-z', '--others', '--', '.', ...excludePathspecs()]).stdout.split('\0').filter(Boolean).includes(relative);
+    const kept = !ignoredBy(pathRepo, linesFile).includes(relative);
     const excluded = exclusionOf(relative) !== null;
     if (excluded === kept) mismatch.push(`${relative}: exclusionOf ${exclusionOf(relative)}, git kept ${kept}`);
   }
   assert.deepEqual(mismatch, [], 'the pathspecs and exclusionOf() must agree on whole paths');
-  ok(`the ${excludePathspecs().length} pathspecs exclude exactly what exclusionOf() excludes (${paths.length} paths: folders, locations, the hooks file, .chatmcp/runs)`);
+  ok(`the ${excludeLines().length} exclude lines leave out exactly what exclusionOf() excludes (${paths.length} paths: folders, locations, the hooks file, .chatmcp/runs)`);
 }
 
 // ------------------------------------------------------------------ 3. fixtures
@@ -227,9 +169,10 @@ async function expectEqual(label, root, reference, options = {}, { algorithm = T
   if (rawEqual) assert.equal(full.rawTree, expected, `${label}: rawTree equals the reference`);
   const cached = await engine.snapshot();
   assert.equal(cached.tree, expected, `${label}: cached snapshot equals the reference`);
+  assert.equal(cached.treeAlgorithm, algorithm, `${label}: the cached snapshot keeps the algorithm`);
   assert.equal(cached.full, false);
   assert.equal(cached.rawTree, null, 'a cached snapshot has no rawTree');
-  return { engine, full, expected };
+  return { engine, full, expected, reference };
 }
 
 { // a worktree: .git is a file that points into the main repository
@@ -256,8 +199,7 @@ async function expectEqual(label, root, reference, options = {}, { algorithm = T
   git(main, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source.replaceAll('\\', '/'), 'deps/lib']);
   commitAll(main);
   assert.ok(fs.statSync(path.join(main, 'deps', 'lib', '.git')).isFile(), 'the submodule has a .git file');
-  const { expected } = await expectEqual('submodule', main, new Reference(main));
-  const reference = new Reference(main);
+  const { expected, reference } = await expectEqual('submodule', main, new Reference(main));
   const row = reference.lsTree(expected).find((line) => line.endsWith('\tdeps/lib'));
   assert.match(row, /^160000 commit [0-9a-f]{40}\t/);
   ok('submodule: the gitlink is the checked-out commit, in Git and in raw-v1');
@@ -364,8 +306,8 @@ function canaryScript(dir) {
   let linked = true;
   try { fs.symlinkSync('target.txt', path.join(repo, 'link')); } catch (error) { linked = false; note(`symlink fixture not run here: ${error.code} (no privilege to create symlinks)`); }
   if (process.platform !== 'win32') { write(repo, 'run.sh', '#!/bin/sh\necho hi\n'); fs.chmodSync(path.join(repo, 'run.sh'), 0o755); }
-  const { expected } = await expectEqual('symlink and executable', repo, new Reference(repo));
-  const rows = new Reference(repo).lsTree(expected);
+  const { expected, reference } = await expectEqual('symlink and executable', repo, new Reference(repo));
+  const rows = reference.lsTree(expected);
   if (linked) assert.ok(rows.some((row) => row.startsWith('120000 ') && row.endsWith('\tlink')), 'a symlink is mode 120000');
   if (process.platform !== 'win32') assert.ok(rows.some((row) => row.startsWith('100755 ') && row.endsWith('\trun.sh')), 'executable bit');
   ok(`symlink${linked ? '' : ' (not on this machine)'} and executable bit${process.platform === 'win32' ? ' (not on Windows)' : ''}: raw-v1 and Git agree`);
@@ -376,13 +318,16 @@ function canaryScript(dir) {
   const home = fresh('home');
   const userConfig = path.join(home, '.gitconfig');
   fs.writeFileSync(userConfig, '[core]\n\tautocrlf = true\n\tsafecrlf = true\n');
+  // the person's own ignore and attributes files, which Git reads by default even when GIT_CONFIG_GLOBAL names another file
+  write(home, '.config/git/ignore', 'unix.txt\n');
+  write(home, '.config/git/attributes', '*.txt text eol=crlf\n');
   git(repo, ['config', 'core.autocrlf', 'true']);
   const crlf = Buffer.from('line one\r\nline two\r\n');
   write(repo, 'dos.txt', crlf);
   write(repo, 'unix.txt', 'lf only\n');
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: userConfig, HOME: home, USERPROFILE: home, GIT_INDEX_FILE: path.join(repo, '.git', 'index') };
-  const { expected } = await expectEqual('CRLF', repo, new Reference(repo), { env });
-  const row = new Reference(repo).lsTree(expected).find((line) => line.endsWith('\tdos.txt'));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: userConfig, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), GIT_INDEX_FILE: path.join(repo, '.git', 'index') };
+  const { expected, reference } = await expectEqual('CRLF', repo, new Reference(repo), { env });
+  const row = reference.lsTree(expected).find((line) => line.endsWith('\tdos.txt'));
   const rawId = createHash('sha1').update(`blob ${crlf.length}\0`).update(crlf).digest('hex');
   assert.equal(row.split(' ')[2].split('\t')[0], rawId, 'the CRLF bytes are hashed as they are');
   // control: Git with the person's configuration converts the line endings, so the setting was live
@@ -392,7 +337,8 @@ function canaryScript(dir) {
   spawnSync('git', ['add', '-A'], { cwd: repo, env: personal, windowsHide: true });
   const converted = spawnSync('git', ['write-tree'], { cwd: repo, env: personal, encoding: 'utf8', windowsHide: true }).stdout.trim();
   assert.notEqual(converted, expected, 'control: the person\'s autocrlf=true would have changed the tree');
-  ok('CRLF with core.autocrlf=true for the person and the repository: the raw CRLF bytes are hashed (the setting is live for plain Git)');
+  assert.ok(reference.lsTree(expected).some((line) => line.endsWith('\tunix.txt')), 'the ignore file of the person does not apply');
+  ok('CRLF with core.autocrlf=true for the person and the repository, plus their own ignore and attributes files: raw CRLF bytes, nothing ignored (the settings are live for plain Git)');
 }
 
 { // a same-size edit with the modification time put back: the full snapshot rehashes
@@ -441,7 +387,23 @@ function canaryScript(dir) {
     const secretId = blobId('SECRET\n');
     assert.equal(objects.some((row) => row.startsWith(path.join(secretId.slice(0, 2), secretId.slice(2)))), false, 'no secret blob is written to the private store');
   }
-  ok(`protected files (${secrets.length}) and .chatmcp/runs (${runs.length}) are left out, counted, and never written as objects`);
+  // a .gitignore that re-includes a secret with "!" outranks the exclude file: the tree still leaves it out, and its blob is deleted
+  write(repo, '.gitignore', '!.env\n!*.pem\n');
+  const literalWithIgnore = literal;
+  const engine = snapshotter(repo);
+  const reincluded = await engine.snapshot({ full: true });
+  const expectedWithIgnore = new Reference(repo).freshTree(literalWithIgnore);
+  assert.equal(reincluded.treeAlgorithm, TREE_ALGORITHM.gitPinned);
+  assert.equal(reincluded.tree, expectedWithIgnore, 'a re-included secret is not in the tree');
+  write(repo, 'keys/other.pem', 'SECRET 2\n');
+  const cachedReincluded = await engine.snapshot();
+  assert.equal(cachedReincluded.tree, expectedWithIgnore, 'nor in a cached snapshot');
+  const store = folderPrint(path.join(engine.stateDir, 'objects')).join('\n');
+  for (const secret of ['SECRET\n', 'SECRET 2\n']) {
+    const id = blobId(secret);
+    assert.equal(store.includes(`${id.slice(0, 2)}${path.sep}${id.slice(2)}`), false, 'the blob of a re-included secret is deleted from the private store');
+  }
+  ok(`protected files (${secrets.length}) and .chatmcp/runs (${runs.length}) are left out and counted, never written as objects, also when a .gitignore re-includes them with "!"`);
 }
 
 { // no Git, an unusable Git, not a repository
@@ -478,13 +440,28 @@ function canaryScript(dir) {
   assert.deepEqual([byFiles.status, byFiles.tree, byFiles.treeAlgorithm, byFiles.unbounded], ['unbounded', null, null, 'files']);
   const byBytes = await snapshotter(repo, { limits: { maxBytes: 100 } }).snapshot({ full: true });
   assert.deepEqual([byBytes.status, byBytes.unbounded], ['unbounded', 'bytes']);
-  const blobs = await snapshotter(repo, { limits: { maxNewBlobs: 5 } }).snapshot({ full: true });
+  const atFiles = await snapshotter(repo, { limits: { maxFiles: 30 } }).snapshot({ full: true });
+  const totalBytes = Array.from({ length: 30 }, (_, index) => `file ${index}\n`.length).reduce((a, b) => a + b, 0);
+  const atBytes = await snapshotter(repo, { limits: { maxBytes: totalBytes } }).snapshot({ full: true });
+  assert.deepEqual([atFiles.status, atFiles.files, atBytes.status, atBytes.bytes], ['ok', 30, 'ok', totalBytes], 'exactly at a limit is still bounded');
+  // raw bytes need no blob written; only what .gitattributes converts does
+  const plainFiles = await snapshotter(repo, { limits: { maxNewBlobs: 5 } }).snapshot({ full: true });
+  assert.equal(plainFiles.treeAlgorithm, TREE_ALGORITHM.gitPinned, 'a first scan of unconverted files writes no blob');
+  const converting = newRepo('converting');
+  write(converting, '.gitattributes', '*.txt text eol=lf\n');
+  for (let index = 0; index < 30; index += 1) write(converting, `c${index}.txt`, `crlf ${index}\r\nline\r\n`);
+  const blobs = await snapshotter(converting, { limits: { maxNewBlobs: 5 } }).snapshot({ full: true });
   assert.equal(blobs.treeAlgorithm, TREE_ALGORITHM.raw);
   assert.equal(blobs.engineReason, 'too_many_new_blobs:30');
-  assert.equal(blobs.tree, new Reference(repo).freshTree());
+  assert.equal(blobs.tree, buildTree([{ path: '.gitattributes', mode: MODE.file, oid: blobId('*.txt text eol=lf\n') },
+    ...Array.from({ length: 30 }, (_, index) => ({ path: `c${index}.txt`, mode: MODE.file, oid: blobId(`crlf ${index}\r\nline\r\n`) }))]), 'raw-v1 keeps the CRLF bytes');
+  assert.equal((await snapshotter(converting, { limits: { maxNewBlobs: 30 } }).snapshot({ full: true })).treeAlgorithm, TREE_ALGORITHM.gitPinned, 'exactly maxNewBlobs is allowed');
+  const converted = await snapshotter(converting).snapshot({ full: true });
+  assert.equal(converted.treeAlgorithm, TREE_ALGORITHM.gitPinned);
+  assert.equal(converted.tree, new Reference(converting).freshTree(), 'git-pinned-v1 applies .gitattributes as git add does');
+  assert.notEqual(converted.tree, converted.rawTree, 'and rawTree keeps the bytes');
   commitAll(repo);
-  const committed = await snapshotter(repo, { limits: { maxNewBlobs: 5 } }).snapshot({ full: true });
-  assert.equal(committed.treeAlgorithm, TREE_ALGORITHM.gitPinned, 'blobs the repository already has are not new');
+  const committed = await snapshotter(repo).snapshot({ full: true });
   // a nested repository without a commit: Git refuses to add it, so it is left out and counted
   const empty = path.join(repo, 'nested');
   fs.mkdirSync(empty);
@@ -497,7 +474,45 @@ function canaryScript(dir) {
   assert.equal(nested.tree, committed.tree);
   write(repo, 'later.txt', 'l\n');
   assert.equal((await engine.snapshot()).tree, new Reference(repo).freshTree([':(exclude,literal)nested']));
-  ok('more than maxFiles or maxBytes: status unbounded with no tree; more new blobs than maxNewBlobs: raw-v1; an empty nested repository is counted, not fatal');
+  ok('more than maxFiles or maxBytes: status unbounded with no tree (exactly at a limit is fine); more new blobs than maxNewBlobs: raw-v1; an empty nested repository is counted, not fatal');
+}
+
+{ // a nested repository whose branch lives in packed-refs, and one with a detached HEAD
+  const repo = newRepo('packed');
+  write(repo, 'top.txt', 't\n');
+  const packed = path.join(repo, 'packed');
+  fs.mkdirSync(packed);
+  git(packed, ['init', '-q']);
+  write(packed, 'p.txt', 'p\n');
+  commitAll(packed);
+  git(packed, ['pack-refs', '--all']);
+  assert.equal(fs.existsSync(path.join(packed, '.git', 'refs', 'heads', 'main')), false, 'the branch is only in packed-refs');
+  const detached = path.join(repo, 'detached');
+  fs.mkdirSync(detached);
+  git(detached, ['init', '-q']);
+  write(detached, 'd.txt', 'd\n');
+  commitAll(detached);
+  git(detached, ['checkout', '-q', '--detach']);
+  await expectEqual('packed-refs and detached gitlinks', repo, new Reference(repo));
+  ok('gitlinks resolved through packed-refs and a detached HEAD equal what git add records');
+}
+
+{ // a reused index after an ignore rule changes: the cached snapshot drops what the rule now excludes, and takes back what it frees
+  const repo = newRepo('ignore-change');
+  write(repo, 'keep.txt', 'k\n');
+  write(repo, 'build/out.js', 'o\n');
+  write(repo, 'debug.log', 'l\n');
+  const engine = snapshotter(repo);
+  const reference = new Reference(repo);
+  await engine.snapshot({ full: true });
+  write(repo, '.gitignore', '*.log\nbuild/\n');
+  assert.equal((await engine.snapshot()).tree, reference.freshTree(), 'a new rule removes tracked entries of the reused index');
+  write(repo, '.git/info/exclude', 'keep.txt\n');
+  assert.equal((await engine.snapshot()).tree, reference.freshTree(), 'so does a change to .git/info/exclude');
+  fs.rmSync(path.join(repo, '.gitignore'));
+  fs.writeFileSync(path.join(repo, '.git', 'info', 'exclude'), '');
+  assert.equal((await engine.snapshot()).tree, reference.freshTree(), 'and files a rule no longer excludes come back');
+  ok('a cached snapshot follows .gitignore and .git/info/exclude changes like a fresh index');
 }
 
 { // the repository's own .git is unchanged, whatever the environment says
@@ -510,7 +525,7 @@ function canaryScript(dir) {
   const dotGit = path.join(repo, '.git');
   const before = folderPrint(dotGit);
   const looseBefore = git(repo, ['count-objects', '-v']).stdout;
-  const env = { ...process.env, GIT_INDEX_FILE: path.join(dotGit, 'index'), GIT_OBJECT_DIRECTORY: path.join(dotGit, 'objects'), GIT_DIR: dotGit };
+  const env = { ...process.env, GIT_INDEX_FILE: path.join(dotGit, 'index'), GIT_OBJECT_DIRECTORY: path.join(dotGit, 'objects'), GIT_DIR: dotGit, GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(dotGit, 'objects') };
   const engine = snapshotter(repo, { env });
   const first = await engine.snapshot({ full: true });
   write(repo, 'src/m3.js', 'edited again\n');
@@ -536,41 +551,7 @@ function canaryScript(dir) {
   ok('concurrent snapshots are serialised; a cancelled one rejects and the next one works');
 }
 
-// ------------------------------------------------------------------ 4 + 5. generated repositories: budgets, then the property test
-const LETTERS = 'abcdefghijklmnopqrstuvwxyz0123456789';
-function generator(seed) {
-  const random = mulberry32(seed);
-  const pick = (list) => list[Math.floor(random() * list.length)];
-  const word = (length = 3 + Math.floor(random() * 6)) => Array.from({ length }, () => pick(LETTERS)).join('');
-  const content = () => {
-    const kind = random();
-    const size = Math.floor(random() * 1200);
-    if (kind < 0.1) return Buffer.alloc(0);
-    if (kind < 0.25) return Buffer.from(Array.from({ length: size }, () => Math.floor(random() * 256)));
-    const lines = Array.from({ length: 1 + Math.floor(size / 40) }, () => word(20));
-    return Buffer.from(lines.join(random() < 0.3 ? '\r\n' : '\n') + '\n');
-  };
-  return { random, pick, word, content };
-}
-
-function generateRepo(label, count, seed, { commit }) {
-  const dir = newRepo(label);
-  const g = generator(seed);
-  const folders = Array.from({ length: Math.max(4, Math.floor(count / 40)) }, (_, index) => (index === 0 ? '' : `${g.word()}/${index % 3 ? g.word() : ''}`.replace(/\/$/, '')));
-  const files = new Set();
-  while (files.size < count) {
-    const folder = g.pick(folders);
-    const name = `${g.word()}.${g.pick(['js', 'txt', 'md', 'bin', 'json', 'log'])}`;
-    const relative = folder ? `${folder}/${name}` : name;
-    if (files.has(relative) || [...files].length > count * 2) continue;
-    if (exclusionOf(relative)) continue;
-    files.add(relative);
-    write(dir, relative, g.content());
-  }
-  if (commit) commitAll(dir);
-  return { dir, files, g, folders };
-}
-
+// ------------------------------------------------------------------ 4. budgets on a generated 8,002-file repository
 const budget = { platform: process.platform, git: git(scratch, ['--version']).stdout.trim(), node: process.version };
 const big = generateRepo('big', 8002, 8002, { commit: true });
 {
@@ -601,83 +582,6 @@ const big = generateRepo('big', 8002, 8002, { commit: true });
   assert.ok(budget.warmP95Ms <= budget.warmLimitMs, `warm p95 ${budget.warmP95Ms} ms > ${budget.warmLimitMs} ms`);
   assert.ok(budget.rawWarmP95Ms <= budget.rawWarmLimitMs, `raw-v1 warm p95 ${budget.rawWarmP95Ms} ms > 1500 ms`);
   ok(`budgets on 8,002 files: cold ${budget.coldFullMs} <= ${budget.coldLimitMs} ms, warm p95 ${budget.warmP95Ms} <= ${budget.warmLimitMs} ms, raw-v1 warm p95 ${budget.rawWarmP95Ms} <= 1500 ms`);
-}
-
-async function propertyTest(repo, { steps, fullEvery, rawEvery, label }) {
-  const { dir, files, g, folders } = repo;
-  const list = [...files];
-  const engine = snapshotter(dir);
-  const raw = snapshotter(dir, { engine: TREE_ALGORITHM.raw });
-  const reference = new Reference(dir);
-  let gitignore = false;
-  const counts = { create: 0, edit: 0, sameSize: 0, delete: 0, rename: 0, gitignore: 0 };
-  await engine.snapshot({ full: true });
-  await raw.snapshot({ full: true });
-  const remove = (relative) => { const at = list.indexOf(relative); list[at] = list.at(-1); list.pop(); };
-  for (let step = 1; step <= steps; step += 1) {
-    const roll = g.random();
-    if (roll < 0.04) {
-      gitignore = !gitignore;
-      counts.gitignore += 1;
-      if (gitignore) write(dir, '.gitignore', '*.log\nbuild/\n'); else fs.rmSync(path.join(dir, '.gitignore'), { force: true });
-      reference.reset(); // a reused index keeps entries that a new ignore rule would exclude; the reference starts over
-    } else if (roll < 0.3 || list.length < 5) {
-      const folder = g.random() < 0.2 ? `${g.pick(folders)}/${g.word()}`.replace(/^\//, '') : g.pick(folders);
-      const relative = `${folder ? `${folder}/` : ''}${g.word()}.${g.pick(['js', 'txt', 'log', 'md'])}`;
-      if (list.includes(relative) || exclusionOf(relative) || list.some((file) => file.startsWith(`${relative}/`) || relative.startsWith(`${file}/`))) continue;
-      write(dir, relative, g.content());
-      list.push(relative);
-      counts.create += 1;
-    } else if (roll < 0.6) {
-      const relative = g.pick(list);
-      const file = path.join(dir, relative);
-      const bytes = fs.readFileSync(file);
-      if (bytes.length && g.random() < 0.4) {
-        const at = Math.floor(g.random() * bytes.length);
-        bytes[at] = (bytes[at] + 1 + Math.floor(g.random() * 254)) % 256;
-        fs.writeFileSync(file, bytes);
-        counts.sameSize += 1;
-      } else { fs.writeFileSync(file, g.content()); counts.edit += 1; }
-    } else if (roll < 0.8) {
-      const relative = g.pick(list);
-      fs.rmSync(path.join(dir, relative));
-      remove(relative);
-      counts.delete += 1;
-    } else {
-      const relative = g.pick(list);
-      const target = `${g.pick(folders) ? `${g.pick(folders)}/` : ''}${g.word()}-moved.${relative.split('.').at(-1)}`.replace(/^\//, '');
-      if (list.includes(target) || exclusionOf(target) || list.some((file) => file.startsWith(`${target}/`) || target.startsWith(`${file}/`))) continue;
-      fs.mkdirSync(path.dirname(path.join(dir, target)), { recursive: true });
-      fs.renameSync(path.join(dir, relative), path.join(dir, target));
-      remove(relative);
-      list.push(target);
-      counts.rename += 1;
-    }
-    const expected = reference.tree();
-    const cached = await engine.snapshot();
-    assert.equal(cached.tree, expected, `${label} step ${step}: the cached snapshot equals the reference`);
-    if (step % fullEvery === 0) {
-      const full = await engine.snapshot({ full: true });
-      assert.equal(full.treeAlgorithm, TREE_ALGORITHM.gitPinned, full.engineReason);
-      assert.equal(full.tree, expected, `${label} step ${step}: full`);
-      assert.equal(full.rawTree, expected, `${label} step ${step}: rawTree`);
-      assert.equal(reference.freshTree(), expected, `${label} step ${step}: a fresh reference index agrees with the reused one`);
-    }
-    if (step % rawEvery === 0) assert.equal((await raw.snapshot()).tree, expected, `${label} step ${step}: raw-v1 cached`);
-  }
-  return counts;
-}
-
-{
-  const small = generateRepo('small', 663, 663, { commit: false });
-  const started = performance.now();
-  const counts = await propertyTest(small, { steps: 200, fullEvery: 20, rawEvery: 1, label: '663 files' });
-  ok(`property test, 663 untracked files, 200 steps ${JSON.stringify(counts)}: every cached, full, raw and raw-v1 snapshot equals the reference (${Math.round(performance.now() - started)} ms)`);
-}
-{
-  const started = performance.now();
-  const counts = await propertyTest(big, { steps: 200, fullEvery: 50, rawEvery: 25, label: '8,002 files' });
-  ok(`property test, 8,002 committed files, 200 steps ${JSON.stringify(counts)}: every snapshot equals the reference (${Math.round(performance.now() - started)} ms)`);
 }
 
 console.log(`verify-proof-tree: ${checks} checks passed`);
