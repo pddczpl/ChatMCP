@@ -58,12 +58,15 @@ let counter = 0;
 const final = (text) => ({ status: 'completed', usage: { input_tokens: 10, output_tokens: 5 }, output: [{ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text }] }] });
 const calling = (...list) => ({ status: 'completed', usage: { input_tokens: 10, output_tokens: 5 }, output: list.map(([name, args]) => ({ type: 'function_call', status: 'completed', name, call_id: `call-${(counter += 1)}`, arguments: JSON.stringify(args ?? {}) })) });
 const userText = (item) => (Array.isArray(item?.content) ? item.content.map((part) => part?.text ?? '').join(' ') : '');
+/** What the run itself put in its conversation: the part after the note about the earlier runs (a continued run replays them, the notices told then included). */
+const ownTrace = (trace) => trace.slice(trace.lastIndexOf('checkpoint') + 1);
 /** One short word for each item of the conversation the model was sent. */
 function describe(item) {
   if (item?.role === 'user') {
     const text = userText(item);
     if (text.startsWith('HUB NOTICE')) return 'notice';
-    if (text.startsWith('CONVERSATION CHECKPOINT')) return 'checkpoint';
+    // The Hub's note about the earlier runs: the resumed note of a run that replays the journal (docs/SESSION-RESUME.md), or the checkpoint text of one that has none.
+    if (text.startsWith('CONVERSATION CHECKPOINT') || text.startsWith('RESUMED CONVERSATION')) return 'checkpoint';
     if (text.startsWith('UNTRUSTED SKILL REFERENCES')) return 'skills';
     if (text.startsWith('HOST STAGNATION RECOVERY')) return 'hint';
     return `user:${text.slice(0, 28)}`;
@@ -426,7 +429,7 @@ try {
     reset();
     await runner.continue({ id: finished.id, prompt: 'And once more.' });
     await settle(runner, finished.id);
-    assert.equal(requests[0].trace.includes('notice'), false, 'told once');
+    assert.equal(ownTrace(requests[0].trace).includes('notice'), false, 'told once');
     ok('C9 finished parent: the endings are recorded (state, events, task list), nothing is started and no request is made; the next run tells the model once, before its prompt; a third run does not repeat it');
   }
 
@@ -490,7 +493,7 @@ try {
     handler = () => final('Told after the restart.');
     await second.continue({ id: started.id, prompt: 'Report.' });
     await settle(second, started.id);
-    assert.equal(requests[0].trace.filter((item) => item === 'notice').length, 1, 'told once, in one message for both');
+    assert.equal(ownTrace(requests[0].trace).filter((item) => item === 'notice').length, 1, 'told once, in one message for both');
     // restart 2: it was told, and it stays told
     const third = new AgentRunner({ manager, provider, taskDirectory: directory, log: () => {}, toolSelectionMode: 'full' });
     await third.load();
@@ -498,7 +501,7 @@ try {
     reset();
     await third.continue({ id: started.id, prompt: 'Report again.' });
     await settle(third, started.id);
-    assert.equal(requests[0].trace.includes('notice'), false, 'nothing is replayed');
+    assert.equal(ownTrace(requests[0].trace).includes('notice'), false, 'nothing is told again (the notice is only in the replayed history)');
     // a task file edited by hand or written by another version
     const file = path.join(directory, started.id, 'task.json');
     const data = JSON.parse(await fs.readFile(file, 'utf8'));
@@ -936,7 +939,7 @@ try {
     handler = async (request) => { const mine = requests.length; return mine === 1 ? calling(['agent_results', {}]) : final(`restarted, ${lastOutput(request).structuredContent.shown} agents`); };
     await pool2.continue({ id: parentRecord.id, prompt: 'Parent P1: still there after a restart?' });
     await until(() => pool2.get(parentRecord.id)?.runs?.length === 2 && pool2.get(parentRecord.id)?.status === 'completed', 'a run after the restart');
-    assert.equal(requests[0].trace.includes('notice'), false, 'both endings had been told before the restart: nothing is told again');
+    assert.equal(ownTrace(requests[0].trace).includes('notice'), false, 'both endings had been told before the restart: nothing is told again');
     assert.equal(pool2.get(parentRecord.id).finalText, 'restarted, 2 agents');
     await pool2.shutdown();
     ok('E the pool restarts: the records, the parent\'s entries and what agent_results reads all come back as they were; loading made no event and no request; an ending that was told before the restart is not told again');
@@ -1005,10 +1008,12 @@ try {
         // the second notice follows the first final answer
         assert.equal(times(bodies[3], NOTICE), 2, `${api}: request 4 carries both notices`);
         assert.ok(bodies[3].indexOf('First answer.') < bodies[3].lastIndexOf(NOTICE), `${api}: and the second follows the answer that was already given`);
-        // the continued run: checkpoint, notice, prompt
-        assert.equal(times(bodies[4], NOTICE), 1, `${api}: the continued run carries the notice of the finished parent once`);
-        const [checkpointAt, noticeAt, promptAt] = ['CONVERSATION CHECKPOINT', NOTICE, 'And now?'].map((needle) => bodies[4].indexOf(needle));
-        assert.ok(checkpointAt >= 0 && checkpointAt < noticeAt && noticeAt < promptAt, `${api}: checkpoint, then the notice, then the prompt (${checkpointAt} < ${noticeAt} < ${promptAt})`);
+        // the continued run: the history of run 1 replayed from the journal (its two notices included), then the resumed note, the notice, the prompt
+        const ownPart = bodies[4].slice(Math.max(0, bodies[4].indexOf('RESUMED CONVERSATION')));
+        assert.equal(times(bodies[4], NOTICE), 3, `${api}: the replayed history holds the two notices of run 1`);
+        assert.equal(times(ownPart, NOTICE), 1, `${api}: the continued run carries the notice of the finished parent once, after the replayed history`);
+        const [checkpointAt, noticeAt, promptAt] = ['RESUMED CONVERSATION', NOTICE, 'And now?'].map((needle) => ownPart.indexOf(needle));
+        assert.ok(checkpointAt === 0 && checkpointAt < noticeAt && noticeAt < promptAt, `${api}: the resumed note, then the notice, then the prompt (${checkpointAt} < ${noticeAt} < ${promptAt})`);
         if (api === 'chat') assert.deepEqual(JSON.parse(bodies[1]).messages.slice(-4).map((message) => message.role), ['assistant', 'tool', 'tool', 'user'], 'Chat: the notice follows BOTH results');
         if (api === 'anthropic') assert.deepEqual(JSON.parse(bodies[1]).messages.at(-1).content.map((block) => block.type), ['tool_result', 'tool_result', 'text'], 'Anthropic: both results lead the user message, the notice follows');
         if (api === 'responses') assert.deepEqual(JSON.parse(bodies[1]).input.slice(-5).map((item) => item.type ?? item.role), ['function_call', 'function_call', 'function_call_output', 'function_call_output', 'user']);

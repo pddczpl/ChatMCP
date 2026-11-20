@@ -42,7 +42,11 @@ await runScenario({
   const ids = {};
   const gates = new Map();
   const gate = (name) => { let open; const promise = new Promise((resolve) => { open = resolve; }); gates.set(name, { promise, open }); };
-  const ownerOf = (ctx) => /(Parent|Child) E\w+:/.exec(ctx.users.filter((text) => !text.startsWith('UNTRUSTED SKILL')).join('\n'))?.[0].replace(/:$/, '') ?? 'unknown';
+  // A continued run replays the conversation from the journal (docs/SESSION-RESUME.md), the notices told in earlier runs included: what the run itself says comes after the
+  // Hub's note about the earlier runs (the resumed note, or the checkpoint text of a task with no journal).
+  const isResumeNote = (text) => text.startsWith('RESUMED CONVERSATION') || text.startsWith('CONVERSATION CHECKPOINT');
+  const ownPart = (users) => users.slice(users.findLastIndex(isResumeNote) + 1);
+  const ownerOf = (ctx) =>/(Parent|Child) E\w+:/.exec(ctx.users.filter((text) => !text.startsWith('UNTRUSTED SKILL')).join('\n'))?.[0].replace(/:$/, '') ?? 'unknown';
   const results = (ctx) => JSON.parse(ctx.last).structuredContent;
   const claimToken = (child) => /TOKEN-[A-Z0-9]+/.exec(child.claim?.text ?? '')?.[0] ?? 'none';
 
@@ -146,7 +150,7 @@ await runScenario({
   t.equal(doneAgain.state, 'completed', 'A: the conversation can be continued after the restart');
   const next = seen.slice(before).filter((entry) => entry.who === 'Parent E1');
   t.equal(next.length, 1, 'A: with one request');
-  t.check(!next[0].users.some((text) => text.startsWith('HUB NOTICE')), 'A: that carries no notice: what was told before the restart is not told again');
+  t.check(next[0].users.some(isResumeNote) && !ownPart(next[0].users).some((text) => text.startsWith('HUB NOTICE')), 'A: that carries no new notice: what was told before the restart is not told again (it is only in the replayed history)');
   t.equal((await hub2.task(e1.id)).subagentNotices.map((entry) => entry.notice), ['delivered', 'delivered'], 'A: and the entries stay delivered');
 
   // ================================================================================================================= B. a parent that finishes first, a crash
@@ -185,7 +189,7 @@ await runScenario({
   t.equal(doneBack.state, 'completed', 'B: the person comes back and the run completes');
   const second = seen.filter((entry) => entry.who === 'Parent E2').slice(parentCountBefore);
   t.equal(second.length, 2, 'B: two requests: the call to agent_results, then the answer');
-  const order = second[0].users.map((text) => (text.startsWith('HUB NOTICE') ? 'notice' : text.startsWith('CONVERSATION CHECKPOINT') ? 'checkpoint' : 'user'));
+  const order = second[0].users.map((text) => (text.startsWith('HUB NOTICE') ? 'notice' : isResumeNote(text) ? 'checkpoint' : 'user'));
   t.equal(order.slice(-3), ['checkpoint', 'notice', 'user'], 'B: the model is told before the prompt, so the person\'s request is the last thing said');
   t.check(/2 background agents you started have stopped/.test(second[0].users.at(-2)), 'B: one notice for both');
   const final = (await hub3.task(e2.id)).finalText;
@@ -198,7 +202,7 @@ await runScenario({
   await continueTask(hub4, e2.id, 'Parent E2: anything else?');
   await waitForState(hub4, e2.id, ['completed', 'failed'], { timeoutMs: 60_000 });
   const last = seen.slice(seenBefore).filter((entry) => entry.who === 'Parent E2');
-  t.check(last.length === 1 && !last[0].users.some((text) => text.startsWith('HUB NOTICE')), 'B: after one more restart the model is not told again');
+  t.check(last.length === 1 && last[0].users.some(isResumeNote) && !ownPart(last[0].users).some((text) => text.startsWith('HUB NOTICE')), 'B: after one more restart the model is not told again (the notice is only in the replayed history)');
 
   const finalWatch = mock.watchReport();
   t.check(finalWatch.hits.length === 0, `B: still no credential in any of the ${finalWatch.scanned} model requests`, JSON.stringify(finalWatch.hits));

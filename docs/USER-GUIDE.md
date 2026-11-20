@@ -101,7 +101,7 @@ Kết quả kiểm tra hiện thành một nhãn:
 
 ## 5. Giao việc cho agent
 
-Gõ yêu cầu vào ô *"Hãy mô tả tác vụ bạn muốn agent thực hiện…"* rồi bấm **Bắt đầu** (hoặc `Enter`). Trong phiên đã có, nút là **Tiếp tục** và ô nhập là *"Tiếp tục công việc trong đúng hội thoại này…"*: agent nhớ toàn bộ hội thoại trước đó.
+Gõ yêu cầu vào ô *"Hãy mô tả tác vụ bạn muốn agent thực hiện…"* rồi bấm **Bắt đầu** (hoặc `Enter`). Trong phiên đã có, nút là **Tiếp tục** và ô nhập là *"Tiếp tục công việc trong đúng hội thoại này…"*: agent nhớ toàn bộ hội thoại trước đó. Hub gửi lại cho model chính lịch sử của các lượt trước (tin nhắn, lời gọi công cụ và kết quả, đọc từ nhật ký `transcript.jsonl` của phiên) mà không chạy lại công cụ nào, kèm một ghi chú ngắn về thao tác chưa rõ kết quả; phiên được ghi trước khi có nhật ký này thì model nhận bản tóm tắt như trước ([SESSION-RESUME.md](SESSION-RESUME.md)).
 
 Màn hình trống có ba gợi ý: *Tìm hiểu dự án*, *Sửa lỗi*, *Viết kiểm thử*.
 

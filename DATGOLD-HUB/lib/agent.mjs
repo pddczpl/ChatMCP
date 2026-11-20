@@ -825,7 +825,7 @@ export class AgentRunner {
       return await loadHistoryJournal(path.join(this.#directory(task.id), 'transcript.jsonl'), {
         maxBytes, beforeRun,
         modelOutput: (result, { toolName }) => this.#modelOutput(result, { optimize: false, taskId: task.id, toolName }).output,
-        redact: (text) => this.#redact(text),
+        redact: (value) => this.#redact(value),
       });
     } catch (error) {
       this.log(this.#redact(`History journal unreadable: ${error.message}`));
