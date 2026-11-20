@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { findNeedles, runScenario } from './e2e/harness.mjs';
 import { call, say, toolText, wasRefused } from './e2e/scenarios.mjs';
 import { ALLOWED_KEY_ENVS, liveEnvironment } from './live/lib/session.mjs';
-import { budgetVerdict, conservativeRates, EXIT, loadProviders, redactor, sandboxMarker, taskStop } from './evaluate-live.mjs';
+import { budgetVerdict, checkGates, conservativeRates, EXIT, loadProviders, redactor, sandboxMarker, taskStop } from './evaluate-live.mjs';
 
 const TESTS = path.dirname(fileURLToPath(import.meta.url));
 const HUB = path.resolve(TESTS, '..');
@@ -145,6 +145,7 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
       },
       // Never finishes on its own: one new file after another (progress, so the Hub's stall check does not end it), slowly, until the step limit (or the budget stop) ends it.
       'live-spender': async ({ turn }) => { await sleep(150); return call('write_file', { path: `notes-${turn}.txt`, content: `step ${turn}` }); },
+      'live-one-answer': () => say('Done.'),
     },
   });
   const work = t.dir('providers');
@@ -185,8 +186,17 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   await refusal('without the key variable', usual, { ...gated, DEEPSEEK_API_KEY: '' }, /DEEPSEEK_API_KEY/);
   await refusal('with an unknown flag', [...usual, '--live-anyway'], gated, /--live-anyway/);
   await refusal('with a task that has no step limit', ['--providers', cheap, '--tasks', tasksFile([{ id: 'x', prompt: 'Do it.', files: {}, maxMinutes: 1 }]), '--provider', 'mock', '--budget-usd', '1'], gated, /maxSteps/);
-  // The real catalogue: the local entry has no key, the hosted ones have a price; refused here only for the missing key (nothing is reached).
-  await refusal('a real hosted provider without its key', ['--provider', 'deepseek-flash', '--budget-usd', '0.10'], { ...gated, DEEPSEEK_API_KEY: '' }, /DEEPSEEK_API_KEY/);
+  await refusal('with a task above the step cap', ['--providers', cheap, '--tasks', tasksFile([{ id: 'x', prompt: 'Do it.', files: {}, maxSteps: 51, maxMinutes: 1 }]), '--provider', 'mock', '--budget-usd', '1'], gated, /maxSteps/);
+  await refusal('with a task file outside the project', ['--providers', cheap, '--tasks', tasksFile([{ id: 'x', prompt: 'Do it.', files: { '../escape.txt': 'x' }, maxSteps: 2, maxMinutes: 1 }]), '--provider', 'mock', '--budget-usd', '1'], gated, /relative path/);
+  t.check(!fs.existsSync(path.join(work, 'escape.txt')) && !fs.existsSync(path.join(t.scratch, 'escape.txt')), 'and nothing was written outside it');
+  // The real catalogue, with THREE gates closed (no CHATMCP_LIVE_OK, no sandbox marker, no key): a mutant that breaks one gate (tests/mutation/live-runner.json) still
+  // meets two more, so no run of this suite, mutated or not, can send a request to a real provider. The local entry has no price, so it is refused for that.
+  const closed = { ...gated, CHATMCP_LIVE_OK: '', CHATMCP_LIVE_SANDBOX: '', DEEPSEEK_API_KEY: '' };
+  await refusal('a real hosted provider, three gates closed', ['--provider', 'deepseek-flash', '--budget-usd', '0.10'], closed, /CHATMCP_LIVE_OK/);
+  // The local entry has no price: checked through checkGates() itself (it starts nothing), so that even a mutant that lets an unknown price through cannot reach a local server.
+  let localRefusal = null;
+  try { checkGates(['--provider', 'ollama-local', '--budget-usd', '0.10'], { CHATMCP_LIVE_OK: '1', CHATMCP_LIVE_SANDBOX: '1' }, () => false); } catch (error) { localRefusal = error; }
+  t.check(/price is unknown/.test(localRefusal?.message ?? ''), 'the real ollama-local entry is refused: its price is unknown', localRefusal?.message);
 
   // ---- process: the tool-calling check fails -> refused, no task --------------------------------------------------------------------------
   mock.setScenario('live-smoke');
@@ -242,6 +252,17 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   t.check(stopped.tasks[0].id === 'spender' && stopped.tasks[0].state !== 'completed', 'the running task was cancelled, not completed', JSON.stringify(stopped.tasks[0]?.state));
   t.equal(stopped.tasks.map((task) => task.id), ['spender'], 'the next task was never started');
   t.check(modelRequests(mock) < 30, 'the model was asked far fewer times than the step limit allows', String(modelRequests(mock)));
+
+  // A task that answers in one response, priced above the whole budget: it has settled before the runner sees the spend, and the next task must still not start.
+  mock.setScenario('live-one-answer');
+  const reportD = path.join(t.scratch, 'report-one-answer.json');
+  const oneAnswer = await runRunner(['--providers', pricey, '--tasks', tasksFile([
+    { id: 'one-answer', prompt: 'Say done.', files: {}, maxSteps: 3, maxMinutes: 1 },
+    { id: 'never-started', prompt: 'Never run.', files: {}, maxSteps: 3, maxMinutes: 1 },
+  ]), '--provider', 'mock', '--budget-usd', '1', '--scratch', path.join(t.scratch, 'run-one-answer'), '--output', reportD], gated);
+  outputs.push(oneAnswer.text);
+  const oneReport = JSON.parse(fs.readFileSync(reportD, 'utf8'));
+  t.equal([oneAnswer.code, oneReport.stoppedBy, oneReport.tasks.map((task) => task.id)], [EXIT.BUDGET_STOP, 'budget', ['one-answer']], 'a budget passed by the last response of a task stops the run before the next task');
 
   // ---- process: the per-task limits, enforced by the runner -------------------------------------------------------------------------------
   mock.setScenario('live-spender');
