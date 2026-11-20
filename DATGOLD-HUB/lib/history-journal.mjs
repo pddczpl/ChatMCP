@@ -184,7 +184,8 @@ export function cutIncompleteTail(entries) {
   return { kept: entries.slice(0, begin), cut };
 }
 
-const leftOutNote = (count) => ({ role: 'user', content: [{ type: 'input_text', text: `${LEFT_OUT_HEADER}: the first ${count} items of this conversation are not repeated here, to keep it under the Hub's size limit. They are in the task's transcript.]` }] });
+/** The user message a trimmed history starts with. */
+export const leftOutNote = (count) => ({ role: 'user', content: [{ type: 'input_text', text: `${LEFT_OUT_HEADER}: the first ${count} items of this conversation are not repeated here, to keep it under the Hub's size limit. They are in the task's transcript.]` }] });
 
 /** Where a history may start again: a user message, or the first model item of a turn. Never between a call and its result. */
 const restartsAt = (items, index) => items[index]?.role === 'user'

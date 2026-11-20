@@ -27,7 +27,7 @@ import { performance } from 'node:perf_hooks';
 import { AgentRunner } from '../lib/agent.mjs';
 import { GatewayProvider } from '../lib/gateway-provider.mjs';
 import { HistoryLedger } from '../lib/history-ledger.mjs';
-import { JOURNAL_VERSION, RESUME_NOTE_HEADER, historyBytes, loadHistoryJournal, stripOpaque } from '../lib/history-journal.mjs';
+import { JOURNAL_VERSION, RESUME_NOTE_HEADER, historyBytes, leftOutNote, loadHistoryJournal, stripOpaque } from '../lib/history-journal.mjs';
 import { pairToolCalls } from '../lib/model-history.mjs';
 import { startMockModel } from './e2e/mock-model-server.mjs';
 import { call, calls, say, sequence, thinking } from './e2e/scenarios.mjs';
@@ -329,6 +329,13 @@ try {
     const more = await load(file, { maxBytes: cap + 9000 });
     assert.ok(more.items.length > result.items.length, 'a larger cap keeps more: the trim keeps as much as fits');
     assert.equal((await load(file, { maxBytes: 100 })).reason, 'too_large', 'nothing that fits: refused, not cut inside a turn');
+    // a cap that a start at a tool result would just meet: the history starts at the next call instead
+    const resultAt = whole.items.findIndex((item) => item.type === 'function_call_output' && item.call_id === 't25');
+    const exact = historyBytes([leftOutNote(resultAt), ...whole.items.slice(resultAt)]);
+    const atCall = await load(file, { maxBytes: exact });
+    assert.equal(atCall.ok, true, atCall.reason);
+    assert.deepEqual([atCall.items[1].type, atCall.items[1].call_id], ['function_call', 't26'], 'never at a result whose call would be left out');
+    assert.equal(atCall.dropped, resultAt + 1);
   }
   ok('loader: a history over the cap loses its oldest whole turns, starts with a note that says how many items were left out, keeps every call with its result, and fits; one that cannot fit is too_large');
 
