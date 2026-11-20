@@ -5,11 +5,16 @@
 // through the same gate, in this order, before the SDK sees a byte of its body:
 //   1. Host must be 127.0.0.1:<port> or localhost:<port> (DNS-rebinding defence; the SDK's validateHostHeader agrees as well)  -> 403
 //   2. Origin, when a browser sends one, must be this listener's own origin (the SDK's validateOriginHeader agrees as well)  -> 403
-//   3. the rate limit of the client (createRateLimiter; also counts requests without a token)                                -> 429
-//   4. the path must be /mcp                                                                                                 -> 404
-//   5. Authorization: Bearer <token>, checked in constant time (lib/mcp/server-token.mjs)                                    -> 401
-//   6. the SDK (createMcpHandler, stateless: no sessions; 2026-07-28 and 2025 clients), with its body limit                  -> 413
-// One log line per request names the method, `/mcp` or `(other path)`, the status and the time: never a header, a query or a body.
+//   3. a request a browser page made (Sec-Fetch-Site present and not "none") is refused, before it is counted anywhere        -> 403
+//   4. the rate limit (createRateLimiter), per client address, in two buckets: requests with the valid token in one, every other
+//      request (no token, a wrong one) in a smaller one of its own, so that token-less requests can never use up the
+//      owner's client's allowance                                                                                           -> 429
+//   5. the path must be /mcp                                                                                                 -> 404
+//   6. Authorization: Bearer <token>, checked in constant time (lib/mcp/server-token.mjs)                                    -> 401
+//   7. the SDK (createMcpHandler, stateless: no sessions; 2026-07-28 and 2025 clients), with its body limit                  -> 413
+// One log line per request names the method, `/mcp` or `(other path)`, the status and the time: never a header, a query or a body. A
+// refusal of the gate (401, 403, 404, 429) is logged in full only the first time its status is seen in a window (createRefusalLog); the
+// others are counted and summed up in one line when the window ends, so a flood adds a bounded number of lines.
 //
 // Tools come from an injected provider ({tools, call}); ext-17's Hub exposes only `hub_status` (hubMcpProvider), which reads no workspace
 // and changes nothing. The verify/read/write profiles and their approvals are P6 ext-18/ext-19.
@@ -23,6 +28,8 @@ export const MCP_SERVER_PATH = '/mcp';
 export const MCP_SERVER_HOST = '127.0.0.1';
 export const DEFAULT_BODY_LIMIT = 1024 * 1024;
 export const DEFAULT_RATE_LIMIT = Object.freeze({ windowMs: 60_000, max: 600 });
+export const DEFAULT_ANONYMOUS_RATE_LIMIT = Object.freeze({ windowMs: 60_000, max: 60 });
+export const DEFAULT_REFUSAL_LOG_WINDOW_MS = 60_000;
 export const DEFAULT_LIST_CACHE_HINT = Object.freeze({ ttlMs: 0, cacheScope: 'private' });
 const MAX_CONNECTIONS = 64;
 const TOOL_NAME = /^[A-Za-z0-9_.-]{1,128}$/;
@@ -90,11 +97,49 @@ export function createRateLimiter({ windowMs = DEFAULT_RATE_LIMIT.windowMs, max 
   };
 }
 
+/** A request a browser page made: browsers send Sec-Fetch-Site on every request to a trustworthy origin (127.0.0.1 is one), "none" only for
+ * what the user started (a typed address). Node's fetch, and so the SDK's client, sends `sec-fetch-mode: cors` and no Sec-Fetch-Site: the mode
+ * alone must not count, or every Node client would be refused. */
+export const fromBrowserPage = (site) => site !== undefined && String(site).trim().toLowerCase() !== 'none';
+
+/**
+ * The log of the gate's refusals: the first refusal of each status in a window is logged as it is, the others are counted; when the window
+ * ends (or flush() is called, as close() does) one line says how many more there were, by status.
+ */
+export function createRefusalLog({ log = () => {}, windowMs = DEFAULT_REFUSAL_LOG_WINDOW_MS, now = Date.now } = {}) {
+  let seen = new Set();
+  let counts = new Map();
+  let started = null;
+  let timer = null;
+  const flush = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+    if (total > 0) {
+      const byStatus = [...counts].sort((a, b) => a[0] - b[0]).map(([status, count]) => `${status}: ${count}`).join(', ');
+      log(`MCP server: ${total} more refused requests in the last ${Math.max(0, Math.round((now() - started) / 1000))} s (${byStatus})`);
+    }
+    seen = new Set(); counts = new Map(); started = null;
+  };
+  return {
+    note(status, line) {
+      if (started === null) {
+        started = now();
+        timer = setTimeout(flush, windowMs);
+        timer.unref?.();
+      }
+      if (!seen.has(status)) { seen.add(status); log(line); return; }
+      counts.set(status, (counts.get(status) ?? 0) + 1);
+    },
+    flush,
+  };
+}
+
 /**
  * Listens on 127.0.0.1:<port> (0: any free port) and serves `factory` behind the gate described at the top of this file.
  * @returns {Promise<{server: http.Server, port: number, url: string, close: () => Promise<void>}>}
  */
-export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bodyLimit = DEFAULT_BODY_LIMIT, rateLimit = DEFAULT_RATE_LIMIT, now = Date.now, log = () => {} } = {}) {
+export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bodyLimit = DEFAULT_BODY_LIMIT, rateLimit = DEFAULT_RATE_LIMIT, anonymousRateLimit = DEFAULT_ANONYMOUS_RATE_LIMIT,
+  refusalLogWindowMs = DEFAULT_REFUSAL_LOG_WINDOW_MS, now = Date.now, log = () => {} } = {}) {
   if (typeof verifyToken !== 'function') throw new TypeError('startMcpListener needs verifyToken.');
   const handler = sdk.createMcpHandler(factory, {
     legacy: 'stateless', maxRequestBodySize: bodyLimit,
@@ -102,6 +147,8 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bo
   });
   const serve = sdk.toNodeHandler(handler);
   const limiter = createRateLimiter({ ...rateLimit, now });
+  const anonymousLimiter = createRateLimiter({ ...anonymousRateLimit, now });
+  const refusals = createRefusalLog({ log, windowMs: refusalLogWindowMs, now });
   let boundPort = null;
   const ownHosts = () => new Set([`${MCP_SERVER_HOST}:${boundPort}`, `localhost:${boundPort}`]);
   const hostAllowed = (host) => typeof host === 'string' && ownHosts().has(host.toLowerCase()) && sdk.validateHostHeader(host, [MCP_SERVER_HOST, 'localhost']).ok === true;
@@ -113,20 +160,31 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bo
     const pathname = String(req.url ?? '').split('?')[0];
     const shownPath = pathname === MCP_SERVER_PATH ? MCP_SERVER_PATH : '(other path)';
     const method = /^[A-Z]{1,10}$/.test(req.method ?? '') ? req.method : '(method)';
-    res.once('close', () => log(`MCP server: ${method} ${shownPath} ${res.statusCode} (${Math.round(performance.now() - started)} ms)`));
+    let refused = false;
+    res.once('close', () => {
+      const line = `MCP server: ${method} ${shownPath} ${res.statusCode} (${Math.round(performance.now() - started)} ms)`;
+      if (refused) refusals.note(res.statusCode, line);
+      else log(line);
+    });
     const refuse = (status, message, headers = {}) => {
-      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
+      refused = true;
+      // A refused client keeps no socket: without this, a flood of refused requests on keep-alive connections fills MAX_CONNECTIONS and the
+      // owner's client cannot connect at all.
+      res.shouldKeepAlive = false;
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', connection: 'close', ...headers });
       res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32000, message } }));
     };
     try {
       if (!hostAllowed(req.headers.host)) return refuse(403, 'Forbidden: this MCP server answers only to 127.0.0.1 and localhost on its own port.');
       if (!originAllowed(req.headers.origin)) return refuse(403, 'Forbidden: a request from another origin.');
-      const allowance = limiter.take(req.socket.remoteAddress ?? 'unknown');
+      if (fromBrowserPage(req.headers['sec-fetch-site'])) return refuse(403, 'Forbidden: a request from a web page.');
+      const match = BEARER.exec(req.headers.authorization ?? '');
+      const authorized = match !== null && verifyToken(match[1]) === true;
+      const allowance = (authorized ? limiter : anonymousLimiter).take(req.socket.remoteAddress ?? 'unknown');
       if (!allowance.ok) return refuse(429, 'Too many requests.', { 'retry-after': String(Math.max(1, Math.ceil(allowance.retryAfterMs / 1000))) });
       if (pathname !== MCP_SERVER_PATH) return refuse(404, 'Not found.');
-      const match = BEARER.exec(req.headers.authorization ?? '');
       if (!match) return refuse(401, 'Unauthorized: this MCP server needs its access token.', { 'www-authenticate': REALM });
-      if (!verifyToken(match[1])) return refuse(401, 'Unauthorized: the access token is not valid.', { 'www-authenticate': `${REALM}, error="invalid_token"` });
+      if (!authorized) return refuse(401, 'Unauthorized: the access token is not valid.', { 'www-authenticate': `${REALM}, error="invalid_token"` });
       await serve(req, res);
     } catch {
       if (!res.headersSent) refuse(500, 'Internal error.');
@@ -148,6 +206,7 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bo
       server.closeAllConnections();
       await new Promise((resolve) => server.close(() => resolve()));
       await Promise.resolve(handler.close?.()).catch(() => {});
+      refusals.flush();
     })()),
   };
 }
@@ -171,7 +230,7 @@ export function hubMcpProvider({ product = 'DatGold', version }) {
  * the answer is in status() and in one log line. `roots` overrides where the SDK is looked for (tests).
  * @returns {Promise<{setting: McpServerSettingStore, tokens: McpServerTokenStore | null, status: () => object, rotate: () => Promise<string>, close: () => Promise<void>}>}
  */
-export async function startHubMcpServer({ env = process.env, directory, protector, roots, name, version, dashboardPort, tools, call, log = () => {}, registerSecret = () => {}, bodyLimit, rateLimit } = {}) {
+export async function startHubMcpServer({ env = process.env, directory, protector, roots, name, version, dashboardPort, tools, call, log = () => {}, registerSecret = () => {}, bodyLimit, rateLimit, anonymousRateLimit } = {}) {
   const setting = new McpServerSettingStore({ directory, env, log });
   await setting.load();
   const current = setting.current();
@@ -217,7 +276,7 @@ export async function startHubMcpServer({ env = process.env, directory, protecto
   handle.tokens = tokens;
   try {
     const factory = createMcpServerFactory(sdk, { name, version, tools, call });
-    listener = await startMcpListener({ sdk, port: current.port, factory, verifyToken: (candidate) => tokens.verify(candidate), log, ...(bodyLimit ? { bodyLimit } : {}), ...(rateLimit ? { rateLimit } : {}) });
+    listener = await startMcpListener({ sdk, port: current.port, factory, verifyToken: (candidate) => tokens.verify(candidate), log, ...(bodyLimit ? { bodyLimit } : {}), ...(rateLimit ? { rateLimit } : {}), ...(anonymousRateLimit ? { anonymousRateLimit } : {}) });
   } catch (error) {
     return fail('failed', error?.code === 'EADDRINUSE' ? 'mcp_server_port_in_use' : 'mcp_server_listen_failed', `${MCP_SERVER_HOST}:${current.port} (${error?.code ?? error?.message ?? 'error'}).`);
   }

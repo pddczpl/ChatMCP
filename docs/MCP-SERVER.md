@@ -51,15 +51,20 @@ Every request passes these steps in this order, before the SDK reads its body (`
 |---|---|
 | `Host` is exactly `127.0.0.1:<port>` or `localhost:<port>` of this listener, and the SDK's `validateHostHeader` agrees (DNS-rebinding defence) | 403 |
 | `Origin`, when there is one (browsers send it, MCP clients do not), is this listener's own origin, and the SDK's `validateOriginHeader` agrees. `null`, a web site and the dashboard's origin are refused. No CORS header is ever sent | 403 |
-| Rate limit: at most 600 requests per 60 s per client address, counted also for requests without a token | 429 with `Retry-After` |
+| `Sec-Fetch-Site`, when there is one, is `none`. Browsers send it on every request to 127.0.0.1 (`cross-site`, `same-site`, `same-origin` for what a page makes, `none` only for an address the owner typed), so an `<img src>` or a `no-cors` fetch of any page is refused here, before it is counted. `Sec-Fetch-Mode` alone decides nothing: Node's `fetch`, and so the SDK's client, sends `sec-fetch-mode: cors` and no `Sec-Fetch-Site` (measured on Node 24.19.0) | 403 |
+| Rate limit, per client address, in two buckets: requests with the valid token at most 600 per 60 s; every other request (no token, a wrong token) at most 60 per 60 s in a bucket of its own, so token-less requests can never use up the allowance of the owner's client | 429 with `Retry-After` |
 | The path is `/mcp` | 404 |
 | `Authorization: Bearer <token>` (scheme case-insensitive, one space, nothing after the token), checked in constant time | 401 with `WWW-Authenticate: Bearer realm="DatGold MCP"` (and `error="invalid_token"` for a wrong token) |
 | The SDK: body at most 1 MiB (`maxRequestBodySize`), JSON-RPC, protocol headers | 413 for a larger body; the SDK's own answers otherwise |
 
-The server also allows at most 64 connections, 10 s for the headers and 120 s for a request.
+The server also allows at most 64 connections, 10 s for the headers and 120 s for a request. Every refusal of the gate answers with
+`Connection: close`, so a refused client holds no socket (a flood on keep-alive connections had filled the 64 places).
 
 The request log has one line per request: `MCP server: <METHOD> /mcp|(other path) <status> (<ms> ms)`. It never carries a header, a query
-string, a path other than `/mcp` or a body, and never the word that makes the Hub's redactor hide a whole line.
+string, a path other than `/mcp` or a body, and never the word that makes the Hub's redactor hide a whole line. A refusal of the gate (401,
+403, 404, 429) is logged in full only the first time its status is seen in a 60 s window; the others are counted, and when the window ends
+(or the listener closes) one line sums them up: `MCP server: <n> more refused requests in the last <s> s (403: <n>, ...)`. A flood of
+refusals therefore adds at most one line per status and one summary per minute.
 
 ## The token
 
@@ -73,7 +78,7 @@ string, a path other than `/mcp` or a body, and never the word that makes the Hu
   connection kit of ext-20; `rotate()` makes a new one and the old one is refused from the next request on. No page shows or rotates it yet.
 - A damaged token file is no token: the next start makes a new one (every client then needs the new token).
 - Like the session file of the dashboard, the token file is readable by any program of the owner's account (the threat model's same-user
-  limit, RR-1). All clients share the one token and one rate limit until ext-18 (RR-43).
+  limit, RR-1). All clients share the one token and the one authorized bucket until ext-18 (RR-43).
 
 ## Tools: an injected provider
 
@@ -115,11 +120,13 @@ or the SDK answers 400). A 2025 `initialize` is answered with the version the cl
 
 ## Tests
 
-`tests/verify-mcp-server.mjs` (22 cases; ports 0 or a port `freePort()` just found, never 3007 or a fixed 3008): the setting and its store;
+`tests/verify-mcp-server.mjs` (25 cases; ports 0 or a port `freePort()` just found, never 3007 or a fixed 3008): the setting and its store;
 the token store; the pinned SDK; a v2 client listing the fixture provider's exact tools with annotations in name order, a call, an argument
 the schema refuses; legacy `initialize` without a session, `server/discover` with the full `_meta` envelope, GET 405; the factory's refusals;
 401 without and with a wrong token; 403 for `Host: evil.test`, another port, a foreign, opaque or dashboard Origin; 413; 404; 429 and a new
-window; the log without the token; rotation; `close()` frees the port; `startHubMcpServer` off, SDK missing, bad and dashboard port, port in
+window in each of the two buckets; 650 token-less GETs (60 x 401, 590 x 429) leave an authorized initialize at 200; a `Sec-Fetch-Site` of a page
+is 403 and counts nowhere, `none` and Node's `sec-fetch-mode: cors` pass; 2,000 refused POSTs add one line plus one summary, and every one is
+answered; the log without the token; rotation; `close()` frees the port; `startHubMcpServer` off, SDK missing, bad and dashboard port, port in
 use, on; three real `hub.mjs` runs (off; `CHATMCP_MCP_RUNTIME_DIR` empty: the Hub starts and logs `mcp_runtime_missing`; on: a client with
 the token lists `hub_status` only, and a shutdown frees the port). `tests/verify-mcp-runtime.mjs` covers the pins, the closure and the
 staged server. Mutation list: `tests/mutation/mcp-server.json`.

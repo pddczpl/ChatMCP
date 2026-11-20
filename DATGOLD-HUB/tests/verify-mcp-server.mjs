@@ -393,13 +393,15 @@ try {
       const batch = await Promise.all(Array.from({ length: Math.min(50, flood - start) }, () => post(url, '{}', origin)));
       refusedCount += batch.filter((answer) => answer.status === 403).length;
     }
-    assert.equal(refusedCount, flood, 'what fetch(url, {method: POST, mode: no-cors}) sends is refused');
+    assert.equal(refusedCount, flood, 'what fetch(url, {method: POST, mode: no-cors}) sends is refused, and every one is answered (a refusal keeps no socket)');
+    assert.equal((await post(url, '{}', origin)).headers.get('connection'), 'close');
+    assert.equal(await new Promise((resolve) => listener.server.getConnections((error, count) => resolve(count))) <= 1, true, 'no refused connection is held open');
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.ok(lines.length <= 2, `the flood logged ${lines.length} lines`);
     assert.match(lines[0], /^MCP server: POST \/mcp 403 /);
     await listener.close();
     assert.equal(lines.filter((line) => /refused/.test(line)).length, 1, 'close() writes the summary that was pending');
-    assert.match(lines.at(-1), new RegExp(`^MCP server: ${flood - 1} more refused requests in the last \\d+ s \\(403: ${flood - 1}\\)$`));
+    assert.match(lines.at(-1), new RegExp(`^MCP server: ${flood} more refused requests in the last \\d+ s \\(403: ${flood}\\)$`));
 
     const quick = await fixtureListener({ refusalLogWindowMs: 300 });
     try {
