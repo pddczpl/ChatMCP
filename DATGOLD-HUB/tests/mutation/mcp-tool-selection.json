@@ -1,0 +1,10 @@
+{
+ "suite": "verify-tool-selector.mjs",
+ "description": "The task-selected catalog keeps the tools of external MCP servers (never offered directly) and still leaves out the Hub's studio tools (lib/tool-selector.mjs, lib/agent.mjs selectConversationCatalog).",
+ "mutations": [
+  { "name": "T1-task-selection-drops-external", "what": "selectTaskCatalog keeps only local tools", "patches": [{ "file": "lib/tool-selector.mjs", "old": "||isExternalTool(x))};", "new": ")};" }] },
+  { "name": "T2-conversation-selection-drops-external", "what": "selectConversationCatalog keeps only local tools", "patches": [{ "file": "lib/agent.mjs", "old": "names.has(tool.originalName)) || isExternalTool(tool)) },", "new": "names.has(tool.originalName))) }," }] },
+  { "name": "T3-studio-counted-external", "what": "studio tools count as external and enter the selection", "patches": [{ "file": "lib/tool-selector.mjs", "old": "&&tool.server!=='local'&&tool.server!=='studio';", "new": "&&tool.server!=='local';" }] },
+  { "name": "T4-external-offered-directly", "what": "an external tool with a local short name is offered directly", "patches": [{ "file": "lib/agent.mjs", "old": "    tool.server === DIRECT_SERVER && typeof tool.originalName === 'string' &&", "new": "    (tool.server === DIRECT_SERVER || isExternalTool(tool)) && typeof tool.originalName === 'string' &&" }] }
+ ]
+}

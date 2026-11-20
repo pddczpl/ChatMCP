@@ -14,7 +14,7 @@ export function unsupportedGeminiFields(status, detail) {
 // In minimal gateways the full live tool inventory is discoverable through
 // mcp_catalog. Repeating every name here wastes the response budget and can
 // trigger MAX_TOKENS before the model emits its small JSON action.
-function compactAgentInstructions(instructions) {
+export function compactAgentInstructions(instructions) {
   return String(instructions || '')
     // AgentRunner reports progress from the JSON `progress` field. Asking for
     // a separate status line here contradicts the single-object wire contract.
@@ -30,7 +30,7 @@ function compactAgentInstructions(instructions) {
       '$1TEXT-ONLY ACTION ROUTING\nMCP can only be requested by returning a literal JSON text record for the separate ChatMCP parser. No Gemini native functions or tools are enabled in this request. Never emit a native function call, Python code, or default_api.*.\n')
     .replace('JSONL printed in a reply does not execute anything in this runner.',
       'Only one complete, validated JSON text action can request tool execution in this mode.')
-    .replace(/The complete live inventory has (\d+) tools; ALL names are listed below\./,
+    .replace(/The complete live inventory has (\d+) tools; (?:ALL names are listed below\.|the first \d+ names are listed below and the rest are summarised per server; mcp_catalog lists every one\.)/,
       'The live inventory has $1 tools, discoverable using JSON text actions for mcp_catalog.')
     .replace(/\nCOMPLETE TOOL NAME LIST\n(?:- [^\n]*\n)+/,
       '\nCOMPLETE TOOL NAME LIST\nDiscover exact MCP names using a plain JSON text action for mcp_catalog; use mcp_describe before mcp_call.\n')

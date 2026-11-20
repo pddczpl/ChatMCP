@@ -25,6 +25,8 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [CI health](CI-HEALTH.md) — Workflow triggers (one run per push), documentation gates, `scripts/ci-health.mjs` definitions and the 2026-10-19 baseline
 - [Threat model](THREAT-MODEL.md) — Hub credential, Companion outbound filter, Read Only classifier, lifecycle hooks, agent results, project instructions and skills, and the list of models with its one optional download: assets, actors, mitigations with code references, residual risks
 - [MCP client (P2, slice A)](MCP-CLIENT.md) — The MCP client SDK runtime and the connection manager: `mcp-servers.json`, secrets, stdio and Streamable HTTP, the process tree, version negotiation, the list guards, no replay; external tools are NOT offered to the model yet
+- [MCP server (P6, ext-17)](MCP-SERVER.md) — The Hub as an MCP server for local clients: a separate loopback listener, off by default, behind its own token; the gate (Host, Origin, rate limit, token, body limit), the setting, the token file; no workspace tool yet
+- [Proof-of-Done: the tree snapshot engine (P4)](PROOF-TREE.md) — The content identity of the workspace tree that later receipts bind to: git-pinned-v1 and raw-v1, when each is used, what is left out, the repository's `.git` never written; not called by the agent yet
 - [Hooks](HOOKS.md) — Owner-level lifecycle hooks (a Claude Code compatible subset), the approval of a project hooks file, what a hook can and cannot do, and what is not verified
 - [ChatGPT Web Companion privacy](COMPANION-PRIVACY.md) — Terms-of-Use risk, outbound secret scanner, protected-file deny-list, review before send, and what they do not do
 - [Windows Setup](WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
@@ -40,6 +42,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Windows Sandbox Feasibility](WINDOWS-SANDBOX-REAL-FEASIBILITY.md) — Technical feasibility analysis of Windows Sandbox integration
 - [Skill selection](SKILL-SELECTION.md) — How the Hub picks skills for a request (word overlap, no model), the labelled corpus of 347 requests, the baseline numbers and what they cannot see
 - [MCP client hardening](MCP-HARDENING.md) — What reaches the model of an MCP server (names, descriptions, schemas, annotations), the fingerprint pins against a rug pull, the bounds on results and stderr, the hostile test server, and what is not wired yet
+- [Proof-of-Done: the acceptance file](PROOF-ACCEPTANCE.md) — Version 1 of `.chatmcp/acceptance.yml` (P4, pod-20): the schema, the strict YAML subset and its refusals with line numbers, criteria only from the baseline, checks runnable only when the owner trusted the file's sha256, the proposal; nothing runs the checks yet
 
 ### Phase 0: Desktop Contract Reconnection
 - [Phase 0 Audit](PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment

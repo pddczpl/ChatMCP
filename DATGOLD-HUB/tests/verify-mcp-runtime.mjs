@@ -1,8 +1,8 @@
-// The MCP client SDK runtime (docs/MCP-CLIENT.md): pinned, staged, verified and loaded lazily.
+// The MCP SDK runtime (docs/MCP-CLIENT.md, docs/MCP-SERVER.md): pinned, staged, verified and loaded lazily.
 //
-//   1. Pins: lib/mcp/sdk.mjs, scripts/mcp-runtime/package.json, its lockfile and scripts/mcp-runtime/verify.mjs name the same client version; every
-//      lockfile entry comes from the npm registry with an integrity and a licence; the shipped closure is the client's (no server SDK, no HTTP
-//      server framework); the Hub itself keeps no runtime dependency, and no Hub module imports the SDK statically.
+//   1. Pins: lib/mcp/sdk.mjs, scripts/mcp-runtime/package.json, its lockfile and scripts/mcp-runtime/verify.mjs name the same client version (and
+//      lib/mcp/server-sdk.mjs the same server/node versions); every lockfile entry comes from the npm registry with an integrity and a licence;
+//      the shipped closure is the client's plus the server SDK and its Node adapter (hono) for the Hub's MCP server (P6 ext-17); the Hub itself keeps no runtime dependency, and no Hub module imports the SDK statically.
 //   2. lib/mcp/sdk.mjs finds the runtime (CHATMCP_MCP_RUNTIME_DIR alone when set, else runtimes/mcp, else scripts/mcp-runtime), refuses a copy of
 //      another version or with an export outside its package, and says `mcp_runtime_missing` when there is none; the manager reports it and
 //      refuses to connect with that code.
@@ -10,7 +10,7 @@
 //   4. scripts/mcp-runtime/stage.mjs + verify.mjs: a staged copy passes; a changed byte, a stray file, a missing or consistently replaced licence
 //      text, another client version and a reused destination are refused. scripts/Verify-McpRuntime.mjs connects the Hub's own code to a
 //      server through the staged copy.
-//   5. The packages compiled into the client's dist files are exactly those of scripts/mcp-runtime/licenses/MANIFEST.json.
+//   5. The packages compiled into the client's and the server's dist files are exactly those of scripts/mcp-runtime/licenses/MANIFEST.json.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -20,6 +20,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MCP_CLIENT_VERSION, RUNTIME_DIR_ENV, defaultRuntimeRoots, loadMcpSdk, locateMcpRuntime } from '../lib/mcp/sdk.mjs';
 import { McpClientManager } from '../lib/mcp/client-manager.mjs';
+import { MCP_NODE_VERSION, MCP_SERVER_VERSION } from '../lib/mcp/server-sdk.mjs';
 import { HUB, RUNTIME_INSTALL, runtimeRoot } from './support/mcp-tools.mjs';
 import { startHub } from './e2e/hub-process.mjs';
 
@@ -30,7 +31,7 @@ if (!runtime) {
 }
 const scripts = runtime; // scripts/mcp-runtime of this checkout (or of the one a mutation copy was made from)
 const { stageMcpRuntime } = await import(pathToFileURL(path.join(scripts, 'stage.mjs')).href);
-const { verifyMcpRuntime, CLIENT_VERSION, MANIFEST_FILE } = await import(pathToFileURL(path.join(scripts, 'verify.mjs')).href);
+const { verifyMcpRuntime, CLIENT_VERSION, SERVER_VERSION, NODE_VERSION, MANIFEST_FILE } = await import(pathToFileURL(path.join(scripts, 'verify.mjs')).href);
 
 let failures = 0;
 let passed = 0;
@@ -55,14 +56,21 @@ try {
   await test('one client version everywhere: sdk.mjs, package.json, the lockfile, verify.mjs, the installed package', async () => {
     const manifest = json(path.join(scripts, 'package.json'));
     const lock = json(path.join(scripts, 'package-lock.json'));
-    assert.deepEqual(Object.keys(manifest.dependencies), ['@modelcontextprotocol/client'], 'the runtime pins the client only (the node and server packages are server-side; tests/fixtures/mcp-reference has them)');
+    // Until P6 ext-17 the runtime pinned the client only; the Hub's MCP server (lib/mcp/server.mjs) needs the server SDK and its Node adapter too.
+    assert.deepEqual(Object.keys(manifest.dependencies), ['@modelcontextprotocol/client', '@modelcontextprotocol/node', '@modelcontextprotocol/server'], 'the runtime pins the client, the server and the Node adapter');
+    assert.equal(manifest.dependencies['@modelcontextprotocol/server'], MCP_SERVER_VERSION, 'the server pin is the one server-sdk.mjs accepts');
+    assert.equal(manifest.dependencies['@modelcontextprotocol/node'], MCP_NODE_VERSION, 'the node pin is the one server-sdk.mjs accepts');
+    assert.equal(lock.packages['node_modules/@modelcontextprotocol/server'].version, MCP_SERVER_VERSION);
+    assert.equal(lock.packages['node_modules/@modelcontextprotocol/node'].version, MCP_NODE_VERSION);
+    assert.equal(SERVER_VERSION, MCP_SERVER_VERSION);
+    assert.equal(NODE_VERSION, MCP_NODE_VERSION);
     assert.equal(manifest.dependencies['@modelcontextprotocol/client'], MCP_CLIENT_VERSION, 'an exact version, the one sdk.mjs accepts');
     assert.equal(lock.packages['node_modules/@modelcontextprotocol/client'].version, MCP_CLIENT_VERSION);
     assert.equal(CLIENT_VERSION, MCP_CLIENT_VERSION);
     assert.equal(json(path.join(scripts, 'node_modules', '@modelcontextprotocol', 'client', 'package.json')).version, MCP_CLIENT_VERSION, 'npm ci installed the pinned version');
   });
 
-  await test('every lockfile entry is pinned (registry, integrity, licence); the closure is the client\'s', async () => {
+  await test('every lockfile entry is pinned (registry, integrity, licence); the closure is the client\'s and the server\'s', async () => {
     const lock = json(path.join(scripts, 'package-lock.json'));
     const entries = Object.entries(lock.packages).filter(([key]) => key);
     for (const [key, entry] of entries) {
@@ -71,8 +79,9 @@ try {
       assert.ok(!entry.dev, `${key} is not a devDependency`);
     }
     const names = entries.map(([key]) => key.slice('node_modules/'.length));
-    for (const forbidden of ['@modelcontextprotocol/server', '@modelcontextprotocol/node', '@modelcontextprotocol/sdk', 'hono', '@hono/node-server', 'express']) assert.ok(!names.includes(forbidden), `${forbidden} is not shipped`);
-    assert.equal(entries.length, 13, `the closure counted on 2026-11-20 (now ${entries.length}: update docs/MCP-CLIENT.md and this number together)`);
+    for (const forbidden of ['@modelcontextprotocol/sdk', 'express']) assert.ok(!names.includes(forbidden), `${forbidden} is not shipped (the v1 SDK, and the Express adapter: the Hub serves with node:http)`);
+    for (const required of ['@modelcontextprotocol/server', '@modelcontextprotocol/node', 'hono', '@hono/node-server', 'zod']) assert.ok(names.includes(required), `${required} is shipped for the MCP server`);
+    assert.equal(entries.length, 17, `the closure counted on 2026-11-20: 13 of the client + server, node, hono, @hono/node-server (now ${entries.length}: update docs/MCP-CLIENT.md, docs/MCP-SERVER.md and this number together)`);
   });
 
   await test('the Hub keeps no runtime dependency and imports the SDK only dynamically, from lib/mcp/sdk.mjs', async () => {
@@ -179,7 +188,7 @@ try {
   let summary = null;
   await test('stage.mjs copies the closure and the vendored texts; verify.mjs passes on it', async () => {
     summary = await stageMcpRuntime(staged, { source: scripts });
-    assert.equal(summary.packages, 13);
+    assert.equal(summary.packages, 17);
     assert.equal(summary.bundled, 7);
     const verified = await verifyMcpRuntime(staged, { source: scripts });
     assert.equal(verified.verifiedFiles, summary.files);
@@ -216,6 +225,8 @@ try {
       writeFileSync(manifestFile, JSON.stringify(manifest));
     }, /bundled fast-uri 3\.1\.8 is missing or differs/);
     await tampered('another client version', (copy) => { const manifestFile = path.join(copy, MANIFEST_FILE); const manifest = json(manifestFile); manifest.client = '2.3.1'; writeFileSync(manifestFile, JSON.stringify(manifest)); }, /staged MCP client is 2\.3\.1/);
+    await tampered('another server version', (copy) => { const manifestFile = path.join(copy, MANIFEST_FILE); const manifest = json(manifestFile); manifest.server = '2.3.1'; writeFileSync(manifestFile, JSON.stringify(manifest)); }, /staged MCP server SDK is 2\.3\.1/);
+    await tampered('a server package of another version', (copy) => { const file = path.join(copy, 'node_modules', '@modelcontextprotocol', 'node', 'package.json'); const data = json(file); data.version = '2.0.0'; writeFileSync(file, JSON.stringify(data)); }, /Runtime integrity mismatch: node_modules\/@modelcontextprotocol\/node\/package\.json/);
     await tampered('a path outside the folder', (copy) => { const manifestFile = path.join(copy, MANIFEST_FILE); const manifest = json(manifestFile); manifest.files[0].path = '../outside'; writeFileSync(manifestFile, JSON.stringify(manifest)); }, /Invalid manifest entry/);
   });
 
@@ -225,6 +236,7 @@ try {
     const report = JSON.parse(result.stdout.trim().split('\n').at(-1));
     assert.equal(report.verified, true);
     assert.equal(report.tools, 1);
+    assert.deepEqual(report.server, { versions: { server: MCP_SERVER_VERSION, node: MCP_NODE_VERSION }, protocolVersion: '2026-07-28', tools: 1, unauthorized: 401 }, 'the Hub\'s MCP server code serves through the staged server SDK');
     assert.equal(report.client, MCP_CLIENT_VERSION);
     const bad = spawnSync(process.execPath, [path.join(scripts, '..', 'Verify-McpRuntime.mjs'), HUB, empty], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
     assert.notEqual(bad.status, 0, 'an empty runtime folder fails the check');
@@ -233,18 +245,17 @@ try {
   // ---------------------------------------------------------------------------------------------------------------------------------
   // 5. What the client compiles in
   // ---------------------------------------------------------------------------------------------------------------------------------
-  await test('the packages compiled into the client are exactly those whose licence texts are vendored', async () => {
-    const dist = path.join(scripts, 'node_modules', '@modelcontextprotocol', 'client', 'dist');
+  await test('the packages compiled into the client and the server are exactly those whose licence texts are vendored', async () => {
     const found = new Set();
-    for (const name of readdirSync(dist)) {
-      if (!/\.(?:mjs|cjs)$/.test(name) || !statSync(path.join(dist, name)).isFile()) continue;
-      for (const match of readFileSync(path.join(dist, name), 'utf8').matchAll(/\/\/#region \.\.\/\.\.\/node_modules\/\.pnpm\/((?:@[^+/]+\+)?[^@/]+)@(\d+\.\d+\.\d+)[^/]*\//g)) {
+    const files = (dist) => readdirSync(dist, { recursive: true }).map((name) => path.join(dist, String(name))).filter((file) => /\.(?:mjs|cjs)$/.test(file) && statSync(file).isFile());
+    for (const file of ['client', 'server', 'node'].flatMap((name) => files(path.join(scripts, 'node_modules', '@modelcontextprotocol', name, 'dist')))) {
+      for (const match of readFileSync(file, 'utf8').matchAll(/\/\/#region \.\.\/\.\.\/node_modules\/\.pnpm\/((?:@[^+/]+\+)?[^@/]+)@(\d+\.\d+\.\d+)[^/]*\//g)) {
         found.add(`${match[1].replace('+', '/')}@${match[2]}`);
       }
     }
     const vendored = json(path.join(scripts, 'licenses', 'MANIFEST.json')).packages.map((entry) => `${entry.name}@${entry.version}`);
     assert.deepEqual([...found].sort(), [...vendored].sort());
-    assert.equal(json(path.join(scripts, 'licenses', 'MANIFEST.json')).bundledIn, `@modelcontextprotocol/client@${MCP_CLIENT_VERSION}`);
+    assert.deepEqual(json(path.join(scripts, 'licenses', 'MANIFEST.json')).bundledIn, [`@modelcontextprotocol/client@${MCP_CLIENT_VERSION}`, `@modelcontextprotocol/server@${MCP_SERVER_VERSION}`]);
   });
 } finally {
   rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
