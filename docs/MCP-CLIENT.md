@@ -76,7 +76,9 @@ Nothing imports the SDK when the Hub starts: without it the Hub starts, serves `
   `hub`, `datgold` and `chatmcp` are reserved. An unknown setting is an error, so a misspelt one is not ignored.
 - `transport`: `stdio` (command, args, cwd, env) or `http` (Streamable HTTP: url, headers, env). `sse`, the legacy HTTP+SSE transport, is
   refused. A url is `https://`, or `http://` to `127.0.0.1`, `[::1]` or `localhost`; a user name or password in the url is refused.
-- `enabled` (default `true`), `timeouts.connectMs` (1,000 to 120,000, default 30,000) and `timeouts.callMs` (1,000 to 900,000, default 120,000).
+- `enabled` (default `true`), `timeouts.connectMs` (1,000 to 120,000, default 30,000) and `timeouts.callMs` (1,000 to 900,000, default 120,000):
+  the longest any call to the server may take. A caller may only shorten it: an agent's call ends at the shorter of `callMs` and the agent's own
+  deadline (120 s per tool call, or what is left of the task), so a `callMs` above 120 s does not lengthen an agent's call.
 - `policy` is the owner's word to the permission gate: `{"default": "ask" | "allow" | "deny", "tools": {"<tool>": "ask" | "allow" | "deny"}}`,
   where `<tool>` is the server's own name of the tool (without `<server>.`). A tool's rule wins over the default; nothing set is `ask`. An
   unknown key or word is refused when the file is read (the whole file, like every other fault). What the gate then does is in
@@ -143,7 +145,7 @@ await mcp.disconnect(id); await mcp.close();
   checked per item. A bad name, and the second of two items with one name, are refused alone and counted in `status().servers[].refused`; the
   rest of the list stays. (Slice A refused the whole list for a bad or duplicate name, at 128 characters, while the sanitizer allowed 256 per
   item: C2 made it one rule.) The tools and prompts are pin-checked (`review` in the status).
-- **Calls are never repeated.** `timeoutMs` (else `timeouts.callMs`) covers the whole call; when it passes, the SDK sends
+- **Calls are never repeated.** `timeouts.callMs`, or a caller's `timeoutMs` when that is shorter, covers the whole call; when it passes, the SDK sends
   `notifications/cancelled` and the call ends with `mcp_call_timeout`. A lost answer (the process died, the HTTP response was cut off) ends
   with `mcp_connection_lost`. Both carry `executed: 'unknown'`: the server may have run the call. Nothing sends it again: the HTTP transport
   does not resume a broken stream (`reconnectionOptions.maxRetries = 0`), and the next call is a new call on a new connection.
@@ -176,6 +178,34 @@ await mcp.disconnect(id); await mcp.close();
   the smallest to the largest) and summarise the rest as `server X: N tools, use mcp_catalog filter=X`. With a 308-tool server and an 8-tool one
   connected the instruction text is 7,535 bytes (measured 2026-11-20; listing every name would be about 12 KB).
 - **Never read**: a workspace `.mcp.json`. Only `mcp-servers.json` in the Hub's data folder is a source of servers.
+
+## End to end (slice E, plan task ext-15)
+
+`tests/verify-mcp-agent-e2e.mjs` runs the whole path with nothing of the Hub stood in: the owner's `mcp-servers.json` (a bearer header stored
+protected, referenced as `${WEB_TOKEN}`), a `HubManager` assembled with `assembleStudio`, the real `AgentRunner` and `GatewayProvider` speaking
+OpenAI Chat Completions over HTTP to the repository's scripted model (`tests/e2e/mock-model-server.mjs` in strict mode: a request the real API
+would refuse fails the suite), the real gate, hooks, `ConcurrentApiAgent` and `BrowserRunner`. The servers are real SDK servers:
+server-everything 2.3.1 and server-filesystem 2.4.0 (the latter started through a `.cmd` wrapper on Windows, a `#!` script elsewhere, as `npx.cmd`
+would be) and the v2 SDK fixture `tests/fixtures/mcp-fixture-server.mjs` over stdio and over Streamable HTTP. The owner's approvals are given only
+through `launchRecord` + `approveLaunch` and `toolReview` + `approveTools`, each with `expectedFingerprint`. What it proves (gate G2):
+
+| G2 criterion | What the suite shows |
+|---|---|
+| 1. Real servers on both transports | Before any approval no external tool reaches the model, the four stdio servers are `needs_launch_approval` and none is started, nothing is called. After it, each server's catalog count equals an independent `tools/list` in the version it negotiated: server-everything 22, server-filesystem 16, the fixture 7 (2025-11-25 over stdio and over HTTP) and 307 (`--tools 300`), the HTTP fixture 7; `serverInfo` is the pinned reference servers'. `mcp_call` round-trips through the model's wire on both transports and both generations; the bearer header arrives (the fixture records its sha256) |
+| 2. Autonomous mode asks | `files.create_directory` (no rule) asks: one pending question with the MCP card, one `approval_requested` event, the task `waiting_approval`; "no" is permission denied and the directory is not made, "yes" makes it. `files.move_file` (`deny`) is refused without a question. Full Access runs `create_directory`, still refuses `move_file`, and asks for `write_file`, which the real server marks `destructiveHint: true`. A PreToolUse hook with the matcher `mcp__everything__echo` fires once, with `tool_aliases`. The Hub's `OPENAI_API_KEY` is in neither server-everything's environment (its `get-env`) nor any model request (the mock's watch), and nor is the bearer token. A server asking the client for sampling, the roots or an elicitation gets a definite refusal (JSON-RPC -32021, an `isError` result), no model request is made for it, the task goes on |
+| 3. Children and the web transport, without bloat | The parent's model calls `spawn_agent`; the child (auto tool selection, its own `HubManager`, the same client manager) is told of the external tools and calls one. A web-transport session lists and calls one. With 366 external tools on six servers (one of 307) the instructions the model received are 8,133 bytes (budget 10 KiB, which listing every name would break), name 30 external tools and summarise the rest per server; `mcp_catalog` with a filter finds `big.tool_250` and `mcp_call` runs it |
+| 4. Adversarial servers cannot silently widen scope | A tool that never answers, on a server whose owner set `timeouts.callMs` to 4 s, ends then as `tool_transport_failed` (not at the agent's 120 s), and the server is told to cancel. A stdio server killed during a call ends the task as `tool_transport_failed` with exactly one invocation; the next task reconnects and the call is not sent again. A description changed after approval quarantines the server at the next preflight (`needs_review`, the diff names the field): its tools leave that task's catalog and instructions, nothing reaches it, and the fingerprint of the old lists cannot approve the new ones; a tool added later is quarantined the same way and never offered. `HubManager.shutdown()` leaves no process (counted by parent pid, with every pid seen before it, the wrapper and the server below it included) |
+
+Measured on 2026-11-21 (Windows 11, Node.js 24.19.0): 15 checks in about 18 s. The mutation list `tests/mutation/mcp-agent-e2e.json` breaks
+the parts this path depends on (launch approval, pins at the preflight, the server's environment, the declared capabilities, the secret header,
+the `.cmd` shim, `destructiveHint`, the hook alias, the owner's call deadline, the lost call, the instruction cap, the child's client manager, the shutdown).
+The suite found one defect: the owner's `timeouts.callMs` never bounded an agent's call (the seam passes the agent's own deadline, and
+`callTool` let a given `timeoutMs` replace `callMs`); a caller's `timeoutMs` now only shortens it (`callTool`, `getPrompt`, `readResource`).
+
+Not proven here: servers other than the two reference servers and the v2 fixture (servers on other SDKs, Python servers, an `npx` download);
+real editors and the real ChatGPT page (the suite plays the Companion's part through `BrowserRunner`'s API); a real model choosing tools (the
+model is scripted, and only the Chat Completions wire is used); the HTTP routes and the screen of slice D (the approvals are given in code);
+OAuth, `listChanged`, resource subscriptions and the tasks extension; a coding worker or an access manager calling an external tool.
 
 ## Approvals
 
@@ -228,6 +258,7 @@ reports and sends the owner's decisions to the routes below (`lib/mcp/http-api.m
 | `tests/verify-mcp-client-http.mjs` | server-everything in its Streamable HTTP mode and the fixture on `createMcpHandler`: counts, negotiation in both eras, a secret header, the hung and the lost call, no SSE fallback, an absent server |
 | `tests/verify-mcp-hardening.mjs` | launch approval, pins and quarantine, sanitized lists, result ceiling, read limit, aborted and hung calls, no Authorization across origins, `.mcp.json`, no process left (MCP-HARDENING.md) |
 | `tests/verify-mcp-agent-seam.mjs` | the seam above with the real `AgentRunner`, a scripted model, `tests/fixtures/mcp-seam-server.mjs`, a `ConcurrentApiAgent` child and the web transport |
+| `tests/verify-mcp-agent-e2e.mjs` | the whole path with real servers ("End to end" above): the reference servers and the v2 fixture on both transports and both protocol generations, the real `GatewayProvider` over the strict scripted model, approvals through the API, the gate, a hook, the environment, a child, the web transport, 366 tools, a killed server, a changed server, the shutdown |
 | `tests/verify-mcp-http.mjs` | the routes of the screen against a real Hub: their layers, upsert and list, secrets planted in env and a header that never come back (GET, state, launch record, errors, the data folder, the log), approvals by the fingerprint shown and stale ones refused, a deny set by the route refusing the tool in a real task, 409 while a task waits, five writes at once, reload of a file edited by hand or broken, delete |
 | `ui/tests/mcp-tab.test.mjs`, `ui/e2e/mcp-servers.spec.mjs` | the tab's form and what it renders for each state; in the production build against a real Hub, the owner adds the seam fixture, approves its launch and its tools (the page sends the fingerprints it showed), sees the tools and sets one to deny |
 
@@ -236,7 +267,7 @@ themselves are tested in `verify-mcp-hardening.mjs`.
 
 The servers come from `DATGOLD-HUB/tests/fixtures/mcp-reference` (package.json and lock file; `npm ci --ignore-scripts --prefix
 DATGOLD-HUB/tests/fixtures/mcp-reference`), the SDK from `scripts/mcp-runtime`; CI installs both before `run-all --no-skip all`. Mutation lists:
-`tests/mutation/mcp-runtime.json`, `mcp-client-stdio.json`, `mcp-client-http.json`, `mcp-http.json` (the routes of the screen). Child processes are counted by parent pid (and by the pids
+`tests/mutation/mcp-runtime.json`, `mcp-client-stdio.json`, `mcp-client-http.json`, `mcp-agent-e2e.json`, `mcp-http.json` (the routes of the screen). Child processes are counted by parent pid (and by the pids
 the servers report), never by process name.
 
 ## Not verified
@@ -246,7 +277,7 @@ the servers report), never by process name.
 - Servers beyond the two reference servers and the fixtures (servers built on other SDKs, Python servers, npx downloads on a slow network).
 - OAuth for HTTP servers, `listChanged` notifications, resources subscriptions, the 2026-07-28 tasks extension.
 - A coding worker and an access manager of ConcurrentApiAgent calling an external tool: they are handed the client manager like a child, but no
-  test drives one. A real model choosing an MCP tool (the seam suite scripts the model).
+  test drives one. A real model choosing an MCP tool (the seam and end-to-end suites script the model).
 - The screen with a real server other than the fixtures, an HTTP server that needs a header to connect, and the routes while a coding or dynamic worker
   or a delegate runs (`busy()` counts them; the suite drives only the main task). A secret typed into `command` or `args` is shown as typed.
 - The mutation runner copies only `DATGOLD-HUB`: `scripts/mcp-runtime/stage.mjs` and `verify.mjs` are checked by the tampering cases of
