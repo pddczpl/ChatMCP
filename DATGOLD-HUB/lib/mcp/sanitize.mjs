@@ -5,7 +5,7 @@
 // reason, never an exception. Only own properties are read, so a polluted Object.prototype adds nothing. docs/MCP-HARDENING.md says what each function
 // guarantees and what it does not.
 //
-//  - Names: [A-Za-z0-9_.-], 1-256 characters, not __proto__, constructor or prototype. A bad name is refused, never rewritten: a rewritten name would ask the
+//  - Names: [A-Za-z0-9_.-], 1-128 characters (the tool-name rule of the MCP specification; the client manager reads the same limit), not __proto__, constructor or prototype. A bad name is refused, never rewritten: a rewritten name would ask the
 //    server for something other than what the owner approved.
 //  - Text (descriptions, titles): hidden characters are removed FIRST, then the text is cut to 2 KB of UTF-8 at a code point (never half of a surrogate
 //    pair), and a marker inside the limit says what happened. Hidden = every Cc and Cf code point except tab and newline (C0, DEL, C1, soft hyphen, the
@@ -19,7 +19,7 @@
 //  - Annotations: readOnlyHint, destructiveHint, idempotentHint and openWorldHint, only as own boolean properties; everything else is named as dropped.
 
 export const LIMITS = Object.freeze({
-  nameMaxLength: 256,
+  nameMaxLength: 128,
   textMaxBytes: 2048,
   schemaMaxBytes: 64 * 1024,
   schemaMaxDepth: 32,

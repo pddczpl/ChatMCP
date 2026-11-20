@@ -323,6 +323,8 @@ export class CodingWorktreeOrchestrator {
       // The owner's hooks run for the worker too; its worktree is not the project, so the project's own hooks file is read from there.
       manager.hooks=this.manager.hooks;
       manager.hooksProjectRoot=this.manager.workspace;
+      // The owner's MCP servers and approvals, shared with the Hub's manager (never closed by the worker).
+      manager.mcp=this.manager.mcp;
       // The worker's run ends with SubagentStop, not Stop (lib/lifecycle-hooks.mjs).
       manager.lifecycleAgent={kind:'subagent',role:'coding_worker',workerId:node.id,runId:job.id};
       assembleStudio(manager,{bundleRoot:this.bundleRoot});

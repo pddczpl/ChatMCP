@@ -1,7 +1,8 @@
-# Licence texts of the code compiled into the MCP client SDK
+# Licence texts of the code compiled into the MCP client and server SDKs
 
-`@modelcontextprotocol/client` 2.4.0 (the MCP client runtime that the installer stages into `DATGOLD-HUB/runtimes/mcp`) is a bundle: its `dist`
-files contain seven packages that are not in `scripts/mcp-runtime/package-lock.json`, and the package ships none of their licence texts. The
+`@modelcontextprotocol/client` 2.4.0 and `@modelcontextprotocol/server` 2.4.0 (the MCP runtime that the installer stages into `DATGOLD-HUB/runtimes/mcp`)
+are bundles: their `dist` files contain the same seven packages, at the same versions, that are not in `scripts/mcp-runtime/package-lock.json`,
+and neither package ships their licence texts. The
 texts are vendored here, unchanged, one folder per package and version. [MANIFEST.json](MANIFEST.json) names each package, its version and
 licence, the SHA-256 of the vendored file, the registry integrity of the tarball it came from, and where the text was taken.
 
@@ -15,7 +16,7 @@ licence, the SHA-256 of the vendored file, the registry integrity of the tarball
 | `fast-uri` | 3.1.8 | BSD-3-Clause | `fast-uri@3.1.8/LICENSE` |
 | `json-schema-traverse` | 1.0.0 | MIT | `json-schema-traverse@1.0.0/LICENSE` |
 
-How the list was derived: the `//#region ../../node_modules/.pnpm/<name>@<version>/...` comments of `node_modules/@modelcontextprotocol/client/dist/*`.
+How the list was derived: the `//#region ../../node_modules/.pnpm/<name>@<version>/...` comments of `node_modules/@modelcontextprotocol/client/dist/*` and `node_modules/@modelcontextprotocol/server/dist/**`.
 `tests/verify-mcp-runtime.mjs` reads those comments again and fails when they name a package or a version that is not in the manifest, so a
-new pin of the client cannot ship without the texts of what it compiles in. `stage.mjs` copies the texts to `runtimes/mcp/licenses/bundled/`
+new pin of the client or the server cannot ship without the texts of what it compiles in. `stage.mjs` copies the texts to `runtimes/mcp/licenses/bundled/`
 and `verify.mjs` refuses a staged runtime in which one is missing or differs from the hash here. `.gitattributes` keeps them byte for byte.

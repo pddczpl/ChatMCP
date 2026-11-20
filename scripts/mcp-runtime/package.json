@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Build-time dependency closure of the MCP client SDK that the installer stages into DATGOLD-HUB/runtimes/mcp (stage.mjs). The Hub loads it lazily (lib/mcp/sdk.mjs) and keeps no runtime dependency of its own. Never install on end-user machines.",
+  "description": "Build-time dependency closure of the MCP client SDK, and of the server SDK with its Node HTTP adapter (the Hub's MCP server), that the installer stages into DATGOLD-HUB/runtimes/mcp (stage.mjs). The Hub loads them lazily (lib/mcp/sdk.mjs, lib/mcp/server-sdk.mjs) and keeps no runtime dependency of its own. Never install on end-user machines.",
   "dependencies": {
-    "@modelcontextprotocol/client": "2.4.0"
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0"
   },
   "engines": {
     "node": ">=22.12"

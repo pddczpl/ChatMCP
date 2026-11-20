@@ -4,8 +4,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson, redact, resolveProgram, spawnLogged, stopOwned } from './runtime.mjs';
 import { powerShellChildEnvironment } from './powershell-environment.mjs';
-import { buildInternalCatalog } from './catalog.mjs';
+import { buildInternalCatalog, fingerprint } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
+import { externalToolName } from './permissions.mjs';
 
 export const VERSION = '3.11.2';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
@@ -13,6 +14,8 @@ export const BACKENDS = Object.freeze(['local']);
 // The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add
 // something are offered next to them (code intelligence, test discovery, checkpoints); the rest would duplicate local.*.
 const LOCAL_BACKEND_STUDIO_TOOLS = new Set(['symbols', 'references', 'definitions', 'index_status', 'checks', 'skills', 'diff_check', 'checkpoints', 'checkpoint', 'review']);
+// An external (MCP) call is not in this list: a server runs outside the Hub and its tools say nothing reliable about what they touch. A checkpoint is
+// taken before an external call only for a server the owner flagged `touchesWorkspace: true` in mcp-servers.json (#checkpointBefore).
 const CHECKPOINT_CATEGORIES = new Set(['workspace_edit', 'dangerous', 'execute', 'unknown']);
 /** What a failed tool result says, for the PostToolUseFailure hooks. */
 const failureText = (result) => {
@@ -69,8 +72,10 @@ export class HubManager {
     this.hooksOwned = false;
     // Where a project's .chatmcp/hooks.json is looked for when the tools run in another folder than the project (a managed worktree).
     this.hooksProjectRoot = null;
-    // The owner's external MCP servers (lib/mcp/client-manager.mjs, created by assembleStudio for the manager of the Hub's data folder). Not
-    // offered to the model yet: only its state is reported and it is closed, with the processes of its servers, on shutdown.
+    // The owner's external MCP servers (lib/mcp/client-manager.mjs, created by assembleStudio for the manager of the Hub's data folder). The tools
+    // of the servers the owner approved are in internalCatalog() as <server>.<tool>; every call goes through #guardCalls like the Hub's own. A
+    // manager that works for another one (a spawned agent, a second workspace, a coding worker, a web session on another workspace) is handed the
+    // SAME instance before it is assembled (mcpOwned false): it never closes it, and it offers the same servers.
     this.mcp = null;
     this.mcpOwned = false;
     // Set on the manager of an agent that a model (spawn_agent, a workflow) or the coding orchestrator started: its run ends with SubagentStop
@@ -187,10 +192,29 @@ export class HubManager {
     this.log(`Workspace: ${target}. Công cụ cục bộ sẵn sàng (${this.catalog.counts.local} local, ${this.catalog.counts.studio} studio).${git ? '' : ' Cảnh báo: chưa tìm thấy Git, các công cụ git_* sẽ báo lỗi.'}`);
   }
 
+  /**
+   * The Hub's own tools, and those of every external server that is connected, launch-approved and whose lists match the owner's pin
+   * (McpClientManager.catalogGroups: sanitized, nothing else of a server reaches the model). An external tool is `<server>.<tool>` (the name rule
+   * of lib/permissions.mjs externalToolName), with the server's own serverInfo and capabilities; its prompts and resources carry `server`.
+   */
   internalCatalog() {
     const local = this.localTools.definitions();
     const studio = this.studioTools.definitions().filter((tool) => LOCAL_BACKEND_STUDIO_TOOLS.has(tool.originalName));
-    return buildInternalCatalog({ local, studio }, { version: VERSION });
+    const groups = { local, studio };
+    const external = [];
+    for (const group of this.mcp?.catalogGroups?.() ?? []) {
+      if (Object.hasOwn(groups, group.id)) continue; // local and studio are reserved ids; never let a server stand in for them
+      groups[group.id] = group.tools.map((tool) => ({ ...tool, name: `${group.id}.${tool.name}`, originalName: tool.name }));
+      external.push(group);
+    }
+    const catalog = buildInternalCatalog(groups, { version: VERSION });
+    for (const group of external) {
+      catalog.servers[group.id] = { serverInfo: group.serverInfo, capabilities: group.capabilities, tools: group.tools.length, prompts: group.prompts.length, resources: group.resources.length, resourceTemplates: 0, fingerprint: group.fingerprint };
+      for (const prompt of group.prompts) catalog.prompts.push({ ...prompt, name: `${group.id}.${prompt.name}`, originalName: prompt.name, server: group.id });
+      for (const resource of group.resources) catalog.resources.push({ ...resource, server: group.id });
+    }
+    if (external.length) catalog.fingerprint = fingerprint(catalog.tools);
+    return catalog;
   }
 
   async stop() {return await this.exclusive(async()=>{
@@ -283,10 +307,18 @@ export class HubManager {
   async createAgentSession({ signal } = {}) {
     if(!this.taskId)throw new Error('Cần khóa workspace trước khi mở phiên nhiệm vụ.');
     signal?.throwIfAborted();
+    // Task preflight: the external servers that may start are connected (lazily, once; a stdio server whose launch the owner has not approved is
+    // never spawned) and the lists of the connected ones are read again, so a server that changed since the last task is quarantined by its pin
+    // before the catalog is built. It never fails the task: a server that cannot be reached is simply not in the catalog.
+    if (this.mcp && typeof this.mcp.prepare === 'function') {
+      try { await this.mcp.prepare({ signal }); }
+      catch (error) { if (signal?.aborted) throw error; this.log(`MCP: preflight failed (${error?.code ?? error?.message}).`); }
+    }
+    signal?.throwIfAborted();
     return this.#createLocalSession();
   }
 
-  /** Local backend: no connections to open; the tools live in this process. */
+  /** The tools of the local backend live in this process; the external ones go through the shared McpClientManager. */
   #createLocalSession() {
     const { binding, check: checkBinding } = this.#binding();
     if (!this.localTools || !this.studioTools) throw new Error('Công cụ cục bộ chưa được khởi tạo.');
@@ -295,14 +327,40 @@ export class HubManager {
     this.catalog = catalog;
     this.tools = catalog.tools;
     let closed = false;
-    const unsupported = (what) => async () => { throw new Error(`Backend cục bộ không có ${what}.`); };
+    const mcp = this.mcp;
+    const known = (server) => Object.hasOwn(catalog.servers, server) && server !== 'local' && server !== 'studio';
     const session = {
       catalog,
-      getPrompt: unsupported('MCP prompts'),
-      readResource: unsupported('MCP resources'),
+      // Prompts and resources of an external server in this session's catalog, read through the server that owns them. A transport failure
+      // throws (the agent stops the task as tool_transport_failed); the answer is data the agent hands the model as untrusted.
+      getPrompt: async (server, name, args, options = {}) => {
+        if (closed) throw new Error('Phiên công cụ đã đóng.');
+        checkBinding();
+        if (!mcp || !known(server)) throw new Error(`Backend cục bộ không có MCP prompts của ${server}.`);
+        return await mcp.getPrompt(server, name, args, { signal: options.signal, timeoutMs: options.timeout });
+      },
+      readResource: async (server, uri, options = {}) => {
+        if (closed) throw new Error('Phiên công cụ đã đóng.');
+        checkBinding();
+        if (!mcp || !known(server)) throw new Error(`Backend cục bộ không có MCP resources của ${server}.`);
+        return await mcp.readResource(server, uri, { signal: options.signal, timeoutMs: options.timeout });
+      },
       async close() { closed = true; },
     };
-    const external = async (name) => { throw new Error(`Không có công cụ ${name} trong danh mục cục bộ.`); };
+    // A call to a tool of an external server, after the gate and the hooks (#guardCalls). What the server could not have run (its tools are not
+    // approved any more, the tool or the arguments are refused before anything is sent) and what it answered with a JSON-RPC error are results the
+    // model reads; a timeout, a lost connection or an abort throws, so the agent stops the task without replaying the call (tool_transport_failed).
+    const external = async (name, args, options = {}) => {
+      const parts = externalToolName(name);
+      if (!mcp || !parts?.server || !known(parts.server)) throw new Error(`Không có công cụ ${name} trong danh mục cục bộ.`);
+      try {
+        return await mcp.callTool(parts.server, parts.tool, args ?? {}, { signal: options.signal, timeoutMs: options.timeout });
+      } catch (error) {
+        if (error?.executed === false) return { isError: true, content: [{ type: 'text', text: `${error.message}` }], structuredContent: { error: { code: error.code, message: error.message }, executed: false } };
+        if (error?.code === 'mcp_call_failed' && Number.isInteger(error.protocolCode)) return { isError: true, content: [{ type: 'text', text: `${error.message}` }], structuredContent: { error: { code: error.code, protocolCode: error.protocolCode, message: error.message }, executed: 'unknown' } };
+        throw error;
+      }
+    };
     this.#guardCalls(session, { catalog, binding, checkBinding: () => { if (closed) throw new Error('Phiên công cụ đã đóng.'); checkBinding(); }, external });
     return this.#trackSession(session);
   }
@@ -440,7 +498,9 @@ export class HubManager {
    * finds the baseline of a task by it), and `onCheckpoint` tells the caller which checkpoint belongs to THIS call before the call runs.
    */
   async #checkpointBefore(name, args, decision, binding, onCheckpoint) {
-    if (!this.studio || !CHECKPOINT_CATEGORIES.has(decision.category)) return;
+    // An external call gets the bounded workspace snapshot only when the owner flagged its server touchesWorkspace (RR-42).
+    const externalWrite = decision.category === 'external' && this.mcp?.store?.touchesWorkspace?.(externalToolName(name)?.server) === true;
+    if (!this.studio || (!CHECKPOINT_CATEGORIES.has(decision.category) && !externalWrite)) return;
     const label = `Before ${name} · ${binding.taskId}`;
     let request = { label, taskId: binding.taskId, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };
     const BROAD_CHECKPOINT_TOOLS = new Set([
