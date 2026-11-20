@@ -100,7 +100,9 @@ await runScenario({
   const seamInput = (args = [SEAM, '--count-file', counts]) => ({
     transport: 'stdio', command: process.execPath, args,
     env: { PLAIN_NAME: 'visible-value', API_TOKEN: { value: SECRETS.env, secret: false }, OTHER_VALUE: { value: SECRETS.marked, secret: true } },
+    timeouts: { connectMs: 25_000, callMs: 90_000 }, trust: { annotations: true },
   });
+  const keepSecrets = { PLAIN_NAME: 'visible-value', API_TOKEN: { keep: true }, OTHER_VALUE: { keep: true } };
   const created = await post(ROUTE.upsert, { id: 'seam', server: seamInput() });
   t.check(created.status === 200 && created.json?.server?.id === 'seam' && created.json?.created === true, 'upsert seam (stdio): 200, created', `${created.status} ${created.text.slice(0, 200)}`);
   t.equal(created.json?.server?.env, { PLAIN_NAME: { value: 'visible-value', secret: false }, API_TOKEN: { secret: true }, OTHER_VALUE: { secret: true } }, 'the answer shows a plain value and says only "set" for the two secrets (one named like a credential, one marked)');
@@ -110,7 +112,7 @@ await runScenario({
   const listed = await list();
   t.equal(listed.servers.map((entry) => [entry.id, entry.transport, entry.enabled]), [['seam', 'stdio', true], ['web', 'http', true]], 'GET lists both, in order, enabled');
   const seamView = listed.servers[0];
-  t.equal([seamView.command, seamView.args, Object.keys(seamView.env)], [process.execPath, [SEAM, '--count-file', counts], ['PLAIN_NAME', 'API_TOKEN', 'OTHER_VALUE']], 'GET round-trips the command, the args and the env names');
+  t.equal([seamView.command, seamView.args, Object.keys(seamView.env), seamView.timeouts, seamView.trust], [process.execPath, [SEAM, '--count-file', counts], ['PLAIN_NAME', 'API_TOKEN', 'OTHER_VALUE'], { connectMs: 25_000, callMs: 90_000 }, { annotations: true }], 'GET round-trips the command, the args, the env names, the timeouts and the trust');
   t.equal([seamView.status?.state, seamView.status?.launch?.required, seamView.status?.launch?.approved], ['idle', true, false], 'a new stdio server is idle and its launch is not approved');
   t.equal(leaks((await hub.get(LIST)).text), [], 'GET /api/mcp/servers holds no secret text');
   t.equal(leaks(JSON.stringify(await hub.state())), [], '/api/state holds no secret text');
@@ -176,11 +178,16 @@ await runScenario({
   t.check(seamPinned.tools.find((tool) => tool.name === 'wipe_cache')?.annotations?.destructiveHint === true, 'and the annotations the server gave (wipe_cache is destructive)');
 
   // A server whose tools change after the owner looked at them.
-  const drift = await post(ROUTE.upsert, { id: 'drift', server: { transport: 'stdio', command: process.execPath, args: [DRIFT, '--change-after', '1'] } });
+  const drift = await post(ROUTE.upsert, { id: 'drift', server: { transport: 'stdio', command: process.execPath, args: [DRIFT, '--change-after', '1', '--description-bytes', '1500'] } });
   t.equal(drift.status, 200, 'upsert drift');
+  t.equal((await post(ROUTE.test, { id: 'drift' })).json?.status?.state, 'needs_launch_approval', 'test drift before its launch is approved: needs_launch_approval');
   t.equal((await post(ROUTE.approveLaunch, { id: 'drift', expectedFingerprint: (await post(ROUTE.launchRecord, { id: 'drift' })).json.fingerprint })).status, 200, 'its launch is approved');
+  const driftApproved = await server('drift');
+  t.equal([driftApproved.status.state, driftApproved.status.launch.approved], ['idle', true], 'GET no longer shows the refused attempt: idle, the launch approved');
   t.check((await post(ROUTE.test, { id: 'drift' })).json?.ok === true, 'test drift: connected');
   const shown = (await post(ROUTE.toolReview, { id: 'drift' })).json;
+  const longText = (await server('drift')).tools.find((tool) => tool.name === 'tool_1')?.description ?? '';
+  t.check(longText.length === 600 && shown.tools.find((tool) => tool.name === 'tool_1').description.length > 600, 'GET cuts a long description to 600 characters; tool-review carries the whole sanitized one', String(longText.length));
   t.equal((await post(ROUTE.approveTools, { id: 'drift', expectedFingerprint: shown.fingerprint })).status, 200, 'its first lists are pinned');
   const again = await post(ROUTE.test, { id: 'drift' });
   t.check(again.json?.ok === true && again.json?.status?.state === 'needs_review', 'a second test lists again: the description changed, needs_review', again.text.slice(0, 240));
@@ -198,16 +205,18 @@ await runScenario({
     ['a default that is not a word', { id: 'seam', default: 1 }],
     ['an unknown key', { id: 'seam', tools: { echo: 'allow' }, extra: true }],
     ['neither default nor tools', { id: 'seam' }],
-    ['tools that are not an object', { id: 'seam', tools: ['echo'] }],
+    ['tools that are not an object', { id: 'seam', tools: ['deny'] }],
+    ['more than 256 rules at once', { id: 'seam', tools: Object.fromEntries(Array.from({ length: 257 }, (_, index) => [`tool_${index}`, 'deny'])) }],
   ]) {
     const answer = await post(ROUTE.toolPolicy, body);
-    t.check(answer.status === 400, `tool-policy refuses ${label}: 400`, `${answer.status} ${answer.text.slice(0, 160)}`);
+    t.check(answer.status === 400 && answer.json?.code === 'mcp_request_invalid', `tool-policy refuses ${label}: 400 mcp_request_invalid`, `${answer.status} ${answer.text.slice(0, 160)}`);
   }
   t.equal((await post(ROUTE.toolPolicy, { id: 'nobody', tools: { echo: 'allow' } })).status, 404, 'tool-policy of a server that is not configured: 404');
   const policy = await post(ROUTE.toolPolicy, { id: 'seam', tools: { forbidden: 'deny', echo: 'allow' } });
   t.check(policy.status === 200 && policy.json?.server?.policy?.tools?.forbidden === 'deny' && policy.json.server.policy.tools.echo === 'allow', 'tool-policy: forbidden deny, echo allow', `${policy.status} ${policy.text.slice(0, 200)}`);
   t.equal(stored().servers.seam.policy, { tools: { forbidden: 'deny', echo: 'allow' } }, 'mcp-servers.json holds the policy');
   t.check(stored().servers.seam.env.API_TOKEN.secret === blob, 'and still the same protected secret');
+  t.equal([stored().servers.seam.timeouts, stored().servers.seam.trust, stored().servers.seam.args], [{ connectMs: 25_000, callMs: 90_000 }, { annotations: true }, [SEAM, '--count-file', counts, '--tools', '2']], 'and the rest of the server as it was');
   const seamPolicy = await server('seam');
   t.equal(['echo', 'forbidden', 'create_issue'].map((name) => { const tool = seamPolicy.tools.find((entry) => entry.name === name); return [tool?.rule, tool?.policy]; }), [['allow', 'allow'], ['deny', 'deny'], [null, 'ask']], 'GET shows the rule and the word that applies');
   t.check(seamPolicy.status.state === 'connected', 'a policy change keeps the connection');
@@ -218,10 +227,21 @@ await runScenario({
   t.check(results.length === 2 && wasRefused(results[0]) && !wasRefused(results[1]) && /echo: one/.test(results[1]), 'a task: seam.forbidden (deny) is refused, seam.echo (allow) runs', JSON.stringify(results).slice(0, 300));
   t.equal(calls(), ['echo'], 'only echo reached the server, once');
   t.equal((await post(ROUTE.toolPolicy, { id: 'seam', tools: { echo: 'deny' } })).status, 200, 'echo is set to deny');
+  t.equal(stored().servers.seam.policy, { tools: { forbidden: 'deny', echo: 'deny' } }, 'a rule is added to the others, not in their place');
   await runGate();
   t.check(results.length === 2 && wasRefused(results[0]) && wasRefused(results[1]), 'the next task: both are refused', JSON.stringify(results).slice(0, 300));
   t.equal(calls(), ['echo'], 'and echo did not reach the server again');
-  const cleared = await post(ROUTE.toolPolicy, { id: 'seam', default: 'deny', tools: { echo: null, forbidden: null } });
+  const parallel = ['create_issue', 'wipe_cache', 'write_note', 'images', 'crash'];
+  const answers = await Promise.all(parallel.map((name) => post(ROUTE.toolPolicy, { id: 'seam', tools: { [name]: 'ask' } })));
+  t.check(answers.every((answer) => answer.status === 200) && parallel.every((name) => stored().servers.seam.policy.tools[name] === 'ask') && stored().servers.seam.policy.tools.forbidden === 'deny', 'five rules sent at once are all kept (the writes run one at a time)', JSON.stringify(stored().servers.seam.policy));
+  const policyBefore = stored().servers.seam.policy;
+  const moved = await post(ROUTE.upsert, { id: 'seam', server: { ...seamInput([SEAM, '--count-file', counts, '--tools', '3']), env: keepSecrets } });
+  const afterMove = await server('seam');
+  t.check(moved.status === 200 && JSON.stringify(stored().servers.seam.policy) === JSON.stringify(policyBefore), 'an upsert without a policy keeps the stored one', `${moved.status} ${JSON.stringify(stored().servers.seam.policy)}`);
+  t.equal([afterMove.status.state, afterMove.status.launch.approved], ['idle', false], 'it closes the open connection, and the launch record changed: not approved');
+  t.equal((await post(ROUTE.upsert, { id: 'seam', server: { ...seamInput([SEAM, '--count-file', counts, '--tools', '2']), env: keepSecrets } })).status, 200, 'the argument is put back');
+  t.equal((await server('seam')).status.launch.approved, true, 'the record is the approved one again: approved');
+  const cleared = await post(ROUTE.toolPolicy, { id: 'seam', default: 'deny', tools: { echo: null, forbidden: null, ...Object.fromEntries(parallel.map((name) => [name, null])) } });
   t.equal([cleared.status, cleared.json?.server?.policy], [200, { default: 'deny', tools: {} }], 'null clears a rule; a default can be set');
   t.equal((await post(ROUTE.toolPolicy, { id: 'seam', default: null })).json?.server?.policy, { tools: {} }, 'and null clears the default');
 
@@ -251,13 +271,24 @@ await runScenario({
   const webView = await server('web');
   t.check(typeof webView.status.retryAt === 'string' && webView.status.lastError?.code === down.json.error.code, 'GET shows the error and when the preflight tries again (retryAt)');
   t.equal(leaks(down.text), [], 'the error holds no secret text (the Authorization header)');
+  t.equal((await post(ROUTE.toolPolicy, { id: 'web', default: 'deny' })).json?.server?.policy, { default: 'deny' }, 'web: deny by default');
+  t.equal((await post(ROUTE.upsert, { id: 'web', server: { transport: 'http', url: 'http://127.0.0.1:9/mcp', headers: { Authorization: { keep: true }, 'X-Plain': 'hello' } } })).status, 200, 'web is saved again, its header secret kept');
+  const webAgain = await server('web');
+  t.equal([webAgain.policy, webAgain.status.state, webAgain.status.retryAt, webAgain.headers.Authorization], [{ default: 'deny' }, 'idle', null, { secret: true }], 'its policy is kept, the failed attempt and its back-off are cleared');
+  t.equal((await post(ROUTE.test, { id: 'seam' })).json?.status?.state, 'connected', 'seam connects again (its launch and its lists are the approved ones)');
   const before = fs.readFileSync(file, 'utf8');
   const edited = JSON.parse(before);
-  edited.servers.hand = { transport: 'stdio', command: 'node', args: ['--version'] };
+  edited.servers.hand = { transport: 'stdio', command: process.execPath, args: ['--version'] };
   fs.writeFileSync(file, JSON.stringify(edited, null, 2));
   const reloaded = await post(ROUTE.reload, {});
   t.check(reloaded.status === 200 && reloaded.json?.servers?.map((entry) => entry.id).join() === 'seam,web,hand', 'reload reads a file edited by hand', `${reloaded.status} ${reloaded.text.slice(0, 200)}`);
   t.equal((await server('seam')).status.state, 'idle', 'reload closes the open connections (they reopen at the next task or test)');
+  t.equal((await post(ROUTE.approveLaunch, { id: 'hand', expectedFingerprint: (await post(ROUTE.launchRecord, { id: 'hand' })).json.fingerprint })).status, 200, 'the launch of hand is approved');
+  t.equal((await server('hand')).status.launch.approved, true, 'GET: approved');
+  edited.servers.hand.args = ['--version', '--no-warnings'];
+  fs.writeFileSync(file, JSON.stringify(edited, null, 2));
+  t.equal((await post(ROUTE.reload, {})).status, 200, 'hand gets another argument in the file, and the file is read again');
+  t.equal((await server('hand')).status.launch.approved, false, 'GET: its launch is no longer approved (the record read again, not the one seen before the reload)');
   fs.writeFileSync(file, JSON.stringify({ version: 2, servers: {} }));
   const broken = await post(ROUTE.reload, {});
   t.check(broken.status === 400 && broken.json?.code === 'mcp_config_invalid', 'a file that breaks a rule: 400 mcp_config_invalid', `${broken.status} ${broken.text.slice(0, 160)}`);

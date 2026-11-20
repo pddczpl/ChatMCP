@@ -1,0 +1,211 @@
+{
+  "suite": "verify-mcp-http.mjs",
+  "description": "The owner's routes for external MCP servers (P2 slice D, plan task ext-14): lib/mcp/http-api.mjs (the checks of a body, the 409 while a task runs, one write at a time, the policy kept by an upsert, the connection closed and the back-off cleared after a change, the launch state of a server without a connection, the test route, tool-policy as a patch that keeps the rest of the server and its secrets, reload) and its wiring in hub.mjs, judged by tests/verify-mcp-http.mjs against a real Hub.",
+  "mutations": [
+    {
+      "name": "HA-writes-while-busy",
+      "what": "the routes change the servers while a task is active",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (this.busy()) throw Object.assign(", "new": "if (false) throw Object.assign(" }]
+    },
+    {
+      "name": "HA-hub-busy-ignores-task",
+      "what": "hub.mjs does not count the main task as busy (only workers and delegates)",
+      "patches": [{ "file": "hub.mjs", "old": "busy: () => Boolean(taskEngine?.state()?.activeTaskId || dynamic?.activeRunId", "new": "busy: () => Boolean(dynamic?.activeRunId" }]
+    },
+    {
+      "name": "HA-test-while-busy",
+      "what": "the test route connects a server while a task is active",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "    serverId(id);\n    this.#idle();\n", "new": "    serverId(id);\n" }]
+    },
+    {
+      "name": "HA-approve-launch-outside-the-queue",
+      "what": "an approval of a launch is not queued with the other writes (and is not checked against an active task)",
+      "patches": [
+        { "file": "lib/mcp/http-api.mjs", "old": "    return this.#write(async () => {\n      await this.#loaded();\n      this.#known(id);\n      const answer = await this.mcp.approveLaunch(", "new": "    return (async () => {\n      await this.#loaded();\n      this.#known(id);\n      const answer = await this.mcp.approveLaunch(" },
+        { "file": "lib/mcp/http-api.mjs", "old": "      return answer;\n    });\n", "new": "      return answer;\n    })();\n" }
+      ]
+    },
+    {
+      "name": "HA-writes-concurrent",
+      "what": "the writes are not run one at a time (two tool-policy requests read the same server and the later write loses the earlier rule)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "const run = this.writes.then(() => { this.#idle(); return operation(); });", "new": "const run = Promise.resolve().then(() => { this.#idle(); return operation(); });" }]
+    },
+    {
+      "name": "HA-unknown-key-accepted",
+      "what": "a body with a key the route does not know is accepted ({fingerprint} instead of expectedFingerprint, a misspelt field)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (!allowed.includes(key)) throw requestFault(", "new": "if (false) throw requestFault(" }]
+    },
+    {
+      "name": "HA-body-not-object",
+      "what": "the module does not refuse a body that is not an object",
+      "equivalent": "hub.mjs refuses every POST body that is not a JSON object (400) before any route is called, so this check of the module never sees one from the Hub",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "  if (!isObject(payload)) throw requestFault('The body must be a JSON object.');\n", "new": "" }]
+    },
+    {
+      "name": "HA-id-unchecked",
+      "what": "an id that is not a server id passes to the store (it answers 404 or mcp_config_invalid instead of mcp_request_invalid)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (typeof id !== 'string' || !SERVER_ID.test(id)) throw requestFault(", "new": "if (false) throw requestFault(" }]
+    },
+    {
+      "name": "HA-server-not-object",
+      "what": "an upsert without a server object reaches the store",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "    if (!isObject(server)) throw requestFault('\"server\" must be an object.');\n", "new": "" }]
+    },
+    {
+      "name": "HA-upsert-drops-policy",
+      "what": "an upsert without a policy wipes the owner's rules",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (input.policy === undefined && previous) input.policy = previous.policy;", "new": "if (false) input.policy = previous.policy;" }]
+    },
+    {
+      "name": "HA-upsert-keeps-connection",
+      "what": "a changed server keeps the connection opened with its old configuration",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "for (const id of ids) { this.launches.delete(id); await this.mcp.disconnect(id); }", "new": "for (const id of ids) { this.launches.delete(id); }" }]
+    },
+    {
+      "name": "HA-upsert-keeps-launch-state",
+      "what": "the list keeps the launch state it computed before the server changed",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "for (const id of ids) { this.launches.delete(id); await this.mcp.disconnect(id); }", "new": "for (const id of ids) { await this.mcp.disconnect(id); }" }]
+    },
+    {
+      "name": "HA-change-keeps-backoff",
+      "what": "a change does not read the file again, so the back-off of a failed server stays",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "    await this.mcp.reload();\n    this.loadError = null;\n  }\n", "new": "    this.loadError = null;\n  }\n" }]
+    },
+    {
+      "name": "HA-launch-state-from-status",
+      "what": "the list says a stdio server is approved when any record was approved, even one that changed since (status() alone)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (launch) state.launch = launch;", "new": "if (false) state.launch = launch;" }]
+    },
+    {
+      "name": "HA-approve-keeps-launch-state",
+      "what": "after an approval the list keeps the launch state it computed before",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "      const answer = await this.mcp.approveLaunch(id, { expectedFingerprint });\n      this.launches.delete(id);\n", "new": "      const answer = await this.mcp.approveLaunch(id, { expectedFingerprint });\n" }]
+    },
+    {
+      "name": "HA-approve-keeps-refused-attempt",
+      "what": "after an approval the list still shows the attempt that was refused for want of it (needs_launch_approval, not approved)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (this.mcp.connections.get(id)?.state === 'needs_launch_approval') await this.mcp.disconnect(id);", "new": "if (false) await this.mcp.disconnect(id);" }]
+    },
+    {
+      "name": "HA-test-never-relists",
+      "what": "the test of a connected server does not list it again (a changed list is not seen)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (this.mcp.connections.get(id)?.state === 'connected') await this.mcp.listTools(id, { refresh: true });\n      else await this.mcp.connect(id);", "new": "await this.mcp.connect(id);" }]
+    },
+    {
+      "name": "HA-test-code-flattened",
+      "what": "the test route reports every failure as mcp_connect_failed (the owner is not told the launch needs approval)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "code: typeof failure?.code === 'string' && /^mcp_/.test(failure.code) ? failure.code : 'mcp_connect_failed',", "new": "code: 'mcp_connect_failed'," }]
+    },
+    {
+      "name": "HA-test-always-ok",
+      "what": "the test route says ok when the connection failed",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "return { ok: error === null, error, status };", "new": "return { ok: true, error, status };" }]
+    },
+    {
+      "name": "HA-test-error-unmasked",
+      "what": "the error the test route returns is not passed through the Hub's masker",
+      "equivalent": "every error that reaches the test route is already masked: the client manager redacts a failed connect with the Hub's and the connection's secrets (#failed), and a configuration fault names variables, never their values; the suite's Authorization secret stays out either way",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "message: this.mask(String(failure?.message ?? failure)).slice(0, 500) };\n    }", "new": "message: String(failure?.message ?? failure).slice(0, 500) };\n    }" }]
+    },
+    {
+      "name": "HA-unknown-server-not-404",
+      "what": "a route on a server that is not configured goes on (delete answers deleted)",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (!this.mcp.store.get(id)) throw unknownServer(id);", "new": "if (false) throw unknownServer(id);" }]
+    },
+    {
+      "name": "HA-policy-unknown-server",
+      "what": "tool-policy of a server that is not configured fails with a 500 instead of 404",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "      if (!view) throw unknownServer(id);\n", "new": "" }]
+    },
+    {
+      "name": "HA-policy-empty-accepted",
+      "what": "tool-policy with neither default nor tools is accepted",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (fallback === undefined && tools === undefined) throw requestFault(", "new": "if (false) throw requestFault(" }]
+    },
+    {
+      "name": "HA-policy-word-unchecked",
+      "what": "a word that is not ask, allow, deny or null reaches the store",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (value !== null && !POLICY_WORDS.includes(value)) throw requestFault(", "new": "if (false) throw requestFault(" }]
+    },
+    {
+      "name": "HA-policy-tools-array",
+      "what": "an array of words is read as rules for tools named 0, 1 ...",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (!isObject(tools)) throw requestFault(", "new": "if (false) throw requestFault(" }]
+    },
+    {
+      "name": "HA-policy-too-many",
+      "what": "one body may set more than 256 rules",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (entries.length > MAX_POLICY_CHANGES) throw requestFault(", "new": "if (false) throw requestFault(" }]
+    },
+    {
+      "name": "HA-default-null-kept",
+      "what": "null does not clear the default",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (fallback === null) delete policy.default;", "new": "if (fallback === null) {}" }]
+    },
+    {
+      "name": "HA-rule-null-kept",
+      "what": "null does not clear a rule",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "if (value === null) delete policy.tools[name];", "new": "if (value === null) {}" }]
+    },
+    {
+      "name": "HA-rules-replaced",
+      "what": "a tool-policy body replaces the rules instead of adding to them",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "policy.tools = { ...(policy.tools ?? {}) };", "new": "policy.tools = {};" }]
+    },
+    {
+      "name": "HA-policy-drops-secrets",
+      "what": "tool-policy sends a secret back as its (absent) value instead of keeping it",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "entry.secret ? { keep: true } : entry.value", "new": "entry.value" }]
+    },
+    {
+      "name": "HA-policy-resets-timeouts",
+      "what": "tool-policy saves the server with the default timeouts",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "enabled: view.enabled, timeouts: { ...view.timeouts }, policy:", "new": "enabled: view.enabled, policy:" }]
+    },
+    {
+      "name": "HA-policy-resets-trust",
+      "what": "tool-policy drops the owner's trust in the server's annotations",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "trust: { annotations: view.trust?.annotations === true },", "new": "trust: { annotations: false }," }]
+    },
+    {
+      "name": "HA-policy-drops-headers",
+      "what": "tool-policy saves an HTTP server without its headers",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "{ url: view.url, headers: map(view.headers) }", "new": "{ url: view.url, headers: {} }" }]
+    },
+    {
+      "name": "HA-description-uncut",
+      "what": "the list carries a long tool description whole",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "description: String(tool.description ?? '').slice(0, TOOL_DESCRIPTION_CHARS),", "new": "description: String(tool.description ?? ''))," }]
+    },
+    {
+      "name": "HA-rule-invented",
+      "what": "a tool without a rule is shown with the rule ask",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "? server.policy.tools[tool.name] : null;", "new": "? server.policy.tools[tool.name] : 'ask';" }]
+    },
+    {
+      "name": "HA-word-defaults-to-allow",
+      "what": "a tool with no rule and no default is shown as allowed",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "policy: policyWordFor(server, tool.name) ?? 'ask',", "new": "policy: policyWordFor(server, tool.name) ?? 'allow'," }]
+    },
+    {
+      "name": "HA-reload-keeps-connections",
+      "what": "reload leaves the open connections running with the old configuration",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "      for (const id of [...this.mcp.connections.keys()]) await this.mcp.disconnect(id);\n", "new": "" }]
+    },
+    {
+      "name": "HA-reload-error-unrecorded",
+      "what": "a file that could not be read is not reported by the list",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "      catch (error) { this.loadError = { code: error.code ?? 'mcp_config_invalid', message: this.mask(String(error.message ?? error)).slice(0, 500) }; throw error; }\n      this.loadError = null;", "new": "      catch (error) { throw error; }\n      this.loadError = null;" }]
+    },
+    {
+      "name": "HA-reload-error-kept",
+      "what": "the error of a failed reload stays after a reload that worked",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "      this.loadError = null;\n      this.launches.clear();\n", "new": "      this.launches.clear();\n" }]
+    },
+    {
+      "name": "HA-reload-keeps-launch-state",
+      "what": "after a reload the list keeps the launch state computed from the file read before",
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "      this.launches.clear();\n", "new": "" }]
+    }
+  ]
+}

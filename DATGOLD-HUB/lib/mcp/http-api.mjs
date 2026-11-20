@@ -38,16 +38,14 @@ export const MCP_POST_ROUTES = Object.freeze({
 export const TOOL_DESCRIPTION_CHARS = 600;
 /** How many tool rules one tool-policy body may set. */
 export const MAX_POLICY_CHANGES = 256;
-const HINTS = Object.freeze(['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint']);
 
 const requestFault = (message) => Object.assign(new Error(message), { code: 'mcp_request_invalid', statusCode: 400 });
 const unknownServer = (id) => Object.assign(new Error(`No MCP server "${id}" is configured.`), { code: 'mcp_server_unknown', statusCode: 404 });
 
-/** The fields of a body: every key must be allowed, every required one present. */
-function take(payload, allowed, required = allowed) {
+/** The fields of a body: every key must be one of `allowed` (each field is then checked where it is read). */
+function take(payload, allowed) {
   if (!isObject(payload)) throw requestFault('The body must be a JSON object.');
   for (const key of Object.keys(payload)) if (!allowed.includes(key)) throw requestFault(`"${key.slice(0, 64)}" is not a field of this request (${allowed.join(', ') || 'none'}).`);
-  for (const key of required) if (payload[key] === undefined) throw requestFault(`"${key}" is required.`);
   return payload;
 }
 
@@ -68,10 +66,9 @@ export function inputOf(view) {
   return input;
 }
 
-/** One tool as the list shows it: its sanitized name, title, description (cut), the boolean hints the server gave, and the owner's rule. */
+/** One tool as the list shows it: its sanitized name, title, description (cut), its hints (sanitizeAnnotations kept only the boolean ones) and the owner's rule. */
 function toolView(tool, server) {
-  const annotations = {};
-  for (const hint of HINTS) if (typeof tool.annotations?.[hint] === 'boolean') annotations[hint] = tool.annotations[hint];
+  const annotations = { ...(tool.annotations ?? {}) };
   const rule = isObject(server.policy?.tools) && Object.hasOwn(server.policy.tools, tool.name) ? server.policy.tools[tool.name] : null;
   return {
     name: tool.name, ...(typeof tool.title === 'string' && tool.title ? { title: tool.title } : {}),
@@ -195,7 +192,6 @@ export class McpHttpApi {
     } catch (failure) {
       error = { code: typeof failure?.code === 'string' && /^mcp_/.test(failure.code) ? failure.code : 'mcp_connect_failed', message: this.mask(String(failure?.message ?? failure)).slice(0, 500) };
     }
-    this.launches.delete(id);
     const status = this.mcp.status().servers.find((entry) => entry.id === id) ?? null;
     return { ok: error === null, error, status };
   }
@@ -211,7 +207,7 @@ export class McpHttpApi {
 
   /** POST /api/mcp/server/approve-launch {id, expectedFingerprint} */
   async approveLaunch(payload) {
-    const { id, expectedFingerprint } = take(payload, ['id', 'expectedFingerprint'], ['id']);
+    const { id, expectedFingerprint } = take(payload, ['id', 'expectedFingerprint']);
     serverId(id);
     return this.#write(async () => {
       await this.#loaded();
@@ -235,7 +231,7 @@ export class McpHttpApi {
 
   /** POST /api/mcp/server/approve-tools {id, expectedFingerprint} */
   async approveTools(payload) {
-    const { id, expectedFingerprint } = take(payload, ['id', 'expectedFingerprint'], ['id']);
+    const { id, expectedFingerprint } = take(payload, ['id', 'expectedFingerprint']);
     serverId(id);
     return this.#write(async () => {
       await this.#loaded();
@@ -249,7 +245,7 @@ export class McpHttpApi {
    * (no rule). The rest of the server is saved as it is (its secrets kept). The gate reads the policy at each call, so no connection is closed.
    */
   async toolPolicy(payload) {
-    const { id, default: fallback, tools } = take(payload, ['id', 'default', 'tools'], ['id']);
+    const { id, default: fallback, tools } = take(payload, ['id', 'default', 'tools']);
     serverId(id);
     if (fallback === undefined && tools === undefined) throw requestFault('Give "default", "tools" or both.');
     const word = (value, where) => {

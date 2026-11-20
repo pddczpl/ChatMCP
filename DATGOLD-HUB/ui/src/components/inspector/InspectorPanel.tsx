@@ -15,10 +15,11 @@ import { ReviewTab } from './ReviewTab';
 import { TerminalTab } from './TerminalTab';
 import { PlanTab } from './PlanTab';
 import { PreviewTab } from './PreviewTab';
+import { McpTab } from './McpTab';
 
-/** Tabs that are always in the strip. The activity log and the preview are used less: they sit under "More" until chosen. */
+/** Tabs that are always in the strip. The activity log, the preview and the MCP servers are used less: they sit under "More" until chosen. */
 const PRIMARY: InspectorTab[] = ['plan', 'changes', 'review', 'files', 'terminal', 'agents'];
-const OVERFLOW: InspectorTab[] = ['activity', 'preview'];
+const OVERFLOW: InspectorTab[] = ['activity', 'preview', 'mcp'];
 
 export function InspectorPanel() {
   const { activeTab, setActiveTab, selectedWorkspacePath } = useAppStore();
@@ -37,6 +38,7 @@ export function InspectorPanel() {
     activity: t('tab_activity'),
     agents: t('tab_agents'),
     preview: t('tab_preview'),
+    mcp: t('tab_mcp'),
   };
   const visible = OVERFLOW.includes(activeTab) ? [...PRIMARY, activeTab] : PRIMARY;
   const hidden = OVERFLOW.filter(tab => !visible.includes(tab));
@@ -129,6 +131,7 @@ export function InspectorPanel() {
             {activeTab === 'activity' && <ActivityTab />}
             {activeTab === 'agents' && <BackgroundTasks />}
             {activeTab === 'preview' && <PreviewTab />}
+            {activeTab === 'mcp' && <McpTab />}
           </>
         )}
       </div>
