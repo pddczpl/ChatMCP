@@ -152,6 +152,9 @@ const ADDED = new Set([ // steps of release.yml with no counterpart in 3.11.2
   'Verify the asset hashes against the manifest',
   'Say what a dry run did not do',
   'Retrieve only artifacts from this successful workflow run and verify them again',
+  // the test tools of the suites that came after 3.11.2 (ACP, MCP), installed as ci.yml installs them (check 6)
+  'Install the ACP test tools',
+  'Install the MCP client SDK and the MCP reference servers',
 ]);
 
 export function compare(frozen, release) {
@@ -260,6 +263,34 @@ export function compare(frozen, release) {
     assert.notDeepEqual(compare(frozenText, after), [], `the defect "${label}" was not detected`);
   }
   ok(`${mutations.length} defects put into an in-memory copy of release.yml (a dropped flag, test, Hub run, checksum or draft, another pin, another time limit, two steps swapped, an unlisted step) are each detected`);
+}
+
+// ---- 6. the no-skip Hub run of a release installs what the no-skip Hub run of ci.yml installs -------------------------------------------
+// The dry run of 2026-11-21 (run 44816344277) failed here: release.yml was built from publish-v3.11.2.yml, which predates the ACP and MCP
+// suites, so 11 suites were skipped for their missing test tools and --no-skip made each skip a failure. Every `npm ci --prefix <folder>` that
+// the hub-tests job of ci.yml runs before its run-all must also run in the Windows job of release.yml before its run-all.
+export function missingInstalls(ciText, releaseYml) {
+  const prefixes = (text, jobHeader, baseDir) => {
+    const start = text.indexOf(jobHeader);
+    if (start < 0) return null;
+    const rest = text.slice(start);
+    const end = rest.search(/\n {2}[a-z][a-z0-9-]*:\n/);
+    const job = end > 0 ? rest.slice(0, end) : rest;
+    const runAll = job.indexOf('tests/run-all.mjs --no-skip all');
+    const before = runAll < 0 ? job : job.slice(0, runAll);
+    return [...before.matchAll(/npm ci [^\n]*--prefix (\S+)/g)].map((m) => path.posix.normalize(path.posix.join(baseDir, m[1])));
+  };
+  const ci = prefixes(ciText, '\n  hub-tests:\n', 'DATGOLD-HUB');
+  const release = prefixes(releaseYml, '\n  windows:\n', '.');
+  if (!ci || !release) return ['a job was not found'];
+  return ci.filter((folder) => !release.includes(folder));
+}
+{
+  const ciText = lf(readFileSync(path.join(REPO, '.github', 'workflows', 'ci.yml'), 'utf8'));
+  const missing = missingInstalls(ciText, releaseText);
+  assert.deepEqual(missing, [], `release.yml runs the no-skip Hub regression without installing what ci.yml installs for it: ${missing.join(', ')}`);
+  assert.ok(missingInstalls(ciText, releaseText.replace(/^ +npm ci [^\n]*--prefix DATGOLD-HUB\/tests\/acp-tools[^\n]*\n/m, '')).includes('DATGOLD-HUB/tests/acp-tools'), 'a dropped ACP install is detected');
+  ok('the no-skip Hub run of release.yml installs every test tool folder that the no-skip Hub run of ci.yml installs (ACP tools, MCP runtime, MCP reference servers)');
 }
 
 console.log(`PASS: ${checks} release workflow checks (release.yml against the frozen publish-v3.11.2.yml)`);
