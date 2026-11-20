@@ -175,7 +175,7 @@
     {
       "name": "HA-description-uncut",
       "what": "the list carries a long tool description whole",
-      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "description: String(tool.description ?? '').slice(0, TOOL_DESCRIPTION_CHARS),", "new": "description: String(tool.description ?? ''))," }]
+      "patches": [{ "file": "lib/mcp/http-api.mjs", "old": "description: String(tool.description ?? '').slice(0, TOOL_DESCRIPTION_CHARS),", "new": "description: String(tool.description ?? '')," }]
     },
     {
       "name": "HA-rule-invented",
