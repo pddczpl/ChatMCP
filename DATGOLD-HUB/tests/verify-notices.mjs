@@ -804,7 +804,7 @@ try {
     ['Build-Installer.ps1 no longer copies the Node.js LICENSE', 'scripts/Build-Installer.ps1', dropLines(/Copy-InstallerNodeLicense/), /Node\.js LICENSE next to/],
     ['the payload no longer requires THIRD-PARTY-NOTICES.md', 'scripts/InstallerPayload.ps1', (source) => source.replace(", 'THIRD-PARTY-NOTICES.md')) {", ')) {'), /does not require LICENSE, NOTICE and THIRD-PARTY-NOTICES\.md/],
     ['one UI package dropped from the generated list', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| `zustand` \|/), /generated list of UI packages/],
-    ['a release workflow builds with pending notices allowed', '.github/workflows/publish-v3.9.0.yml', (source) => source.replace(/^jobs:/m, `env:\n  ${PENDING_ALLOWED_ENV}: '1'\njobs:`), /only ci\.yml may build/],
+    ['a release workflow builds with pending notices allowed', '.github/workflows/release.yml', (source) => source.replace(/^jobs:/m, `env:\n  ${PENDING_ALLOWED_ENV}: '1'\njobs:`), /only ci\.yml may build/],
     ['the archived 1.x text back', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', (source) => `ARCHIVED 1.x/2.x INTEGRATION NOTES - NOT CURRENT\n${source}`, /archived 1\.x text/],
     // the MCP client runtime
     ['the zod row dropped from the generated MCP list of THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| `zod` \| [\d.]+ \| MIT \| `DATGOLD-HUB\/runtimes\/mcp/), /MCP client runtime in THIRD-PARTY-NOTICES\.md differs/],
