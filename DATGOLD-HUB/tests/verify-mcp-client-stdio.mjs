@@ -25,12 +25,13 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { McpClientManager, MAX_LIST_PAGES, listAll, normalizeResultType } from '../lib/mcp/client-manager.mjs';
+import { McpClientManager, MAX_LIST_PAGES, MAX_NAME_LENGTH, listAll, normalizeResultType } from '../lib/mcp/client-manager.mjs';
+import { sanitizeList } from '../lib/mcp/sanitize.mjs';
 import { McpServerStore, normalizeServer, publicServer, resolveEnvironment } from '../lib/mcp/server-config.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { FIXTURE_SERVER, HUB, RAW_SERVER, counterLines, delay, descendants, missingReason, newDescendants, rawToolsList, referenceFolder, referencePins, referenceServer, runtimeRoot, waitFor } from './support/mcp-tools.mjs';
+import { FIXTURE_SERVER, HUB, RAW_SERVER, autoApprove, counterLines, delay, descendants, missingReason, newDescendants, rawToolsList, referenceFolder, referencePins, referenceServer, runtimeRoot, waitFor } from './support/mcp-tools.mjs';
 
 const missing = missingReason();
 if (missing) {
@@ -67,13 +68,14 @@ const reportedList = () => [...reported].map(([pid, ppid]) => ({ pid, ppid }));
 let manager = null;
 let hubManager = null;
 
+// The owner's approvals (launch records, pins) are given as the suite goes (autoApprove); tests/verify-mcp-hardening.mjs tests them.
 function newManager({ hubDirectory = path.join(scratch, 'hub'), env = process.env } = {}) {
-  return new McpClientManager({
+  return autoApprove(new McpClientManager({
     hubDirectory, protector, runtimeRoots: [runtimeRoot()], env,
     registerSecret: (value) => { if (!registered.includes(value)) registered.push(value); },
     secrets: () => registered,
     log: (line) => logLines.push(line),
-  });
+  }));
 }
 const reference = referenceFolder();
 const fixture = (extra = []) => ({ transport: 'stdio', command: node, args: [FIXTURE_SERVER, '--reference', reference, ...extra] });
@@ -356,7 +358,7 @@ try {
     assert.equal(independent.length, 7);
   });
 
-  for (const [mode, code, pages] of [['repeat-cursor', 'mcp_list_cursor_repeated', 2], ['cycle-cursor', 'mcp_list_cursor_repeated', 3], ['duplicate', 'mcp_list_duplicate_name', 1], ['empty-name', 'mcp_list_invalid_name', 1]]) {
+  for (const [mode, code, pages] of [['repeat-cursor', 'mcp_list_cursor_repeated', 2], ['cycle-cursor', 'mcp_list_cursor_repeated', 3]]) {
     await test(`a list with ${mode} is refused whole (${code}) and the server is not left running`, async () => {
       const counter = path.join(scratch, `${mode}.txt`);
       await manager.store.save(mode, raw(mode, ['--counter', counter]));
@@ -364,6 +366,18 @@ try {
       assert.equal(counterLines(counter).filter((line) => line.startsWith('list')).length, pages, `${pages} page request(s), then it stopped`);
       assert.equal(manager.status().servers.find((server) => server.id === mode).state, 'failed');
       assert.equal(manager.connections.get(mode).channel, null, 'the connection was disposed of');
+    });
+  }
+
+  // One name rule for the Hub (lib/mcp/sanitize.mjs, slice C2): a bad or duplicate name drops that item, never the whole list.
+  for (const [mode, kept] of [['duplicate', ['other', 'twin']], ['empty-name', ['fine']]]) {
+    await test(`a list with ${mode} keeps the good items and refuses the bad one alone`, async () => {
+      await manager.store.save(mode, raw(mode));
+      const summary = await manager.connect(mode);
+      assert.equal(summary.state, 'connected');
+      assert.deepEqual((await manager.listTools(mode)).map((tool) => tool.name).sort(), kept);
+      assert.equal(summary.refused.tools, 1, 'one item refused');
+      await manager.disconnect(mode);
     });
   }
 
@@ -377,11 +391,15 @@ try {
     assert.equal((await listAll(pagesOf(MAX_LIST_PAGES), 'tools')).items.length, MAX_LIST_PAGES, 'exactly 1,000 pages are read');
     await rejects(listAll(pagesOf(MAX_LIST_PAGES + 1), 'tools'), 'mcp_list_too_many_pages', '1,001 pages');
     await rejects(listAll(async () => ({ tools: [{ name: 'a' }], nextCursor: '' }), 'tools'), 'mcp_list_cursor_invalid', 'an empty cursor');
-    await rejects(listAll(async () => ({ tools: [{ name: 'x'.repeat(129) }] }), 'tools'), 'mcp_list_invalid_name', 'a 129-character name');
-    await rejects(listAll(async () => ({ tools: [{ name: 'tab\there' }] }), 'tools'), 'mcp_list_invalid_name', 'a name with a control character');
     await rejects(listAll(async () => ({ notTools: [] }), 'tools'), 'mcp_list_invalid', 'a page without the list');
-    assert.equal((await listAll(async () => ({ resources: [{ uri: 'file:///a' }, { uri: 'file:///b' }] }), 'resources')).items.length, 2, 'resources are told apart by uri');
-    await rejects(listAll(async () => ({ resources: [{ uri: 'file:///a' }, { uri: 'file:///a' }] }), 'resources'), 'mcp_list_duplicate_name', 'two resources with one uri');
+    // listAll walks pages only; names are the sanitizer's (per item, 1-128 characters of [A-Za-z0-9_.-]).
+    const named = (await listAll(async () => ({ tools: [{ name: 'x'.repeat(129) }, { name: 'tab\there' }, { name: 'x'.repeat(128) }] }), 'tools')).items;
+    assert.equal(named.length, 3, 'listAll keeps every item of the pages');
+    const sanitized = sanitizeList('tools', named.map((tool) => ({ ...tool, inputSchema: { type: 'object' } })));
+    assert.deepEqual(sanitized.items.map((tool) => tool.name.length), [128], 'a 128-character name is kept');
+    assert.deepEqual(sanitized.refused.map((entry) => entry.reason), ['name_too_long', 'name_bad_characters'], 'a 129-character name and a control character are refused alone');
+    assert.equal(MAX_NAME_LENGTH, 128);
+    assert.equal(sanitizeList('resources', [{ uri: 'file:///a', name: 'a' }, { uri: 'file:///a', name: 'b' }]).items.length, 1, 'two resources with one uri: the first is kept');
   });
 
   // -------------------------------------------------------------------------------------------------------------------------------------
@@ -464,6 +482,7 @@ try {
       assembleStudio(hubManager, { bundleRoot: HUB });
     } finally { if (saved === undefined) delete process.env.CHATMCP_MCP_RUNTIME_DIR; else process.env.CHATMCP_MCP_RUNTIME_DIR = saved; }
     assert.ok(hubManager.mcp && hubManager.mcpOwned, 'assembleStudio gives the manager its MCP client manager');
+    autoApprove(hubManager.mcp);
     await hubManager.mcp.store.save('hubfixture', { ...fixture(), env: { FIXTURE_TOKEN: { value: SECRET, secret: true } } });
     await hubManager.mcp.connect('hubfixture');
     assert.ok(hubManager.secrets.includes(SECRET), 'the secret reached the Hub\'s masker (registerSecret)');

@@ -4,7 +4,7 @@
 //  - One ceiling for what is kept of a result: 8 MiB, shared in order by the text of text blocks and embedded text resources, the base64 of images and
 //    audio, the strings of resource links, and the JSON of structuredContent (which gets what the content left). 4 KiB of it are kept for the note that
 //    tells the model what was cut or dropped. A text is cut at a code point.
-//  - Images: 8 at most, 5 MiB each (decoded), an image/* type and base64 data; audio: 2 clips, 5 MiB, audio/*. An embedded blob counts as an image when its
+//  - Images: 8 at most, 5 MiB each (decoded), image/png, jpeg, gif or webp (what the providers accept; any other image type is a note) and base64 data; audio: 2 clips, 5 MiB, audio/*. An embedded blob counts as an image when its
 //    type is image/*, and is otherwise dropped. Unknown content types are dropped, and the note names them (escaped, five at most). _meta and the
 //    annotations of content blocks are not passed on. isError is kept exactly when it is the boolean true; a result that is not an object is an error.
 //  - Then the model-facing cap of lib/token-optimization.mjs: optimizeToolResult runs on the bounded result when a task is given. It compacts only the
@@ -33,6 +33,11 @@ export const STDERR_DEFAULT_BYTES = 64 * 1024;
 
 const NOTE_PREFIX = '[DatGold limited this result: ';
 const BASE64 = /^[A-Za-z0-9+/\r\n]*={0,2}$/;
+// The image types the model providers accept (OpenAI, Anthropic, Gemini): any other image/* type (svg+xml, bmp, tiff ...) is dropped with a note, never
+// passed on as an image block.
+export const PROVIDER_IMAGE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+// The type is named (MEDIA_TYPE has already limited it to [A-Za-z0-9.+-]), so the model is told what it did not get.
+const providerImage = (mimeType) => 'an image of type ' + JSON.stringify(mimeType) + ', which the model providers do not accept (only image/png, image/jpeg, image/gif and image/webp)';
 const MEDIA_TYPE = { image: /^image\/[A-Za-z0-9.+-]{1,64}$/, audio: /^audio\/[A-Za-z0-9.+-]{1,64}$/ };
 const ANY_TYPE = /^[A-Za-z0-9!#$&^_.+-]{1,64}\/[A-Za-z0-9!#$&^_.+-]{1,64}$/;
 const MALFORMED = 'a malformed item';
@@ -95,6 +100,7 @@ function takeMedia(kind, data, mimeType, extra, state, limits) {
   const most = kind === 'image' ? limits.maxImages : limits.maxAudio;
   if ((kind === 'image' ? state.images : state.audio) >= most) return drop(state, `more than ${most} ${kind === 'image' ? 'images' : 'audio clips'}`) ?? false;
   if (typeof data !== 'string' || typeof mimeType !== 'string' || !MEDIA_TYPE[kind].test(mimeType)) return drop(state, `not base64 data of an ${kind} type`) ?? false;
+  if (kind === 'image' && !PROVIDER_IMAGE_TYPES.includes(mimeType)) return drop(state, providerImage(mimeType)) ?? false;
   const largest = kind === 'image' ? limits.maxImageBytes : limits.maxAudioBytes;
   const decoded = Math.floor((data.length * 3) / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
   if (decoded > largest) return drop(state, `${kind} larger than ${largest} bytes`) ?? false;

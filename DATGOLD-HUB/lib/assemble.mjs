@@ -52,9 +52,11 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     manager.hooks = new HookRunner({ hubDirectory: manager.hubDirectory, secrets, log: (line) => manager.log(line) });
     manager.hooksOwned = true;
   }
-  // The owner's external MCP servers (lib/mcp/client-manager.mjs, docs/MCP-CLIENT.md). Nothing connects here and nothing is offered to the
-  // model: the manager reads mcp-servers.json, reports its state and closes on shutdown. Like the hooks, the instance belongs to the manager
-  // that creates it; a manager that works for another one must be handed that instance before it is assembled (the later seam does that).
+  // The owner's external MCP servers (lib/mcp/client-manager.mjs, docs/MCP-CLIENT.md). Nothing connects here: the manager reads mcp-servers.json
+  // and the owner's approvals, and the task preflight connects (HubManager.createAgentSession). Like the hooks, the instance belongs to the manager
+  // that creates it; a manager that works for another one (a spawned agent, an access manager, a coding worker, a web session on another
+  // workspace) is handed that SAME instance before it is assembled, so it offers the same servers under the same approvals and never closes them.
+  // Only mcp-servers.json in the Hub's data folder is read: a .mcp.json in a workspace starts nothing.
   if (!manager.mcp) {
     manager.mcp = new McpClientManager({
       hubDirectory: manager.hubDirectory, bundleRoot, protector: createProtector({ bundleRoot, directory: manager.hubDirectory }),
@@ -79,6 +81,7 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
   });
   manager.verification = new StudioVerification({ workspace: manager.studio, terminal: manager.terminal, directory: path.join(studioDirectory, 'verifications'), secrets });
   manager.permissions = new PermissionGate({ manager, workspace: manager.studio, directory: studioDirectory });
+  attachMcpPolicy(manager.permissions, manager.mcp);
   manager.verification.permissions = manager.permissions;
   // Host LSP processes are disallowed while sandbox-only execution is selected.
   manager.intelligence.canSpawnLanguageServer = () => manager.permissions.executionPolicy !== 'sandbox-only';
@@ -138,4 +141,20 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     permissionGate: manager.permissions,
   });
   return manager;
+}
+
+/**
+ * The owner's word on external (MCP) tools, from mcp-servers.json (lib/mcp/server-config.mjs), for the permission gate: the rule of the tool,
+ * else the server's default (ask | allow | deny; nothing set asks), trust in the server's annotations only when `trust.annotations` is true, and
+ * the card's description of the server as stored (never a secret: env values and headers are not read, and the gate masks the card). The gate's
+ * own order of decisions is unchanged (lib/permissions.mjs #externalDecision).
+ */
+export function attachMcpPolicy(gate, mcp) {
+  const store = mcp?.store;
+  if (!gate || !store) return;
+  gate.attachExternalPolicy({
+    policyFor: ({ server, tool }) => store.policyFor({ server, tool }),
+    trustAnnotations: ({ server }) => store.trustsAnnotations(server),
+    describeServer: ({ server }) => store.describe(server),
+  });
 }

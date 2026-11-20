@@ -38,6 +38,10 @@ export async function discoverProjectChecks(root){
   if(await exists(path.join(root,'pyproject.toml'))||await exists(path.join(root,'pytest.ini'))||
      await exists(path.join(root,'tox.ini')))
     add('Python test configuration','python -m pytest -q','python');
+  // .NET: a solution file in the root, else a project file there (folders and deeper files do not count).
+  const rootFiles=(await fs.readdir(root,{withFileTypes:true}).catch(()=>[])).filter(entry=>entry.isFile()).map(entry=>entry.name).sort();
+  const dotnet=rootFiles.find(name=>/\.slnx?$/i.test(name))??rootFiles.find(name=>/\.(?:cs|fs|vb)proj$/i.test(name));
+  if(dotnet)add(dotnet,'dotnet test','dotnet');
   for(const [name,command,kind] of [
     ['Cargo.toml','cargo test','rust'],['go.mod','go test ./...','go'],
     ['Makefile','make test','make'],
