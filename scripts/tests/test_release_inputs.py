@@ -148,6 +148,10 @@ class ResolveReleaseInputsTests(unittest.TestCase):
             'baseline_sha256': BASELINE_SHA256,
         })
 
+    def test_the_resolver_is_ascii(self):
+        # Windows PowerShell 5.1 reads a script without a byte order mark in the ANSI code page: a literal dash in a pattern stops matching.
+        self.assertTrue(all(byte < 128 for byte in RESOLVER.read_bytes()), 'Resolve-ReleaseInputs.ps1 must be ASCII; write [char]0x2014, not the character')
+
     def test_version_defaults_to_the_hub_package(self):
         code, out, err = self.run_resolver()
         self.assertEqual(code, 0, err)
