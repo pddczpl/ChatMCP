@@ -204,6 +204,8 @@ try {
     const notAnItem = [start(1), hist(1, 0, user('a')), line({ type: 'history', v: 1, run: 1, seq: 1, role: 'model', kind: 'model_output', batch: 1, item: 'text' })];
     assert.equal((await load(await write(notAnItem))).reason, 'corrupt', 'an item that is not an object');
     assert.equal((await load(await write([start(1), end(1, 0)]))).reason, 'empty', 'a journal with no item in it');
+    const orphanRun = [start(2, 'journal', { seed: { source: 'journal', items: 3, bytes: 90, dropped: 0, cut: 0 } }), hist(2, 0, user('second'))];
+    assert.equal((await load(await write(orphanRun))).reason, 'journal_gap', 'a run seeded with 3 items from a journal that is not there');
   }
   ok('loader: a missing record (seq gap, the result a reference points to, an item the end record counts, the start of a run), a newer version, an unknown reference kind, records out of order and an empty history are each refused with their reason');
 
@@ -241,6 +243,9 @@ try {
     // a final answer with no call is a complete turn
     const answered = await load(await write([start(1), hist(1, 0, user('x')), hist(1, 1, said('y'), { batch: 1 })]));
     assert.deepEqual(plain(answered.items), [user('x'), said('y')]);
+    // the turn is the batch: a model item of the turn before stays
+    const adjacent = await load(await write([start(1), hist(1, 0, user('x')), hist(1, 1, said('earlier turn'), { batch: 1 }), hist(1, 2, fcall('z1'), { batch: 2 })]));
+    assert.deepEqual(plain(adjacent.items), [user('x'), said('earlier turn')]);
   }
   ok('loader: the last turn of a run whose calls are not all answered is cut whole (Anthropic would need its thinking blocks, which are never written), at the end of every run, and its calls are named for the note');
 
@@ -355,6 +360,18 @@ try {
   }
   ok('loader: the counters of the last run read are returned (reserved doneGate included), the run that is starting is not read, a seed carries no skill index of earlier runs, every string except picture bytes is masked with the redaction of the process that loads');
 
+  // B11 a run with very many items (more than a function call takes as arguments)
+  {
+    const count = 200_000;
+    const lines = [start(1)];
+    for (let seq = 0; seq < count; seq += 1) lines.push(hist(1, seq, seq % 2 ? said(`a${seq}`) : user(`u${seq}`), { batch: seq % 2 ? seq : null }));
+    const result = await load(await write(lines));
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.items.length, count, 'every item of a run of 200,000 comes back');
+    assert.equal(result.items.at(-1).content[0].text, `a${count - 1}`);
+  }
+  ok('loader: a run of 200,000 items loads whole (the items are not spread into one call)');
+
   // ------------------------------------------------------------------------------------------------------------------------------
   // C. Five conversations through the real runner, the real adapters and the strict mock server
   // ------------------------------------------------------------------------------------------------------------------------------
@@ -422,6 +439,8 @@ try {
     const root = path.join(temp, `c-${name}`);
     await fs.mkdir(root, { recursive: true });
     const manager = makeManager(root);
+    // One conversation carries a skill, so every run of it has a skill index of its own (lib/skill-index.mjs).
+    if (name === 'chat') manager.pluginManager = { activeSkills: () => [{ id: 'testing-notes', name: 'testing-notes', license: 'MIT', description: 'Notes about tests', tools: [], systemPrompt: 'Run node test.js after every change.' }] };
     const probe = { callsAtResume: null };
     const script = (ctx) => {
       if (ctx.prompt.includes(RESUME_PROMPT)) {
@@ -467,6 +486,10 @@ try {
     for (const text of name === 'router' ? ['content of a.txt', '"total"'] : ['content of a.txt', 'a picture']) assert.ok(sent.outputs.some((entry) => entry.text.includes(text)), `${name}: the earlier result "${text}" reached the model again`);
     assert.ok(JSON.stringify(body).includes(RESUME_NOTE_HEADER), `${name}: the short resumed note is there`);
     assert.equal(JSON.stringify(body).includes('CONVERSATION CHECKPOINT'), false, `${name}: and not the old checkpoint text`);
+    if (name === 'chat') {
+      assert.ok(memory1.some((item) => item.role === 'user' && item.content?.[0]?.text?.startsWith('UNTRUSTED SKILL REFERENCES')), 'chat: (premise) run 1 had a skill index');
+      assert.equal(JSON.stringify(body).split('UNTRUSTED SKILL REFERENCES').length - 1, 1, 'chat: the resumed request carries one skill index, the new run\'s: the seed brings none of run 1\'s');
+    }
     const memory2 = finished.at(-1);
     const journal2 = await runner.historyFromJournal(started.id);
     assert.equal(journal2.ok, true, journal2.reason);
@@ -665,8 +688,23 @@ try {
     assert.ok(elapsed < 2000, `loaded in ${Math.round(elapsed)} ms (< 2000)`);
     console.log(`  note - ${Math.round(size / 1e6)} MB transcript: ${loaded.items.length} items, ${Math.round(loaded.bytes / 1048576)} MiB, ${loaded.dropped} items left out, ${Math.round(elapsed)} ms`);
     await runner.shutdown();
+
+    // the run that goes on from it leaves room for what it adds: it is not refused for the 48 MiB
+    const mock = await startMockModel({ scenario: 'big', scenarios: { big: () => say('Done again.') }, strict: true });
+    closers.push(() => mock.close());
+    const resumedProvider = new GatewayProvider({ directory: path.join(root, 'gateway-2'), bundleRoot: root, manager, env: {}, sleep: async () => {} }).forkForTask({ protocol: 'openai-chat', apiBaseUrl: mock.origin, model: 'mock-coder' });
+    const resumer = new AgentRunner({ manager, provider: resumedProvider, taskDirectory: tasks });
+    await resumer.load();
+    await resumer.continue({ id, prompt: 'Anything else?' });
+    const done = await settle(resumer, 'large resumed', 60000);
+    assert.doesNotMatch(String(done.error ?? ''), /vượt 48 MiB/, `the resumed run was not refused for the size of its history (${done.status} ${done.errorCode ?? ''})`);
+    const seeded = (await records(tasks, id)).filter((record) => record.type === 'history_run').at(-1);
+    assert.equal(seeded.seed.source, 'journal');
+    assert.ok(seeded.seed.bytes <= MAX_CONTEXT_BYTES - 256 * 1024, `the seed (${seeded.seed.bytes} bytes) leaves the reserve free`);
+    assert.ok(seeded.seed.dropped > 0);
+    await resumer.shutdown();
   }
-  ok('a 60 MB transcript: the journal loads under the 48 MiB cap (the oldest turns left out, every call with its result) in under 2 s');
+  ok('a 60 MB transcript: the journal loads under the 48 MiB cap (the oldest turns left out, every call with its result) in under 2 s, and the run that goes on from it is seeded with room left for what it adds');
 
   // ------------------------------------------------------------------------------------------------------------------------------
   // G. Masking with the current secret list, the optimiser's receipts, a result written once
@@ -703,6 +741,75 @@ try {
     await runner.shutdown();
   }
   ok('the replay is masked with the secret list of the process that loads it (a line written before the secret was known still holds it on disk), an output the optimiser shortened comes back whole, and a tool result is written once: its history record refers to it');
+
+  // ------------------------------------------------------------------------------------------------------------------------------
+  // H. The counters of a real run: a Stop hook that sends the agent back once
+  // ------------------------------------------------------------------------------------------------------------------------------
+  {
+    const root = path.join(temp, 'h-hooks');
+    await fs.mkdir(root, { recursive: true });
+    const manager = makeManager(root);
+    let stops = 0;
+    manager.hooks = {
+      retryLimit: 8,
+      async run({ event }) {
+        if (event === 'Stop' && (stops += 1) === 1) return { fired: [{ id: 'owner-stop', source: 'owner', exitCode: 2, blocked: true, reason: 'run the tests first', durationMs: 1 }], matched: 1 };
+        return { fired: [], matched: 0 };
+      },
+    };
+    let answers = 0;
+    const mock = await startMockModel({ scenario: 'hooks', scenarios: { hooks: () => say(`Answer ${(answers += 1)}.`) }, strict: true });
+    closers.push(() => mock.close());
+    const provider = new GatewayProvider({ directory: path.join(root, 'gateway'), bundleRoot: root, manager, env: {}, sleep: async () => {} }).forkForTask({ protocol: 'openai-chat', apiBaseUrl: mock.origin, model: 'mock-coder' });
+    const tasks = path.join(root, 'tasks');
+    const runner = new AgentRunner({ manager, provider, taskDirectory: tasks });
+    await runner.load();
+    const started = await runner.start({ prompt: 'Answer, please.' });
+    const done = await settle(runner, 'hooks');
+    assert.equal(done.status, 'completed', done.error ?? '');
+    assert.equal(stops, 2, '(premise) the Stop hook blocked the first answer and passed the second');
+    const blocked = { limit: 8, used: 1, byEvent: { Stop: 1, SubagentStop: 0, TaskCompleted: 0 } };
+    const written = await records(tasks, started.id);
+    const feedback = written.find((record) => record.type === 'history' && record.kind === 'stop_hook');
+    assert.ok(feedback, 'the hook\'s feedback is in the journal, with its kind');
+    assert.deepEqual(feedback.counters, { hookBlocks: blocked, noticeTurns: 0, doneGate: null }, 'and carries the counters it changed');
+    assert.equal(written.filter((record) => record.type === 'history' && record.counters).length, 1, 'counters are written only where they changed');
+    assert.deepEqual(written.find((record) => record.type === 'history_end').counters.hookBlocks, blocked, 'the end of the run has them too');
+    assert.deepEqual((await runner.historyFromJournal(started.id)).counters.hookBlocks, blocked, 'and the loader returns them');
+    await runner.shutdown();
+  }
+  ok('the hook budget of a real run is journaled with the feedback it caused (only where it changed) and at the end of the run, and read back by the loader');
+
+  // ------------------------------------------------------------------------------------------------------------------------------
+  // I. A provider that hands out an id the replayed history already has: refused, never run
+  // ------------------------------------------------------------------------------------------------------------------------------
+  {
+    const root = path.join(temp, 'i-ids');
+    await fs.mkdir(root, { recursive: true });
+    const manager = makeManager(root);
+    const script = sequence([call('read_file', { path: 'a.txt' })], { final: 'Read.' });
+    const first = await startMockModel({ scenario: 'ids', scenarios: { ids: script }, strict: true });
+    closers.push(() => first.close());
+    const tasks = path.join(root, 'tasks');
+    const providerOf = (mock, label) => new GatewayProvider({ directory: path.join(root, `gateway-${label}`), bundleRoot: root, manager, env: {}, sleep: async () => {} }).forkForTask({ protocol: 'anthropic', apiBaseUrl: mock.origin, model: 'mock-coder' });
+    const runner = new AgentRunner({ manager, provider: providerOf(first, 'a'), taskDirectory: tasks });
+    await runner.load();
+    const started = await runner.start({ prompt: 'Read a.' });
+    assert.equal((await settle(runner, 'ids run 1')).status, 'completed');
+    await runner.shutdown();
+    const callsBefore = manager.calls.length;
+    // a fresh server numbers its calls from 1 again: its first call has the id of the call the history already holds
+    const second = await startMockModel({ scenario: 'ids', scenarios: { ids: (ctx) => (ctx.turn === 0 ? call('read_file', { path: 'b.txt' }) : say('Read b.')) }, strict: true });
+    closers.push(() => second.close());
+    const revived = new AgentRunner({ manager, provider: providerOf(second, 'b'), taskDirectory: tasks });
+    await revived.load();
+    await revived.continue({ id: started.id, prompt: 'Now read b.' });
+    const done = await settle(revived, 'ids run 2');
+    assert.equal(done.errorCode, 'invalid_call_id', `${done.status} ${done.error ?? ''}`);
+    assert.equal(manager.calls.length, callsBefore, 'the call whose id already had a result in the history was never run');
+    await revived.shutdown();
+  }
+  ok('a call whose id already has a result in the replayed history is refused (invalid_call_id) and never run');
 } finally {
   HistoryLedger.prototype.clear = realClear;
   for (const close of closers) await close().catch(() => {});
