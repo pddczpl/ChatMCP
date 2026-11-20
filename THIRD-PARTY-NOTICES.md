@@ -23,7 +23,7 @@ Paths are relative to the installation folder, the folder that holds `LICENSE` a
 | Tree-sitter grammar `tree-sitter-typescript` (`DATGOLD-HUB/grammars/tree-sitter-typescript.wasm`, `tree-sitter-tsx.wasm`) | built from the `^0.20.5` range | MIT | `DATGOLD-HUB/licenses/tree-sitter-typescript/LICENSE` | Shipped, as above |
 | Tree-sitter grammar `tree-sitter-python` (`DATGOLD-HUB/grammars/tree-sitter-python.wasm`) | built from the `^0.21.0` range | MIT | `DATGOLD-HUB/licenses/tree-sitter-python/LICENSE` | Shipped, as above |
 | `playwright`, `playwright-core` (JavaScript only, `DATGOLD-HUB/runtimes/browser/node_modules`) | 1.64.0 | Apache-2.0 | each package folder: `LICENSE`, `NOTICE`, and `ThirdPartyNotices.txt` in `playwright-core` | Whole package folders are copied; the browser executable is not bundled |
-| MCP client SDK (`DATGOLD-HUB/runtimes/mcp`: `@modelcontextprotocol/client` 2.4.0 and its closure; loaded by the Hub only when an external MCP server is connected) | see [the generated list](#mcp-client-runtime) | Apache-2.0 for the two SDK packages, whose LICENSE also carries the MIT License for the contributions that are not relicensed yet; MIT and ISC for the rest of the closure; MIT and BSD-3-Clause for the 7 packages compiled into the client | each package folder of `DATGOLD-HUB/runtimes/mcp/node_modules/`; `DATGOLD-HUB/runtimes/mcp/licenses/bundled/` for the compiled-in packages | Shipped. `scripts/mcp-runtime/stage.mjs` copies every lockfile package whole and the vendored texts of the compiled-in packages (`scripts/mcp-runtime/licenses/`); `verify.mjs` and `scripts/Verify-McpRuntime.mjs` refuse a runtime without them |
+| MCP SDK (`DATGOLD-HUB/runtimes/mcp`: `@modelcontextprotocol/client` 2.4.0, `@modelcontextprotocol/server` 2.4.0 and `@modelcontextprotocol/node` 2.1.2 with their closure; loaded by the Hub only when an external MCP server is connected or the owner turns the Hub's MCP server on) | see [the generated list](#mcp-client-runtime) | Apache-2.0 for the four SDK packages, whose LICENSE also carries the MIT License for the contributions that are not relicensed yet; MIT and ISC for the rest of the closure; MIT and BSD-3-Clause for the 7 packages compiled into the client and the server | each package folder of `DATGOLD-HUB/runtimes/mcp/node_modules/`; `DATGOLD-HUB/runtimes/mcp/licenses/bundled/` for the compiled-in packages | Shipped. `scripts/mcp-runtime/stage.mjs` copies every lockfile package whole and the vendored texts of the compiled-in packages (`scripts/mcp-runtime/licenses/`); `verify.mjs` and `scripts/Verify-McpRuntime.mjs` refuse a runtime without them |
 | `Microsoft.Web.WebView2` (managed assemblies and `WebView2Loader.dll` beside `ChatMCP.exe`) | 1.0.4258.31 | Microsoft BSD-3-Clause-style license; its NOTICE adds Antlr3.Runtime and StringTemplate4 (BSD-3-Clause) | none | Pending (finding 2 of the license scan) |
 | .NET 10 runtime inside `ChatMCP.exe`, `DatGoldSetup.exe`, `Uninstall.exe` and `GuestSupervisor.exe` | 10.0.x | MIT | none | Pending: the runtime's own third-party notice file is not shipped |
 | Inter variable and JetBrains Mono 400 web fonts (`@fontsource-variable/inter`, `@fontsource/jetbrains-mono` 5.3.0) | 5.3.0 | SIL Open Font License 1.1 | none | Pending (finding 3) |
@@ -32,18 +32,22 @@ Paths are relative to the installation folder, the folder that holds `LICENSE` a
 
 ## MCP client runtime
 
-The MCP client SDK that the installer stages into `DATGOLD-HUB/runtimes/mcp` (docs/MCP-CLIENT.md). The Hub imports it only when it connects to an external MCP server.
+The MCP client SDK that the installer stages into `DATGOLD-HUB/runtimes/mcp` (docs/MCP-CLIENT.md). The Hub imports it only when it connects to an external MCP server. The same folder holds the server SDK and its Node adapter (docs/MCP-SERVER.md), which the Hub imports only when the owner has turned its MCP server on.
 
 <!-- BEGIN GENERATED: mcp-runtime-packages (scripts/generate-licenses.mjs) -->
-13 packages of scripts/mcp-runtime/package-lock.json (MIT 9, Apache-2.0 2, ISC 2), staged whole into DATGOLD-HUB/runtimes/mcp/node_modules, each with its own licence file in its folder. The licence is the `license` field of the lockfile entry.
+17 packages of scripts/mcp-runtime/package-lock.json (MIT 11, Apache-2.0 4, ISC 2), staged whole into DATGOLD-HUB/runtimes/mcp/node_modules, each with its own licence file in its folder. The licence is the `license` field of the lockfile entry.
 
 | Package | Version | License | License text in the installed copy |
 |---|---|---|---|
+| `@hono/node-server` | 2.1.11 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/@hono/node-server/` |
 | `@modelcontextprotocol/client` | 2.4.0 | Apache-2.0 | `DATGOLD-HUB/runtimes/mcp/node_modules/@modelcontextprotocol/client/` |
 | `@modelcontextprotocol/core` | 2.4.0 | Apache-2.0 | `DATGOLD-HUB/runtimes/mcp/node_modules/@modelcontextprotocol/core/` |
+| `@modelcontextprotocol/node` | 2.1.2 | Apache-2.0 | `DATGOLD-HUB/runtimes/mcp/node_modules/@modelcontextprotocol/node/` |
+| `@modelcontextprotocol/server` | 2.4.0 | Apache-2.0 | `DATGOLD-HUB/runtimes/mcp/node_modules/@modelcontextprotocol/server/` |
 | `cross-spawn` | 7.0.6 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/cross-spawn/` |
 | `eventsource` | 3.0.7 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/eventsource/` |
 | `eventsource-parser` | 3.1.1 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/eventsource-parser/` |
+| `hono` | 4.13.19 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/hono/` |
 | `isexe` | 2.0.0 | ISC | `DATGOLD-HUB/runtimes/mcp/node_modules/isexe/` |
 | `jose` | 6.2.18 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/jose/` |
 | `path-key` | 3.1.1 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/path-key/` |
@@ -53,7 +57,7 @@ The MCP client SDK that the installer stages into `DATGOLD-HUB/runtimes/mcp` (do
 | `which` | 2.0.2 | ISC | `DATGOLD-HUB/runtimes/mcp/node_modules/which/` |
 | `zod` | 4.6.7 | MIT | `DATGOLD-HUB/runtimes/mcp/node_modules/zod/` |
 
-7 packages compiled into the dist files of @modelcontextprotocol/client (MIT 6, BSD-3-Clause 1). They are not packages of the lockfile and the client ships none of their texts; the texts are vendored in scripts/mcp-runtime/licenses/ and installed in DATGOLD-HUB/runtimes/mcp/licenses/bundled/.
+7 packages compiled into the dist files of @modelcontextprotocol/client and @modelcontextprotocol/server (MIT 6, BSD-3-Clause 1). They are not packages of the lockfile and neither package ships any of their texts; the texts are vendored in scripts/mcp-runtime/licenses/ and installed in DATGOLD-HUB/runtimes/mcp/licenses/bundled/.
 
 | Package | Version | License | License text in the installed copy |
 |---|---|---|---|

@@ -1,7 +1,7 @@
 {
   "suite": "verify-mcp-sanitize.mjs",
   "mutations": [
-    { "name": "name-limit-257", "what": "a name of 257 characters is accepted", "patches": [{ "file": "lib/mcp/sanitize.mjs", "old": "  nameMaxLength: 256,", "new": "  nameMaxLength: 257," }] },
+    { "name": "name-limit-129", "what": "a name of 129 characters is accepted", "patches": [{ "file": "lib/mcp/sanitize.mjs", "old": "  nameMaxLength: 128,", "new": "  nameMaxLength: 129," }] },
     { "name": "text-limit-2049", "what": "the text limit is one byte larger", "patches": [{ "file": "lib/mcp/sanitize.mjs", "old": "  textMaxBytes: 2048,", "new": "  textMaxBytes: 2049," }] },
     { "name": "schema-depth-33", "what": "a schema one level deeper is accepted", "patches": [{ "file": "lib/mcp/sanitize.mjs", "old": "  schemaMaxDepth: 32,", "new": "  schemaMaxDepth: 33," }] },
     { "name": "schema-bytes-plus-one", "what": "a schema one byte larger than 64 KB is accepted", "patches": [{ "file": "lib/mcp/sanitize.mjs", "old": "  schemaMaxBytes: 64 * 1024,", "new": "  schemaMaxBytes: 64 * 1024 + 1," }] },

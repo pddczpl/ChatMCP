@@ -2,7 +2,8 @@
 //
 //   {"version": 1, "servers": {"<id>": {
 //      "transport": "stdio", "command": "npx.cmd", "args": ["-y", "some-server"], "cwd": "C:\\work", "env": {"NAME": "text" | {"secret": "<blob>"}},
-//      "enabled": true, "timeouts": {"connectMs": 30000, "callMs": 120000}, "policy": {...}}
+//      "enabled": true, "timeouts": {"connectMs": 30000, "callMs": 120000},
+//      "policy": {"default": "ask", "tools": {"<tool>": "ask" | "allow" | "deny"}}, "trust": {"annotations": false}, "touchesWorkspace": false}
 //    | {"transport": "http", "url": "https://...", "headers": {"Name": "text" | {"secret": "<blob>"}}, "env": {...}, ...}}}
 //
 // Rules:
@@ -18,7 +19,10 @@
 //  * ${NAME} in command, args, cwd, env values, url and header values is replaced by the value of the env entry NAME of the SAME server.
 //    A name the server's env map does not declare is a configuration error: nothing reaches into the Hub's environment unasked. The one way
 //    to pass a variable of the Hub's environment on is to declare it as its own value: "GITHUB_TOKEN": "${GITHUB_TOKEN}".
-//  * `policy` is stored as given (a JSON object, at most 16 KiB); this slice does not enforce it (the permission gate of a later slice does).
+//  * `policy` is the owner's word to the permission gate (lib/permissions.mjs attachExternalPolicy): `default` for every tool of the server and
+//    `tools` per tool name (the server's own name, without the "<server>." prefix), each "ask", "allow" or "deny"; a tool rule wins over the
+//    default, and nothing set is "ask". `trust.annotations: true` lets the gate believe the server's readOnlyHint. `touchesWorkspace: true` makes
+//    the Hub take a workspace checkpoint before each call of the server (manager.mjs #checkpointBefore). An unknown key or value is refused.
 import path from 'node:path';
 import { isObject, readJson, writeJson } from '../runtime.mjs';
 import { SECRET_ENV_NAME, URL_WITH_PASSWORD } from '../shell-runner.mjs';
@@ -42,10 +46,12 @@ const MAX_TEXT = 8192;
 const MAX_ARGS = 256;
 const MAX_ENTRIES = 128;
 const MAX_POLICY_BYTES = 16 * 1024;
+export const POLICY_WORDS = Object.freeze(['ask', 'allow', 'deny']);
+const POLICY_TOOL = /^[A-Za-z0-9_.-]{1,128}$/;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]', 'localhost']);
 const KEYS = Object.freeze({
-  stdio: new Set(['transport', 'command', 'args', 'cwd', 'env', 'enabled', 'timeouts', 'policy']),
-  http: new Set(['transport', 'url', 'headers', 'env', 'enabled', 'timeouts', 'policy']),
+  stdio: new Set(['transport', 'command', 'args', 'cwd', 'env', 'enabled', 'timeouts', 'policy', 'trust', 'touchesWorkspace']),
+  http: new Set(['transport', 'url', 'headers', 'env', 'enabled', 'timeouts', 'policy', 'trust', 'touchesWorkspace']),
 });
 
 export const configFault = (code, message) => Object.assign(new Error(message), { code, statusCode: 400 });
@@ -167,12 +173,42 @@ function normalizeTimeouts(raw, where) {
   return output;
 }
 
+function policyWord(value, where) {
+  if (!POLICY_WORDS.includes(value)) throw invalid(where, 'must be "ask", "allow" or "deny"');
+  return value;
+}
+
 function normalizePolicy(raw, where) {
   if (raw === undefined) return {};
   if (!isObject(raw)) throw invalid(where, 'must be an object');
-  const json = JSON.stringify(raw);
-  if (Buffer.byteLength(json) > MAX_POLICY_BYTES) throw invalid(where, `is larger than ${MAX_POLICY_BYTES} bytes`);
-  return JSON.parse(json);
+  if (Buffer.byteLength(JSON.stringify(raw)) > MAX_POLICY_BYTES) throw invalid(where, `is larger than ${MAX_POLICY_BYTES} bytes`);
+  const policy = {};
+  for (const key of Object.keys(raw)) if (key !== 'default' && key !== 'tools') throw invalid(`${where}.${key}`, 'is not a policy setting (default, tools)');
+  if (raw.default !== undefined) policy.default = policyWord(raw.default, `${where}.default`);
+  if (raw.tools !== undefined) {
+    if (!isObject(raw.tools)) throw invalid(`${where}.tools`, 'must be an object of tool name -> "ask" | "allow" | "deny"');
+    policy.tools = {};
+    for (const [name, word] of Object.entries(raw.tools)) {
+      if (!POLICY_TOOL.test(name) || ['__proto__', 'constructor', 'prototype'].includes(name)) throw invalid(`${where}.tools.${name.slice(0, 130)}`, 'is not a tool name');
+      policy.tools[name] = policyWord(word, `${where}.tools.${name}`);
+    }
+  }
+  return policy;
+}
+
+function normalizeTrust(raw, where) {
+  if (raw === undefined) return { annotations: false };
+  if (!isObject(raw)) throw invalid(where, 'must be an object');
+  for (const key of Object.keys(raw)) if (key !== 'annotations') throw invalid(`${where}.${key}`, 'is not a trust setting (annotations)');
+  if (raw.annotations !== undefined && typeof raw.annotations !== 'boolean') throw invalid(`${where}.annotations`, 'must be true or false');
+  return { annotations: raw.annotations === true };
+}
+
+/** The owner's word on one tool of a stored server: the tool's own rule, else the server's default, else undefined (the gate reads that as "ask"). */
+export function policyWordFor(server, tool) {
+  const policy = server?.policy ?? {};
+  if (isObject(policy.tools) && Object.hasOwn(policy.tools, tool)) return policy.tools[tool];
+  return policy.default;
 }
 
 /**
@@ -218,6 +254,9 @@ export async function normalizeServer(id, raw, { protector = null, input = false
   server.enabled = raw.enabled ?? true;
   server.timeouts = normalizeTimeouts(raw.timeouts, `${where}.timeouts`);
   server.policy = normalizePolicy(raw.policy, `${where}.policy`);
+  server.trust = normalizeTrust(raw.trust, `${where}.trust`);
+  if (raw.touchesWorkspace !== undefined && typeof raw.touchesWorkspace !== 'boolean') throw invalid(`${where}.touchesWorkspace`, 'must be true or false');
+  server.touchesWorkspace = raw.touchesWorkspace === true;
   return server;
 }
 
@@ -226,7 +265,10 @@ const publicMap = (map) => Object.fromEntries(Object.entries(map ?? {}).map(([na
 
 /** A stored server as the UI may see it. No secret, in plain or protected form. */
 export function publicServer(id, server) {
-  const view = { id, transport: server.transport, enabled: server.enabled, timeouts: { ...server.timeouts }, policy: structuredClone(server.policy), env: publicMap(server.env) };
+  const view = {
+    id, transport: server.transport, enabled: server.enabled, timeouts: { ...server.timeouts }, policy: structuredClone(server.policy),
+    trust: { annotations: server.trust?.annotations === true }, touchesWorkspace: server.touchesWorkspace === true, env: publicMap(server.env),
+  };
   if (server.transport === 'stdio') Object.assign(view, { command: server.command, args: [...server.args], ...(server.cwd ? { cwd: server.cwd } : {}) });
   else Object.assign(view, { url: server.url, headers: publicMap(server.headers) });
   return view;
@@ -328,6 +370,29 @@ export class McpServerStore {
   get(id) {
     const server = this.servers.get(id);
     return server ? publicServer(id, server) : null;
+  }
+
+  /** The owner's word on one tool for the permission gate: 'ask' | 'allow' | 'deny', or undefined (no rule: the gate asks). An unknown server: 'deny'. */
+  policyFor({ server, tool } = {}) {
+    const stored = this.servers.get(server);
+    if (!stored) return 'deny';
+    return policyWordFor(stored, tool);
+  }
+
+  /** True only when the owner said to trust the annotations (readOnlyHint) of this server. */
+  trustsAnnotations(id) { return this.servers.get(id)?.trust?.annotations === true; }
+
+  /** True when the owner flagged that the server's tools can change the workspace (a checkpoint is taken before each call). */
+  touchesWorkspace(id) { return this.servers.get(id)?.touchesWorkspace === true; }
+
+  /**
+   * What the approval card may say of a server: its transport, the command line of a stdio server as stored (with its ${NAME} references, never
+   * their values) and the url of an HTTP one (the gate shows only its origin). Never a secret: env values and headers are not read.
+   */
+  describe(id) {
+    const server = this.servers.get(id);
+    if (!server) return null;
+    return server.transport === 'stdio' ? { transport: 'stdio', command: [server.command, ...server.args] } : { transport: 'http', url: server.url };
   }
 
   /** Adds or replaces one server from caller input (see normalizeValue for the forms of a value). Returns what the UI may see. */
