@@ -45,6 +45,11 @@
     { "name": "PT-walk-enters-git", "what": "the walk without Git goes into .git", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "if (entry.name === '.git') continue;", "new": "if (false) continue;" }] },
     { "name": "PT-git-not-probed", "what": "a Git path that cannot start is taken as usable", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "return probe?.code === 0 && /^git version /.test(probe.stdout.toString('utf8')) ? exe : null;", "new": "return exe;" }] },
     { "name": "PT-engine-not-forced", "what": "engine: 'raw-v1' is ignored", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "if (this.engine === TREE_ALGORITHM.raw) return", "new": "if (false) return" }] },
+    { "name": "PT-tracked-not-listed", "what": "the listing leaves out tracked files that an ignore rule matches (finding F1)", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "for (const file of (await this.trackedPaths(plan, signal)).paths) if", "new": "for (const file of []) if" }] },
+    { "name": "PT-tracked-not-readded", "what": "a cached snapshot does not add tracked files the temporary index lacks", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "if (missing.length) await git(['add', '-f',", "new": "if (false) await git(['add', '-f'," }] },
+    { "name": "PT-tracked-dropped", "what": "a changed ignore rule drops tracked files from a reused index too", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": ".filter((file) => !tracked.set.has(file))", "new": ".filter(Boolean)" }] },
+    { "name": "PT-tracked-key-ignored", "what": "a change of the repository's index does not make a reused index re-check ignored entries", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "#${tracked.key}`;", "new": "`;" }] },
+    { "name": "PT-tracked-memo-stale", "what": "the tracked paths are read once and never again", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "const key = stat ? `${stat.size}:${stat.mtimeMs}:${stat.ino}` : 'no-index';", "new": "const key = 'read-once';" }] },
     { "name": "PT-no-raw-tree", "what": "a full snapshot does not report rawTree", "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "rawTree: status === 'ok' && full ? rawTree : null,", "new": "rawTree: null," }] }
   ]
 }
