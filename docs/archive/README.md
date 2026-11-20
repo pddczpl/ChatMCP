@@ -14,4 +14,4 @@ The files were moved here in November 2026 with `git mv`, so `git log --follow <
 | Validation record of the helper extension ChatMCP Button Fix 1.1.0, whose files stood at the repository root until they were removed in the same change | `VALIDATION.txt` | the repository root |
 | Release notes of 3.0.0, 3.0.1 and 3.0.2, the three versions that have no publish workflow | `RELEASE-NOTES-v3.0.0.md`, `RELEASE-NOTES-v3.0.1.md`, `RELEASE-NOTES-v3.0.2.md` | the repository root |
 
-The release notes from 3.0.3 on stay at the repository root, because the `publish-vX.Y.Z.yml` workflow of each version reads its file from there. [CHANGELOG.md](../../CHANGELOG.md) is the history of record.
+The release notes from 3.0.3 on stay at the repository root, because the release workflow (`.github/workflows/release.yml`, [RELEASING.md](../RELEASING.md)) reads `RELEASE-NOTES-vX.Y.Z.md` from there. [CHANGELOG.md](../../CHANGELOG.md) is the history of record.
