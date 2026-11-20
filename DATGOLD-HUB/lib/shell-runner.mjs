@@ -31,8 +31,8 @@ const LINGER_MS = 1500;
 // in one of the strongest words even without an underscore (PGPASSWORD, GHTOKEN), or when it is MYSQL_PWD (PWD alone is the
 // working directory and must stay). Words inside other words do not count: LESSKEY, KEYBOARD_LAYOUT, TOKENIZERS_PARALLELISM, AUTHOR.
 export const SECRET_ENV_NAME = /(?:^|_)(?:API_?KEY|APIKEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_?KEY|ACCESS_?KEY|AUTH|SESSION_?KEY)(?:_|$)|(?:PASSWORD|PASSWD|TOKEN|SECRET)$|^MYSQL_PWD$/i;
-// scheme://user:password@host, including the form with an empty user (redis://:password@host)
-const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s@]+@/i;
+// scheme://user:password@host, including the form with an empty user (redis://:password@host). lib/mcp/server-config.mjs uses it too.
+export const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s@]+@/i;
 const KEEP_ENV = new Set(['SSH_AUTH_SOCK', 'GPG_AGENT_INFO', 'GIT_ASKPASS', 'SSH_ASKPASS']);
 // Git reads extra configuration from GIT_CONFIG_COUNT with GIT_CONFIG_KEY_<n> / GIT_CONFIG_VALUE_<n> pairs. That is how CI systems and proxies
 // hand it a credential (http.extraheader = "AUTHORIZATION: basic ..."), and the VALUE half has no secret-looking name. The family is dropped as

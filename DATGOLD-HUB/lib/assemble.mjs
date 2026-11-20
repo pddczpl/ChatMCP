@@ -17,6 +17,10 @@ import { GitRunner } from './git-runner.mjs';
 import { ShellRunner } from './shell-runner.mjs';
 import { PluginManager } from './plugins.mjs';
 import { HookRunner } from './hooks.mjs';
+import { VERSION } from './manager.mjs';
+import { McpClientManager } from './mcp/client-manager.mjs';
+import { CONFIG_FILE } from './mcp/server-config.mjs';
+import { createProtector } from './secret-box.mjs';
 import { createDefaultExecutionRegistry } from './execution-contract.mjs';
 import { SandboxEngine } from './sandbox-engine.mjs';
 import { WindowsSandboxBackend } from './windows-sandbox-backend.mjs';
@@ -47,6 +51,17 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
   if (!manager.hooks) {
     manager.hooks = new HookRunner({ hubDirectory: manager.hubDirectory, secrets, log: (line) => manager.log(line) });
     manager.hooksOwned = true;
+  }
+  // The owner's external MCP servers (lib/mcp/client-manager.mjs, docs/MCP-CLIENT.md). Nothing connects here and nothing is offered to the
+  // model: the manager reads mcp-servers.json, reports its state and closes on shutdown. Like the hooks, the instance belongs to the manager
+  // that creates it; a manager that works for another one must be handed that instance before it is assembled (the later seam does that).
+  if (!manager.mcp) {
+    manager.mcp = new McpClientManager({
+      hubDirectory: manager.hubDirectory, bundleRoot, protector: createProtector({ bundleRoot, directory: manager.hubDirectory }),
+      registerSecret: (value) => manager.registerSecret(value), secrets, log: (line) => manager.log(line), clientInfo: { name: 'DatGold', version: VERSION },
+    });
+    manager.mcpOwned = true;
+    manager.mcp.reload().catch((error) => manager.log(`MCP: ${CONFIG_FILE} was not read (${error.code ?? 'error'}): ${error.message}`));
   }
   // Options for every GitRunner of the Hub. With a spawner, Git runs under the agent's account, in a repository that account owns.
   const gitOptions = exec ? {

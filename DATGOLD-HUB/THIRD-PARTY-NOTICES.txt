@@ -107,6 +107,34 @@ RUNTIME COMPONENTS
     The Rust components are parts of one release: the Unicode License V3 for the tables of core, crossbeam's texts for std::sync::mpmc (the copyright of The
     Crossbeam Project Developers), the texts of the backtrace-rs submodule, the two composite files of compiler_builtins and libm, and the license files of
     stdarch and portable-simd. cfg-if serves both ripgrep and the standard library. The Fuchsia mutex of std (BSD-2-Clause) is not compiled for Windows.
+18. MCP client SDK (DATGOLD-HUB/runtimes/mcp: @modelcontextprotocol/client 2.4.0 and its closure; the Hub loads it only when it connects to an
+    external MCP server) - Apache-2.0 for @modelcontextprotocol/client and @modelcontextprotocol/core, whose LICENSE also carries the MIT License for
+    the contributions that are not relicensed yet; MIT and ISC for the rest. Each package folder carries its own licence file. Status: shipped; the build
+    fails without them.
+-- BEGIN GENERATED: mcp-runtime-packages (scripts/generate-licenses.mjs) --
+    13 packages of scripts/mcp-runtime/package-lock.json (MIT 9, Apache-2.0 2, ISC 2), staged whole into DATGOLD-HUB/runtimes/mcp/node_modules, each with its own licence file in its folder. The licence is the license field of the lockfile entry.
+      @modelcontextprotocol/client 2.4.0 - Apache-2.0
+      @modelcontextprotocol/core 2.4.0 - Apache-2.0
+      cross-spawn 7.0.6 - MIT
+      eventsource 3.0.7 - MIT
+      eventsource-parser 3.1.1 - MIT
+      isexe 2.0.0 - ISC
+      jose 6.2.18 - MIT
+      path-key 3.1.1 - MIT
+      pkce-challenge 5.0.1 - MIT
+      shebang-command 2.0.0 - MIT
+      shebang-regex 3.0.0 - MIT
+      which 2.0.2 - ISC
+      zod 4.6.7 - MIT
+    7 packages compiled into the dist files of @modelcontextprotocol/client (MIT 6, BSD-3-Clause 1). They are not packages of the lockfile and the client ships none of their texts; the texts are vendored in scripts/mcp-runtime/licenses/ and installed in DATGOLD-HUB/runtimes/mcp/licenses/bundled/.
+      @cfworker/json-schema 4.1.1 - MIT - licenses/bundled/@cfworker/json-schema@4.1.1/LICENSE.md
+      ajv 8.18.0 - MIT - licenses/bundled/ajv@8.18.0/LICENSE
+      ajv-formats 3.0.1 - MIT - licenses/bundled/ajv-formats@3.0.1/LICENSE
+      content-type 1.0.5 - MIT - licenses/bundled/content-type@1.0.5/LICENSE
+      fast-deep-equal 3.1.3 - MIT - licenses/bundled/fast-deep-equal@3.1.3/LICENSE
+      fast-uri 3.1.8 - BSD-3-Clause - licenses/bundled/fast-uri@3.1.8/LICENSE
+      json-schema-traverse 1.0.0 - MIT - licenses/bundled/json-schema-traverse@1.0.0/LICENSE
+-- END GENERATED: mcp-runtime-packages --
 
 MICROSOFT C/C++ RUNTIME COMPONENTS
 
