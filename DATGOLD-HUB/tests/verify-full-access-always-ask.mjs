@@ -101,7 +101,8 @@ try {
     for (const [name, args] of ALWAYS_ASK) {
       const result = await outcome(gate, name, args);
       assert.equal(result.kind, 'prompt', `${name} ${JSON.stringify(args)} must produce a pending request under Full Access (got ${result.kind})`);
-      assert.equal(result.request.category, 'dangerous', `${name} is dangerous`);
+      // A tool of an external server is category external whatever its name says; its name still adds this question (tests/verify-mcp-gate.mjs).
+      assert.equal(result.request.category, name.startsWith('local.') ? 'dangerous' : 'external', `${name} is ${name.startsWith('local.') ? 'dangerous' : 'external'}`);
       assert.equal(result.result.allowed, false, 'and a "no" is honoured');
     }
     ok(`${ALWAYS_ASK.length} always-ask operations (>= 5) each produce a pending request under Full Access and a "no" stops them`);

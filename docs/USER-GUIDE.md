@@ -129,13 +129,21 @@ Công tắc **Chỉ đọc · Review · Tự động** nằm cạnh ô nhập (v
 | Lệnh kiểm tra (`pytest`, `npm test`, build, lint…) và lệnh sửa file trong dự án | **Từ chối** | **Hỏi** | Tự chạy |
 | Chạy chương trình khác, truy cập mạng, đường dẫn ngoài dự án | **Từ chối** | **Hỏi** | **Hỏi** |
 | Lệnh nguy hiểm (xóa, `git push`, ghi đè lịch sử, cài đặt hệ thống…), `delete_path`, công cụ `git_push` | **Từ chối** | **Hỏi** | **Hỏi** |
-| Công cụ chưa phân loại (chỉ gặp với MCP ngoài ở backend cũ) | **Từ chối** | **Hỏi** | **Từ chối** |
+| Công cụ của máy chủ MCP bên ngoài (mọi tên không bắt đầu bằng `local.` hay `studio.`), khi bạn chưa đặt gì cho nó | **Từ chối** | **Hỏi từng lần** | **Hỏi từng lần** |
 | File nhạy cảm (`.env`, khóa, `.git`…) | **Từ chối** | **Từ chối** | **Từ chối** |
 
 Hai điều hay bị hiểu nhầm:
 
 - *Tự động* **không** có nghĩa là "làm gì cũng được". Nó chỉ bỏ câu hỏi cho việc sửa file trong dự án và cho các lệnh đã được phân loại là kiểm tra hoặc sửa file. Lệnh khác và lệnh nguy hiểm vẫn hỏi. Khi bạn bật Tự động, giao diện hỏi xác nhận một lần.
 - Lệnh kiểm tra như `pytest` hay `npm test` **chạy mã của dự án** với quyền của bạn. Chỉ dùng *Tự động* với repository bạn tin tưởng (không phải repo vừa tải về từ nguồn lạ).
+
+**Công cụ của máy chủ MCP bên ngoài** (giai đoạn P2; bản này chưa nối máy chủ MCP nào vào model, cổng quyền được làm đúng trước). Tên, mô tả và chú thích (`readOnlyHint`…) của một công cụ như vậy là lời của máy chủ, nên Hub không dựa vào chúng: `github.create_issue` không được coi là "sửa file trong dự án" và không tự chạy ở *Tự động*. Bạn có thể đặt cho từng máy chủ hoặc từng công cụ một trong ba lựa chọn:
+
+- **Hỏi** (mặc định khi chưa đặt gì): *Review* và *Tự động* hỏi bạn trước mỗi lần gọi; *Chỉ đọc* từ chối.
+- **Cho phép** (`allow`): chạy không hỏi ở *Review* và *Tự động*. Ở *Chỉ đọc* chỉ chạy khi máy chủ ghi công cụ là chỉ đọc (`readOnlyHint`) **và** bạn đã bật "tin chú thích của máy chủ này"; không bật thì vẫn từ chối.
+- **Chặn** (`deny`): luôn từ chối, ở mọi chế độ, kể cả Full Access.
+
+Full Access chạy công cụ MCP ngoài không hỏi, trừ công cụ bạn đã chặn, và trừ công cụ có tên nói tới xóa, đặt lại, đẩy (push), phát hành hay tải lên: những công cụ đó vẫn hỏi, cả khi đã "Cho phép". Chính sách `sandbox-only` từ chối mọi công cụ MCP ngoài. Hub **không** kiểm tra đường dẫn trong đối số của công cụ MCP ngoài theo thư mục dự án (đường dẫn là việc của máy chủ đó) và không giới hạn được máy chủ: một máy chủ chạy trên máy bạn (stdio) có quyền của tài khoản Windows của bạn. Hãy đọc kỹ đối số trên thẻ duyệt trước khi cho phép.
 
 ### Khung duyệt
 
@@ -146,6 +154,7 @@ Mỗi thẻ cho bạn thấy *chính xác* điều sẽ xảy ra:
 - **Chạy lệnh**: lệnh đầy đủ, thư mục chạy, shell, phân loại (*Lệnh chỉ đọc / Lệnh kiểm tra / Lệnh có thể sửa file / Chạy chương trình / Lệnh nguy hiểm*), lý do phân loại, giới hạn thời gian.
 - **Ghi file**: đường dẫn, kích thước, có ghi đè không, rồi các dòng sẽ thay đổi thật sự (Hub tính trước từ chính tệp trên đĩa; tệp mới thì mọi dòng là dòng thêm; tệp có sẵn giữ kiểu xuống dòng và BOM cũ).
 - **Sửa file**: đường dẫn, rồi từng đoạn thay đổi thật sự với 3 dòng ngữ cảnh, giống tab "Xem lại thay đổi"; mỗi tệp thu gọn sẵn, bấm (hoặc Enter) để mở, Esc để đóng; thẻ hiện tối đa 20 tệp và 200 dòng mỗi tệp, phần còn lại được đếm. Nếu tệp đổi sau khi thẻ hiện ra, lệnh không chạy (`stale_after_approval`) và agent được báo; chi tiết ở [APPROVAL-PREVIEW.md](APPROVAL-PREVIEW.md).
+- **Công cụ của máy chủ MCP bên ngoài**: tên máy chủ, tên công cụ, cách kết nối (lệnh khởi động máy chủ, hoặc chỉ địa chỉ gốc của máy chủ HTTP, không có tên đăng nhập, mật khẩu, đường dẫn hay tham số), rồi các đối số mà model gửi, đã che thông tin bí mật như mọi thẻ khác.
 
 Bấm **Cho phép** hoặc **Từ chối** (có thêm **Từ chối tất cả** khi có nhiều yêu cầu). Mỗi yêu cầu có đồng hồ đếm ngược; hết **10 phút** mà bạn chưa quyết định thì bị **từ chối tự động**. Khi bị từ chối (do bạn hoặc do hết hạn), agent nhận thông báo "Người dùng từ chối hoặc hết hạn phê duyệt" và thường thử cách khác hoặc hỏi lại bạn.
 

@@ -11,6 +11,7 @@ import type { ApprovalView } from '@/lib/task-view';
 import { detailWithoutPreview, parseChangePreview } from '@/lib/change-preview';
 import { ChangePreview } from './ChangePreview';
 import { GitPushPreview } from './GitPushPreview';
+import { McpToolPreview } from './McpToolPreview';
 
 export type PendingApproval = ApprovalView;
 interface ApprovalStackProps {
@@ -48,6 +49,8 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
         const changes = parseChangePreview(item.detail);
         const diffs = !changes && item.oldContent !== undefined && item.newContent !== undefined ? diffLines(item.oldContent, item.newContent) : null;
         const risk = riskInfo(item.risk, lang);
+        // A tool of an external MCP server (category external) has no row in the table of the Hub's own categories: it is named here, and its level stays high.
+        const riskLabel = item.risk === 'external' ? t('agents_apr_mcp_risk') : risk.label;
         const pending = !decision;
         return (
           <section key={item.id} aria-label={t('agents_apr_title', { tool: item.tool })} data-approval-id={item.id}
@@ -67,7 +70,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
               <div className="space-y-1">
                 <p className="text-[14px] font-medium leading-5 text-fg">{item.description}</p>
                 <p className="font-mono text-[12px] text-primary">{item.tool}</p>
-                <p className="text-[13px] text-muted">{t('agents_apr_risk')} <span className="font-medium text-fg">{risk.label}</span> <code className="ml-1 text-[12px] text-faint">{item.risk}</code></p>
+                <p className="text-[13px] text-muted">{t('agents_apr_risk')} <span className="font-medium text-fg">{riskLabel}</span> <code className="ml-1 text-[12px] text-faint">{item.risk}</code></p>
                 {item.reason && item.reason !== item.description && <p className="text-[13px] text-muted">{item.reason}</p>}
                 {item.expiresAt && (
                   <p className="text-[12px] text-faint">{t('agents_apr_expires')} <time dateTime={item.expiresAt}>{formatTime(item.expiresAt, lang)}</time></p>
@@ -89,6 +92,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
               )}
               {item.diff && <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 font-mono text-[12px] leading-5">{item.diff}</pre>}
               <GitPushPreview detail={item.detail} />
+              <McpToolPreview detail={item.detail} />
               {item.detail && (
                 <details className="text-[13px]">
                   <summary className="cursor-pointer text-muted hover:text-fg">{t('agents_apr_details')}</summary>

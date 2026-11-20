@@ -122,10 +122,12 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
     ['studio.plan_set', {}, A, A, A],
     ['studio.checkpoint', {}, A, A, A],
     ['studio.restore', {}, D, P, P],
-    ['desktop-commander.read_file', { path: 'src/app.py' }, A, A, A],
-    ['desktop-commander.write_file', { path: 'src/app.py', content: 'x' }, D, P, A],
+    // A tool of an external server is category external whatever its name says (tests/verify-mcp-gate.mjs has the whole table): with no
+    // policy set, Read Only refuses it and Review and Autonomous ask.
+    ['desktop-commander.read_file', { path: 'src/app.py' }, D, P, P],
+    ['desktop-commander.write_file', { path: 'src/app.py', content: 'x' }, D, P, P],
     ['desktop-commander.start_process', { command: 'dir' }, D, P, P],
-    ['cloud-harness.workspace_list', {}, A, A, A],
+    ['cloud-harness.workspace_list', {}, D, P, P],
   ];
   for (const mode of ['readonly', 'review', 'autonomous']) {
     const column = { readonly: 2, review: 3, autonomous: 4 }[mode];
@@ -186,7 +188,8 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   }
   assert.equal((await outcome(gate, 'local.git_commit', { message: 'x', run_hooks: true })).kind, 'deny');
   const external = await outcome(gate, 'desktop-commander.read_file', { path: 'src/app.py' });
-  assert.equal(external.kind, 'deny');
+  assert.equal(external.kind, 'policy', 'refused, and the refusal of an external call is in the audit history');
+  assert.match(external.result.reason, /Sandbox-only/);
   assert.equal(gate.state().pending.length, 0);
   ok('sandbox-only: file tools work, every shell command and external MCP call is refused without asking');
 
@@ -415,16 +418,26 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   ok('cancellation: aborting a task, cancelTask(), shutdown() and expiry all settle pending requests safely');
 }
 
-// ------------------------------------------------------------------ path inspection for external tools
+// ------------------------------------------------------------------ path inspection is not applied to external tools
+// What a path means is the business of the server that receives it (a remote server's paths are not this machine's), so a path outside the
+// workspace no longer throws: the call is asked about, with the path on the card (plan task ext-12; tests/verify-mcp-gate.mjs).
 {
-  const strictWorkspace = { root: work, async resolve(value) { if (String(value).startsWith('/outside')) throw Object.assign(new Error('not in selected workspace'), { code: 'outside_workspace' }); return { relative: value }; } };
+  let inspected = 0;
+  const strictWorkspace = { root: work, async resolve(value) { inspected += 1; if (String(value).startsWith('/outside')) throw Object.assign(new Error('not in selected workspace'), { code: 'outside_workspace' }); return { relative: value }; } };
   const gate = new PermissionGate({ manager, workspace: strictWorkspace, timeout: 60_000 });
   gate.configure({ mode: 'autonomous' });
-  await assert.rejects(gate.authorize({ name: 'desktop-commander.write_file', args: { path: '/outside/x' }, taskId: 't' }), /not in selected workspace/);
-  await assert.rejects(gate.authorize({ name: 'desktop-commander.start_process', args: { command: 'dir', cwd: '/outside' }, taskId: 't' }), /not in selected workspace/, 'cwd is a path argument too');
-  await assert.rejects(gate.authorize({ name: 'desktop-commander.start_process', args: { command: 'dir', working_directory: '/outside' }, taskId: 't' }), /not in selected workspace/);
-  assert.equal((await gate.authorize({ name: 'desktop-commander.write_file', args: { path: 'inside.txt', content: 'x' }, taskId: 't' })).allowed, true);
-  ok('external tools: path-like arguments (including cwd and working directory) must stay inside the workspace');
+  for (const [name, args, shown] of [
+    ['desktop-commander.write_file', { path: '/outside/x' }, '/outside/x'],
+    ['desktop-commander.start_process', { command: 'dir', cwd: '/outside' }, '/outside'],
+    ['desktop-commander.start_process', { command: 'dir', working_directory: '/outside' }, '/outside'],
+    ['desktop-commander.write_file', { path: 'inside.txt', content: 'x' }, 'inside.txt'],
+  ]) {
+    const got = await outcome(gate, name, args, { approve: false });
+    assert.equal(got.kind, 'prompt', `${name} ${JSON.stringify(args)}: asked, not thrown (got ${got.kind}: ${got.error?.message ?? ''})`);
+    assert.ok(got.request.detail.arguments.includes(shown), `${name}: the path is on the card`);
+  }
+  assert.equal(inspected, 0, 'the workspace never resolved an external path');
+  ok('external tools: path-like arguments (path, cwd, working directory) are not inspected against the workspace; the call is asked about with the path on the card');
 }
 
 await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 300 }).catch(() => {});
