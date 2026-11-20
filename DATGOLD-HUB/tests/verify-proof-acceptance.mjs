@@ -119,6 +119,11 @@ try {
     ['empty file', '# nothing here\n\n', 1, 'empty_file'],
     ['criteria is a mapping', 'version: 1\ncriteria:\n  id: a\n', 3, 'bad_type'],
     ['inline sequence in an item', `${GOOD}protected:\n  - - a\n`, 8, 'bad_type'],
+    ['list item after a key', GOOD.replace('npm test', '- npm test'), 6, 'unexpected_sequence'],
+    ['key with a space', `${GOOD}my key: x\n`, 7, 'unsupported_key'],
+    ['first key with a space', 'my key: 1\n', 1, 'unsupported_key'],
+    ['sequence item inside a mapping', 'version: 1\ncriteria:\n  - id: a\n    text: t\n    - x\n', 5, 'unexpected_sequence'],
+    ['too many criteria', `version: 1\ncriteria:\n${'  - id: a\n    text: t\n    manual:\n      note: n\n'.replace('id: a', 'id: c0')}${Array.from({ length: 100 }, (_, i) => `  - id: c${i + 1}\n    text: t\n    manual:\n      note: n\n`).join('')}`, 3 + 4 * 100, 'too_many'],
   ];
   assert.ok(MALFORMED.length >= 20);
   for (const [name, input, line, reason] of MALFORMED) {
@@ -207,7 +212,7 @@ try {
   ok('line numbers stay right with CRLF and a BOM');
 
   // The YAML subset itself: block scalar chomping and indentation indicators, folding, scalars and their types.
-  const plain = (text) => toPlainValue(parseYamlSubset(text));
+  const plain = (text) => JSON.parse(JSON.stringify(toPlainValue(parseYamlSubset(text)))); // compared as ordinary objects
   assert.deepEqual(plain('a: |\n  x\n  y\n\n\nb: 1\n'), { a: 'x\ny\n', b: 1 });
   assert.deepEqual(plain('a: |-\n  x\n  y\n\nb: 1\n'), { a: 'x\ny', b: 1 });
   assert.deepEqual(plain('a: |+\n  x\n\n\nb: 1\n'), { a: 'x\n\n\n', b: 1 });
@@ -220,7 +225,7 @@ try {
   assert.deepEqual(plain('a:\n- x\n- y: 1\n  z: 2\nb:\n  -\n    c: 3\n'), { a: ['x', { y: 1, z: 2 }], b: [{ c: 3 }] });
   assert.deepEqual(plain('a: "\\\\ \\" \\/ \\n \\t \\r \\0 \\b \\f \\x41 \\u00e9 \\U0001F600"\n'), { a: '\\ " / \n \t \r \0 \b \f A é 😀' });
   assert.equal(parseYamlSubset('# only a comment\n'), null);
-  const proto = plain('__proto__: x\nconstructor: y\n');
+  const proto = toPlainValue(parseYamlSubset('__proto__: x\nconstructor: y\n'));
   assert.equal(Object.getPrototypeOf(proto), null);
   assert.equal(proto.__proto__, 'x');
   assert.equal({}.x, undefined);
