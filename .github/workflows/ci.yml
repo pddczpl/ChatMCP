@@ -88,6 +88,14 @@ jobs:
           name: hub-test-summary-${{ matrix.os }}-node${{ matrix.node }}
           path: DATGOLD-HUB/test-results/summary.json
           if-no-files-found: ignore
+      # The G4 latency budgets of the tree snapshot engine (docs/PROOF-TREE.md), measured on this runner by tests/verify-proof-tree.mjs
+      - name: Upload the proof tree budget
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proof-tree-budget-${{ matrix.os }}-node${{ matrix.node }}
+          path: DATGOLD-HUB/test-results/proof-tree-budget-*.json
+          if-no-files-found: ignore
 
   proof-tree-macos:
     # Gate G4 of P4 wants the tree snapshot engine (docs/PROOF-TREE.md) measured on all three systems. The full Hub suite does not run on
@@ -111,7 +119,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: proof-tree-summary-macos
-          path: DATGOLD-HUB/test-results/summary.json
+          path: |
+            DATGOLD-HUB/test-results/summary.json
+            DATGOLD-HUB/test-results/proof-tree-budget-*.json
           if-no-files-found: ignore
 
   flaky-gate:

@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PRIVATE_FILE } from '../lib/protected-paths.mjs';
 import { MODE, blobId, buildTree, treeId } from '../lib/proof/git-plumbing.mjs';
 import {
@@ -616,6 +617,10 @@ const big = generateRepo('big', 8002, 8002, { commit: true });
   budget.rawWarmP95Ms = Math.round(percentile(rawWarm, 95));
   budget.rawWarmLimitMs = 1500;
   console.log(`PROOF_TREE_BUDGET ${JSON.stringify(budget)}`);
+  // the runner prints the output of a passing suite only with --verbose: CI uploads this file so that the numbers of every system are kept
+  const results = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'test-results');
+  fs.mkdirSync(results, { recursive: true });
+  fs.writeFileSync(path.join(results, `proof-tree-budget-${process.platform}.json`), `${JSON.stringify(budget, null, 2)}\n`);
   assert.ok(budget.coldFullMs <= budget.coldLimitMs, `cold full snapshot ${budget.coldFullMs} ms > ${budget.coldLimitMs} ms`);
   assert.ok(budget.warmP95Ms <= budget.warmLimitMs, `warm p95 ${budget.warmP95Ms} ms > ${budget.warmLimitMs} ms`);
   assert.ok(budget.rawWarmP95Ms <= budget.rawWarmLimitMs, `raw-v1 warm p95 ${budget.rawWarmP95Ms} ms > 1500 ms`);
