@@ -401,11 +401,13 @@ try {
     return { callIds, outputs };
   };
   const RESUME_PROMPT = 'Go on: one more look.';
+  // A step is chosen by the number of results so far (ctx.turn): after a turn with two calls the next step is two further on.
+  const unused = say('(never reached)');
   const scenarios = {
     chat: [call('read_file', { path: 'a.txt' }), call('read_file', { path: 'b.txt' }), call('screenshot', {})],
-    responses: [thinking('look at two files', calls(['read_file', { path: 'a.txt' }], ['read_file', { path: 'b.txt' }])), thinking('and a picture', call('screenshot', {}))],
+    responses: [thinking('look at two files', calls(['read_file', { path: 'a.txt' }], ['read_file', { path: 'b.txt' }])), unused, thinking('and a picture', call('screenshot', {}))],
     anthropic: [thinking('first a', call('read_file', { path: 'a.txt' })), thinking('then b', call('read_file', { path: 'b.txt' })), call('screenshot', {})],
-    gemini: [thinking('two at once', calls(['read_file', { path: 'a.txt' }], ['read_file', { path: 'b.txt' }])), call('screenshot', {})],
+    gemini: [thinking('two at once', calls(['read_file', { path: 'a.txt' }], ['read_file', { path: 'b.txt' }])), unused, call('screenshot', {})],
     router: [call('mcp_catalog', { filter: null, offset: 0, limit: 5 }), call('mcp_call', { name: 'nope.tool', arguments_json: '{}' }), call('read_file', { path: 'a.txt' })],
   };
   const opaque = {
