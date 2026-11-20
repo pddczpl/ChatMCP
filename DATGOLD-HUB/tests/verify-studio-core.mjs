@@ -63,15 +63,19 @@ try{
   const plan=await studio.plan({taskId:planId,operation:'set',title:'Implement',items:[{text:'Read',status:'done',evidence:'Read README'}]});check(plan.items[0].status==='done');
   check((await studio.plan({taskId:planId})).items.length===1);
   const gate=new PermissionGate({manager,workspace:studio,directory:path.join(root,'policy'),timeout:1000});
-  const reader=await gate.authorize({name:'desktop-commander.read_file',args:{path:'src/app.py'},taskId:planId});check(reader.allowed);
+  const waitPending=async()=>{for(let i=0;i<50;i++){const list=gate.state().pending;if(list.length>0)return list[0];await new Promise(r=>setTimeout(r,20));}return gate.state().pending[0];};
+  // A tool of an external server is asked about in Review whatever its name says (plan task ext-12, tests/verify-mcp-gate.mjs).
+  const reading=gate.authorize({name:'desktop-commander.read_file',args:{path:'src/app.py'},taskId:planId});const pendingRead=await waitPending();check(pendingRead?.category==='external');gate.decide(pendingRead.id,true);check((await reading).allowed);
   check(gate.classify('remote-connector.write_file',{}, {annotations:{readOnlyHint:true}}).category==='workspace_edit');
   check(gate.classify('unknown.tool',{}, {annotations:{readOnlyHint:true}}).category==='unknown');
-  const waitPending=async()=>{for(let i=0;i<50;i++){const list=gate.state().pending;if(list.length>0)return list[0];await new Promise(r=>setTimeout(r,20));}return gate.state().pending[0];};
+  check((await gate.assess('remote-connector.read_file',{}, {annotations:{readOnlyHint:true}})).category==='external');
   const controller=new AbortController();const request=gate.authorize({name:'desktop-commander.start_process',args:{command:'echo hello'},taskId:planId,signal:controller.signal});
   const pending=await waitPending();check(Boolean(pending));gate.decide(pending.id,true);check((await request).allowed);
   const refused=gate.authorize({name:'desktop-commander.delete_file',args:{path:'src/app.py'},taskId:planId});const pendingRefused=await waitPending();check(Boolean(pendingRefused));gate.decide(pendingRefused.id,false);check((await refused).allowed===false);
-  await assert.rejects(()=>gate.authorize({name:'desktop-commander.edit_file',args:{path:'../../escape'},taskId:planId}),e=>e.statusCode===403);n++;
-  gate.configure({mode:'autonomous'});check((await gate.authorize({name:'desktop-commander.edit_file',args:{path:'src/app.py'},taskId:planId})).allowed);
+  // the path of an external tool is the server's business: no exception, the owner is asked with the path on the card
+  const escaping=gate.authorize({name:'desktop-commander.edit_file',args:{path:'../../escape'},taskId:planId});const pendingEscape=await waitPending();check(String(pendingEscape?.detail?.arguments).includes('../../escape'));gate.decide(pendingEscape.id,false);check((await escaping).allowed===false);
+  gate.configure({mode:'autonomous'});
+  const editing=gate.authorize({name:'desktop-commander.edit_file',args:{path:'src/app.py'},taskId:planId});const pendingEdit=await waitPending();check(Boolean(pendingEdit));gate.decide(pendingEdit.id,true);check((await editing).allowed);
   const shell=gate.authorize({name:'desktop-commander.start_process',args:{command:'rm -rf src'},taskId:planId});const pendingShell=await waitPending();check(Boolean(pendingShell));gate.decide(pendingShell.id,false);await shell;
   await gate.writes;
   const gateAgain=new PermissionGate({manager,workspace:studio,directory:path.join(root,'policy')});await gateAgain.load();check(gateAgain.state().mode==='autonomous'&&gateAgain.state().recent.length>=2);

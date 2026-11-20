@@ -25,7 +25,7 @@ import path from 'node:path';
 import { isObject, readJson, resolveProgram, stopOwned, writeJson } from './runtime.mjs';
 import { ShellRunner, scrubEnv } from './shell-runner.mjs';
 import { globMatches } from './glob-match.mjs';
-import { maskSecrets } from './permissions.mjs';
+import { externalToolName, maskSecrets } from './permissions.mjs';
 
 // ------------------------------------------------------------------------------------------------------------------ constants
 export const HOOK_EVENTS = Object.freeze(['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'TaskCompleted', 'SubagentStop']);
@@ -94,13 +94,17 @@ export const TOOL_ALIASES = Object.freeze({
 });
 const FILE_PATH_TOOLS = new Set(['local.write_file', 'local.edit_file', 'local.read_file']);
 
-/** Every name a tool answers to: its own, its Claude Code names, and mcp__server__tool for a tool of an external server. */
+/**
+ * Every name a tool answers to: its own, its Claude Code names, and mcp__server__tool for a tool of an external server. Which names are
+ * external and how the server and the tool are read from one is the rule of lib/permissions.mjs (externalToolName), so that a hook and
+ * the permission gate never disagree about it; a name with no server has no alias.
+ */
 export function toolNames(toolName) {
   const name = String(toolName);
   const names = [name];
   for (const [alias, targets] of Object.entries(TOOL_ALIASES)) if (targets.includes(name)) names.push(alias);
-  const external = /^([^.]+)\.(.+)$/.exec(name);
-  if (external && !['local', 'studio'].includes(external[1])) names.push(`mcp__${external[1]}__${external[2]}`);
+  const external = externalToolName(name);
+  if (external?.server) names.push(`mcp__${external.server}__${external.tool}`);
   return names;
 }
 

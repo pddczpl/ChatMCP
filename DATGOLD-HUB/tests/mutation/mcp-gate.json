@@ -1,0 +1,306 @@
+{
+  "suite": "verify-mcp-gate.mjs",
+  "description": "The permission gate and the tools of external MCP servers (plan task ext-12): lib/permissions.mjs (the name rule, the category external, the owner's policy and trust, the decisions by mode and execution policy, destructiveHint: true asking under Full Access and allow,no path inspection, the mcp card, the audit row) and lib/hooks.mjs (the alias of an external tool follows the same name rule), judged by tests/verify-mcp-gate.mjs.",
+  "mutations": [
+    {
+      "name": "MG-external-as-workspace-edit",
+      "what": "an external tool is treated as a workspace edit (it runs unasked in Autonomous, like before ext-12)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "return {category:'external',reason:`Công cụ MCP bên ngoài (máy chủ ${server})", "new": "return {category:'workspace_edit',reason:`Công cụ MCP bên ngoài (máy chủ ${server})" }]
+    },
+    {
+      "name": "MG-classified-by-name",
+      "what": "an external tool is classified by its name again (the regexes of classify)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(external)return this.#assessExternal(external,definition);", "new": "if(false)return this.#assessExternal(external,definition);" }]
+    },
+    {
+      "name": "MG-full-access-ignores-deny",
+      "what": "Full Access runs a tool the owner denied",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(policy==='deny')return {refuse:", "new": "if(policy==='deny'&&this.executionPolicy!=='full-access')return {refuse:" }]
+    },
+    {
+      "name": "MG-deny-ignored",
+      "what": "an explicit deny refuses nothing",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(policy==='deny')return {refuse:", "new": "if(false)return {refuse:" }]
+    },
+    {
+      "name": "MG-hook-question-beats-deny",
+      "what": "a hook's question turns a deny into a question",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(policy==='deny')return {refuse:", "new": "if(policy==='deny'&&!forceAsk)return {refuse:" }]
+    },
+    {
+      "name": "MG-readonly-hint-untrusted",
+      "what": "readOnlyHint is trusted without trustAnnotations",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "readOnly:trusted&&annotations.readOnlyHint===true", "new": "readOnly:annotations.readOnlyHint===true" }]
+    },
+    {
+      "name": "MG-default-allow",
+      "what": "the default policy (nothing set) is allow",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(answer===undefined||answer===null)return 'ask';", "new": "if(answer===undefined||answer===null)return 'allow';" }]
+    },
+    {
+      "name": "MG-default-allow-unattached",
+      "what": "a gate with no external policy attached allows every external tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "this.externalPolicy={policyFor:()=>undefined,", "new": "this.externalPolicy={policyFor:()=>'allow'," }]
+    },
+    {
+      "name": "MG-default-allow-attached",
+      "what": "an attached policy that leaves policyFor out allows every external tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "policyFor:typeof policyFor==='function'?policyFor:()=>undefined,", "new": "policyFor:typeof policyFor==='function'?policyFor:()=>'allow'," }]
+    },
+    {
+      "name": "MG-unreadable-policy-asks",
+      "what": "a policy answer that is none of ask/allow/deny is taken as ask (it should refuse)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "return EXTERNAL_POLICIES.includes(answer)?answer:'deny';", "new": "return EXTERNAL_POLICIES.includes(answer)?answer:'ask';" }]
+    },
+    {
+      "name": "MG-unreadable-policy-allows",
+      "what": "a policy answer that is none of ask/allow/deny ('ALLOW', true, 1) is taken as allow",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "return EXTERNAL_POLICIES.includes(answer)?answer:'deny';", "new": "return EXTERNAL_POLICIES.includes(answer)?answer:'allow';" }]
+    },
+    {
+      "name": "MG-throwing-policy-allows",
+      "what": "a policy that throws allows the call",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "}catch{return 'deny';}", "new": "}catch{return 'allow';}" }]
+    },
+    {
+      "name": "MG-policy-not-awaited",
+      "what": "an async policy is not awaited",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "const answer=await policyFor(who);", "new": "const answer=policyFor(who);" }]
+    },
+    {
+      "name": "MG-policy-without-tool",
+      "what": "the policy is asked about the server only, not the tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "askOwnerPolicy(this.externalPolicy.policyFor,{server,tool})", "new": "askOwnerPolicy(this.externalPolicy.policyFor,{server,tool:''})" }]
+    },
+    {
+      "name": "MG-trust-truthy",
+      "what": "any truthy answer of trustAnnotations ('true', 1) is trust",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "(await trustAnnotations(who))===true", "new": "Boolean(await trustAnnotations(who))" }]
+    },
+    {
+      "name": "MG-throwing-trust-trusts",
+      "what": "a trust function that throws trusts the server",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "===true;}catch{return false;}", "new": "===true;}catch{return true;}" }]
+    },
+    {
+      "name": "MG-trust-not-per-server",
+      "what": "the trust is asked about another server than the call's",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "trusts(this.externalPolicy.trustAnnotations,{server})", "new": "trusts(this.externalPolicy.trustAnnotations,{server:'memory'})" }]
+    },
+    {
+      "name": "MG-attach-drops-trust",
+      "what": "attachExternalPolicy ignores trustAnnotations",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "trustAnnotations:typeof trustAnnotations==='function'?trustAnnotations:()=>false,", "new": "trustAnnotations:()=>false," }]
+    },
+    {
+      "name": "MG-attach-default-trusts",
+      "what": "an attached policy that leaves trustAnnotations out trusts every server",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "trustAnnotations:typeof trustAnnotations==='function'?trustAnnotations:()=>false,", "new": "trustAnnotations:typeof trustAnnotations==='function'?trustAnnotations:()=>true," }]
+    },
+    {
+      "name": "MG-hints-any-type",
+      "what": "a hint that is not a boolean is kept",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "typeof given[key]==='boolean'", "new": "given[key]!==undefined" }]
+    },
+    {
+      "name": "MG-readonly-allow-enough",
+      "what": "Read Only runs a tool that is allowed, without a trusted readOnlyHint",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(readonly&&!(policy==='allow'&&readOnly))", "new": "if(readonly&&!(policy==='allow'))" }]
+    },
+    {
+      "name": "MG-readonly-hint-enough",
+      "what": "Read Only runs a tool with a trusted readOnlyHint that the owner did not allow",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(readonly&&!(policy==='allow'&&readOnly))", "new": "if(readonly&&!(readOnly))" }]
+    },
+    {
+      "name": "MG-readonly-refuses-all",
+      "what": "Read Only refuses even an allowed tool with a trusted readOnlyHint",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(readonly&&!(policy==='allow'&&readOnly))", "new": "if(readonly)" }]
+    },
+    {
+      "name": "MG-sandbox-lets-external",
+      "what": "sandbox-only lets an external tool through",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(this.executionPolicy==='sandbox-only')return {refuse:", "new": "if(false)return {refuse:" }]
+    },
+    {
+      "name": "MG-full-access-asks",
+      "what": "Full Access asks about every external tool (the owner decided it runs them)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(this.executionPolicy==='full-access')return {run:", "new": "if(false)return {run:" }]
+    },
+    {
+      "name": "MG-allow-asks",
+      "what": "an allowed tool is still asked about",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(policy==='allow')return {run:", "new": "if(false)return {run:" }]
+    },
+    {
+      "name": "MG-hook-question-ignored",
+      "what": "a hook's question is not asked where the call would run",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(forceAsk||verdict.irreversible||mustAskEvenInFullAccess(name,verdict))return {};", "new": "if(verdict.irreversible||mustAskEvenInFullAccess(name,verdict))return {};" }]
+    },
+    {
+      "name": "MG-irreversible-name-ignored",
+      "what": "a name that says delete, push or publish runs unasked in Full Access and under allow",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(forceAsk||verdict.irreversible||mustAskEvenInFullAccess(name,verdict))return {};", "new": "if(forceAsk||mustAskEvenInFullAccess(name,verdict))return {};" }]
+    },
+    {
+      "name": "MG-always-ask-ignored",
+      "what": "the always-ask names (github_pr_merge, github_release_create) run unasked for an external server",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(forceAsk||verdict.irreversible||mustAskEvenInFullAccess(name,verdict))return {};", "new": "if(forceAsk||verdict.irreversible)return {};" }]
+    },
+    {
+      "name": "MG-irreversible-case",
+      "what": "a destructive name in capitals is not seen",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "IRREVERSIBLE_NAME.test(tool.toLowerCase())", "new": "IRREVERSIBLE_NAME.test(tool)" }]
+    },
+    {
+      "name": "MG-irreversible-reads-server",
+      "what": "the name of the server decides too (every tool of a server called pushover asks under Full Access)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "IRREVERSIBLE_NAME.test(tool.toLowerCase())", "new": "IRREVERSIBLE_NAME.test(`${server}.${tool}`.toLowerCase())" }]
+    },
+    {
+      "name": "MG-destructive-hint-ignored",
+      "what": "destructiveHint: true no longer asks: Full Access and allow run a tool its server marks destructive",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "    if(verdict.destructive)return {};\n", "new": "" }]
+    },
+    {
+      "name": "MG-destructive-hint-missing-is-true",
+      "what": "a missing destructiveHint is read with the MCP default (true): every tool without annotations asks and Full Access runs none (`!== false` instead of `=== true`)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "const destructive=annotations.destructiveHint===true;", "new": "const destructive=annotations.destructiveHint!==false;" }]
+    },
+    {
+      "name": "MG-destructive-hint-after-full-access",
+      "what": "the destructiveHint check is placed after the Full Access run: allow still asks, Full Access runs the destructive tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "    if(verdict.destructive)return {};\n    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n", "new": "    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n    if(verdict.destructive)return {};\n" }]
+    },
+    {
+      "name": "MG-destructive-hint-needs-trust",
+      "what": "destructiveHint counts only from a server whose annotations the owner trusts (an untrusted server's destructive tool runs under Full Access)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(verdict.destructive)return {};", "new": "if(verdict.destructive&&verdict.trusted)return {};" }]
+    },
+    {
+      "name": "MG-destructive-hint-beats-deny",
+      "what": "destructiveHint is checked before the owner's deny: a denied destructive tool is asked about instead of refused",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(policy==='deny')return {refuse:", "new": "if(verdict.destructive)return {};if(policy==='deny')return {refuse:" }]
+    },
+    {
+      "name": "MG-destructive-hint-beats-readonly",
+      "what": "destructiveHint is checked before Read Only: a destructive tool the owner did not allow is asked about in Read Only instead of refused",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(readonly&&!(policy==='allow'&&readOnly))", "new": "if(verdict.destructive)return {};if(readonly&&!(policy==='allow'&&readOnly))" }]
+    },
+    {
+      "name": "MG-destructive-hint-beats-sandbox",
+      "what": "destructiveHint is checked before sandbox-only: a destructive tool is asked about under sandbox-only instead of refused",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(this.executionPolicy==='sandbox-only')return {refuse:", "new": "if(verdict.destructive)return {};if(this.executionPolicy==='sandbox-only')return {refuse:" }]
+    },
+    {
+      "name": "MG-destructive-reason-missing",
+      "what": "the card does not say that the server marked the tool destructive",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "${destructive?DESTRUCTIVE_NOTE:''}", "new": "" }]
+    },
+    {
+      "name": "MG-destructive-reason-always",
+      "what": "the card calls every external tool destructive, whatever its server said",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "${destructive?DESTRUCTIVE_NOTE:''}", "new": "${DESTRUCTIVE_NOTE}" }]
+    },
+    {
+      "name": "MG-serverless-name-asked",
+      "what": "a name without a server is asked about (and runs in Full Access) instead of refused",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(!server)return {refuse:", "new": "if(false)return {refuse:" }]
+    },
+    {
+      "name": "MG-paths-inspected",
+      "what": "the workspace path inspection is applied to an external tool (an outside path throws again)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "    if(category==='external'){\n      const decided=", "new": "    if(category==='external'){\n      await this.inspectPaths(args,'workspace_edit');\n      const decided=" }]
+    },
+    {
+      "name": "MG-external-question-runs",
+      "what": "an external call that should be asked runs instead",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "      return this.#question({name,args,verdict,taskId,signal,forceAsk,askReason});\n    }\n    // Read Only", "new": "      return {allowed:true,category};\n    }\n    // Read Only" }]
+    },
+    {
+      "name": "MG-no-full-access-event",
+      "what": "an external call run by Full Access is not announced",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(decided.fullAccess)this.#emit(", "new": "if(false)this.#emit(" }]
+    },
+    {
+      "name": "MG-refusal-row-without-server",
+      "what": "the history row of a refused external call does not name the server and the tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "category:verdict.category,...serverAndTool(verdict),reason:maskSecrets", "new": "category:verdict.category,reason:maskSecrets" }]
+    },
+    {
+      "name": "MG-request-without-server",
+      "what": "the approval request (and its history row) does not name the server and the tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "category,...serverAndTool(verdict),reason:shownReason", "new": "category,reason:shownReason" }]
+    },
+    {
+      "name": "MG-pending-without-server",
+      "what": "the pending list does not name the server and the tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "...(server===undefined?{}:{server,tool}),", "new": "" }]
+    },
+    {
+      "name": "MG-card-not-mcp",
+      "what": "an external call gets the old card (no detail)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "return verdict.category==='external'?mcpCard(card,verdict,secrets):card;", "new": "return card;" }]
+    },
+    {
+      "name": "MG-card-kind",
+      "what": "the card of an external call is not of kind mcp",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "const detail={kind:'mcp',", "new": "const detail={kind:'tool'," }]
+    },
+    {
+      "name": "MG-card-raw-arguments",
+      "what": "the arguments of an external call are the raw JSON, not masked",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "preview:previewArguments(args,1800,secrets),detail:null", "new": "preview:JSON.stringify(args),detail:null" }]
+    },
+    {
+      "name": "MG-card-launch-unmasked",
+      "what": "the command that starts the server is shown unmasked",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "launch:launch===null?null:maskSecrets(launch,secrets)", "new": "launch" }]
+    },
+    {
+      "name": "MG-card-full-url",
+      "what": "the whole address of an HTTP server is shown (user, password, path, query)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "origin=new URL(address).origin;", "new": "origin=address;" }]
+    },
+    {
+      "name": "MG-card-origin-null-string",
+      "what": "an address without an origin (file:) shows the word null",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(origin==='null')origin=null;", "new": "" }]
+    },
+    {
+      "name": "MG-card-describe-dropped",
+      "what": "attachExternalPolicy ignores describeServer",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "describeServer:typeof describeServer==='function'?describeServer:null,", "new": "describeServer:null," }]
+    },
+    {
+      "name": "MG-card-command-list-dropped",
+      "what": "a command given as a list is not shown",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "Array.isArray(info.command)?info.command.map(String).join(' '):", "new": "" }]
+    },
+    {
+      "name": "MG-card-transport-uncut",
+      "what": "the transport is not cut",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "info.transport.slice(0,40)", "new": "info.transport" }]
+    },
+    {
+      "name": "MG-card-launch-uncut",
+      "what": "the command that starts the server is not cut",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "launch.slice(0,2000)", "new": "launch" }]
+    },
+    {
+      "name": "MG-name-case-insensitive",
+      "what": "Local.x and STUDIO.x are taken for the Hub's own tools (HubManager routes them to the external backend)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "INTERNAL_PREFIXES.some((prefix)=>text.startsWith(prefix))", "new": "INTERNAL_PREFIXES.some((prefix)=>text.toLowerCase().startsWith(prefix))" }]
+    },
+    {
+      "name": "MG-name-last-dot",
+      "what": "the server is read up to the last dot instead of the first",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "const dot=text.indexOf('.');", "new": "const dot=text.lastIndexOf('.');" }]
+    },
+    {
+      "name": "MG-hooks-alias-without-server",
+      "what": "the hooks give a name without a server an mcp__ alias",
+      "patches": [{ "file": "lib/hooks.mjs", "old": "if (external?.server) names.push(", "new": "if (external) names.push(" }]
+    }
+  ]
+}

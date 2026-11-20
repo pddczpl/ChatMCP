@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 //   readonly    - reads and bookkeeping only; every change is refused without a prompt
 //   review      - reads run; every change asks the user (legacy name: "manual")
 //   autonomous  - file edits and known-safe verification commands run; execution and deletion still ask; an unclassified tool is refused (not asked)
+// A tool of an external (MCP) server is none of these: see "External tools" below.
 export const PERMISSION_MODES = Object.freeze(['readonly', 'review', 'autonomous']);
 const MODE_ALIASES = Object.freeze({ manual: 'review' });
 const EXECUTION_POLICIES = Object.freeze(['host-review', 'sandbox-only', 'full-access']);
@@ -22,6 +23,61 @@ function mustAskEvenInFullAccess(name,verdict){
   return verdict.category==='dangerous'||verdict.risk?.kind==='dangerous'||ALWAYS_ASK_TOOLS.test(String(name));
 }
 
+// ------------------------------------------------------------------ External tools (MCP servers, phase P2)
+// THE NAME RULE, in this one place (lib/hooks.mjs reads it through externalToolName, and the seam that puts the tools of a server into the
+// catalog names them by it): the Hub names a tool of an external server `<server>.<tool>`. The server is the text before the FIRST dot,
+// the tool everything after it, more dots included (`mcp.shell.start_process` is the tool `shell.start_process` of the server `mcp`).
+// A name that starts with `local.` or `studio.`, exactly so (HubManager routes those two to the Hub's own tools, and every other name to
+// the external backend), is not external; every other name is. A name with no server before the dot, or no tool after it, belongs to no
+// server and is refused. The hooks see a tool of a server under its own name and under the alias mcp__<server>__<tool>.
+const INTERNAL_PREFIXES=Object.freeze(['local.','studio.']);
+/** The server and the tool of an external tool's name, `{server:'', tool:name}` when the name has no server, null for the Hub's own tools. */
+export function externalToolName(name){
+  const text=String(name);
+  if(INTERNAL_PREFIXES.some((prefix)=>text.startsWith(prefix)))return null;
+  const dot=text.indexOf('.');
+  return dot>0&&dot<text.length-1?{server:text.slice(0,dot),tool:text.slice(dot+1)}:{server:'',tool:text};
+}
+// The owner's word on an external tool. `policyFor({server, tool})` answers 'ask', 'allow' or 'deny' (sync or async); no answer (undefined,
+// null) is 'ask', the default. An answer that is none of the three, or a policy that throws, is 'deny': a rule the gate cannot read
+// fails closed, and 'allow' is only ever the exact word, which only the owner's setting gives. `trustAnnotations({server})` is true only
+// when the owner trusts that server's annotations: a readOnlyHint counts for nothing otherwise (the annotations are the server's own words).
+const EXTERNAL_POLICIES=Object.freeze(['ask','allow','deny']);
+const HINTS=Object.freeze(['readOnlyHint','destructiveHint','idempotentHint','openWorldHint']);
+/** The MCP hints a definition carries, as booleans only: a hint of any other type is dropped, as if the server had not given it. */
+function hintsOf(definition){
+  const given=isObject(definition)&&isObject(definition.annotations)?definition.annotations:{};
+  return Object.fromEntries(HINTS.filter((key)=>typeof given[key]==='boolean').map((key)=>[key,given[key]]));
+}
+async function askOwnerPolicy(policyFor,who){
+  try{
+    const answer=await policyFor(who);
+    if(answer===undefined||answer===null)return 'ask';
+    return EXTERNAL_POLICIES.includes(answer)?answer:'deny';
+  }catch{return 'deny';}
+}
+async function trusts(trustAnnotations,who){
+  try{return (await trustAnnotations(who))===true;}catch{return false;}
+}
+/** What the caller knows of a server, for the card: the transport, the command that starts a stdio server, the origin of an HTTP one. */
+async function serverInfo(describeServer,who){
+  let info=null;
+  try{info=typeof describeServer==='function'?await describeServer(who):null;}catch{info=null;}
+  if(!isObject(info))return {transport:null,launch:null,origin:null};
+  let origin=null;
+  const address=typeof info.origin==='string'?info.origin:typeof info.url==='string'?info.url:null;
+  // Only the scheme, the host and the port: a user and a password, a path and a query (?api_key=...) are never on the card.
+  if(address){try{origin=new URL(address).origin;}catch{origin=null;}if(origin==='null')origin=null;}
+  const launch=Array.isArray(info.command)?info.command.map(String).join(' '):typeof info.command==='string'?info.command:null;
+  return {transport:typeof info.transport==='string'?info.transport.slice(0,40):null,launch:launch===null?null:launch.slice(0,2000),origin};
+}
+
+// A name that says deletion, a reset, a push, a publication or an upload. For a tool that is not local it makes the category 'dangerous'
+// (classify) and, for a tool of an external server, it ADDS a question where the call would otherwise run (Full Access, `allow`): what a
+// name says can never remove one.
+const IRREVERSIBLE_NAME=/(?:delete|remove|truncate|wipe|reset|push|publish|upload|destroy|force)/;
+// Added to the reason of a tool its server marks destructiveHint: true, so that the card says why Full Access or `allow` still asks.
+const DESTRUCTIVE_NOTE='. Máy chủ đánh dấu công cụ này là phá huỷ (destructiveHint: true) nên DatGold luôn hỏi trước khi chạy, kể cả ở Full Access hay khi đã cho phép (allow)';
 const READ=/\b(?:read|list|search|find|browse|stat|info|status|get|describe|inspect|query|diff|diagnostic)\b/i;
 const MUTATE=/\b(?:write|edit|replace|patch|move|rename|create|update|add|delete|remove|save|insert|commit|upload|run|execute|install|start_process|spawn|terminal|bash|powershell|execute_code|push|publish)\b/i;
 const SECRET_KEYS=/authorization|secret|password|token|api.?key|private.?key/i;
@@ -390,12 +446,28 @@ function editListDetail(input) {
 }
 const HISTORY_PREVIEW_CHARS = 2000;
 
+/**
+ * The card of a call to an external tool: the server and the tool, how the server is reached (the transport, the command that starts a
+ * stdio server, the origin of an HTTP one, when the caller described the server) and the arguments. The arguments are the text of the
+ * card's preview, masked by previewArguments like the arguments of every other call that is not local: one text, so the card and the
+ * history cannot say different things.
+ */
+function mcpCard(card,verdict,secrets){
+  const {transport=null,launch=null,origin=null}=verdict.endpoint??{};
+  const detail={kind:'mcp',server:verdict.server,tool:verdict.tool,transport,launch:launch===null?null:maskSecrets(launch,secrets),origin:origin===null?null:maskSecrets(origin,secrets),arguments:card.preview};
+  return {...card,detail};
+}
+/** The server and the tool of an external call, for its request and its row in the history; nothing for the Hub's own tools. */
+const serverAndTool=(verdict)=>(verdict.category==='external'?{server:verdict.server,tool:verdict.tool}:{});
+
 export class PermissionGate {
   constructor({ manager, workspace, directory=null, now=()=>Date.now(), timeout=10*60*1000 }){
     this.manager=manager;this.workspace=workspace;this.now=now;this.timeout=timeout;
     this.mode='review';this.executionPolicy='host-review';this.requests=new Map();this.history=[];this.onEvent=()=>{};this.listeners=new Set();this.file=directory?path.join(directory,'permission-history.json'):null;this.writes=Promise.resolve();
     this.localTools=null;
     this.executionRegistry=null;
+    // The owner's word on external (MCP) tools; nothing set means every external call is asked about (see attachExternalPolicy).
+    this.externalPolicy={policyFor:()=>undefined,trustAnnotations:()=>false,describeServer:null};
     // Who can answer an approval request. A coding-orchestrator worker is never interactive. A background agent that a model spawned
     // can ask only in Review, where the owner expects to be asked and sees the request; in Autonomous and Full Access nobody is watching.
     this.interactive=true;
@@ -411,6 +483,18 @@ export class PermissionGate {
   attachExecutionRegistry(registry){this.executionRegistry=registry;}
   /** Gives the gate exact knowledge of the local tools (per-call category, blocked paths, command analysis). */
   attachLocalTools(localTools){this.localTools=localTools;}
+  /**
+   * Gives the gate the owner's word on external (MCP) tools. `policyFor({server, tool})` -> 'ask' | 'allow' | 'deny' (undefined: 'ask'),
+   * `trustAnnotations({server})` -> true when the owner trusts that server's annotations (readOnlyHint), `describeServer({server})` ->
+   * {transport, command, origin | url} for the approval card. Each is optional; the gate reads no configuration file itself.
+   */
+  attachExternalPolicy({policyFor,trustAnnotations,describeServer}={}){
+    this.externalPolicy={
+      policyFor:typeof policyFor==='function'?policyFor:()=>undefined,
+      trustAnnotations:typeof trustAnnotations==='function'?trustAnnotations:()=>false,
+      describeServer:typeof describeServer==='function'?describeServer:null,
+    };
+  }
   /** Several parties can watch approval events (the log, a task runner); `onEvent` stays as the single legacy hook. Returns the unsubscribe function. */
   subscribe(listener){if(typeof listener!=='function')throw error('bad_listener','Listener phải là hàm.',400);this.listeners.add(listener);return ()=>{this.listeners.delete(listener);};}
   #emit(event){
@@ -427,7 +511,7 @@ export class PermissionGate {
     if(Array.isArray(saved?.history))this.history=saved.history.slice(-100);
   }
   #save(){if(!this.file)return;this.writes=this.writes.catch(()=>{}).then(()=>writeJson(this.file,{mode:this.mode,executionPolicy:this.executionPolicy,history:this.history.slice(-100)}));this.writes.catch(()=>{});}
-  state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',canAsk:this.canAsk(),approvalTimeoutMs:this.timeout,pending:[...this.requests.values()].map(({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})=>({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})),recent:this.history.slice(-60)};}
+  state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',canAsk:this.canAsk(),approvalTimeoutMs:this.timeout,pending:[...this.requests.values()].map(({id,taskId,toolName,category,server,tool,reason,summary,preview,detail,at,expiresAt})=>({id,taskId,toolName,category,...(server===undefined?{}:{server,tool}),reason,summary,preview,detail,at,expiresAt})),recent:this.history.slice(-60)};}
   configure({mode,executionPolicy,confirmation,leaveFullAccess}={}){
     let nextMode;
     if(mode==='full-access'){
@@ -456,7 +540,7 @@ export class PermissionGate {
       return {category:'dangerous',reason:'Local workspace mutation'};
     }
     if(/(?:start_process|spawn|execute_code|terminal|(?:^|[._-])command(?:[._-]|$)|shell|run_script|bash|powershell)/.test(n))return {category:'execute',reason:'Lệnh có thể chạy mã ngoài workspace'};
-    if(/(?:delete|remove|truncate|wipe|reset|push|publish|upload|destroy|force)/.test(n))return {category:'dangerous',reason:'Thao tác phá huỷ/xuất dữ liệu'};
+    if(IRREVERSIBLE_NAME.test(n))return {category:'dangerous',reason:'Thao tác phá huỷ/xuất dữ liệu'};
     // Tool descriptions/annotations originate from external MCP providers and
     // are not a trust boundary. A malicious 'readOnlyHint' must never downgrade
     // a tool whose name indicates mutation or execution.
@@ -466,13 +550,61 @@ export class PermissionGate {
 
     return {category:'unknown',reason:'Chưa phân loại được công cụ'};
   }
-  /** Category of one concrete call. Local tools are assessed per call (a shell command is read, edit, exec or dangerous by its text). */
+  /**
+   * Category of one concrete call. Local tools are assessed per call (a shell command is read, edit, exec or dangerous by its text). A tool
+   * of an external server (the name rule above externalToolName) is `external`, whatever its name says it does: its name, its description
+   * and its annotations are the server's words, not a trust boundary. The verdict carries the server, the tool, the annotations (the hints,
+   * as booleans), the owner's policy for it and whether the owner trusts that server's annotations.
+   */
   async assess(name,args={},definition={},context={}){
     if(String(name).toLowerCase().startsWith('local.')&&this.localTools?.has(name)){
       const verdict=await this.localTools.assess(name,args,context);
       return {category:verdict.category,reason:verdict.reason||'Công cụ local',summary:verdict.summary,risk:verdict.risk,local:true,detail:verdict.detail,code:verdict.code};
     }
+    const external=externalToolName(name);
+    if(external)return this.#assessExternal(external,definition);
     return {...this.classify(name,args,definition),local:false};
+  }
+  async #assessExternal({server,tool},definition){
+    const annotations=hintsOf(definition);
+    // The tool's own name, not its server's: a server called `pushover` or `reset-db` says nothing of what each of its tools does.
+    const irreversible=IRREVERSIBLE_NAME.test(tool.toLowerCase());
+    // The server's own word that the tool destroys something: only the boolean true (hintsOf dropped every other type). A missing hint is
+    // NOT read with the MCP default (true): every tool without annotations would then be asked about and Full Access would run none. It is
+    // read whether or not the owner trusts the server's annotations, because it can only ADD a question (#externalDecision).
+    const destructive=annotations.destructiveHint===true;
+    // A name without a server is refused (#externalDecision) before any rule is read: no rule of the owner can be about it.
+    if(!server)return {category:'external',reason:'Công cụ ngoài không rõ máy chủ MCP',local:false,server,tool,annotations,irreversible,destructive,policy:'ask',trusted:false,readOnly:false,endpoint:{transport:null,launch:null,origin:null}};
+    const policy=await askOwnerPolicy(this.externalPolicy.policyFor,{server,tool});
+    const trusted=await trusts(this.externalPolicy.trustAnnotations,{server});
+    const endpoint=await serverInfo(this.externalPolicy.describeServer,{server});
+    return {category:'external',reason:`Công cụ MCP bên ngoài (máy chủ ${server})${destructive?DESTRUCTIVE_NOTE:''}`,local:false,server,tool,annotations,irreversible,destructive,policy,trusted,readOnly:trusted&&annotations.readOnlyHint===true,endpoint};
+  }
+  /**
+   * The decision for a tool of an external server before anyone is asked: {refuse: reason}, {run: reason} or {} (ask the owner).
+   *   - a name without a server, and an explicit `deny` of the owner, refuse in every mode and policy, Full Access included;
+   *   - Read Only refuses, unless the owner allowed the tool AND its server says readOnlyHint: true AND the owner trusts that server's annotations;
+   *   - sandbox-only refuses (an external server is not confined by the sandbox);
+   *   - a hook's question, and the operations that Full Access still asks about (a name that says deletion, a reset, a push, a publication
+   *     or an upload, and ALWAYS_ASK_TOOLS), are asked wherever the call would run: neither Full Access nor `allow` covers what cannot be
+   *     taken back, as for the Hub's own tools;
+   *   - so is a tool its server marks destructiveHint: true, from any server, trusted or not (the owner's decision of 2026-11-20);
+   *   - Full Access runs it (the owner's decision of 2026-11-20); `allow` runs it; anything else is asked.
+   */
+  #externalDecision(name,verdict,forceAsk){
+    const {server,tool,policy,readOnly}=verdict;
+    const label=`${server}.${tool}`;
+    if(!server)return {refuse:`Công cụ "${cut(name,200)}" không cho biết máy chủ MCP (tên phải có dạng máy_chủ.công_cụ) nên bị từ chối.`};
+    if(policy==='deny')return {refuse:`Chủ máy đã chặn (deny) công cụ MCP ${label}. Lệnh chặn này áp dụng ở mọi chế độ, kể cả Full Access.`};
+    const readonly=this.mode==='readonly';
+    if(readonly&&!(policy==='allow'&&readOnly))return {refuse:`Chế độ Chỉ đọc: công cụ MCP ${label} chỉ chạy khi chủ máy cho phép (allow), máy chủ ghi readOnlyHint và chủ máy tin chú thích của máy chủ ${server}.`};
+    if(this.executionPolicy==='sandbox-only')return {refuse:`Sandbox-only: máy chủ MCP ${server} không chạy trong Docker sandbox nên bị từ chối. Chuyển sang host-review nếu muốn dùng công cụ MCP.`};
+    if(forceAsk||verdict.irreversible||mustAskEvenInFullAccess(name,verdict))return {};
+    if(verdict.destructive)return {};
+    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.
+    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};
+    if(policy==='allow')return {run:`Chủ máy cho phép (allow) công cụ MCP ${label}`};
+    return {};
   }
   async inspectPaths(args,category){
     if(!['workspace_edit','dangerous','execute','unknown'].includes(category))return;
@@ -499,7 +631,10 @@ export class PermissionGate {
     const secrets=this.manager?.secrets??[];
     // The summary and the reason can quote the command, so they are masked like the preview.
     const words={summary:maskSecrets(verdict.summary??name,secrets),reason:maskSecrets(verdict.reason??'',secrets)};
-    if(!verdict.local)return {...words,preview:previewArguments(args,1800,secrets),detail:null};
+    if(!verdict.local){
+      const card={...words,preview:previewArguments(args,1800,secrets),detail:null};
+      return verdict.category==='external'?mcpCard(card,verdict,secrets):card;
+    }
     const input=isObject(args)?args:{};
     const op=String(name).replace(/^local\./i,'');
     const secret=(typeof input.path==='string'&&isProtectedPath(input.path))||changes?.privateKeys===true;
@@ -540,7 +675,7 @@ export class PermissionGate {
   }
   #refuse(name,args,verdict,taskId,decision,reason){
     const {preview,summary}=this.#describe(name,args,verdict);
-    this.#record({id:randomUUID(),taskId,toolName:name,category:verdict.category,reason:maskSecrets(reason,this.manager?.secrets??[]),summary,preview,at:new Date(this.now()).toISOString()},decision);
+    this.#record({id:randomUUID(),taskId,toolName:name,category:verdict.category,...serverAndTool(verdict),reason:maskSecrets(reason,this.manager?.secrets??[]),summary,preview,at:new Date(this.now()).toISOString()},decision);
     return {allowed:false,category:verdict.category,reason};
   }
   /**
@@ -558,6 +693,17 @@ export class PermissionGate {
     if(args?.isolationRequired){
       return this.#refuse(name,args,verdict,taskId,'policy','Yêu cầu cách ly hệ điều hành (isolationRequired), nhưng lệnh shell host không có cách ly OS. Bị từ chối fail-closed.');
     }
+    // A tool of an external server has rules of its own (#externalDecision) and no workspace path inspection: what a path means is the
+    // server's business, and the owner reads the arguments on the card. A call that is neither refused nor run is asked like any other.
+    if(category==='external'){
+      const decided=this.#externalDecision(name,verdict,forceAsk);
+      if(decided.refuse!==undefined)return this.#refuse(name,args,verdict,taskId,'policy',decided.refuse);
+      if(decided.run!==undefined){
+        if(decided.fullAccess)this.#emit({type:'full_access_tool',taskId,toolName:name,category});
+        return {allowed:true,category,local:false,server:verdict.server,tool:verdict.tool,reason:decided.run};
+      }
+      return this.#question({name,args,verdict,taskId,signal,forceAsk,askReason});
+    }
     // Read Only is the strictest choice and wins over Full Access: nothing but reads and bookkeeping runs.
     if(this.mode==='readonly'&&category!=='read'&&category!=='checkpoint')
       return this.#refuse(name,args,verdict,taskId,'policy',`Chế độ Chỉ đọc: ${reason}. Chuyển sang Review hoặc Autonomous nếu muốn cho phép thay đổi.`);
@@ -573,9 +719,9 @@ export class PermissionGate {
     }
     // Full Access stays outside the workspace checks even for the operations it still asks about.
     if(!verdict.local&&!fullAccess)await this.inspectPaths(args,category);
-    // STRICT MODE: external MCP tools are not OS-confined (even when they claim
-    // readOnlyHint). Allow built-in Studio tools and local file tools only; commands run on the host,
-    // so they are refused here as well, even with an approval.
+    // STRICT MODE: allow built-in Studio tools and local file tools only (external MCP tools, which are not OS-confined whatever they
+    // claim, are refused above by #externalDecision; what reaches the first rule here is a local.* name without a local tool); commands
+    // run on the host, so they are refused here as well, even with an approval.
     if(this.executionPolicy==='sandbox-only'){
       if(!verdict.local&&!name.startsWith('studio.'))
         return {allowed:false,category,reason:'Sandbox-only: external MCP không chạy trong Docker sandbox. Chuyển sang host-review nếu muốn dùng Desktop Commander.'};
@@ -587,6 +733,11 @@ export class PermissionGate {
     }
     if(!forceAsk&&(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous')))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
     if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Chế độ Tự động: công cụ chưa phân loại bị từ chối. Chuyển sang Review nếu muốn được hỏi từng lần.'};
+    return this.#question({name,args,verdict,taskId,signal,forceAsk,askReason});
+  }
+  /** The question to the owner, for a call that the rules above neither ran nor refused: refused at once where nobody can answer. */
+  async #question({name,args,verdict,taskId,signal,forceAsk,askReason}){
+    const {category,reason}=verdict;
     // A worker or background agent has nobody to answer: refuse at once instead of holding the run for the whole approval timeout.
     if(!this.canAsk()){
       return this.#refuse(name,args,verdict,taskId,'policy',`Ngữ cảnh chạy nền: thao tác này (${reason}) cần người dùng phê duyệt nhưng không có ai để hỏi trong worker/agent nền nên bị từ chối ngay, không chờ ${Math.round(this.timeout/60000)} phút. Hãy tự chạy thao tác này hoặc yêu cầu từ một phiên tương tác.`);
@@ -603,7 +754,7 @@ export class PermissionGate {
     const shownReason=hookReason?(describedReason?`${hookReason} · ${describedReason}`:hookReason):describedReason;
     // `expiresAt` lets the page show how long the request will wait; the timer below is what actually enforces it.
     const askedAt=this.now();
-    const request={id,taskId,toolName:name,category,reason:shownReason,summary,preview,detail,at:new Date(askedAt).toISOString(),expiresAt:new Date(askedAt+this.timeout).toISOString()};
+    const request={id,taskId,toolName:name,category,...serverAndTool(verdict),reason:shownReason,summary,preview,detail,at:new Date(askedAt).toISOString(),expiresAt:new Date(askedAt+this.timeout).toISOString()};
     const promise=new Promise((resolve,reject)=>{
       // An expired request is over: the stop of its task that may follow must not record it once more as cancelled, so the listener goes with it.
       const timer=setTimeout(()=>{signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,'expired');resolve(false);},this.timeout);
