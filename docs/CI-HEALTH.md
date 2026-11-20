@@ -238,6 +238,8 @@ Why it grew: `tests/run-all.mjs` runs the suites one after another, and the sum 
 
 Change: `timeout-minutes: 30` (1800 s), 48% above the slowest run seen (1214 s). Only `hub-tests` changed; the other jobs' limits, the matrix, `concurrency` and the triggers are as before. If the Windows jobs approach 25 minutes, split the suites across two jobs rather than raising the limit again.
 
+**2026-11-21: 45 minutes, as a stopgap.** With 213-217 suites the Windows jobs reached the limit: on the stacked heads of the merge of seven approved PRs, `Hub tests (windows-latest, Node 22)` of PR #131 (run 44803028865) and `Hub tests (windows-latest, Node 24)` of PR #126 were cancelled at 30m13s and 30m15s with no failed suite (the last suites logged were `verify-update-apply` and its neighbours), and both Windows jobs of PR #134 (run of 82a122c3) at 30m13s; the jobs that finished took 24m22s-25m30s on Windows and 16-18 min on Ubuntu. A re-run passed once and failed the next time, so the limit, not a test, decided. `timeout-minutes: 45` unblocks the queue of merges; it does not answer the rule above. The fix is still the split into two jobs (a `--shard <i>/<n>` option of `tests/run-all.mjs` and a shard axis in the matrix, every suite still on every OS and Node version), after which the limit goes back to 30.
+
 ## Not verified here, and open
 
 - The first real run of `docs-gates.yml`, of the changed concurrency expressions, and of the claims job: nothing here can start a GitHub run. They are checked by the trigger model and by running the same commands locally (`verify-docs`, `verify-trust-labels`, `verify-notices`, `verify-threat-model`).
