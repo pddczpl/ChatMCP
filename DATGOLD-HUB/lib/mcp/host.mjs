@@ -94,8 +94,8 @@ function lockGate(gate, scope, timeout) {
   Object.defineProperty(gate, 'configure', {
     enumerable: false, configurable: false, writable: false,
     value: (patch = {}) => {
+      // Full Access is the mode 'full-access' or the policy 'full-access': neither is in the lists below, so both are refused here.
       const { mode: nextMode, executionPolicy } = patch ?? {};
-      if (nextMode === 'full-access' || executionPolicy === 'full-access') refuse('Full Access');
       if (nextMode !== undefined && !modes.includes(alias(nextMode))) refuse(`the mode ${JSON.stringify(String(nextMode)).slice(0, 40)}`);
       if (executionPolicy !== undefined && !POLICIES.includes(executionPolicy)) refuse(`the policy ${JSON.stringify(String(executionPolicy)).slice(0, 40)}`);
       return configure(patch);

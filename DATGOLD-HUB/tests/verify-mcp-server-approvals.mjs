@@ -635,6 +635,9 @@ try {
         const read = await client.callTool({ name: 'read_file', arguments: { path: 'hello.txt' } });
         assert.notEqual(read.isError, true, textOf(read));
         assert.match(textOf(read), /hello from the workspace/);
+        const status = JSON.parse(textOf(await client.callTool({ name: 'hub_status', arguments: {} })));
+        assert.equal(status.scope, 'read', 'the Hub serves its host in the read scope (Read Only)');
+        assert.deepEqual(status.workspaceTools, ['read_file']);
         const secret = await client.callTool({ name: 'read_file', arguments: { path: '.env' } });
         assert.equal(secret.isError, true, 'a protected file is refused as for every agent');
       } finally { await client.close(); }
