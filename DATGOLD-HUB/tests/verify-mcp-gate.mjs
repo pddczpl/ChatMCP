@@ -9,6 +9,10 @@
 //   executionPolicy sandbox-only  refused (an external server is not confined by the sandbox)
 //   executionPolicy full-access   runs without a question (the owner's decision of 2026-11-20), but an explicit `deny` still refuses
 //
+// A tool whose server marks it destructiveHint: true (the boolean true only; a missing hint is not read with the MCP default) is asked
+// wherever it would otherwise run, Full Access and `allow` included, whether or not the owner trusts that server's annotations: a hint
+// that can only ADD a question is safe from any server (the owner's decision of 2026-11-20, "Có, vẫn hỏi"). `deny` still refuses first.
+//
 // The workspace path inspection is not applied to an external tool (what a path means is the server's business; the owner reads the
 // arguments on the card instead), the card is `detail.kind = 'mcp'` with the arguments masked by the masker every card uses, the audit
 // history records the server and the tool, and the owner's hooks fire for an external call whatever the gate decided.
@@ -179,6 +183,76 @@ const definitionOf = (name, annotations = { readOnlyHint: true }) => {
   section('key rows: autonomous asks, full-access + deny refuses, full-access + unset runs, readonly needs allow + trusted readOnlyHint, an outside path does not throw');
 }
 
+// ------------------------------------------------------------------ destructiveHint: a question added where the call would run
+{
+  const call = (gate, annotations, extra = {}) => outcome(gate, 'db.drop_table', { table: 'users' }, { definition: definitionOf('db.drop_table', annotations), ...extra });
+  {
+    const full = newGate({ mode: 'autonomous', exec: 'full-access' });
+    const asked = await call(full.gate, { destructiveHint: true });
+    expect('full-access + destructiveHint true: asks (pending 1)', asked.kind === 'asks' && asked.pending === 1 && asked.events.some((event) => event.type === 'approval_requested'), { kind: asked.kind, pending: asked.pending });
+    expect('full-access + destructiveHint true: not announced as a Full Access call', !asked.events.some((event) => event.type === 'full_access_tool'), asked.events.map((event) => event.type));
+    expect('full-access + destructiveHint true: the card is the mcp card', asked.request?.detail?.kind === 'mcp', asked.request?.detail);
+    expect('full-access + destructiveHint true: the reason says the server marked the tool destructive', /destructiveHint/.test(asked.request?.reason ?? '') && /phá huỷ/.test(asked.request?.reason ?? ''), asked.request?.reason);
+    expect('full-access + destructiveHint true: the history row keeps that reason', /destructiveHint/.test(asked.row?.reason ?? ''), asked.row?.reason);
+    expect('full-access + destructiveHint false: runs', (await call(full.gate, { destructiveHint: false })).kind === 'runs');
+    expect('full-access + destructiveHint absent: runs (the MCP default true is not read into a missing hint)', (await call(full.gate, {})).kind === 'runs');
+    expect('full-access + no annotations at all: runs', (await outcome(full.gate, 'db.drop_table', { table: 'users' }, { definition: { name: 'db.drop_table' } })).kind === 'runs');
+    for (const [label, value] of [['"true" as a string', 'true'], ['1', 1], ['null', null], ['an object', { value: true }]]) {
+      expect(`full-access + destructiveHint ${label}: runs (only the boolean true counts)`, (await call(full.gate, { destructiveHint: value })).kind === 'runs');
+    }
+    expect('full-access + destructiveHint true + readOnlyHint true: asks (a read-only claim does not take the question away)', (await call(full.gate, { destructiveHint: true, readOnlyHint: true })).kind === 'asks');
+    expect('full-access + destructiveHint true + a hook asks: one question', (await call(full.gate, { destructiveHint: true }, { forceAsk: true })).pending === 1);
+  }
+  for (const trusted of [false, true]) {
+    const full = newGate({ mode: 'autonomous', exec: 'full-access', trusted });
+    expect(`full-access + destructiveHint true, ${trusted ? 'trusted' : 'untrusted'} server: asks (trustAnnotations does not matter)`, (await call(full.gate, { destructiveHint: true })).kind === 'asks');
+  }
+  for (const exec of ['host-review', 'full-access']) {
+    const allow = newGate({ mode: 'autonomous', exec, rule: 'allow' });
+    expect(`allow + destructiveHint true (${exec}): asks`, (await call(allow.gate, { destructiveHint: true })).kind === 'asks');
+    expect(`allow + destructiveHint false (${exec}): runs`, (await call(allow.gate, { destructiveHint: false })).kind === 'runs');
+    const deny = newGate({ mode: 'autonomous', exec, rule: 'deny' });
+    const refused = await call(deny.gate, { destructiveHint: true });
+    expect(`deny + destructiveHint true (${exec}): refused, no question`, refused.kind === 'refused' && refused.pending === 0 && !refused.events.some((event) => event.type === 'approval_requested'), refused.kind);
+    expect(`deny + destructiveHint true (${exec}): the reason is the owner's deny`, /deny/.test(refused.result?.reason ?? ''), refused.result?.reason);
+  }
+  {
+    const review = newGate({ mode: 'review' });
+    expect('review + unset + destructiveHint true: asks (as without it)', (await call(review.gate, { destructiveHint: true })).kind === 'asks');
+    const sandbox = newGate({ mode: 'autonomous', exec: 'sandbox-only', rule: 'allow' });
+    expect('sandbox-only + allow + destructiveHint true: refused', (await call(sandbox.gate, { destructiveHint: true })).kind === 'refused');
+  }
+  {
+    // Read Only is unchanged: refused unless allow + trusted readOnlyHint; such a call that is also marked destructive asks, like a destructive name
+    const readonly = newGate({ mode: 'readonly', rule: 'allow', trusted: true });
+    expect('readonly + allow + trusted readOnlyHint + destructiveHint true: asks', (await call(readonly.gate, { readOnlyHint: true, destructiveHint: true })).kind === 'asks');
+    expect('readonly + allow + trusted readOnlyHint + destructiveHint false: runs', (await call(readonly.gate, { readOnlyHint: true, destructiveHint: false })).kind === 'runs');
+    expect('readonly + allow + trusted + destructiveHint true without readOnlyHint: refused', (await call(readonly.gate, { destructiveHint: true })).kind === 'refused');
+    const unset = newGate({ mode: 'readonly', trusted: true });
+    expect('readonly + unset + destructiveHint true: refused', (await call(unset.gate, { readOnlyHint: true, destructiveHint: true })).kind === 'refused');
+  }
+  {
+    // nobody to ask: what would be asked is refused at once
+    const worker = newGate({ mode: 'autonomous', exec: 'full-access' });
+    worker.gate.interactive = false;
+    const started = Date.now();
+    const refused = await call(worker.gate, { destructiveHint: true });
+    expect('worker (not interactive) + full-access + destructiveHint true: refused at once', refused.kind === 'refused' && refused.pending === 0 && Date.now() - started < 1000, refused.kind);
+    expect('worker + full-access + destructiveHint true: recorded with server and tool', refused.row?.decision === 'policy' && refused.row?.server === 'db' && refused.row?.tool === 'drop_table', refused.row);
+    expect('worker + full-access + destructiveHint false: runs', (await call(worker.gate, { destructiveHint: false })).kind === 'runs');
+    const background = newGate({ mode: 'autonomous', exec: 'full-access' });
+    background.gate.backgroundAgent = true;
+    expect('background agent + full-access + destructiveHint true: refused at once', (await call(background.gate, { destructiveHint: true })).kind === 'refused');
+  }
+  {
+    // the reason says it only where the server said it
+    const review = newGate({ mode: 'review' });
+    const plain = await call(review.gate, { destructiveHint: false }, { approve: false });
+    expect('destructiveHint false: the reason does not call the tool destructive', plain.kind === 'asks' && !/destructiveHint/.test(plain.request?.reason ?? ''), plain.request?.reason);
+  }
+  section('destructiveHint: true (the boolean only) asks under Full Access and allow, from any server; false, absent or another type runs; deny refuses first; Read Only unchanged; nobody to ask refuses');
+}
+
 // ------------------------------------------------------------------ the matrix
 {
   const MODES = ['readonly', 'review', 'autonomous'];
@@ -191,22 +265,29 @@ const definitionOf = (name, annotations = { readOnlyHint: true }) => {
   ];
   const TRUST = [['untrusted', false], ['trusted', true]];
   const RULES = [['unset', undefined], ['allow', 'allow'], ['deny', 'deny']];
+  // what the server says of destruction: nothing, false, true, and the word "true" (not a boolean, so not a hint)
+  const DESTRUCTIVE = [['no destructiveHint', undefined], ['destructiveHint false', false], ['destructiveHint true', true], ['destructiveHint "true"', 'true']];
   /** What the owner decided, written plainly and apart from the gate. Every tool here carries readOnlyHint: true. */
-  const oracle = (mode, exec, trusted, rule) => {
+  const oracle = (mode, exec, trusted, rule, destructive) => {
     if (rule === 'deny') return 'refused';
-    if (mode === 'readonly') return rule === 'allow' && trusted && exec !== 'sandbox-only' ? 'runs' : 'refused';
+    if (mode === 'readonly') {
+      if (!(rule === 'allow' && trusted && exec !== 'sandbox-only')) return 'refused';
+      return destructive ? 'asks' : 'runs';
+    }
     if (exec === 'sandbox-only') return 'refused';
+    if (destructive) return 'asks';
     if (exec === 'full-access') return 'runs';
     return rule === 'allow' ? 'runs' : 'asks';
   };
   const rows = [];
   const counts = { runs: 0, asks: 0, refused: 0, throws: 0 };
   let decisionsWrong = 0;
-  for (const mode of MODES) for (const exec of POLICIES) for (const [name, args] of TOOLS) for (const [trustLabel, trusted] of TRUST) for (const [ruleLabel, rule] of RULES) {
+  for (const mode of MODES) for (const exec of POLICIES) for (const [name, args] of TOOLS) for (const [trustLabel, trusted] of TRUST) for (const [ruleLabel, rule] of RULES) for (const [hintLabel, hint] of DESTRUCTIVE) {
     const { gate, asked } = newGate({ mode, exec, rule, trusted });
-    const label = `${mode} + ${exec} + ${name} + ${trustLabel} readOnlyHint + ${ruleLabel}`;
-    const wanted = oracle(mode, exec, trusted, rule);
-    const got = await outcome(gate, name, args, { definition: definitionOf(name, { readOnlyHint: true }) });
+    const label = `${mode} + ${exec} + ${name} + ${trustLabel} readOnlyHint + ${ruleLabel} + ${hintLabel}`;
+    const destructive = hint === true;
+    const wanted = oracle(mode, exec, trusted, rule, destructive);
+    const got = await outcome(gate, name, args, { definition: definitionOf(name, { readOnlyHint: true, ...(hint === undefined ? {} : { destructiveHint: hint }) }) });
     counts[got.kind] += 1;
     if (got.kind !== wanted) decisionsWrong += 1;
     const [server, tool] = [name.slice(0, name.indexOf('.')), name.slice(name.indexOf('.') + 1)];
@@ -214,13 +295,15 @@ const definitionOf = (name, annotations = { readOnlyHint: true }) => {
     if (right && wanted === 'asks') right = got.pending === 1 && got.events.some((event) => event.type === 'approval_requested') && got.request?.detail?.kind === 'mcp' && got.result.allowed === true;
     if (right && wanted === 'refused') right = got.row?.decision === 'policy' && got.row?.server === server && got.row?.tool === tool && got.result.category === 'external';
     if (right && wanted === 'asks') right = got.row?.decision === 'approved' && got.row?.server === server && got.row?.tool === tool;
+    // the card says the server marked the tool destructive exactly when it did
+    if (right && wanted === 'asks') right = /destructiveHint/.test(got.request?.reason ?? '') === destructive;
     if (right && wanted === 'runs') right = got.result.category === 'external' && !got.events.some((event) => event.type === 'approval_requested');
     if (right && rule !== undefined && wanted !== 'refused' && hasPolicyHook) right = asked.some((who) => who.server === server && who.tool === tool);
     rows.push(label);
     expect(`matrix: ${label} -> ${wanted}`, right, got.kind === 'throws' ? `throws ${got.error?.code}: ${got.error?.message}` : `${got.kind}${got.row ? ` / row ${got.row.decision} ${got.row.server ?? '-'} ${got.row.tool ?? '-'}` : ''}`);
     gate.shutdown();
   }
-  expect('matrix: 3 modes x 3 execution policies x 4 tools x 2 annotation trusts x 3 policies = 216 rows', rows.length === 216, rows.length);
+  expect('matrix: 3 modes x 3 execution policies x 4 tools x 2 annotation trusts x 3 policies x 4 destructiveHint values = 864 rows', rows.length === 864, rows.length);
   section(`matrix: ${rows.length} rows (${counts.runs} run, ${counts.asks} ask, ${counts.refused} refused, ${counts.throws} threw; the decision itself differs from the owner's table in ${decisionsWrong})`);
 }
 
