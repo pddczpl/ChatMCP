@@ -1,0 +1,329 @@
+{
+  "suite": "verify-proof-acceptance.mjs",
+  "description": "The acceptance file of Proof-of-Done, version 1 (plan task pod-20, docs/PROOF-ACCEPTANCE.md): the strict YAML subset (lib/proof/yaml-subset.mjs), the schema, the baseline-only rule and proposeAcceptance (lib/proof/acceptance.mjs) and the trust store (lib/proof/trust-store.mjs), judged by tests/verify-proof-acceptance.mjs.",
+  "mutations": [
+    {
+      "name": "PA-criteria-from-current",
+      "what": "resolveAcceptance takes the criteria from the CURRENT file (an agent edit becomes the source)",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "const parsed = baseline === null || baseline === undefined ? null : parseAcceptance(baseline);", "new": "const parsed = current === null || current === undefined ? (baseline == null ? null : parseAcceptance(baseline)) : parseAcceptance(current);" }]
+    },
+    {
+      "name": "PA-trust-current-sha",
+      "what": "the trust check asks about the current file's sha256 instead of the baseline's",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "const trusted = (await trustStore.isTrusted(baselineSha256)) === true;", "new": "const trusted = (await trustStore.isTrusted(currentSha256 ?? baselineSha256)) === true;" }]
+    },
+    {
+      "name": "PA-runnable-when-untrusted",
+      "what": "every baseline check is runnable even when the file is not trusted",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  const runnable = trusted\n", "new": "  const runnable = true\n" }]
+    },
+    {
+      "name": "PA-truthy-trust",
+      "what": "any truthy answer of the store counts as trusted (a store that returns a string or an object)",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "(await trustStore.isTrusted(baselineSha256)) === true", "new": "Boolean(await trustStore.isTrusted(baselineSha256))" }]
+    },
+    {
+      "name": "PA-no-edit-flag",
+      "what": "an edit is never reported",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  const edit = compareAcceptance(baseline, current);\n", "new": "  const edit = null;\n" }]
+    },
+    {
+      "name": "PA-removed-not-reported",
+      "what": "a deleted criterion is not listed",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "    if (!now.has(id)) edit.removed.push(id);", "new": "    if (!now.has(id)) {}" }]
+    },
+    {
+      "name": "PA-changed-not-reported",
+      "what": "a weakened criterion is not listed",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "    else if (!same(criterion, now.get(id))) edit.changed.push(id);", "new": "    else if (criterion.text !== now.get(id).text) edit.changed.push(id);" }]
+    },
+    {
+      "name": "PA-protected-section-ignored",
+      "what": "dropping a protected glob is not reported",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "if (!same(before.protected, after.protected)) edit.sections.push('protected');", "new": "if (before.protected.length < after.protected.length) edit.sections.push('protected');" }]
+    },
+    {
+      "name": "PA-unparseable-keeps-nothing",
+      "what": "an unparseable edit lists no removed criterion",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "    edit.removed = before.criteria.map((criterion) => criterion.id);\n", "new": "" }]
+    },
+    {
+      "name": "PA-same-bytes-by-length",
+      "what": "two files of the same length count as unchanged",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "bytesOf(baseline).equals(bytesOf(current))", "new": "bytesOf(baseline).length === bytesOf(current).length" }]
+    },
+    {
+      "name": "PA-broken-baseline-is-empty",
+      "what": "a baseline that does not read is read as no criteria",
+      "patches": [
+        { "file": "lib/proof/acceptance.mjs", "old": "  const parsed = baseline === null || baseline === undefined ? null : parseAcceptance(baseline);", "new": "  let parsed = null; try { parsed = baseline === null || baseline === undefined ? null : parseAcceptance(baseline); } catch {}" },
+        { "file": "lib/proof/acceptance.mjs", "old": "  const before = absent(baseline) ? EMPTY : parseAcceptance(baseline);", "new": "  let before = EMPTY; try { before = absent(baseline) ? EMPTY : parseAcceptance(baseline); } catch {}" }
+      ]
+    },
+    {
+      "name": "PA-cwd-dotdot-allowed",
+      "what": "a `..` segment in cwd is accepted",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (parts.includes('..')) fail(node.line, reason, value);", "new": "" }]
+    },
+    {
+      "name": "PA-cwd-absolute-allowed",
+      "what": "absolute, drive and home paths are accepted as cwd",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (/^[\\\\/~]/.test(value) || value.includes(':') || path.win32.isAbsolute(value) || path.posix.isAbsolute(value)) fail(node.line, reason, value);", "new": "  if (path.posix.isAbsolute(value)) fail(node.line, reason, value);" }]
+    },
+    {
+      "name": "PA-drive-relative-allowed",
+      "what": "a drive-relative path (`D:tools`) is accepted",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "value.includes(':') || path.win32", "new": "false || path.win32" }]
+    },
+    {
+      "name": "PA-unknown-keys-allowed",
+      "what": "unknown keys are ignored",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "    if (!allowed.includes(entry.key)) fail(entry.line, 'unknown_key', entry.key);", "new": "    if (!allowed.includes(entry.key)) continue;" }]
+    },
+    {
+      "name": "PA-duplicate-id-allowed",
+      "what": "two criteria may share an id",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (ids.has(id)) fail(idNode.line, 'duplicate_id', id);", "new": "" }]
+    },
+    {
+      "name": "PA-any-version",
+      "what": "any version number is accepted",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "version.value !== 1 || version.style !== 'plain'", "new": "typeof version.value !== 'number'" }]
+    },
+    {
+      "name": "PA-empty-criteria-allowed",
+      "what": "`criteria:` with nothing is accepted",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (isNull(criteriaEntry.value)) fail(criteriaEntry.line, 'empty_criteria');", "new": "" }]
+    },
+    {
+      "name": "PA-checks-and-manual",
+      "what": "a criterion may have both checks and manual (the manual part hides the checks)",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (f.has('checks') && f.has('manual')) fail(node.line, 'check_and_manual', id);", "new": "" }]
+    },
+    {
+      "name": "PA-timeout-unbounded",
+      "what": "timeout has no lower bound",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (node.value < min || node.value > max) fail(node.line, 'bad_value', `${what} must be ${min} to ${max}`);", "new": "  if (node.value > max) fail(node.line, 'bad_value', `${what} must be ${min} to ${max}`);" }]
+    },
+    {
+      "name": "PA-protected-outside",
+      "what": "a protected glob may leave the workspace",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "relativePath(item, 'a `protected` glob', 'path_outside_workspace')", "new": "string(item, 'a `protected` glob', ACCEPTANCE_LIMITS.path)" }]
+    },
+    {
+      "name": "PA-propose-unprotected",
+      "what": "the proposed file does not protect .chatmcp/",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  lines.push('protected:', `  - ${q('.chatmcp/**')}`, '');", "new": "  lines.push('');" }]
+    },
+    {
+      "name": "PA-propose-unquoted",
+      "what": "proposed commands are written unquoted (a command with YAML characters would not read back)",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "`      - run: ${q(check.command)}`", "new": "`      - run: ${check.command.replace(/ /g, ' #')}`" }]
+    },
+    {
+      "name": "TS-corrupt-reads-entries",
+      "what": "a store with a malformed entry keeps its other entries (and a `*` key)",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "    if (!DIGEST.test(digest) || !isPlainObject(entry) || !sameKeys(entry, ['approvedBy', 'at'])) return null;", "new": "    if (!isPlainObject(entry)) continue;" }]
+    },
+    {
+      "name": "TS-version-ignored",
+      "what": "the version of the store is not checked",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "data.version !== 1 || ", "new": "" }]
+    },
+    {
+      "name": "TS-extra-keys-allowed",
+      "what": "extra top-level keys (such as `all: true`) are ignored",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "!sameKeys(data, ['version', 'trusted']) || ", "new": "" }]
+    },
+    {
+      "name": "TS-no-size-limit",
+      "what": "a store of any size is read",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "if (!stat.isFile() || stat.size > TRUST_STORE_MAX_BYTES) return", "new": "if (!stat.isFile()) return" }, { "file": "lib/proof/trust-store.mjs", "old": "  if (bytes.length > TRUST_STORE_MAX_BYTES) return { entries: new Map(), state: 'corrupt' };\n", "new": "" }]
+    },
+    {
+      "name": "TS-entry-fields-unchecked",
+      "what": "an entry without approvedBy or at counts",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "    if (typeof entry.at !== 'string' || Number.isNaN(Date.parse(entry.at))) return null;", "new": "" }]
+    },
+    {
+      "name": "TS-no-serialisation",
+      "what": "writes are not serialised (concurrent read-modify-write loses entries)",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "  const run = (queues.get(file) ?? Promise.resolve()).then(task);", "new": "  const run = Promise.resolve().then(task);" }]
+    },
+    {
+      "name": "TS-queue-per-object",
+      "what": "the queue is per store object, so two objects on the same folder race",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "  const lock = (task) => serialised(file, task);", "new": "  const objectKey = file + randomUUID(); const lock = (task) => serialised(objectKey, task);" }]
+    },
+    {
+      "name": "TS-revoke-noop",
+      "what": "revoke does not remove the entry",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "        current.entries.delete(digest);\n", "new": "" }]
+    },
+    {
+      "name": "TS-case-sensitive",
+      "what": "an upper-case digest is not the same digest",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "? value.toLowerCase() : null", "new": "? value : null" }]
+    },
+    {
+      "name": "TS-corrupt-overwritten",
+      "what": "trusting over a corrupt store throws it away instead of keeping it aside",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "          await fs.rename(file, aside);\n", "new": "" }]
+    },
+    {
+      "name": "TS-approver-unchecked",
+      "what": "trust() accepts an empty approver",
+      "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "      if (typeof approvedBy !== 'string' || !approvedBy.trim() || approvedBy.length > MAX_APPROVED_BY) {\n        throw", "new": "      if (false) {\n        throw" }]
+    },
+    {
+      "name": "YS-anchor-allowed",
+      "what": "an anchor is read as part of a plain value",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (first === '&') throw new YamlSubsetError(line, 'anchor');\n", "new": "" }]
+    },
+    {
+      "name": "YS-alias-allowed",
+      "what": "an alias is read as text",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (first === '*') throw new YamlSubsetError(line, 'alias');\n", "new": "" }]
+    },
+    {
+      "name": "YS-tag-allowed",
+      "what": "a tag is read as text",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (first === '!') throw new YamlSubsetError(line, 'tag');\n", "new": "" }]
+    },
+    {
+      "name": "YS-duplicate-key-overwrites",
+      "what": "a duplicate key silently replaces the first",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "      if (seen.has(key)) throw new YamlSubsetError(at + 1, 'duplicate_key', key);\n", "new": "" }]
+    },
+    {
+      "name": "YS-tabs-allowed",
+      "what": "tabs in indentation are not refused",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "      if (/^ *\\t/.test(line) && !/^[ \\t]*$/.test(line)) throw new YamlSubsetError(this.i + 1, 'tab_indent');", "new": "" }]
+    },
+    {
+      "name": "YS-second-document",
+      "what": "a later `---` or `...` is skipped like a comment",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "        if (/^(?:---|\\.\\.\\.)(?:[ \\t]|$)/.test(line)) throw new YamlSubsetError(this.i + 1, 'multiple_documents');", "new": "        if (/^(?:---|\\.\\.\\.)(?:[ \\t]|$)/.test(line)) { this.i++; continue; }" }]
+    },
+    {
+      "name": "YS-no-size-limit",
+      "what": "a file of any size is read",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (bytes.length > maxBytes) {", "new": "  if (false) {" }]
+    },
+    {
+      "name": "YS-no-depth-limit",
+      "what": "nesting is not bounded",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    if (depth > this.maxDepth) throw new YamlSubsetError(at + 1, 'too_deep', `the limit is ${this.maxDepth}`);", "new": "" }]
+    },
+    {
+      "name": "YS-compact-depth-unbounded",
+      "what": "`- - - x` items are not counted against the depth",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "        if (depth + 1 > this.maxDepth) throw new YamlSubsetError(at + 1, 'too_deep', `the limit is ${this.maxDepth}`);", "new": "" }]
+    },
+    {
+      "name": "YS-loose-utf8",
+      "what": "bytes that are not UTF-8 are decoded with replacement characters",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })", "new": "new TextDecoder('utf-8', { fatal: false, ignoreBOM: true })" }]
+    },
+    {
+      "name": "YS-bom-anywhere",
+      "what": "a BOM inside the file is accepted",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    if (line.includes('\\uFEFF')) throw new YamlSubsetError(number, 'bom_misplaced');\n", "new": "" }]
+    },
+    {
+      "name": "YS-leading-bom-kept",
+      "what": "a leading BOM is not dropped (the first key would carry it)",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);\n", "new": "" }]
+    },
+    {
+      "name": "YS-crlf-refused",
+      "what": "CRLF line breaks are refused like a lone CR",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    const line = raw.endsWith('\\r') ? raw.slice(0, -1) : raw;", "new": "    const line = raw;" }]
+    },
+    {
+      "name": "YS-control-allowed",
+      "what": "control characters are accepted",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    if (CONTROL.test(line)) throw new YamlSubsetError(number, 'control_character');\n", "new": "" }]
+    },
+    {
+      "name": "YS-flow-allowed",
+      "what": "a flow sequence is read as text",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (first === '{' || first === '[') throw new YamlSubsetError(line, 'flow_collection');\n", "new": "" }]
+    },
+    {
+      "name": "YS-comment-without-space",
+      "what": "`#` without whitespace before it starts a comment (cuts `x#y`)",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  const comment = /[ \\t]#/.exec(text);", "new": "  const comment = /[ \\t]?#/.exec(text);" }]
+    },
+    {
+      "name": "YS-colon-in-plain",
+      "what": "`a: b: c` is read as the text `b: c`",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (/:(?:[ \\t]|$)/.test(value)) throw new YamlSubsetError(line, 'syntax', 'a value cannot hold \": \"; quote it');", "new": "" }]
+    },
+    {
+      "name": "YS-octal-like-integer",
+      "what": "`007` is read as the number 7",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "const INTEGER = /^-?(?:0|[1-9][0-9]{0,15})$/;", "new": "const INTEGER = /^-?[0-9]{1,16}$/;" }]
+    },
+    {
+      "name": "YS-quoted-is-number",
+      "what": "a quoted \"1\" is typed like a plain 1",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    if (text[0] === '\"' || text[0] === \"'\") return { kind: 'scalar', line, value: quoted(text, line), style: 'quoted' };", "new": "    if (text[0] === '\"' || text[0] === \"'\") { const v = quoted(text, line); return { kind: 'scalar', line, value: INTEGER.test(v) ? Number(v) : v, style: 'plain' }; }" }]
+    },
+    {
+      "name": "YS-unknown-escape-kept",
+      "what": "an unknown escape is kept as it is",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    if (!width || !new RegExp(`^[0-9A-Fa-f]{${width}}$`).test(hex)) throw new YamlSubsetError(line, 'bad_escape', `\\\\${next ?? ''}`);", "new": "    if (!width || !new RegExp(`^[0-9A-Fa-f]{${width}}$`).test(hex)) { out += `\\\\${next ?? ''}`; continue; }" }]
+    },
+    {
+      "name": "YS-trailing-after-quote",
+      "what": "text after a closing quote is ignored",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  if (rest && !/^[ \\t]+(?:#.*)?$/.test(rest)) throw", "new": "  if (false) throw" }]
+    },
+    {
+      "name": "YS-single-quote-escape",
+      "what": "`''` inside a single-quoted string is not unescaped",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "      return text.slice(1, i).replace(/''/g, \"'\");", "new": "      return text.slice(1, i);" }]
+    },
+    {
+      "name": "YS-folded-as-literal",
+      "what": "a folded block keeps its line breaks",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    if (style === '|') text = content.join('\\n');", "new": "    if (style) text = content.join('\\n');" }]
+    },
+    {
+      "name": "YS-fold-paragraph-lost",
+      "what": "a blank line inside a folded block becomes a space",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "text += breaks === 0 ? ' ' : '\\n'.repeat(breaks);", "new": "text += ' ';" }]
+    },
+    {
+      "name": "YS-fold-more-indented",
+      "what": "a more-indented line of a folded block is folded too",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "        const kind = /^[ \\t]/.test(part) ? 'more' : 'normal';", "new": "        const kind = 'normal';" }]
+    },
+    {
+      "name": "YS-chomp-keep-ignored",
+      "what": "`|+` keeps only one line break",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "      else if (chomp === 'keep') text += '\\n'.repeat(1 + trailing);", "new": "      else if (chomp === 'keep') text += '\\n';" }]
+    },
+    {
+      "name": "YS-chomp-strip-ignored",
+      "what": "`|-` keeps the final line break",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "      if (chomp === 'clip') text += '\\n';", "new": "      if (chomp !== 'keep') text += '\\n';" }]
+    },
+    {
+      "name": "YS-indent-indicator-ignored",
+      "what": "the indentation indicator of a block header is ignored",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    let column = width ? indent + Number(width) : null;", "new": "    let column = null;" }]
+    },
+    {
+      "name": "YS-bad-indent-accepted",
+      "what": "a more-indented key is read as a sibling",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "      if (column > indent) throw new YamlSubsetError(at + 1, 'bad_indent');\n      const text = line.slice(indent);\n      if (/^-(?:[ ]|$)/.test(text)) throw", "new": "      const text = line.slice(column);\n      if (/^-(?:[ ]|$)/.test(text)) throw" }]
+    },
+    {
+      "name": "YS-proto-pollution",
+      "what": "plain values are built on ordinary objects (a `__proto__` key changes the prototype)",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  const object = Object.create(null);", "new": "  const object = {};" }]
+    }
+  ]
+}

@@ -95,7 +95,7 @@ function splitLines(text) {
     const number = index + 1;
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     if (line.includes('\r')) throw new YamlSubsetError(number, 'bare_cr');
-    if (line.includes('﻿')) throw new YamlSubsetError(number, 'bom_misplaced');
+    if (line.includes('\uFEFF')) throw new YamlSubsetError(number, 'bom_misplaced');
     if (CONTROL.test(line)) throw new YamlSubsetError(number, 'control_character');
     return line;
   });

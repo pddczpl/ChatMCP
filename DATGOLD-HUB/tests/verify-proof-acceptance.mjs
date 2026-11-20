@@ -88,6 +88,7 @@ try {
     ['protected glob outside', `${GOOD}protected:\n  - ../secrets/**\n`, 8, 'path_outside_workspace'],
     ['over-long file', `${GOOD}# ${'x'.repeat(70 * 1024)}\n`, 7, 'too_large'],
     ['deep nesting', deep(20), 8 + 15, 'too_deep'],
+    ['deep nesting on one line', `${GOOD}protected:\n  ${'- '.repeat(20)}x\n`, 8, 'too_deep'],
     ['BOM inside the file', `version: 1\n\uFEFFcriteria:\n`, 2, 'bom_misplaced'],
     ['UTF-16 file', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(GOOD, 'utf16le')]), 1, 'not_utf8'],
     ['invalid UTF-8 on line 3', Buffer.concat([Buffer.from('version: 1\ncriteria:\n  - id: '), Buffer.from([0xc3, 0x28]), Buffer.from('\n')]), 3, 'not_utf8'],
@@ -369,6 +370,11 @@ try {
   // A broken baseline is the owner's to fix: it throws, it is never read as "no criteria".
   await assert.rejects(resolveAcceptance({ baseline: 'version: 2\n', current: null, trustStore: store }), (error) => error.code === 'acceptance_invalid' && error.line === 1);
   await assert.rejects(resolveAcceptance({ baseline, current, trustStore: null }), TypeError);
+  // Only the answer `true` trusts: a store that answers with anything else (a string, an object) trusts nothing.
+  for (const answer of ['yes', 1, {}, [sha(baseline)]]) {
+    resolved = await resolveAcceptance({ baseline, current, trustStore: { isTrusted: async () => answer } });
+    assert.deepEqual([resolved.trusted, resolved.runnable], [false, []], JSON.stringify(answer));
+  }
   ok('a deleted, unparseable, untouched or comment-only edit is reported exactly; no baseline means no criteria; a broken baseline throws');
 
   // Weakening is a change: each kind of edit to a single check is reported for its criterion.
@@ -432,6 +438,10 @@ try {
     `{"version":1,"trusted":{"*":{"approvedBy":"owner","at":"2026-11-20T00:00:00.000Z"}}}`,
     `{"version":1,"trusted":{"${A}":true}}`,
     `{"version":1,"trusted":{"${A}":{"approvedBy":"owner"}}}`,
+    `{"version":1,"trusted":{"${A}":{"approvedBy":"owner","at":"not a time"}}}`,
+    `{"version":1,"trusted":{"${A}":{"approvedBy":"owner","at":5}}}`,
+    `{"version":1,"trusted":{"${A}":{"approvedBy":"","at":"2026-11-20T00:00:00.000Z"}}}`,
+    `{"version":1,"trusted":{"${A}":{"approvedBy":7,"at":"2026-11-20T00:00:00.000Z"}}}`,
     `{"version":2,"trusted":{"${A}":{"approvedBy":"owner","at":"2026-11-20T00:00:00.000Z"}}}`,
     `{"trusted":{"${A}":{"approvedBy":"owner","at":"2026-11-20T00:00:00.000Z"}}}`,
     `{"version":1,"trusted":{"${A}":{"approvedBy":"owner","at":"2026-11-20T00:00:00.000Z"}},"all":true}`,

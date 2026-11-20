@@ -31,7 +31,7 @@ const sameKeys = (object, keys) => {
 /** The entries of a store text, or null when the text is not exactly a valid store. */
 function entriesOf(text) {
   let data;
-  try { data = JSON.parse(text.replace(/^﻿/, '')); } catch { return null; }
+  try { data = JSON.parse(text.replace(/^\uFEFF/, '')); } catch { return null; }
   if (!isPlainObject(data) || !sameKeys(data, ['version', 'trusted']) || data.version !== 1 || !isPlainObject(data.trusted)) return null;
   const entries = new Map();
   for (const [digest, entry] of Object.entries(data.trusted)) {
@@ -81,6 +81,7 @@ function serialised(file, task) {
 export function createTrustStore(hubDir) {
   if (typeof hubDir !== 'string' || !path.isAbsolute(hubDir)) throw new TypeError('createTrustStore needs the absolute data folder of the Hub.');
   const file = path.join(hubDir, TRUST_FILE);
+  const lock = (task) => serialised(file, task);
   const requireDigest = (sha256) => {
     const digest = digestOf(sha256);
     if (!digest) throw new TypeError('A sha256 hex digest (64 characters) is required.');
@@ -105,7 +106,7 @@ export function createTrustStore(hubDir) {
       const time = at instanceof Date ? at.getTime() : typeof at === 'string' ? Date.parse(at) : Number.NaN;
       if (Number.isNaN(time)) throw new TypeError('at must be a Date or an ISO time.');
       const entry = { approvedBy, at: new Date(time).toISOString() };
-      return serialised(file, async () => {
+      return lock(async () => {
         await fs.mkdir(path.dirname(file), { recursive: true });
         const current = await load(file);
         if (current.state === 'corrupt') {
@@ -121,7 +122,7 @@ export function createTrustStore(hubDir) {
     /** Removes the approval; true when there was one. A corrupt store trusts nothing, so there is nothing to revoke and it is left as it is. */
     async revoke(sha256) {
       const digest = requireDigest(sha256);
-      return serialised(file, async () => {
+      return lock(async () => {
         const current = await load(file);
         if (!current.entries.has(digest)) return false;
         current.entries.delete(digest);
