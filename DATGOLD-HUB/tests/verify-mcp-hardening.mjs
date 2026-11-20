@@ -20,7 +20,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { LineReader, McpClientManager, MAX_MESSAGE_BYTES, MAX_NAME_LENGTH } from '../lib/mcp/client-manager.mjs';
+import net from 'node:net';
+import { LineReader, McpClientManager, MAX_LIST_BYTES, MAX_LIST_ITEMS, MAX_MESSAGE_BYTES, MAX_NAME_LENGTH, PREPARE_WAIT_MS, listAll } from '../lib/mcp/client-manager.mjs';
 import { LIMITS } from '../lib/mcp/sanitize.mjs';
 import { RESULT_LIMITS } from '../lib/mcp/result-limits.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
@@ -320,6 +321,62 @@ try {
   });
 
   // -------------------------------------------------------------------------------------------------------------------------------- 6. HTTP
+  // ------------------------------------------------------------------------------------------------------------- preflight and listings (audit F1, F3)
+  await test('the task preflight waits a bounded time for servers that do not answer, backs a failed one off, and tries again after reload()', async () => {
+    assert.ok(PREPARE_WAIT_MS >= 1000 && PREPARE_WAIT_MS <= 5000, `${PREPARE_WAIT_MS} ms`);
+    const hung = newManager({ hubDirectory: path.join(scratch, 'hung-hub') });
+    const spawns = path.join(scratch, 'hung-spawns.txt');
+    const sockets = [];
+    const silent = net.createServer((socket) => { sockets.push(socket); socket.on('error', () => {}); });
+    await new Promise((resolve) => silent.listen(0, '127.0.0.1', resolve));
+    try {
+      await hung.store.save('silent-stdio', { transport: 'stdio', command: node, args: ['-e', `require('fs').appendFileSync(${JSON.stringify(spawns)}, 'x'); setInterval(() => {}, 1000)`], timeouts: { connectMs: 5000 } });
+      await approveLaunch(hung, 'silent-stdio');
+      await hung.store.save('silent-http', { transport: 'http', url: `http://127.0.0.1:${silent.address().port}/mcp`, timeouts: { connectMs: 5000 } });
+      let started = Date.now();
+      await hung.prepare();
+      const first = Date.now() - started;
+      assert.ok(first < PREPARE_WAIT_MS + 1500, `the first preflight waited ${first} ms, not at most about ${PREPARE_WAIT_MS}`);
+      await waitFor(() => ['silent-stdio', 'silent-http'].every((id) => serverStatus(hung, id).state === 'failed'), 'both connects to time out in the background', 20_000);
+      for (const id of ['silent-stdio', 'silent-http']) {
+        const status = serverStatus(hung, id);
+        assert.equal(status.lastError.code, 'mcp_connect_timeout', id);
+        assert.ok(Date.parse(status.retryAt) > Date.now(), `${id}: retryAt ${status.retryAt} is in the future`);
+      }
+      assert.equal(readFileSync(spawns, 'utf8').length, 1, 'the stdio server was started once');
+      started = Date.now();
+      await hung.prepare();
+      const second = Date.now() - started;
+      assert.ok(second < 500, `the next preflight waited ${second} ms for servers that are backed off`);
+      await delay(300);
+      assert.equal(readFileSync(spawns, 'utf8').length, 1, 'a backed-off server is not started again by the preflight');
+      // reload() (the owner changed the list) clears the back-off: the next preflight tries again
+      await hung.reload();
+      assert.equal(serverStatus(hung, 'silent-stdio').retryAt ?? null, null);
+      await hung.prepare();
+      await waitFor(() => readFileSync(spawns, 'utf8').length === 2, 'the stdio server to be started again after reload()');
+    } finally {
+      await hung.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => silent.close(resolve));
+    }
+  });
+
+  await test(`a listing that passes ${MAX_LIST_ITEMS} items or ${MAX_LIST_BYTES} bytes in all is refused whole (mcp_list_too_large)`, async () => {
+    assert.equal(MAX_LIST_ITEMS, 10_000);
+    assert.equal(MAX_LIST_BYTES, 16 * 1024 * 1024);
+    const pages = (count, size) => async ({ params }) => {
+      const page = params.cursor ? Number(params.cursor) : 1;
+      return { tools: Array.from({ length: size }, (_, index) => ({ name: `t${page}_${index}` })), ...(page < count ? { nextCursor: String(page + 1) } : {}) };
+    };
+    assert.equal((await listAll(pages(10, 1000), 'tools')).items.length, 10_000, 'exactly the item cap is read');
+    await assert.rejects(listAll(pages(11, 1000), 'tools'), (error) => error.code === 'mcp_list_too_large', 'one item more');
+    let asked = 0;
+    const heavy = async () => { asked += 1; return { tools: [{ name: `big${asked}`, description: 'x'.repeat(9 * 1024 * 1024) }], nextCursor: `c${asked}` }; };
+    await assert.rejects(listAll(heavy, 'tools'), (error) => error.code === 'mcp_list_too_large', 'two pages of 9 MiB');
+    assert.equal(asked, 2, 'refused at the page that passed the byte cap, not read further');
+  });
+
   await test('HTTP: a cross-origin redirect is not followed, so the Authorization header never reaches the other origin', async () => {
     const seenByOther = [];
     const other = http.createServer((request, response) => { seenByOther.push(request.headers); response.writeHead(500).end(); });
