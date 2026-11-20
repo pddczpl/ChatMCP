@@ -57,7 +57,22 @@ export class Reference {
     const config = ['-c', 'core.autocrlf=false', '-c', 'core.longpaths=true', '-c', 'core.sparseCheckout=false', '-c', 'core.fsmonitor=false',
       '-c', `core.excludesFile=${none}`, '-c', `core.attributesFile=${none}`];
     git(this.workTree, [...config, 'add', '-A', '--', '.', ...extraPathspecs], { env: this.env() });
+    // Ignore rules apply to untracked files only: a file the repository tracks stays in its tree whatever .gitignore says. So every
+    // tracked path that is still a file on disk is added too (read from the repository's own index; a deleted one drops out).
+    const excluded = new Set(extraPathspecs.map((spec) => spec.replace(/^:\(exclude,literal\)/, '')));
+    const tracked = this.trackedOnDisk().filter((file) => !excluded.has(file));
+    if (tracked.length) {
+      git(this.workTree, [...config, 'add', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'], { env: this.env(), input: tracked.map((file) => `:(literal)${file}\0`).join('') });
+    }
     return git(this.workTree, [...config, 'write-tree'], { env: this.env() }).stdout.trim();
+  }
+  /** The paths the repository's own index tracks that are a file or a link on disk now. */
+  trackedOnDisk() {
+    const listed = git(this.workTree, ['-c', 'core.fsmonitor=false', 'ls-files', '-z', '--cached'], { allowFail: true });
+    if (listed.status !== 0) return [];
+    return listed.stdout.split('\0').filter(Boolean).filter((file) => {
+      try { const stat = fs.lstatSync(path.join(this.workTree, file)); return stat.isFile() || stat.isSymbolicLink(); } catch { return false; }
+    });
   }
   freshTree(extraPathspecs) { this.reset(); return this.tree(extraPathspecs); }
   lsTree(tree) { return git(this.workTree, ['ls-tree', '-r', '-z', tree], { env: this.env() }).stdout.split('\0').filter(Boolean); }

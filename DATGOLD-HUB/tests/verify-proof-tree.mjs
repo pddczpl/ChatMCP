@@ -548,6 +548,50 @@ function canaryScript(dir) {
   ok('a cached snapshot follows .gitignore and .git/info/exclude changes like a fresh index');
 }
 
+{ // a file the repository tracks although an ignore rule matches it (force-added build output, a committed lock file) is in the tree
+  const repo = newRepo('tracked-ignored');
+  write(repo, '.gitignore', 'dist/\n*.lock\n');
+  write(repo, 'src/app.js', 'app\n');
+  write(repo, 'dist/bundle.js', 'bundle v1\n');
+  write(repo, 'deps.lock', 'lock v1\n');
+  write(repo, 'dist/untracked.js', 'never added\n');
+  git(repo, ['add', '.gitignore', 'src/app.js']);
+  git(repo, ['add', '-f', 'dist/bundle.js', 'deps.lock']);
+  git(repo, ['commit', '-q', '-m', 'force-added']);
+  const reference = new Reference(repo);
+  const engines = { git: snapshotter(repo), raw: snapshotter(repo, { engine: TREE_ALGORITHM.raw }) };
+  const first = {};
+  for (const [name, engine] of Object.entries(engines)) {
+    first[name] = await engine.snapshot({ full: true });
+    assert.equal(first[name].tree, reference.freshTree(), `${name}: a tracked ignored file is in the tree`);
+    assert.equal(first[name].rawTree, first[name].tree);
+  }
+  assert.ok(reference.lsTree(first.git.tree).some((row) => row.endsWith('\tdist/bundle.js')), 'dist/bundle.js is in the tree');
+  assert.equal(reference.lsTree(first.git.tree).some((row) => row.endsWith('\tdist/untracked.js')), false, 'an untracked ignored file is not');
+  // the agent rewrites the tracked ignored file: every snapshot sees it
+  write(repo, 'dist/bundle.js', 'bundle v2, rewritten by the agent\n');
+  const edited = reference.freshTree();
+  assert.notEqual(edited, first.git.tree);
+  for (const [name, engine] of Object.entries(engines)) {
+    assert.equal((await engine.snapshot()).tree, edited, `${name}: a cached snapshot sees the edit of a tracked ignored file`);
+    const full = await engine.snapshot({ full: true });
+    assert.deepEqual([full.tree, full.rawTree], [edited, edited], `${name}: and so does a full one`);
+  }
+  // the person force-adds another ignored file, then un-tracks the lock file: the next cached snapshot follows the repository's index
+  git(repo, ['add', '-f', 'dist/untracked.js']);
+  git(repo, ['rm', '-q', '--cached', 'deps.lock']);
+  const followed = reference.freshTree();
+  for (const [name, engine] of Object.entries(engines)) assert.equal((await engine.snapshot()).tree, followed, `${name}: the cached snapshot follows the repository's index`);
+  // a tracked file deleted from the working tree drops out
+  fs.rmSync(path.join(repo, 'dist', 'bundle.js'));
+  const deleted = reference.freshTree();
+  for (const [name, engine] of Object.entries(engines)) {
+    assert.equal((await engine.snapshot()).tree, deleted, `${name}: a deleted tracked file drops out (cached)`);
+    assert.equal((await engine.snapshot({ full: true })).tree, deleted, `${name}: and in a full snapshot`);
+  }
+  ok('tracked files that an ignore rule matches are in the tree (edits seen by cached and full snapshots of both engines); the tree follows force-adds, un-tracking and deletion');
+}
+
 { // the repository's own .git is unchanged, whatever the environment says
   const repo = newRepo('untouched');
   for (let index = 0; index < 40; index += 1) write(repo, `src/m${index}.js`, `export const m${index} = ${index};\n`);
