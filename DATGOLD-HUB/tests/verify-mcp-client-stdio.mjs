@@ -60,7 +60,10 @@ const protector = createProtector({ bundleRoot: HUB, directory: scratch });
 const registered = [];
 const logLines = [];
 const baseline = await descendants();
-const reported = new Set(); // pids the servers told us (whoami): an orphan of a killed wrapper has no living parent to be found by
+// pid -> parent pid that the servers told us (whoami): an orphan of a killed wrapper has no living parent to be found by, and the pair
+// tells it from another process that has the same pid later.
+const reported = new Map();
+const reportedList = () => [...reported].map(([pid, ppid]) => ({ pid, ppid }));
 let manager = null;
 let hubManager = null;
 
@@ -154,6 +157,55 @@ try {
     assert.equal(store.get('secretive'), null);
   });
 
+  await test('config: every credential-looking header and every URL with a password is a secret; an id has no "__" and no trailing "_"', async () => {
+    // Audit of #123: F1 (header names outside the short list), F2 (a password inside a URL), F3 (mcp__<server>__<tool> must parse one way).
+    const hubDirectory = path.join(scratch, 'config-credentials');
+    const store = new McpServerStore({ hubDirectory, protector, registerSecret: (value) => registered.push(value) });
+    const credentialHeaders = ['PRIVATE-TOKEN', 'X-Goog-Api-Key', 'X-API-Token', 'X-Figma-Token', 'Ocp-Apim-Subscription-Key', 'X-Auth-Key', 'Api-Token', 'X-Secret', 'Authorization', 'X-Api-Key'];
+    const headers = Object.fromEntries(credentialHeaders.map((name, index) => [name, `hv${index}-${SECRET}`]));
+    headers['X-Upstream'] = `https://user:url-pw-${SECRET}@proxy.example.invalid/`;
+    headers['X-Client-Note'] = 'plain-note';
+    const env = {
+      DATABASE_URL: `postgres://u:db-pw-${SECRET}@db.example.invalid/x`, REDIS_URL: `redis://:redis-pw-${SECRET}@r.example.invalid:6379`,
+      PLAIN_URL: 'postgres://db.example.invalid/x', DB_PASS: 'dbpass-123456', DSN: 'postgres://u:${DB_PASS}@db.example.invalid/x',
+    };
+    const view = await store.save('creds', { transport: 'http', url: 'https://example.invalid/mcp', headers, env });
+    const file = readFileSync(path.join(hubDirectory, 'mcp-servers.json'), 'utf8');
+    assert.ok(!file.includes(SECRET), 'no credential header and no URL password is in the file in plain text');
+    for (const name of [...credentialHeaders, 'X-Upstream']) assert.deepEqual(view.headers[name], { secret: true }, `the header ${name} is stored as a secret`);
+    assert.deepEqual(view.headers['X-Client-Note'], { value: 'plain-note', secret: false }, 'an ordinary header stays plain');
+    assert.deepEqual(view.env.DATABASE_URL, { secret: true });
+    assert.deepEqual(view.env.REDIS_URL, { secret: true }, 'a URL with an empty user and a password');
+    assert.deepEqual(view.env.PLAIN_URL, { value: 'postgres://db.example.invalid/x', secret: false }, 'a URL without a password stays plain');
+    assert.deepEqual(view.env.DSN, { value: 'postgres://u:${DB_PASS}@db.example.invalid/x', secret: false }, 'a URL whose password is a reference stays as typed');
+    assert.ok(!JSON.stringify([store.list(), store.get('creds')]).includes(SECRET), 'list() and get() hold none of them');
+    // Read from the file, the same values in plain text are refused; a reference under a credential name is not.
+    for (const name of ['PRIVATE-TOKEN', 'X-Goog-Api-Key', 'Ocp-Apim-Subscription-Key']) {
+      await rejects(normalizeServer('fromfile', { transport: 'http', url: 'https://example.invalid/mcp', headers: { [name]: 'plain-credential' } }), 'mcp_config_invalid', `${name} in plain text in the file`);
+    }
+    await rejects(normalizeServer('fromfile', { ...fixture(), env: { DATABASE_URL: 'postgres://u:hunter2@db/x' } }), 'mcp_config_invalid', 'a URL with a password in plain text in the file');
+    await rejects(normalizeServer('fromfile', { transport: 'http', url: 'https://example.invalid/mcp', headers: { 'X-Upstream': 'https://u:p4ss@h/' } }), 'mcp_config_invalid', 'a header URL with a password in plain text in the file');
+    const reference = await normalizeServer('fromfile', { transport: 'http', url: 'https://example.invalid/mcp', env: { GL: 'x' }, headers: { 'PRIVATE-TOKEN': '${GL}' } });
+    assert.equal(reference.headers['PRIVATE-TOKEN'], '${GL}');
+    // At connect time every one of them reaches the masker: the stored secrets, a URL put together from references, and a header made of a
+    // plain, ordinary env value.
+    const before = registered.length;
+    await store.resolveForConnect('creds');
+    const fresh = registered.slice(before);
+    for (const value of Object.values(headers).filter((value) => value.includes(SECRET))) assert.ok(fresh.includes(value), `registered: ${value.slice(0, 24)}`);
+    assert.ok(fresh.includes(env.DATABASE_URL) && fresh.includes(env.REDIS_URL), 'the URLs with a password are registered');
+    assert.ok(fresh.includes(`db-pw-${SECRET}`) && fresh.includes(`redis-pw-${SECRET}`), 'and their passwords alone');
+    assert.ok(fresh.includes('postgres://u:dbpass-123456@db.example.invalid/x') && fresh.includes('dbpass-123456'), 'a URL whose password came from a reference is registered after expansion');
+    assert.ok(!fresh.includes('plain-note') && !fresh.includes('postgres://db.example.invalid/x'), 'ordinary values are not');
+    await store.save('glref', { transport: 'http', url: 'https://example.invalid/mcp', env: { GL: 'glpat-from-plain-env-123' }, headers: { 'PRIVATE-TOKEN': '${GL}' } });
+    const beforeRef = registered.length;
+    await store.resolveForConnect('glref');
+    assert.ok(registered.slice(beforeRef).includes('glpat-from-plain-env-123'), 'a credential header made of an ordinary env value is registered');
+    // F3: the hook alias mcp__<server>__<tool> parses one way only if a server id has no "__" and does not end with "_".
+    for (const id of ['a__b', 'a_', 'gitlab__tools']) await rejects(normalizeServer(id, fixture()), 'mcp_config_invalid', `the id ${id}`);
+    for (const id of ['a_b', 'a-b', 'a1', 'git_lab-2']) assert.equal((await normalizeServer(id, fixture())).transport, 'stdio', `the id ${id} is accepted`);
+  });
+
   // -------------------------------------------------------------------------------------------------------------------------------------
   // 2. and 3. Real servers, negotiation
   // -------------------------------------------------------------------------------------------------------------------------------------
@@ -230,7 +282,7 @@ try {
     const summary = await manager.connect('wrapped');
     assert.equal(summary.state, 'connected');
     const who = JSON.parse(text(await manager.callTool('wrapped', 'whoami', {})));
-    reported.add(who.pid);
+    reported.set(who.pid, who.ppid);
     const channel = manager.connections.get('wrapped').channel;
     const wrapperPid = channel.pid;
     assert.notEqual(who.pid, wrapperPid, 'the server runs below the wrapper');
@@ -240,7 +292,7 @@ try {
     await manager.disconnect('wrapped');
     assert.equal(channel.exited, true, 'disconnect() resolved only after the child had exited');
     assert.ok(Date.now() - started >= 1500, 'the server was given its grace period before the tree was stopped');
-    const left = await descendants(process.pid, [wrapperPid, who.pid]);
+    const left = await descendants(process.pid, [{ pid: wrapperPid, ppid: process.pid }, { pid: who.pid, ppid: who.ppid }]);
     assert.ok(!left.includes(wrapperPid) && !left.includes(who.pid), `closing stopped the wrapper ${wrapperPid} and the server ${who.pid} (left: ${left.join(', ') || 'none'})`);
   });
 
@@ -393,11 +445,12 @@ try {
   // 10. Nothing left behind
   // -------------------------------------------------------------------------------------------------------------------------------------
   await test('close(): every server process has exited when it resolves, and later calls are refused', async () => {
-    reported.add(JSON.parse(text(await manager.callTool('fixture', 'whoami', {}))).pid);
+    const fixtureWho = JSON.parse(text(await manager.callTool('fixture', 'whoami', {})));
+    reported.set(fixtureWho.pid, fixtureWho.ppid);
     const running = await newDescendants(baseline);
     assert.ok(running.length >= 3, `servers were running before close (${running.length})`);
     await manager.close();
-    const left = await newDescendants(baseline, [...reported].filter(Boolean));
+    const left = await newDescendants(baseline, reportedList());
     assert.deepEqual(left, [], `processes left after close(): ${left.join(', ')}`);
     await rejects(manager.connect('fixture'), 'mcp_closed', 'connect after close');
     await rejects(manager.callTool('fixture', 'echo', { message: 'x' }), 'mcp_closed', 'a call after close');
@@ -420,14 +473,14 @@ try {
     assert.ok(!JSON.stringify(state).includes(SECRET), 'the Hub state holds no secret');
     const who = JSON.parse(text(await hubManager.mcp.callTool('hubfixture', 'whoami', {})));
     await hubManager.shutdown();
-    const left = await newDescendants(baseline, [who.pid]);
+    const left = await newDescendants(baseline, [{ pid: who.pid, ppid: who.ppid }]);
     assert.deepEqual(left, [], `processes left after shutdown: ${left.join(', ')}`);
     hubManager = null;
   });
 } finally {
   await manager?.close().catch(() => {});
   await hubManager?.shutdown().catch(() => {});
-  const strays = await newDescendants(baseline, [...reported].filter(Boolean)).catch(() => []);
+  const strays = await newDescendants(baseline, reportedList()).catch(() => []);
   for (const pid of strays) { try { process.kill(pid); } catch { /* gone */ } }
   rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

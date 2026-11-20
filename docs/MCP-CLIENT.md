@@ -65,19 +65,27 @@ Nothing imports the SDK when the Hub starts: without it the Hub starts, serves `
 }
 ```
 
-- An id is 1 to 32 characters of `a-z`, `0-9`, `_` and `-`, starting with a letter; `local`, `studio`, `mcp`, `hub`, `datgold` and `chatmcp`
-  are reserved. An unknown setting is an error, so a misspelt one is not ignored.
+- An id is 1 to 32 characters of `a-z`, `0-9`, `_` and `-`, starting with a letter, with no `__` and no `_` at the end, so that the hook
+  alias `mcp__<server>__<tool>` names one server only (`a__b` + `c` and `a` + `b__c` would both be `mcp__a__b__c`); `local`, `studio`, `mcp`,
+  `hub`, `datgold` and `chatmcp` are reserved. An unknown setting is an error, so a misspelt one is not ignored.
 - `transport`: `stdio` (command, args, cwd, env) or `http` (Streamable HTTP: url, headers, env). `sse`, the legacy HTTP+SSE transport, is
   refused. A url is `https://`, or `http://` to `127.0.0.1`, `[::1]` or `localhost`; a user name or password in the url is refused.
 - `enabled` (default `true`), `timeouts.connectMs` (1,000 to 120,000, default 30,000) and `timeouts.callMs` (1,000 to 900,000, default 120,000).
 - `policy` is stored as given (a JSON object of at most 16 KiB) and **not enforced** in this slice.
-- Secrets. A value is a string or `{"secret": "<blob>"}`, the blob made by `createProtector` (Windows DPAPI; AES-256-GCM elsewhere). An env
-  name that looks like a credential (the `SECRET_ENV_NAME` rule of `lib/shell-runner.mjs`) and a credential header (`Authorization`,
-  `Proxy-Authorization`, `Cookie`, `X-Api-Key`, `Api-Key`, `X-Auth-Token`, `X-Access-Token`) are always stored protected, except a value that
-  is only a reference (`"${NAME}"`, `"Bearer ${NAME}"`). Through `McpServerStore.save()` a value is a string, `{value, secret}` or
-  `{keep: true}` (keep the stored secret). `list()`, `get()` and `status()` never return a secret, in plain or protected form: `{secret: true}`
-  says only that one is set. When a connection is made every secret value is registered with `HubManager.registerSecret`, so the masker of
-  the log hides it.
+- Secrets. A value is a string or `{"secret": "<blob>"}`, the blob made by `createProtector` (Windows DPAPI; AES-256-GCM elsewhere). Always
+  stored protected, whatever the caller asked:
+  - an env name that looks like a credential (the `SECRET_ENV_NAME` rule of `lib/shell-runner.mjs`: `GITHUB_TOKEN`, `DB_PASSWORD` ...);
+  - a header named like one: `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Api-Key`, `Api-Key`, `X-Auth-Token`, `X-Access-Token`, and
+    any name in which `SECRET_ENV_NAME` finds a credential word once `-` is read as `_` (`PRIVATE-TOKEN`, `X-Goog-Api-Key`, `X-API-Token`,
+    `X-Figma-Token`, `Ocp-Apim-Subscription-Key`, `X-Auth-Key`, `Api-Token`, `X-Secret` ...);
+  - any env or header value that is a URL with a password (`URL_WITH_PASSWORD` of `lib/shell-runner.mjs`: `postgres://u:pw@db/x`,
+    `redis://:pw@host:6379`). A URL whose password is a reference (`postgres://u:${DB_PASS}@db/x`) stays as typed.
+
+  The exception is a value that is only a reference (`"${NAME}"`, `"Bearer ${NAME}"`): it holds no credential itself. Read from the file, any of
+  the above in plain text is refused. Through `McpServerStore.save()` a value is a string, `{value, secret}` or `{keep: true}` (keep the stored
+  secret). `list()`, `get()` and `status()` never return a secret, in plain or protected form: `{secret: true}` says only that one is set.
+  When a connection is made, every secret value is registered with `HubManager.registerSecret`, so the masker of the log hides it: the stored
+  secrets, a credential header or a URL with a password as it is once its references are expanded, and the password of such a URL on its own.
 - `${NAME}` in the command, args, cwd, env values, url and header values is replaced by the value of the env entry `NAME` of the **same**
   server; a name that the env map does not declare is a configuration error. The only way to pass on a variable of the Hub's environment is
   to declare it as its own value: `"GITHUB_TOKEN": "${GITHUB_TOKEN}"` (an error when the Hub does not have it). Cycles are errors.

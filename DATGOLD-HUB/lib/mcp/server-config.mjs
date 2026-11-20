@@ -6,23 +6,27 @@
 //    | {"transport": "http", "url": "https://...", "headers": {"Name": "text" | {"secret": "<blob>"}}, "env": {...}, ...}}}
 //
 // Rules:
-//  * An id is 1-32 of [a-z0-9_-], starting with a letter; local and studio (the Hub's own tool prefixes) and a few product names are reserved.
+//  * An id is 1-32 of [a-z0-9_-], starting with a letter, with no "__" and no "_" at the end, so that the alias mcp__<server>__<tool> of a
+//    hook names one server only; local and studio (the Hub's own tool prefixes) and a few product names are reserved.
 //  * "sse" (the legacy HTTP+SSE transport) is refused; http means Streamable HTTP, over https, or plain http to a loopback address only.
 //  * A secret value is stored as {"secret": blob}, the blob made by createProtector (lib/secret-box.mjs: Windows DPAPI, AES-GCM elsewhere).
-//    An env name that looks like a credential (SECRET_ENV_NAME of lib/shell-runner.mjs) and a credential header (Authorization, Cookie,
-//    X-Api-Key ...) are always stored as secrets, whatever the caller asked. publicServer() and the store's list()/get() never return a
-//    secret, in plain or protected form: {secret: true} says only that one is set.
+//    These are always stored as secrets, whatever the caller asked: an env name that looks like a credential (SECRET_ENV_NAME of
+//    lib/shell-runner.mjs), a header named like one (the short list SECRET_HEADER, or SECRET_ENV_NAME with "-" read as "_": PRIVATE-TOKEN,
+//    X-Goog-Api-Key, Ocp-Apim-Subscription-Key ...), and any value that is a URL with a password in it (URL_WITH_PASSWORD of
+//    lib/shell-runner.mjs: postgres://u:pw@host, redis://:pw@host). publicServer() and the store's list()/get() never return a secret, in
+//    plain or protected form: {secret: true} says only that one is set.
 //  * ${NAME} in command, args, cwd, env values, url and header values is replaced by the value of the env entry NAME of the SAME server.
 //    A name the server's env map does not declare is a configuration error: nothing reaches into the Hub's environment unasked. The one way
 //    to pass a variable of the Hub's environment on is to declare it as its own value: "GITHUB_TOKEN": "${GITHUB_TOKEN}".
 //  * `policy` is stored as given (a JSON object, at most 16 KiB); this slice does not enforce it (the permission gate of a later slice does).
 import path from 'node:path';
 import { isObject, readJson, writeJson } from '../runtime.mjs';
-import { SECRET_ENV_NAME } from '../shell-runner.mjs';
+import { SECRET_ENV_NAME, URL_WITH_PASSWORD } from '../shell-runner.mjs';
 
 export const CONFIG_FILE = 'mcp-servers.json';
 export const CONFIG_VERSION = 1;
-export const SERVER_ID = /^[a-z][a-z0-9_-]{0,31}$/;
+// 1-32 characters; an "_" is always followed by a letter, a digit or "-" (so no "__" and none at the end).
+export const SERVER_ID = /^(?=.{1,32}$)[a-z](?:[a-z0-9-]|_(?=[a-z0-9-]))*$/;
 export const RESERVED_IDS = Object.freeze(['local', 'studio', 'mcp', 'hub', 'datgold', 'chatmcp']);
 export const DEFAULT_TIMEOUTS = Object.freeze({ connectMs: 30_000, callMs: 120_000 });
 export const TIMEOUT_LIMITS = Object.freeze({ connectMs: [1_000, 120_000], callMs: [1_000, 900_000] });
@@ -71,8 +75,20 @@ function checkTemplates(value, where, declared) {
   }
 }
 
-/** Whether a value under this name must be stored as a secret, whatever the caller said. */
-export const mustBeSecret = (kind, name) => (kind === 'env' ? SECRET_ENV_NAME.test(name) : SECRET_HEADER.test(name));
+/** Whether a header name says that its value is a credential: the short list, or a credential word of SECRET_ENV_NAME ("-" read as "_"). */
+export const isCredentialHeader = (name) => SECRET_HEADER.test(name) || SECRET_ENV_NAME.test(name.replace(/-/g, '_'));
+
+/** A URL with a password in it. ${NAME} references are left out first: in postgres://u:${PASS}@db the password is not in the text. */
+export const hasUrlPassword = (value) => typeof value === 'string' && URL_WITH_PASSWORD.test(value.replace(TEMPLATE, ''));
+
+/** The password of a URL with one (for the masker: a log line may carry it alone), or null. */
+export function urlPassword(value) {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:([^/\s@]+)@/i.exec(String(value));
+  return match ? match[1] : null;
+}
+
+/** Whether this value under this name must be stored as a secret, whatever the caller said. */
+export const mustBeSecret = (kind, name, value) => (kind === 'env' ? SECRET_ENV_NAME.test(name) : isCredentialHeader(name)) || hasUrlPassword(value);
 
 /**
  * A value that only refers to other values ("${GITHUB_TOKEN}", "Bearer ${API_TOKEN}"): it holds no credential itself, so it may stay plain
@@ -91,7 +107,7 @@ export function isReferenceOnly(value) {
 async function normalizeValue(kind, name, raw, where, { protector, previous, input }) {
   if (!input) {
     if (typeof raw === 'string') {
-      if (mustBeSecret(kind, name) && !isReferenceOnly(raw)) throw invalid(where, 'holds a credential in plain text; store it as a secret');
+      if (mustBeSecret(kind, name, raw) && !isReferenceOnly(raw)) throw invalid(where, 'holds a credential in plain text; store it as a secret');
       return text(raw, where, { empty: true });
     }
     if (isObject(raw) && Object.keys(raw).length === 1 && typeof raw.secret === 'string' && raw.secret) return { secret: text(raw.secret, where, { max: 65_536 }) };
@@ -104,7 +120,7 @@ async function normalizeValue(kind, name, raw, where, { protector, previous, inp
   const plain = typeof raw === 'string' ? raw : isObject(raw) && typeof raw.value === 'string' && Object.keys(raw).every((key) => key === 'value' || key === 'secret') ? raw.value : null;
   if (plain === null) throw invalid(where, 'must be a string, {"value": "...", "secret": true|false} or {"keep": true}');
   text(plain, where, { empty: true });
-  const secret = (isObject(raw) && raw.secret === true) || (mustBeSecret(kind, name) && !isReferenceOnly(plain));
+  const secret = (isObject(raw) && raw.secret === true) || (mustBeSecret(kind, name, plain) && !isReferenceOnly(plain));
   if (!secret) return plain;
   if (!protector) throw configFault('mcp_secret_unavailable', `${where}: no secret store is available to protect this value`);
   return { secret: await protector.protect(plain) };
@@ -165,7 +181,7 @@ function normalizePolicy(raw, where) {
  */
 export async function normalizeServer(id, raw, { protector = null, input = false, previous = null } = {}) {
   const where = `servers.${id}`;
-  if (!SERVER_ID.test(id)) throw invalid(where, 'the id must be 1-32 characters of a-z, 0-9, _ and -, starting with a letter');
+  if (!SERVER_ID.test(id)) throw invalid(where, 'the id must be 1-32 characters of a-z, 0-9, _ and -, starting with a letter, with no "__" and no "_" at the end');
   if (RESERVED_IDS.includes(id)) throw invalid(where, 'this id is reserved');
   if (!isObject(raw)) throw invalid(where, 'must be an object');
   if (raw.transport === 'sse') throw configFault('mcp_transport_unsupported', `${where}.transport: the legacy HTTP+SSE transport is not supported; use "http" (Streamable HTTP)`);
@@ -262,6 +278,8 @@ export async function resolveEnvironment(id, env, { protector, parentEnv = proce
   for (const name of raw.keys()) resolve(name);
   // A credential-looking name holds a secret however its value was made (a reference, a pass-through): the masker must know it.
   for (const name of raw.keys()) if (SECRET_ENV_NAME.test(name)) secret.add(name);
+  // So does a value that is a URL with a password, however it was put together (postgres://u:${PASS}@db once expanded).
+  for (const name of raw.keys()) if (URL_WITH_PASSWORD.test(values.get(name))) secret.add(name);
   return { values, secret };
 }
 
@@ -364,7 +382,7 @@ export class McpServerStore {
       for (const [name, value] of Object.entries(server.headers)) {
         if (typeof value === 'string') {
           resolved.headers[name] = expand(value, `headers.${name}`);
-          if (SECRET_HEADER.test(name)) secrets.add(resolved.headers[name]);
+          if (mustBeSecret('headers', name, resolved.headers[name])) secrets.add(resolved.headers[name]);
         } else {
           if (!this.protector) throw configFault('mcp_secret_unavailable', `servers.${id}.headers.${name}: no secret store is available to read this value`);
           resolved.headers[name] = await this.protector.unprotect(value.secret);
@@ -372,6 +390,8 @@ export class McpServerStore {
         }
       }
     }
+    // The password of a URL is registered on its own as well: a log line may carry it without the rest of the URL.
+    for (const value of [...secrets]) { const password = urlPassword(value); if (password && password.length >= 4) secrets.add(password); }
     for (const value of secrets) if (value) this.registerSecret(value);
     resolved.secrets = [...secrets].filter(Boolean);
     return resolved;

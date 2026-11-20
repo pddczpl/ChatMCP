@@ -84,25 +84,34 @@ export async function processTable() {
   return table;
 }
 
-/** Every process below `root` (by parent pid, never by name), and every process whose parent is one of `known` (orphans of a dead parent). */
+/**
+ * Every process below `root` (by parent pid, never by name), and every process of `known` (pids the servers reported: an orphan of a dead
+ * wrapper has no living parent to be found by) with what is below it. A known entry is {pid, ppid}. On Windows it counts only while that
+ * pid still has that parent pid: Windows soon gives the pid of a process that has exited to another one, maybe of another program, and it
+ * never changes the parent pid of an orphan. Linux gives an orphan a new parent instead and reuses pids only after the whole range, so
+ * there the pid alone is the test.
+ */
 export async function descendants(root = process.pid, known = []) {
   const table = await processTable();
   const children = new Map();
   for (const [pid, ppid] of table) { if (!children.has(ppid)) children.set(ppid, []); children.get(ppid).push(pid); }
-  const found = new Set();
-  const queue = [root, ...known];
+  const sameParent = (pid, ppid) => ppid === undefined || process.platform !== 'win32' || table.get(pid) === ppid;
+  const alive = known.map((entry) => (typeof entry === 'number' ? { pid: entry } : entry))
+    .filter(({ pid, ppid }) => table.has(pid) && sameParent(pid, ppid)).map(({ pid }) => pid);
+  const found = new Set(alive);
+  const queue = [root, ...alive];
   while (queue.length) {
     const next = queue.shift();
     for (const child of children.get(next) ?? []) if (child !== process.pid && child !== table.reader && !found.has(child)) { found.add(child); queue.push(child); }
   }
-  for (const pid of known) if (table.has(pid)) found.add(pid);
   return [...found].filter((pid) => table.has(pid));
 }
 
-/** The processes below this one that were not there in `baseline` (a list of pids taken before the servers started). */
+/** The processes below this one that were not there in `baseline` (a list of pids taken before the servers started), known ones included. */
 export async function newDescendants(baseline, known = []) {
   const before = new Set(baseline);
-  return (await descendants(process.pid, known)).filter((pid) => !before.has(pid) || known.includes(pid));
+  const knownPids = new Set(known.map((entry) => (typeof entry === 'number' ? entry : entry.pid)));
+  return (await descendants(process.pid, known)).filter((pid) => !before.has(pid) || knownPids.has(pid));
 }
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
