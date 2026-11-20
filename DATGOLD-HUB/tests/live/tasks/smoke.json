@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "note": "The default task of tests/evaluate-live.mjs: one small file and one command, to see that a provider can drive the Hub's tools at all. The pre-registered corpus with hidden tests is a later P7 task.",
+  "tasks": [
+    {
+      "id": "smoke-write-and-run",
+      "prompt": "Create a file named NOTES.md that contains exactly one line: live runner smoke. Then run the command `node -e \"process.stdout.write(require('fs').readFileSync('NOTES.md','utf8'))\"` and tell me what it printed.",
+      "files": { "README.md": "# Scratch project of the live runner\n" },
+      "maxSteps": 8,
+      "maxMinutes": 3
+    }
+  ]
+}
