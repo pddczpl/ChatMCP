@@ -39,6 +39,10 @@ const frozenText = lf(readFileSync(FROZEN, 'utf8'));
 const releaseText = lf(readFileSync(RELEASE, 'utf8'));
 
 // ---- the values of 3.11.2 and what release.yml says instead -------------------------------------------------------------------------
+// The version of the frozen file is read from its own name line, not typed: it is history, not the running version (which
+// verify-updater-e2e-tools forbids a test to write by hand), and the two are the same number only until the next version bump.
+const FROZEN_VERSION = /^name: Publish ChatMCP v(\d+\.\d+\.\d+)$/m.exec(frozenText)?.[1];
+assert.equal(FROZEN_VERSION?.split('.').length, 3, 'the frozen workflow names its version on its name line');
 const LITERALS = [ // longest first: the title and the file names contain the version
   ['DatGold v3.11.2 - more skills install, review receipts that hold and the Hub side of per-hunk review', '{TITLE}'],
   ['RELEASE-NOTES-v3.11.2.md', '{NOTES_FILE}'],
@@ -50,8 +54,8 @@ const LITERALS = [ // longest first: the title and the file names contain the ve
   ['ef75e9a3721c5ba94a510de1ff00c1449031a4ac797570cb0d901861b509786e', '{BASELINE_SHA256}'],
   ['v3.9.0', '{BASELINE_TAG}'],
   ['3.9.0', '{BASELINE_VERSION}'],
-  ['v3.11.2', '{TAG}'],
-  ['3.11.2', '{VERSION}'],
+  [`v${FROZEN_VERSION}`, '{TAG}'],
+  [FROZEN_VERSION, '{VERSION}'],
   ['1.5.2', '{COMPANION_VERSION}'],
 ];
 const NAMES = ['BASELINE_SHA256', 'BASELINE_VERSION', 'BASELINE_ASSET', 'BASELINE_TAG', 'COMPANION_VERSION', 'COMPANION_ASSET', 'INSTALLER_ASSET', 'MANIFEST_ASSET', 'ARTIFACT_PREFIX', 'NOTES_FILE', 'VERSION', 'TITLE', 'TAG'];
