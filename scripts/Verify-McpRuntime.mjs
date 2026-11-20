@@ -67,7 +67,11 @@ try {
   const manager = new McpClientManager({ hubDirectory: path.join(scratch, 'state'), runtimeRoots: [runtime] });
   if (manager.status().runtime.state !== 'ready') throw new Error(`The Hub does not find the staged runtime: ${JSON.stringify(manager.status().runtime)}`);
   await manager.store.save('verify', { transport: 'stdio', command: process.execPath, args: [serverFile] });
+  // The owner's two approvals, given here by the build (the server is the script above): the launch record, then the lists the server shows.
+  const launch = await manager.launchRecord('verify');
+  await manager.approveLaunch('verify', { expectedFingerprint: launch.fingerprint });
   const summary = await manager.connect('verify');
+  await manager.approveTools('verify', { expectedFingerprint: manager.toolReview('verify').fingerprint });
   const tools = await manager.listTools('verify');
   const result = await manager.callTool('verify', 'echo', { text: 'staged' });
   const pid = manager.connections.get('verify').channel.pid;

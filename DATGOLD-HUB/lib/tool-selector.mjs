@@ -119,7 +119,11 @@ export function selectTaskToolNames(prompt,{cap=48}={}) {
   for(const group of GROUPS)if(group.re?.test(text)||group.more?.test(text))for(const name of [...group.names,...(group.plus??[])])set.add(name);
   return [...set].slice(0,cap);
 }
+// A tool of an external (MCP) server: any server but the Hub's own local and studio (the name rule of lib/permissions.mjs externalToolName).
+export const isExternalTool=(tool)=>typeof tool?.server==='string'&&tool.server!==''&&tool.server!=='local'&&tool.server!=='studio';
+// The selection reduces only the local tools the run is offered directly. The tools of an external server are kept: they are never offered directly
+// (directToolsFor takes only the local server), but the run's instructions name them and mcp_call reaches them, also in a spawn_agent child in auto mode.
 export function selectTaskCatalog(catalog,prompt,{cap=48}={}) {
   const names=new Set(selectTaskToolNames(prompt,{cap}));
-  return {...catalog,tools:catalog.tools.filter(x=>x.server==='local'&&names.has(x.originalName))};
+  return {...catalog,tools:catalog.tools.filter(x=>(x.server==='local'&&names.has(x.originalName))||isExternalTool(x))};
 }

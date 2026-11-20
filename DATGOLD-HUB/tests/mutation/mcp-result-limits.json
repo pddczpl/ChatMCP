@@ -36,6 +36,9 @@
     { "name": "stderr-tail-split-char", "what": "a character cut at the start of the second half is decoded", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "while (start < Math.min(3, buffer.length) && (buffer[start] & 0xc0) === 0x80) start += 1;", "new": "start += 0;" }] },
     { "name": "stderr-hidden-kept", "what": "control and bidi characters of stderr are kept", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "return stripHidden(text).text;", "new": "return text;" }] },
     { "name": "stderr-ignored-uncounted", "what": "ignored pushes are not counted", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "        ignored += 1;", "new": "        ignored += 0;" }] },
-    { "name": "stderr-min-1023", "what": "a stderr limit of 1023 bytes is accepted", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "maxBytes < 1024 ||", "new": "maxBytes < 1023 ||" }] }
+    { "name": "stderr-min-1023", "what": "a stderr limit of 1023 bytes is accepted", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "maxBytes < 1024 ||", "new": "maxBytes < 1023 ||" }] },
+    { "name": "image-any-type", "what": "an image of any image/* type (svg+xml) is passed on as an image", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "  if (kind === 'image' && !PROVIDER_IMAGE_TYPES.includes(mimeType)) return drop(state, providerImage(mimeType)) ?? false;", "new": "" }] },
+    { "name": "image-svg-listed", "what": "image/svg+xml is one of the types passed on", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "export const PROVIDER_IMAGE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);", "new": "export const PROVIDER_IMAGE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']);" }] },
+    { "name": "image-note-unnamed", "what": "the note does not name the image type it dropped", "patches": [{ "file": "lib/mcp/result-limits.mjs", "old": "'an image of type ' + JSON.stringify(mimeType) + ', which", "new": "'an image of type ' + '\"?\"' + ', which" }] }
   ]
 }

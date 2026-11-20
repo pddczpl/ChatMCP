@@ -554,7 +554,18 @@ try{
     const some=selectConversationCatalog(catalog,'Hello.',['Commit it.','Fix the bug.'],{cap:24});
     assert.deepEqual([some.fromRunPrompt,some.earlierPromptsRead,some.fromEarlierPrompts],[selectTaskToolNames('Hello.',{cap:24}).length,1,24-selectTaskToolNames('Hello.',{cap:24}).length],'and one that leaves some room reads as many as the room needs');
     const mixed={tools:[...catalog.tools,{name:'remote.read_file',originalName:'read_file',server:'remote',inputSchema:{type:'object'}}]};
-    assert.deepEqual(selectConversationCatalog(mixed,'Fix the bug.',['Commit it.']).catalog.tools.filter(tool=>tool.server!=='local'),[],'only the local server is offered directly, as selectTaskCatalog does');
+    // An external server's tools stay in the catalog of the run (the instructions name them, mcp_call reaches them: a spawn_agent child in auto mode must not
+    // lose them), but only the local server is offered directly: remote.read_file never takes the short name read_file.
+    const chosen=selectConversationCatalog(mixed,'Fix the bug.',['Commit it.']).catalog;
+    assert.deepEqual(chosen.tools.filter(tool=>tool.server!=='local').map(tool=>tool.name),['remote.read_file'],'the external tool is kept, as selectTaskCatalog keeps it');
+    assert.equal(directToolsFor(chosen).byName.get('read_file'),'local.read_file','and is never offered directly');
+    const own={tools:[...catalog.tools,{name:'remote.only_here',originalName:'only_here',server:'remote',inputSchema:{type:'object'}}]};
+    assert.equal(directToolsFor(own).byName.has('only_here'),false,'an external tool with a name no local tool has is not offered directly either');
+    // and not when there is room for it under the direct-tool cap (above, the local tools fill the 100 places first)
+    assert.deepEqual(directToolsFor({tools:own.tools.filter(tool=>tool.server==='remote')}).functions,[],'a catalog of external tools only offers no direct function');
+    assert.ok(!directToolsFor(chosen).functions.some(fn=>directToolsFor(chosen).byName.get(fn.name).startsWith('remote.')));
+    const withStudio={tools:[...mixed.tools,{name:'studio.search',originalName:'search',server:'studio',inputSchema:{type:'object'}}]};
+    assert.deepEqual(selectTaskCatalog(withStudio,'Fix the bug.').tools.filter(tool=>tool.server!=='local').map(tool=>tool.name),['remote.read_file'],'the studio tools of the Hub are still left out of the selection, external ones are not');
     assert.deepEqual(selectConversationCatalog(mixed,'Fix the bug.').catalog.tools,selectTaskCatalog(mixed,'Fix the bug.').tools);
   }
 }finally{await fsp.rm(conversations,{recursive:true,force:true,maxRetries:8,retryDelay:150});}
