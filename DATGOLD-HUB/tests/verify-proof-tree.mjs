@@ -213,8 +213,10 @@ async function expectEqual(label, root, reference, options = {}, { algorithm = T
   commitAll(repo);
   git(repo, ['sparse-checkout', 'set', 'in']);
   assert.equal(fs.existsSync(path.join(repo, 'out', 'b.txt')), false);
+  // a file the agent writes outside the cone is on disk, so it belongs in the tree (git add with the sparse view on would refuse it)
+  write(repo, 'out/written-later.txt', 'outside the cone\n');
   await expectEqual('sparse checkout', repo, new Reference(repo));
-  ok('sparse checkout: snapshots equal the reference (files outside the cone are not on disk and not in the tree)');
+  ok("sparse checkout: snapshots equal the reference (what the cone left off disk is not in the tree, a file written outside the cone is)");
 }
 
 { // Git LFS pointers
@@ -222,6 +224,8 @@ async function expectEqual(label, root, reference, options = {}, { algorithm = T
   const pointer = 'version https://git-lfs.github.com/spec/v1\noid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\nsize 12345\n';
   write(repo, '.gitattributes', '*.bin filter=lfs diff=lfs merge=lfs -text\n');
   write(repo, 'big.bin', pointer);
+  // not a pointer: the system configuration of Git for Windows defines filter.lfs (required), which would turn it into one
+  write(repo, 'real.bin', Buffer.from('real bytes, never cleaned by git-lfs\n'));
   write(repo, 'readme.md', 'r\n');
   await expectEqual('LFS pointer, no filter in the repository', repo, new Reference(repo));
   git(repo, ['config', 'filter.lfs.clean', 'git-lfs clean -- %f']);
@@ -317,7 +321,11 @@ function canaryScript(dir) {
   const repo = newRepo('crlf');
   const home = fresh('home');
   const userConfig = path.join(home, '.gitconfig');
-  fs.writeFileSync(userConfig, '[core]\n\tautocrlf = true\n\tsafecrlf = true\n');
+  // the person's global configuration also defines a filter; the repository's .gitattributes names it, the repository's config does not
+  const { canary, command } = canaryScript(fresh('canary'));
+  fs.writeFileSync(userConfig, `[core]\n\tautocrlf = true\n\tsafecrlf = true\n[filter "personal"]\n\tclean = ${command.replaceAll('"', '\\"').replace(/^/, '"').concat('"')}\n`);
+  write(repo, '.gitattributes', '*.dat filter=personal\n');
+  write(repo, 'data.dat', 'what the personal filter would see\n');
   // the person's own ignore and attributes files, which Git reads by default even when GIT_CONFIG_GLOBAL names another file
   write(home, '.config/git/ignore', 'unix.txt\n');
   write(home, '.config/git/attributes', '*.txt text eol=crlf\n');
@@ -334,10 +342,16 @@ function canaryScript(dir) {
   const control = fresh('control-crlf');
   fs.mkdirSync(path.join(control, 'objects'), { recursive: true });
   const personal = { ...process.env, GIT_CONFIG_GLOBAL: userConfig, GIT_INDEX_FILE: path.join(control, 'index'), GIT_OBJECT_DIRECTORY: path.join(control, 'objects'), GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(repo, '.git', 'objects') };
-  spawnSync('git', ['add', '-A'], { cwd: repo, env: personal, windowsHide: true });
+  // (safecrlf=true of the person's file would abort on unix.txt before anything is compared, so the control lifts only that one)
+  const added = spawnSync('git', ['-c', 'core.safecrlf=false', 'add', '-A'], { cwd: repo, env: personal, encoding: 'utf8', windowsHide: true });
+  assert.equal(added.status, 0, `control: plain git add works (${added.stderr})`);
   const converted = spawnSync('git', ['write-tree'], { cwd: repo, env: personal, encoding: 'utf8', windowsHide: true }).stdout.trim();
   assert.notEqual(converted, expected, 'control: the person\'s autocrlf=true would have changed the tree');
   assert.ok(reference.lsTree(expected).some((line) => line.endsWith('\tunix.txt')), 'the ignore file of the person does not apply');
+  assert.ok(fs.existsSync(canary), 'control: plain Git with the person\'s configuration ran their filter');
+  fs.rmSync(canary);
+  await snapshotter(repo, { env }).snapshot({ full: true });
+  assert.equal(fs.existsSync(canary), false, 'the engine never runs a filter of the person\'s global configuration');
   ok('CRLF with core.autocrlf=true for the person and the repository, plus their own ignore and attributes files: raw CRLF bytes, nothing ignored (the settings are live for plain Git)');
 }
 
@@ -547,6 +561,12 @@ function canaryScript(dir) {
   const engine = snapshotter(repo, { env });
   const first = await engine.snapshot({ full: true });
   write(repo, 'src/m3.js', 'edited again\n');
+  await engine.snapshot();
+  // blobs the repository already has: a rename and an edit put back. Git would "freshen" them if it could see the repository's store.
+  fs.mkdirSync(path.join(repo, 'moved'));
+  fs.renameSync(path.join(repo, 'src', 'm5.js'), path.join(repo, 'moved', 'm5.js'));
+  write(repo, 'src/m1.js', 'export const m1 = 1;\n');
+  write(repo, 'src/copy-of-m7.js', 'export const m7 = 7;\n');
   await engine.snapshot();
   await engine.snapshot({ full: true });
   await snapshotter(repo, { engine: TREE_ALGORITHM.raw, env }).snapshot({ full: true });

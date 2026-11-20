@@ -134,7 +134,7 @@ throw-away bare repository (its own index and objects, the workspace's objects a
 configuration. Fixtures: worktree (`.git` file), submodule, sparse checkout, LFS pointer (with and without a repository LFS filter), a
 clean filter whose program writes a canary (the canary must stay absent; a control shows plain `git add` does write it), fsmonitor and
 textconv, a path over 260 characters, a symlink (where the system allows creating one), an executable bit (not on Windows), CRLF files
-with `core.autocrlf=true` in the person's and the repository's configuration plus the person's own ignore and attributes files, a
+with `core.autocrlf=true` in the person's and the repository's configuration plus the person's own ignore and attributes files and a filter of their global configuration (whose canary must stay absent), a
 same-size edit with the modification time put back (the full snapshot must catch it), protected files and `.chatmcp/runs`, no Git, a
 plain folder, the limits, an empty nested repository, the repository's `.git` byte for byte unchanged, and the parity of the exclude
 lines with `PRIVATE_FILE` and `exclusionOf()` judged by Git itself. Then budgets on an 8,002-file repository, printed as one line
