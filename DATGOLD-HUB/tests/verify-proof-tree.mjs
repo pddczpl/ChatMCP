@@ -361,9 +361,26 @@ function canaryScript(dir) {
     assert.equal(after.treeAlgorithm, algorithm);
     assert.notEqual(after.tree, before.tree, `${algorithm}: the full snapshot sees the edit`);
     assert.equal(after.tree, new Reference(repo).freshTree(), `${algorithm}: and equals the reference`);
-    note(`${algorithm}: a cached snapshot ${cached.tree === after.tree ? 'also caught' : 'did not catch'} the same-size edit with the old time (only the full snapshot must)`);
+    // raw-v1 keys its cache on the change time too, which a write always moves; Git's index may not (core.trustctime, Windows)
+    if (algorithm === TREE_ALGORITHM.raw) assert.equal(cached.tree, after.tree, 'raw-v1: the cached snapshot sees the new change time');
+    else note(`${algorithm}: a cached snapshot ${cached.tree === after.tree ? 'also caught' : 'did not catch'} the same-size edit with the old time (only the full snapshot must)`);
   }
-  ok('a same-size edit with the modification time restored is caught by the full snapshot (both engines)');
+  ok('a same-size edit with the modification time restored is caught by the full snapshot (both engines) and by a cached raw-v1 one');
+
+  // the raw-v1 stat cache, probed directly: an entry whose stat matches is trusted (so a poisoned id shows), a full snapshot never
+  // trusts it, and an entry cached within the racy window is hashed again
+  const engine = snapshotter(repo, { engine: TREE_ALGORITHM.raw });
+  const truth = (await engine.snapshot({ full: true })).tree;
+  const poison = blobId('poison\n');
+  engine.rawCache.get('a.txt').oid = poison;
+  assert.notEqual((await engine.snapshot()).tree, truth, 'an old entry with an unchanged stat is trusted');
+  engine.rawCache.get('a.txt').oid = poison;
+  assert.equal((await engine.snapshot({ full: true })).tree, truth, 'a full snapshot ignores the cache');
+  write(repo, 'young.txt', 'just written\n');
+  const young = await engine.snapshot({ full: true });
+  engine.rawCache.get('young.txt').oid = poison;
+  assert.equal((await engine.snapshot()).tree, young.tree, 'an entry written within the racy window is hashed again');
+  ok('raw-v1 stat cache: trusted when the stat matches and the entry is old, ignored by a full snapshot, not trusted within the racy window');
 }
 
 { // protected files and .chatmcp/runs are left out and counted
@@ -414,6 +431,7 @@ function canaryScript(dir) {
   const none = await snapshotter(repo, { git: null }).snapshot({ full: true });
   assert.equal(none.treeAlgorithm, TREE_ALGORITHM.raw);
   assert.equal(none.engineReason, 'git_missing');
+  assert.deepEqual(none.excluded, { protected: 0, runs: 0, gitlinks: 0 }, 'the walk does not enter .git');
   assert.equal(none.tree, reference.freshTree());
   assert.ok(none.limitations.includes(LIMITATION.ignoreRulesNotApplied));
   const missing = await snapshotter(repo, { git: path.join(scratch, 'no-such-git', 'git.exe') }).snapshot({ full: true });

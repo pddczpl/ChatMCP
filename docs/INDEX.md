@@ -24,6 +24,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [CI health](CI-HEALTH.md) — Workflow triggers (one run per push), documentation gates, `scripts/ci-health.mjs` definitions and the 2026-10-19 baseline
 - [Threat model](THREAT-MODEL.md) — Hub credential, Companion outbound filter, Read Only classifier, lifecycle hooks, agent results, project instructions and skills, and the list of models with its one optional download: assets, actors, mitigations with code references, residual risks
 - [MCP client (P2, slice A)](MCP-CLIENT.md) — The MCP client SDK runtime and the connection manager: `mcp-servers.json`, secrets, stdio and Streamable HTTP, the process tree, version negotiation, the list guards, no replay; external tools are NOT offered to the model yet
+- [Proof-of-Done: the tree snapshot engine (P4)](PROOF-TREE.md) — The content identity of the workspace tree that later receipts bind to: git-pinned-v1 and raw-v1, when each is used, what is left out, the repository's `.git` never written; not called by the agent yet
 - [Hooks](HOOKS.md) — Owner-level lifecycle hooks (a Claude Code compatible subset), the approval of a project hooks file, what a hook can and cannot do, and what is not verified
 - [ChatGPT Web Companion privacy](COMPANION-PRIVACY.md) — Terms-of-Use risk, outbound secret scanner, protected-file deny-list, review before send, and what they do not do
 - [Windows Setup](WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration

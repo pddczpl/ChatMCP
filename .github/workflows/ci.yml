@@ -65,7 +65,7 @@ jobs:
         run: python -m unittest discover -s ../scripts/tests -p test_release_source.py -v
       - name: Syntax check
         run: |
-          for f in hub.mjs lib/*.mjs lib/acp/*.mjs lib/mcp/*.mjs tests/*.mjs tests/support/*.mjs; do node --check "$f"; done
+          for f in hub.mjs lib/*.mjs lib/acp/*.mjs lib/mcp/*.mjs lib/proof/*.mjs tests/*.mjs tests/support/*.mjs; do node --check "$f"; done
       # The ACP suites (docs/ACP.md) need the official client library and the schema checker, which are kept in a folder of their own so that they never reach the Hub
       # (tests/acp-tools/package.json: devDependencies only, one lock file). A suite that cannot find them is skipped, and --no-skip below turns a skip into a failure.
       - name: Install the ACP test tools
@@ -86,6 +86,31 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hub-test-summary-${{ matrix.os }}-node${{ matrix.node }}
+          path: DATGOLD-HUB/test-results/summary.json
+          if-no-files-found: ignore
+
+  proof-tree-macos:
+    # Gate G4 of P4 wants the tree snapshot engine (docs/PROOF-TREE.md) measured on all three systems. The full Hub suite does not run on
+    # macOS; this job runs only the three proof-tree suites there (case-insensitive APFS, Apple Git, symlinks allowed).
+    name: Proof tree suites (macos-latest, Node 24)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: DATGOLD-HUB
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Run the proof tree suites
+        run: node tests/run-all.mjs --no-skip all --retry-failed-once --filter proof-tree --json test-results/summary.json
+      - name: Upload test summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proof-tree-summary-macos
           path: DATGOLD-HUB/test-results/summary.json
           if-no-files-found: ignore
 
