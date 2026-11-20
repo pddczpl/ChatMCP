@@ -204,8 +204,8 @@ const runs = (workflow, events) => events.filter((event) => triggers(workflow, e
 }
 
 // ---- 7. one release workflow, started by hand only, a dry run unless the owner unticks it ---------------------------------------------------
-// Up to v3.11.2 every release had its own publish-vX.Y.Z.yml (30 files) that started on every push to main and ended "skipped" unless the
-// commit message began with "release: ChatMCP vX.Y.Z". release.yml replaces them (docs/RELEASING.md); scripts/Resolve-ReleaseInputs.ps1
+// Up to v3.11.2 every release had its own publish-vX.Y.Z.yml (24 files: 18 started on every push to main, 6 on every completion of CI on
+// main) that ended "skipped" unless the commit message began with "release: ChatMCP vX.Y.Z". release.yml replaces them (docs/RELEASING.md); scripts/Resolve-ReleaseInputs.ps1
 // derives every value, so the file names no version at all.
 const releaseRules = (text) => {
   const problems = [];

@@ -1,5 +1,5 @@
-# The one release workflow (docs/RELEASING.md). It replaces the 30 hand-written publish-vX.Y.Z.yml files, which each started on every
-# push to main and ended "skipped" unless the commit message began with "release: ChatMCP vX.Y.Z".
+# The one release workflow (docs/RELEASING.md). It replaces the 24 hand-written publish-vX.Y.Z.yml files: 18 started on every push to
+# main and 6 on every completion of CI on main, and each ended "skipped" unless the commit message named its release.
 #
 # It is started by hand only (workflow_dispatch), by the owner. Every value of the release is derived by scripts/Resolve-ReleaseInputs.ps1
 # from the repository at the commit that is built: the version (cross-checked in every file that carries it), the Companion version,

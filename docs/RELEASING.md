@@ -5,8 +5,8 @@ Only the owner starts a release. Tags and GitHub Releases are never made by hand
 (`workflow_dispatch`) and does nothing on a push.
 
 Up to v3.11.2 every release had its own `publish-vX.Y.Z.yml` that started when a commit whose message named that
-release reached `main`. Those 30 files are gone: each of them started on **every** push to `main` and ended
-"skipped", and each one carried its version, Companion version, title and asset names typed in by hand. A commit message no longer
+release reached `main`. Those 24 files are gone: 18 of them started on **every** push to `main` and 6 on every completion of CI on
+`main`, and each ended "skipped", and each one carried its version, Companion version, title and asset names typed in by hand. A commit message no longer
 starts a release.
 
 ## What the workflow derives
