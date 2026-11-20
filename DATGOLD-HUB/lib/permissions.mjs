@@ -76,6 +76,8 @@ async function serverInfo(describeServer,who){
 // (classify) and, for a tool of an external server, it ADDS a question where the call would otherwise run (Full Access, `allow`): what a
 // name says can never remove one.
 const IRREVERSIBLE_NAME=/(?:delete|remove|truncate|wipe|reset|push|publish|upload|destroy|force)/;
+// Added to the reason of a tool its server marks destructiveHint: true, so that the card says why Full Access or `allow` still asks.
+const DESTRUCTIVE_NOTE='. Máy chủ đánh dấu công cụ này là phá huỷ (destructiveHint: true) nên DatGold luôn hỏi trước khi chạy, kể cả ở Full Access hay khi đã cho phép (allow)';
 const READ=/\b(?:read|list|search|find|browse|stat|info|status|get|describe|inspect|query|diff|diagnostic)\b/i;
 const MUTATE=/\b(?:write|edit|replace|patch|move|rename|create|update|add|delete|remove|save|insert|commit|upload|run|execute|install|start_process|spawn|terminal|bash|powershell|execute_code|push|publish)\b/i;
 const SECRET_KEYS=/authorization|secret|password|token|api.?key|private.?key/i;
@@ -567,12 +569,16 @@ export class PermissionGate {
     const annotations=hintsOf(definition);
     // The tool's own name, not its server's: a server called `pushover` or `reset-db` says nothing of what each of its tools does.
     const irreversible=IRREVERSIBLE_NAME.test(tool.toLowerCase());
+    // The server's own word that the tool destroys something: only the boolean true (hintsOf dropped every other type). A missing hint is
+    // NOT read with the MCP default (true): every tool without annotations would then be asked about and Full Access would run none. It is
+    // read whether or not the owner trusts the server's annotations, because it can only ADD a question (#externalDecision).
+    const destructive=annotations.destructiveHint===true;
     // A name without a server is refused (#externalDecision) before any rule is read: no rule of the owner can be about it.
-    if(!server)return {category:'external',reason:'Công cụ ngoài không rõ máy chủ MCP',local:false,server,tool,annotations,irreversible,policy:'ask',trusted:false,readOnly:false,endpoint:{transport:null,launch:null,origin:null}};
+    if(!server)return {category:'external',reason:'Công cụ ngoài không rõ máy chủ MCP',local:false,server,tool,annotations,irreversible,destructive,policy:'ask',trusted:false,readOnly:false,endpoint:{transport:null,launch:null,origin:null}};
     const policy=await askOwnerPolicy(this.externalPolicy.policyFor,{server,tool});
     const trusted=await trusts(this.externalPolicy.trustAnnotations,{server});
     const endpoint=await serverInfo(this.externalPolicy.describeServer,{server});
-    return {category:'external',reason:`Công cụ MCP bên ngoài (máy chủ ${server})`,local:false,server,tool,annotations,irreversible,policy,trusted,readOnly:trusted&&annotations.readOnlyHint===true,endpoint};
+    return {category:'external',reason:`Công cụ MCP bên ngoài (máy chủ ${server})${destructive?DESTRUCTIVE_NOTE:''}`,local:false,server,tool,annotations,irreversible,destructive,policy,trusted,readOnly:trusted&&annotations.readOnlyHint===true,endpoint};
   }
   /**
    * The decision for a tool of an external server before anyone is asked: {refuse: reason}, {run: reason} or {} (ask the owner).
@@ -582,6 +588,7 @@ export class PermissionGate {
    *   - a hook's question, and the operations that Full Access still asks about (a name that says deletion, a reset, a push, a publication
    *     or an upload, and ALWAYS_ASK_TOOLS), are asked wherever the call would run: neither Full Access nor `allow` covers what cannot be
    *     taken back, as for the Hub's own tools;
+   *   - so is a tool its server marks destructiveHint: true, from any server, trusted or not (the owner's decision of 2026-11-20);
    *   - Full Access runs it (the owner's decision of 2026-11-20); `allow` runs it; anything else is asked.
    */
   #externalDecision(name,verdict,forceAsk){
@@ -593,6 +600,7 @@ export class PermissionGate {
     if(readonly&&!(policy==='allow'&&readOnly))return {refuse:`Chế độ Chỉ đọc: công cụ MCP ${label} chỉ chạy khi chủ máy cho phép (allow), máy chủ ghi readOnlyHint và chủ máy tin chú thích của máy chủ ${server}.`};
     if(this.executionPolicy==='sandbox-only')return {refuse:`Sandbox-only: máy chủ MCP ${server} không chạy trong Docker sandbox nên bị từ chối. Chuyển sang host-review nếu muốn dùng công cụ MCP.`};
     if(forceAsk||verdict.irreversible||mustAskEvenInFullAccess(name,verdict))return {};
+    if(verdict.destructive)return {};
     // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.
     if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};
     if(policy==='allow')return {run:`Chủ máy cho phép (allow) công cụ MCP ${label}`};

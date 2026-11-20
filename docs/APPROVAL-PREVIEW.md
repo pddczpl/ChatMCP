@@ -117,6 +117,8 @@ A tool of an external server (every name that is not `local.*` or `studio.*`, pl
 will do. Its card is `detail.kind = 'mcp'` (`mcpCard` in `lib/permissions.mjs`): `server` and `tool` (the name split at its first dot), `transport`, `launch` (the command that starts a stdio server,
 masked) or `origin` (the scheme, host and port of an HTTP server, nothing else of its address) when the caller described the server through `attachExternalPolicy({ describeServer })`, else null, and
 `arguments`, which is the very text of the request's `preview`: `previewArguments`, the masker of every other call that is not local. The request and its history row also carry `server` and `tool`.
+When the server marks the tool `destructiveHint: true` (the boolean only), the request's `reason` says that the server marked it destructive (`DESTRUCTIVE_NOTE`): that is why such a tool is asked
+about under Full Access and under `allow` as well.
 The page draws it in `ui/src/components/approval/McpToolPreview.tsx` (`ui/tests/approval-mcp.test.mjs` renders the card the Hub's own gate made). When the gate asks, runs or refuses such a call is
 in [THREAT-MODEL.md](THREAT-MODEL.md), Surface 10.
 

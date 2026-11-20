@@ -1,11 +1,11 @@
 {
   "suite": "verify-mcp-gate.mjs",
-  "description": "The permission gate and the tools of external MCP servers (plan task ext-12): lib/permissions.mjs (the name rule, the category external, the owner's policy and trust, the decisions by mode and execution policy, no path inspection, the mcp card, the audit row) and lib/hooks.mjs (the alias of an external tool follows the same name rule), judged by tests/verify-mcp-gate.mjs.",
+  "description": "The permission gate and the tools of external MCP servers (plan task ext-12): lib/permissions.mjs (the name rule, the category external, the owner's policy and trust, the decisions by mode and execution policy, destructiveHint: true asking under Full Access and allow,no path inspection, the mcp card, the audit row) and lib/hooks.mjs (the alias of an external tool follows the same name rule), judged by tests/verify-mcp-gate.mjs.",
   "mutations": [
     {
       "name": "MG-external-as-workspace-edit",
       "what": "an external tool is treated as a workspace edit (it runs unasked in Autonomous, like before ext-12)",
-      "patches": [{ "file": "lib/permissions.mjs", "old": "return {category:'external',reason:`Công cụ MCP bên ngoài (máy chủ ${server})`", "new": "return {category:'workspace_edit',reason:`Công cụ MCP bên ngoài (máy chủ ${server})`" }]
+      "patches": [{ "file": "lib/permissions.mjs", "old": "return {category:'external',reason:`Công cụ MCP bên ngoài (máy chủ ${server})", "new": "return {category:'workspace_edit',reason:`Công cụ MCP bên ngoài (máy chủ ${server})" }]
     },
     {
       "name": "MG-classified-by-name",
@@ -156,6 +156,51 @@
       "name": "MG-irreversible-reads-server",
       "what": "the name of the server decides too (every tool of a server called pushover asks under Full Access)",
       "patches": [{ "file": "lib/permissions.mjs", "old": "IRREVERSIBLE_NAME.test(tool.toLowerCase())", "new": "IRREVERSIBLE_NAME.test(`${server}.${tool}`.toLowerCase())" }]
+    },
+    {
+      "name": "MG-destructive-hint-ignored",
+      "what": "destructiveHint: true no longer asks: Full Access and allow run a tool its server marks destructive",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "    if(verdict.destructive)return {};\n", "new": "" }]
+    },
+    {
+      "name": "MG-destructive-hint-missing-is-true",
+      "what": "a missing destructiveHint is read with the MCP default (true): every tool without annotations asks and Full Access runs none (`!== false` instead of `=== true`)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "const destructive=annotations.destructiveHint===true;", "new": "const destructive=annotations.destructiveHint!==false;" }]
+    },
+    {
+      "name": "MG-destructive-hint-after-full-access",
+      "what": "the destructiveHint check is placed after the Full Access run: allow still asks, Full Access runs the destructive tool",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "    if(verdict.destructive)return {};\n    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n", "new": "    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n    if(verdict.destructive)return {};\n" }]
+    },
+    {
+      "name": "MG-destructive-hint-needs-trust",
+      "what": "destructiveHint counts only from a server whose annotations the owner trusts (an untrusted server's destructive tool runs under Full Access)",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(verdict.destructive)return {};", "new": "if(verdict.destructive&&verdict.trusted)return {};" }]
+    },
+    {
+      "name": "MG-destructive-hint-beats-deny",
+      "what": "destructiveHint is checked before the owner's deny: a denied destructive tool is asked about instead of refused",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(policy==='deny')return {refuse:", "new": "if(verdict.destructive)return {};if(policy==='deny')return {refuse:" }]
+    },
+    {
+      "name": "MG-destructive-hint-beats-readonly",
+      "what": "destructiveHint is checked before Read Only: a destructive tool the owner did not allow is asked about in Read Only instead of refused",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(readonly&&!(policy==='allow'&&readOnly))", "new": "if(verdict.destructive)return {};if(readonly&&!(policy==='allow'&&readOnly))" }]
+    },
+    {
+      "name": "MG-destructive-hint-beats-sandbox",
+      "what": "destructiveHint is checked before sandbox-only: a destructive tool is asked about under sandbox-only instead of refused",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(this.executionPolicy==='sandbox-only')return {refuse:", "new": "if(verdict.destructive)return {};if(this.executionPolicy==='sandbox-only')return {refuse:" }]
+    },
+    {
+      "name": "MG-destructive-reason-missing",
+      "what": "the card does not say that the server marked the tool destructive",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "${destructive?DESTRUCTIVE_NOTE:''}", "new": "" }]
+    },
+    {
+      "name": "MG-destructive-reason-always",
+      "what": "the card calls every external tool destructive, whatever its server said",
+      "patches": [{ "file": "lib/permissions.mjs", "old": "${destructive?DESTRUCTIVE_NOTE:''}", "new": "${DESTRUCTIVE_NOTE}" }]
     },
     {
       "name": "MG-serverless-name-asked",
