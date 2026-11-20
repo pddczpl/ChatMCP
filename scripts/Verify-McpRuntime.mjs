@@ -5,7 +5,10 @@
 // <hub-folder> is a DATGOLD-HUB folder (the installer payload's); <runtime-folder> defaults to <hub-folder>/runtimes/mcp. The runtime is
 // checked against its manifest (scripts/mcp-runtime/verify.mjs), then the Hub's OWN code (<hub-folder>/lib/mcp/client-manager.mjs, which
 // loads the SDK through lib/mcp/sdk.mjs) connects to a small stdio MCP server written below, lists its tools, calls one and closes; the
-// server's process must have exited when close() resolves. Run it with the Node.js that is shipped (Build-Installer.ps1 does).
+// server's process must have exited when close() resolves. Then the Hub's OWN MCP server code (<hub-folder>/lib/mcp/server.mjs, which loads
+// the server SDK through lib/mcp/server-sdk.mjs) listens on 127.0.0.1:0 behind its token, the staged client lists its one tool over HTTP,
+// and a request without the token is refused with 401. Run it with the Node.js that is shipped (Build-Installer.ps1 does).
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,6 +34,30 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 });
 `;
 
+/** The Hub's MCP server through the staged server SDK, reached by the staged client: {protocolVersion, tools, unauthorized}. */
+async function verifyServer() {
+  const { loadMcpServerSdk } = await import(pathToFileURL(path.join(hub, 'lib', 'mcp', 'server-sdk.mjs')).href);
+  const { createMcpServerFactory, startMcpListener } = await import(pathToFileURL(path.join(hub, 'lib', 'mcp', 'server.mjs')).href);
+  const { loadMcpSdk } = await import(pathToFileURL(path.join(hub, 'lib', 'mcp', 'sdk.mjs')).href);
+  const sdk = await loadMcpServerSdk({ roots: [runtime] });
+  const client = await loadMcpSdk({ roots: [runtime] });
+  if (path.resolve(sdk.root) !== runtime || path.resolve(client.root) !== runtime) throw new Error('The SDK was not loaded from the staged runtime');
+  const token = `verify-${randomBytes(16).toString('hex')}`;
+  const factory = createMcpServerFactory(sdk, { name: 'verify-mcp-runtime', version: '1.0.0', tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }], call: async (name, args) => ({ content: [{ type: 'text', text: `echo: ${args.text}` }] }) });
+  const listener = await startMcpListener({ sdk, port: 0, factory, verifyToken: (candidate) => candidate === token });
+  try {
+    const connection = new client.Client({ name: 'verify-mcp-runtime', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+    await connection.connect(new client.StreamableHTTPClientTransport(new URL(listener.url), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+    const { tools } = await connection.listTools();
+    const result = await connection.callTool({ name: 'echo', arguments: { text: 'served' } });
+    const protocolVersion = connection.getNegotiatedProtocolVersion();
+    await connection.close();
+    const unauthorized = (await fetch(listener.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status;
+    if (tools.length !== 1 || result.content?.[0]?.text !== 'echo: served' || unauthorized !== 401) throw new Error(`Unexpected answer from the staged server: ${JSON.stringify({ tools, result, unauthorized })}`);
+    return { versions: sdk.versions, protocolVersion, tools: tools.length, unauthorized };
+  } finally { await listener.close(); }
+}
+
 const integrity = await verifyMcpRuntime(runtime);
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'datgold-verify-mcp-'));
 try {
@@ -49,7 +76,8 @@ try {
   try { process.kill(pid, 0); } catch { alive = false; }
   if (tools.length !== 1 || result.content?.[0]?.text !== 'echo: staged') throw new Error(`Unexpected answer from the staged client: ${JSON.stringify({ tools, result })}`);
   if (alive) throw new Error(`The server process ${pid} is still running after close()`);
-  console.log(JSON.stringify({ verified: true, ...integrity, node: process.version, protocolVersion: summary.protocolVersion, tools: tools.length }));
+  const served = await verifyServer();
+  console.log(JSON.stringify({ verified: true, ...integrity, node: process.version, protocolVersion: summary.protocolVersion, tools: tools.length, server: served }));
 } finally {
   rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

@@ -1,7 +1,7 @@
-// Checks a staged MCP client runtime (stage.mjs) file by file: node verify.mjs <staged-runtime>
+// Checks a staged MCP runtime (stage.mjs: the client SDK, and the server SDK with its Node adapter) file by file: node verify.mjs <staged-runtime>
 //
 // Every file the manifest names must be there with its size and SHA-256, inside the folder, without a link on its way; no file may be
-// there that the manifest does not name; the client must be the pinned version; every package must carry its licence text; and the
+// there that the manifest does not name; the client, server and node packages must be the pinned versions; every package must carry its licence text; and the
 // vendored texts of what the client compiles in must be the ones of licenses/MANIFEST.json, byte for byte.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -11,12 +11,23 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const MANIFEST_FILE = 'mcp-runtime-manifest.json';
 export const CLIENT_VERSION = '2.4.0';
+// The server SDK and its Node HTTP adapter (the Hub's MCP server, docs/MCP-SERVER.md; lib/mcp/server-sdk.mjs pins the same versions).
+export const SERVER_VERSION = '2.4.0';
+export const NODE_VERSION = '2.1.2';
 export const REQUIRED_FILES = Object.freeze([
   'node_modules/@modelcontextprotocol/client/package.json',
   'node_modules/@modelcontextprotocol/client/dist/index.mjs',
   'node_modules/@modelcontextprotocol/client/dist/stdio.mjs',
   'node_modules/@modelcontextprotocol/client/LICENSE',
   'node_modules/@modelcontextprotocol/core/package.json',
+  'node_modules/@modelcontextprotocol/server/package.json',
+  'node_modules/@modelcontextprotocol/server/dist/index.mjs',
+  'node_modules/@modelcontextprotocol/server/LICENSE',
+  'node_modules/@modelcontextprotocol/node/package.json',
+  'node_modules/@modelcontextprotocol/node/dist/index.mjs',
+  'node_modules/@modelcontextprotocol/node/LICENSE',
+  'node_modules/hono/package.json',
+  'node_modules/@hono/node-server/package.json',
   'node_modules/cross-spawn/package.json',
 ]);
 const SAFE_PATH = /^[a-zA-Z0-9_@./+\-]+$/;
@@ -53,6 +64,7 @@ export async function verifyMcpRuntime(root, { source = here } = {}) {
   const manifest = JSON.parse(await fs.readFile(path.join(root, MANIFEST_FILE), 'utf8'));
   if (manifest.schemaVersion !== 1 || manifest.name !== 'datgold-mcp-runtime' || !Array.isArray(manifest.files) || !manifest.files.length || !Array.isArray(manifest.packages)) throw new Error('Invalid MCP runtime manifest');
   if (manifest.client !== CLIENT_VERSION) throw new Error(`The staged MCP client is ${manifest.client}, this build pins ${CLIENT_VERSION}`);
+  if (manifest.server !== SERVER_VERSION || manifest.node !== NODE_VERSION) throw new Error(`The staged MCP server SDK is ${manifest.server} / node ${manifest.node}, this build pins ${SERVER_VERSION} / ${NODE_VERSION}`);
   const seen = new Map();
   let bytes = 0;
   for (const entry of manifest.files) {
@@ -79,6 +91,10 @@ export async function verifyMcpRuntime(root, { source = here } = {}) {
   for (const required of REQUIRED_FILES) if (!seen.has(required.toLowerCase())) throw new Error(`Missing required MCP runtime file: ${required}`);
   const client = JSON.parse(await fs.readFile(path.join(root, 'node_modules', '@modelcontextprotocol', 'client', 'package.json'), 'utf8'));
   if (client.version !== CLIENT_VERSION) throw new Error(`The staged MCP client package is ${client.version}, this build pins ${CLIENT_VERSION}`);
+  for (const [name, version] of [['server', SERVER_VERSION], ['node', NODE_VERSION]]) {
+    const staged = JSON.parse(await fs.readFile(path.join(root, 'node_modules', '@modelcontextprotocol', name, 'package.json'), 'utf8'));
+    if (staged.version !== version) throw new Error(`The staged @modelcontextprotocol/${name} package is ${staged.version}, this build pins ${version}`);
+  }
   for (const item of manifest.packages) {
     if (!Array.isArray(item.notices) || item.notices.length === 0 || item.notices.some((name) => !seen.has(`${item.path}/${name}`.toLowerCase()))) throw new Error(`The staged package carries no licence text: ${item.path}`);
   }
@@ -87,7 +103,7 @@ export async function verifyMcpRuntime(root, { source = here } = {}) {
     const staged = seen.get(`licenses/bundled/${notice.file}`.toLowerCase());
     if (!staged || staged.sha256 !== notice.sha256) throw new Error(`Staged licence text of the bundled ${notice.name} ${notice.version} is missing or differs from the vendored one`);
   }
-  return { verifiedFiles: seen.size, packages: manifest.packages.length, bundledNotices: bundled.length, bytes, client: client.version };
+  return { verifiedFiles: seen.size, packages: manifest.packages.length, bundledNotices: bundled.length, bytes, client: client.version, server: SERVER_VERSION, node: NODE_VERSION };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

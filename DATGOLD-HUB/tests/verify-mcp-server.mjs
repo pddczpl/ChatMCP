@@ -10,6 +10,8 @@
 //   6. A real hub.mjs (the e2e helper): off by default (nothing on the configured port), the SDK missing (the Hub starts and logs
 //      mcp_runtime_missing), on (a client with the token lists hub_status; a shutdown closes the listener).
 // Every listener here binds port 0 or a port freePort() just found: never 3007 (the owner's Hub) and never a fixed 3008.
+// The SDK is the one of scripts/mcp-runtime (tests/support/mcp-tools.mjs runtimeRoot, which also finds it from a mutation copy); without
+// it the suite says CHATMCP_TEST_SKIP, which `run-all --no-skip all` turns into a failure.
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -23,6 +25,14 @@ import { McpServerTokenStore, MCP_TOKEN_FILE } from '../lib/mcp/server-token.mjs
 import { DEFAULT_MCP_SERVER_PORT, MCP_SERVER_FILE, MCP_SERVER_PORT_VARIABLE, MCP_SERVER_VARIABLE, McpServerSettingStore, mcpServerSetting } from '../lib/mcp/server-setting.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
 import { HUB_ROOT, freePort, startHub, waitFor } from './e2e/hub-process.mjs';
+import { RUNTIME_INSTALL, runtimeRoot } from './support/mcp-tools.mjs';
+
+const runtime = runtimeRoot();
+if (!runtime) {
+  console.log(`CHATMCP_TEST_SKIP: the MCP SDK runtime is not installed (run: ${RUNTIME_INSTALL})`);
+  process.exit(0);
+}
+const roots = [runtime];
 
 let passed = 0;
 let failures = 0;
@@ -50,8 +60,8 @@ const refused = (port) => new Promise((resolve) => {
   socket.once('error', () => resolve(true));
 });
 
-const clientSdk = await loadMcpSdk();
-const serverSdk = await loadMcpServerSdk();
+const clientSdk = await loadMcpSdk({ roots });
+const serverSdk = await loadMcpServerSdk({ roots });
 
 /** A listener on port 0 with the fixture provider and a fresh token; `lines` collects its request log. */
 async function fixtureListener(options = {}) {
@@ -168,11 +178,18 @@ try {
     assert.notEqual(second, first.token);
     assert.equal(reloaded.verify(first.token), false, 'rotation retires the old token');
     assert.equal(reloaded.verify(second), true);
-    fs.writeFileSync(path.join(dir, MCP_TOKEN_FILE), '{"version":1,"sha256":"nothex"}');
+    // A sealed copy that is not the token of the digest (a file pieced together from two tokens) is refused, not shown.
+    const record2 = JSON.parse(fs.readFileSync(path.join(dir, MCP_TOKEN_FILE), 'utf8'));
+    fs.writeFileSync(path.join(dir, MCP_TOKEN_FILE), JSON.stringify({ ...record2, sealed: record.sealed }));
+    const mixed = new McpServerTokenStore({ directory: dir, protector: fileProtector(dir) });
+    await mixed.load();
+    await assert.rejects(mixed.reveal(), (error) => error.code === 'mcp_server_token_mismatch');
+    fs.writeFileSync(path.join(dir, MCP_TOKEN_FILE), JSON.stringify({ version: 1, sha256: 'nothex', sealed: record.sealed }));
     const broken = new McpServerTokenStore({ directory: dir, protector: fileProtector(dir), log: () => {} });
     await broken.load();
     assert.equal(broken.status().configured, false, 'a damaged file is no token');
     assert.equal(broken.verify(second), false);
+    assert.equal((await broken.ensure()).created, true, 'and the next start makes a new one');
   });
 
   // ---------------------------------------------------------------------------------------------------------------------------------
@@ -189,7 +206,9 @@ try {
     const located = locateMcpServerRuntime([other]);
     assert.equal(located.state, 'invalid');
     assert.equal(located.code, 'mcp_runtime_invalid');
+    assert.match(located.detail, /found @modelcontextprotocol\/server 9\.9\.9, this Hub is tested with 2\.4\.0/);
     assert.equal(locateMcpServerRuntime([folder('empty-runtime')]).code, 'mcp_runtime_missing');
+    await assert.rejects(loadMcpServerSdk({ roots: [other] }), (error) => error.code === 'mcp_runtime_invalid' && error.statusCode === 503);
   });
 
   await test('a v2 client with the token lists the exact tools of the provider, with their annotations, in name order, and calls one', async () => {
@@ -204,7 +223,8 @@ try {
         assert.deepEqual(listed.tools.map((tool) => tool.name), ['alpha_read', 'mid_echo', 'zeta_write']);
         for (const tool of listed.tools) {
           const source = FIXTURE_TOOLS.find((item) => item.name === tool.name);
-          assert.deepEqual(tool.annotations, { ...(source.title ? { title: source.title } : {}), ...source.annotations }, `${tool.name}: annotations kept`);
+          assert.deepEqual(tool.annotations, source.annotations, `${tool.name}: annotations kept`);
+          assert.equal(tool.title, source.title, `${tool.name}: title kept`);
           assert.deepEqual(tool.inputSchema, source.inputSchema, `${tool.name}: the input schema is the provider's`);
           assert.equal(tool.description, source.description);
         }
@@ -355,11 +375,20 @@ try {
     } finally { await listener.close(); }
   });
 
-  await test('close() frees the port', async () => {
+  await test('close() frees the port, also while a request is half sent', async () => {
     const { listener } = await fixtureListener();
     const { port } = listener;
     assert.equal(await refused(port), false);
+    // A client that sent half a request holds its connection; close() must not wait for it (headersTimeout is 10 s).
+    const holder = net.connect({ host: '127.0.0.1', port });
+    holder.on('error', () => {});
+    await new Promise((resolve) => holder.once('connect', resolve));
+    holder.write('POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\n');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const started = Date.now();
     await listener.close();
+    assert.ok(Date.now() - started < 3000, `close() took ${Date.now() - started} ms`);
+    holder.destroy();
     assert.equal(await refused(port), true);
     await listener.close();
   });
@@ -367,7 +396,7 @@ try {
   // ---------------------------------------------------------------------------------------------------------------------------------
   // 5. startHubMcpServer
   // ---------------------------------------------------------------------------------------------------------------------------------
-  const hubOptions = (dir, env, extra = {}) => ({ env, directory: dir, protector: fileProtector(dir), name: 'DatGold Hub', version: '0.0.0-test', dashboardPort: 3007, log: () => {}, tools: FIXTURE_TOOLS, call: fixtureCall, ...extra });
+  const hubOptions = (dir, env, extra = {}) => ({ env, directory: dir, protector: fileProtector(dir), name: 'DatGold Hub', version: '0.0.0-test', dashboardPort: 3007, roots, log: () => {}, tools: FIXTURE_TOOLS, call: fixtureCall, ...extra });
 
   await test('startHubMcpServer: off by default, nothing listens and no token is made', async () => {
     const dir = folder('hub-off');
@@ -457,7 +486,7 @@ try {
   await test('hub.mjs: on, a client with the token lists hub_status only, and a shutdown closes the listener', async () => {
     const port = await freePort();
     const scratchDir = folder('e2e-on');
-    const hub = await startHub({ scratch: scratchDir, env: { [MCP_SERVER_VARIABLE]: 'on', [MCP_SERVER_PORT_VARIABLE]: String(port) } });
+    const hub = await startHub({ scratch: scratchDir, env: { [MCP_SERVER_VARIABLE]: 'on', [MCP_SERVER_PORT_VARIABLE]: String(port), CHATMCP_MCP_RUNTIME_DIR: runtime } });
     try {
       await waitFor(() => hub.logText().includes(`MCP server: listening on http://127.0.0.1:${port}/mcp`), { timeoutMs: 20_000, label: 'the MCP listener' });
       const tokens = new McpServerTokenStore({ directory: hub.stateDir, protector: createProtector({ bundleRoot: HUB_ROOT, directory: hub.stateDir }) });
@@ -476,6 +505,7 @@ try {
       assert.equal((await post(`http://127.0.0.1:${port}/mcp`, INITIALIZE)).status, 401);
     } finally { await hub.stop(); }
     assert.equal(await refused(port), true, 'the shutdown closed the MCP listener');
+    assert.match(hub.logText(), /Stop: mcp server[^\n]*\n(?:[^\n]*\n)*?[^\n]*MCP server: closed\./, 'by its own close(), in the stop sequence');
   });
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
