@@ -1,0 +1,13 @@
+{
+ "suite": "verify-mcp-runtime.mjs",
+ "description": "What the MCP runtime suite must notice (lib/mcp/sdk.mjs): where the SDK is looked for, the pinned version, the package boundary, the check of what was loaded, the single import.",
+ "mutations": [
+  { "name": "R1-any-version", "what": "a copy of another client version is accepted", "patches": [{ "file": "lib/mcp/sdk.mjs", "old": "manifest.version !== MCP_CLIENT_VERSION) {", "new": "false) {" }] },
+  { "name": "R2-export-escapes", "what": "an export that leaves the package folder is accepted", "patches": [{ "file": "lib/mcp/sdk.mjs", "old": "return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? file : null;", "new": "return file;" }] },
+  { "name": "R3-override-not-exclusive", "what": "CHATMCP_MCP_RUNTIME_DIR is tried before the default folders instead of alone", "patches": [{ "file": "lib/mcp/sdk.mjs", "old": "if (override) return [path.resolve(override)];", "new": "if (override) return [path.resolve(override), path.join(bundleRoot, 'runtimes', 'mcp')];" }] },
+  { "name": "R4-dev-before-installed", "what": "the checkout's copy is preferred to the installed one", "patches": [{ "file": "lib/mcp/sdk.mjs", "old": "return [path.join(bundleRoot, 'runtimes', 'mcp'), path.join(bundleRoot, '..', 'scripts', 'mcp-runtime')];", "new": "return [path.join(bundleRoot, '..', 'scripts', 'mcp-runtime'), path.join(bundleRoot, 'runtimes', 'mcp')];" }] },
+  { "name": "R5-loaded-parts-unchecked", "what": "a copy without the classes the Hub uses is accepted", "patches": [{ "file": "lib/mcp/sdk.mjs", "old": "if (missing.length || !Array.isArray(stdio.DEFAULT_INHERITED_ENV_VARS) || typeof spawn !== 'function') {", "new": "if (false) {" }] },
+  { "name": "R6-imported-every-time", "what": "the SDK is imported again on every call", "patches": [{ "file": "lib/mcp/sdk.mjs", "old": "  if (!pending) {", "new": "  if (true) {" }] },
+  { "name": "R7-first-folder-only", "what": "the search stops at the first folder that has no SDK", "patches": [{ "file": "lib/mcp/sdk.mjs", "old": "if (!existsSync(packageJson)) continue;", "new": "if (!existsSync(packageJson)) break;" }] }
+ ]
+}

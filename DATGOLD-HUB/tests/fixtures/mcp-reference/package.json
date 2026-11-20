@@ -1,0 +1,17 @@
+{
+  "name": "datgold-mcp-reference-servers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Real MCP servers for the MCP client suites (tests/verify-mcp-client-*.mjs): the two official reference servers, and the v2 server SDK with its Node HTTP adapter for the fixture server of tests/fixtures/mcp-fixture-server.mjs. Installed with npm ci for the tests only; the installer takes nothing from tests/.",
+  "devDependencies": {
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "@modelcontextprotocol/server-everything": "2.3.1",
+    "@modelcontextprotocol/server-filesystem": "2.4.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

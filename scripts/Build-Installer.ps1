@@ -237,6 +237,26 @@ $runtimeMarker = '{"name":"chatmcp-browser-runtime","private":true,"type":"commo
 if ($LASTEXITCODE -ne 0) { throw 'Bundled Playwright module load validation failed.' }
 Write-Host "  [OK] Playwright JS $($playwrightPackage.version) staged; Windows Edge/Chromium browser executable remains required." -ForegroundColor Green
 
+# Stage the lock-pinned MCP client SDK (scripts/mcp-runtime: @modelcontextprotocol/client and its closure, plus the licence texts of the
+# code it compiles in) into DATGOLD-HUB\runtimes\mcp, where lib/mcp/sdk.mjs loads it lazily. The Hub has no runtime npm dependency of its own.
+$mcpScripts = Join-Path $repoRoot 'scripts\mcp-runtime'
+$mcpStage = Join-Path $stagingDir 'mcp-runtime'
+Push-Location $mcpScripts
+try {
+    & $npmCmd.Path ci --ignore-scripts --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw 'Locked MCP client npm installation failed.' }
+    & $nodeCmd.Path (Join-Path $mcpScripts 'stage.mjs') $mcpStage
+    if ($LASTEXITCODE -ne 0) { throw 'MCP client runtime staging failed.' }
+    & $nodeCmd.Path (Join-Path $mcpScripts 'verify.mjs') $mcpStage
+    if ($LASTEXITCODE -ne 0) { throw 'MCP client staged manifest verification failed.' }
+} finally { Pop-Location }
+$mcpDestination = Join-Path $hubPayload 'runtimes\mcp'
+Copy-Item -LiteralPath $mcpStage -Destination $mcpDestination -Recurse -ErrorAction Stop
+# The installed copy, checked again file by file, then loaded by the Hub's own code with the bundled Node.js against a stdio server.
+& $nodeDestination (Join-Path $repoRoot 'scripts\Verify-McpRuntime.mjs') $hubPayload
+if ($LASTEXITCODE -ne 0) { throw 'Bundled MCP client runtime validation failed.' }
+Write-Host '  [OK] MCP client SDK staged in DATGOLD-HUB\runtimes\mcp and loaded by the Hub with the bundled Node.js.' -ForegroundColor Green
+
 # Compress staging directory to installer/payload.zip
 $payloadZip = Join-Path $installerDir 'payload.zip'
 if (Test-Path -LiteralPath $payloadZip) {

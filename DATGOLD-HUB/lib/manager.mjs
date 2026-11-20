@@ -69,6 +69,10 @@ export class HubManager {
     this.hooksOwned = false;
     // Where a project's .chatmcp/hooks.json is looked for when the tools run in another folder than the project (a managed worktree).
     this.hooksProjectRoot = null;
+    // The owner's external MCP servers (lib/mcp/client-manager.mjs, created by assembleStudio for the manager of the Hub's data folder). Not
+    // offered to the model yet: only its state is reported and it is closed, with the processes of its servers, on shutdown.
+    this.mcp = null;
+    this.mcpOwned = false;
     // Set on the manager of an agent that a model (spawn_agent, a workflow) or the coding orchestrator started: its run ends with SubagentStop
     // instead of Stop (lib/lifecycle-hooks.mjs). { kind: 'subagent', role, parentTaskId, conversationId, workflowId, phaseId }; null for the
     // conversations a person started, which end with Stop.
@@ -93,6 +97,7 @@ export class HubManager {
       lastError: this.lastError, logs: [...this.logs], toolCount: this.tools.length,
       generation: this.generation, instanceId: this.instanceId,
       toolCounts: { ...this.catalog.counts }, catalogReady: this.catalog.ready, taskId: this.taskId,
+      mcp: this.mcp?.status() ?? null,
     };
   }
 
@@ -197,6 +202,8 @@ export class HubManager {
     this.stopping=true;
     await Promise.allSettled([...this.agentSessions].map(s=>s.close()));
     for(const child of this.children)await stopOwned(child).catch(()=>{});
+    // Resolves only once every stdio MCP server has exited (its tree is stopped like the children above).
+    if(this.mcpOwned)await this.mcp?.close?.().catch(()=>{});
     await this.localTools?.close?.();
     // Only the manager that created the runner stops the hooks that are still running; a borrowed instance serves other managers too.
     if(this.hooksOwned)await this.hooks?.close?.().catch(()=>{});
