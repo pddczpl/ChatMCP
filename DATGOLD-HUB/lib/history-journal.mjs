@@ -47,7 +47,8 @@
 //      the loop of a run that went on would have finished the turn. The calls cut from the last run are returned (`interrupted`) for the
 //      note that tells the model about them.
 //   4. The skill index (kind 'skill_context') of a run is that run's own: a seed carries none (the run that starts writes its own), a
-//      history read whole keeps the last run's.
+//      history read whole keeps the last run's. So is the text of a skill the run loaded (`perRunTools`, skill_load): from an earlier
+//      run the call stays and its result is a note, because the skill may have changed or been turned off since.
 //   5. The latest context_summary that names an item of the history replaces the items through that one.
 //   6. The outputs that are references are made again with `modelOutput(result)` (the caller's: the runner's #modelOutput with the token
 //      optimiser off, because its receipts live in memory only and are gone).
@@ -69,6 +70,8 @@ export const RECORD_TYPES = Object.freeze({ runStart: 'history_run', item: 'hist
 export const OUTPUT_REFERENCES = Object.freeze(['tool_result_full', 'catalog_result']);
 export const RESUME_NOTE_HEADER = 'RESUMED CONVERSATION';
 export const LEFT_OUT_HEADER = '[HISTORY LEFT OUT';
+/** The output of a per-run tool (the text of a skill) when it comes from an earlier run. */
+export const EARLIER_RUN_OUTPUT = '[The text of this skill was delivered in an earlier run and is not repeated here: the skill may have changed or been turned off since. The skill index of this run lists the skills that are on now; call skill_load again if you still need it.]';
 
 const REFERENCES = new Set(OUTPUT_REFERENCES);
 const JOURNAL = new Set(Object.values(RECORD_TYPES));
@@ -212,10 +215,12 @@ function fitHistory(items, maxBytes) {
  * @param {number} [options.maxBytes] the size the history must fit
  * @param {number} [options.beforeRun] runs from this one on are not read (the run that is starting); Infinity reads all, and keeps the skill
  *   index of the last run
+ * @param {Set<string>} [options.perRunTools] tools (by the name their result record carries) whose result belongs to the run that made it:
+ *   from an earlier run it is replaced by a note (the runner names skill_load: the text of a skill)
  * @returns {Promise<{ok: true, items: object[], bytes: number, dropped: number, interrupted: object[], calls: Map, counters: object|null,
  *   runs: number, summaryApplied: boolean, skippedLastLine: boolean} | {ok: false, reason: string, detail?: string}>}
  */
-export async function loadHistoryJournal(file, { modelOutput, redact = (text) => text, maxBytes = Infinity, beforeRun = Infinity } = {}) {
+export async function loadHistoryJournal(file, { modelOutput, redact = (text) => text, maxBytes = Infinity, beforeRun = Infinity, perRunTools = new Set() } = {}) {
   if (typeof modelOutput !== 'function') throw new TypeError('loadHistoryJournal needs modelOutput');
   const runs = [];
   const results = new Map();
@@ -339,10 +344,13 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
     }
   }
 
-  // 6-8. the outputs made again, the opaque reasoning left out, the masking of this process
+  // 6-8. the outputs made again (the text of a per-run tool from an earlier run becomes a note), the opaque reasoning left out, the masking
+  const outputOf = (entry) => (perRunTools.has(entry.result.toolName) && !(keepLastSkillIndex && entry.run === last.run)
+    ? EARLIER_RUN_OUTPUT
+    : modelOutput(entry.result.result, { toolName: entry.result.toolName }));
   const made = entries.map((entry) => (entry.result === undefined
     ? { item: entry.item, masked: false }
-    : { item: { type: 'function_call_output', call_id: entry.item.call_id, output: modelOutput(entry.result.result, { toolName: entry.result.toolName }) }, masked: true }));
+    : { item: { type: 'function_call_output', call_id: entry.item.call_id, output: outputOf(entry) }, masked: true }));
   const items = [];
   for (const { item, masked } of made) {
     const [kept] = stripOpaque([item]);

@@ -239,8 +239,8 @@
       "patches": [
         {
           "file": "lib/history-journal.mjs",
-          "old": "(keepLastSkillIndex && entry.run === last.run)",
-          "new": "false"
+          "old": "entry.kind !== 'skill_context' || (keepLastSkillIndex && entry.run === last.run)",
+          "new": "entry.kind !== 'skill_context' || false"
         }
       ]
     },
@@ -384,6 +384,28 @@
           "file": "lib/history-journal.mjs",
           "old": "for (const entry of kept) entries.push(entry); // not push(...kept): a long run has more items than a call takes arguments",
           "new": "entries.push(...kept);"
+        }
+      ]
+    },
+    {
+      "name": "J36",
+      "what": "the text of a skill an earlier run loaded is replayed",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const outputOf = (entry) => (perRunTools.has(entry.result.toolName) &&",
+          "new": "const outputOf = (entry) => (false &&"
+        }
+      ]
+    },
+    {
+      "name": "J37",
+      "what": "the last run read whole loses the text of the skill it loaded",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "&& !(keepLastSkillIndex && entry.run === last.run)",
+          "new": "&& true"
         }
       ]
     },
@@ -637,6 +659,17 @@
           "file": "lib/agent.mjs",
           "old": "            await this.#persist(task, { at: now(), type: 'catalog_result', call_id: call.call_id, toolName: call.name, result });",
           "new": "            void (async () => { await new Promise((resolve) => setTimeout(resolve, 50)); await this.#persist(task, { at: now(), type: 'catalog_result', call_id: call.call_id, toolName: call.name, result }); })();"
+        }
+      ]
+    },
+    {
+      "name": "G20",
+      "what": "the runner does not name skill_load as a tool whose result belongs to its run",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "perRunTools: new Set([`chatmcp.${SKILL_LOAD_TOOL_NAME}`]),",
+          "new": "perRunTools: new Set(),"
         }
       ]
     }

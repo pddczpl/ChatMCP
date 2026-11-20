@@ -360,6 +360,25 @@ try {
   }
   ok('loader: the counters of the last run read are returned (reserved doneGate included), the run that is starting is not read, a seed carries no skill index of earlier runs, every string except picture bytes is masked with the redaction of the process that loads');
 
+  // B10b the text of a skill belongs to the run that loaded it
+  {
+    const lines = [
+      start(1), hist(1, 0, user('use the skill')), hist(1, 1, fcall('s1', 'skill_load', { id: 'bulk' }), { batch: 1 }),
+      line({ type: 'tool_result_full', toolName: 'chatmcp.skill_load', call_id: 's1', result: { content: [{ type: 'text', text: 'BULK SKILL TEXT' }] } }), hist(1, 2, ref('s1'), { batch: 1 }),
+      hist(1, 3, fcall('r1', 'read_file', { path: 'a' }), { batch: 2 }), full('r1', 'A'), hist(1, 4, ref('r1'), { batch: 2 }), hist(1, 5, said('done'), { batch: 3 }), end(1, 6),
+    ];
+    const file = await write(lines);
+    const perRunTools = new Set(['chatmcp.skill_load']);
+    const seedOf = await load(file, { beforeRun: 2, perRunTools });
+    const skillOutput = seedOf.items.find((item) => item.call_id === 's1' && item.type === 'function_call_output');
+    assert.match(skillOutput.output, /^\[The text of this skill was delivered in an earlier run/, 'a seed carries no skill text an earlier run loaded: the call stays, its result is a note');
+    assert.equal(JSON.stringify(seedOf.items).includes('BULK SKILL TEXT'), false);
+    assert.equal(seedOf.items.find((item) => item.call_id === 'r1' && item.type === 'function_call_output').output, resultText('A'), 'other results stay');
+    const whole = await load(file, { perRunTools });
+    assert.equal(whole.items.find((item) => item.call_id === 's1' && item.type === 'function_call_output').output, resultText('BULK SKILL TEXT'), 'read whole, the last run keeps the text it loaded');
+  }
+  ok('loader: the text of a skill an earlier run loaded is not replayed (a skill may have been turned off since): the call stays, its result becomes a note; the last run read whole keeps it');
+
   // B11 a run with very many items (more than a function call takes as arguments)
   {
     const count = 200_000;
@@ -421,7 +440,7 @@ try {
   // A step is chosen by the number of results so far (ctx.turn): after a turn with two calls the next step is two further on.
   const unused = say('(never reached)');
   const scenarios = {
-    chat: [call('read_file', { path: 'a.txt' }), call('read_file', { path: 'b.txt' }), call('screenshot', {})],
+    chat: [call('skill_load', { id: 'big-notes' }), call('read_file', { path: 'a.txt' }), call('read_file', { path: 'b.txt' }), call('screenshot', {})],
     responses: [thinking('look at two files', calls(['read_file', { path: 'a.txt' }], ['read_file', { path: 'b.txt' }])), unused, thinking('and a picture', call('screenshot', {}))],
     anthropic: [thinking('first a', call('read_file', { path: 'a.txt' })), thinking('then b', call('read_file', { path: 'b.txt' })), call('screenshot', {})],
     gemini: [thinking('two at once', calls(['read_file', { path: 'a.txt' }], ['read_file', { path: 'b.txt' }])), unused, call('screenshot', {})],
@@ -440,7 +459,11 @@ try {
     await fs.mkdir(root, { recursive: true });
     const manager = makeManager(root);
     // One conversation carries a skill, so every run of it has a skill index of its own (lib/skill-index.mjs).
-    if (name === 'chat') manager.pluginManager = { activeSkills: () => [{ id: 'testing-notes', name: 'testing-notes', license: 'MIT', description: 'Notes about tests', tools: [], systemPrompt: 'Run node test.js after every change.' }] };
+    // A large one is read on demand with skill_load, which the model calls in run 1.
+    if (name === 'chat') manager.pluginManager = { activeSkills: () => [
+      { id: 'testing-notes', name: 'testing-notes', license: 'MIT', description: 'Notes about tests', tools: [], systemPrompt: 'Run node test.js after every change.' },
+      { id: 'big-notes', name: 'big-notes', license: 'MIT', description: 'Long notes about the build', tools: [], systemPrompt: `BIG-NOTES-MARK ${'Build step notes. '.repeat(2500)}` },
+    ] };
     const probe = { callsAtResume: null };
     const script = (ctx) => {
       if (ctx.prompt.includes(RESUME_PROMPT)) {
@@ -488,7 +511,11 @@ try {
     assert.equal(JSON.stringify(body).includes('CONVERSATION CHECKPOINT'), false, `${name}: and not the old checkpoint text`);
     if (name === 'chat') {
       assert.ok(memory1.some((item) => item.role === 'user' && item.content?.[0]?.text?.startsWith('UNTRUSTED SKILL REFERENCES')), 'chat: (premise) run 1 had a skill index');
-      assert.equal(JSON.stringify(body).split('UNTRUSTED SKILL REFERENCES').length - 1, 1, 'chat: the resumed request carries one skill index, the new run\'s: the seed brings none of run 1\'s');
+      const messageText = (message) => (typeof message.content === 'string' ? message.content : (message.content ?? []).map((part) => part?.text ?? '').join(''));
+      assert.equal(body.messages.filter((message) => message.role === 'user' && messageText(message).startsWith('UNTRUSTED SKILL REFERENCES')).length, 1, 'chat: the resumed request carries one skill index, the new run\'s: the seed brings none of run 1\'s');
+      assert.ok(memory1.some((item) => item.type === 'function_call_output' && String(item.output).includes('BIG-NOTES-MARK')), 'chat: (premise) run 1 loaded the large skill with skill_load');
+      assert.equal(JSON.stringify(body).includes('BIG-NOTES-MARK'), false, 'chat: the text of the skill run 1 loaded is not replayed');
+      assert.ok(JSON.stringify(body).includes('The text of this skill was delivered in an earlier run'), 'chat: its call stays, with a note as its result');
     }
     const memory2 = finished.at(-1);
     const journal2 = await runner.historyFromJournal(started.id);

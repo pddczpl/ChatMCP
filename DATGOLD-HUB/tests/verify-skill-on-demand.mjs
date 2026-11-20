@@ -605,7 +605,9 @@ try {
     return done < list.length ? toolCall(`load-${done + 1}`, list[done][0], list[done][1]) : finalAnswer();
   };
   const loads = (...ids) => calls(...ids.map((entry) => ['skill_load', typeof entry === 'string' ? { id: entry } : entry]));
-  const neverCalls = ({ input }) => (input.at(-1)?.type === 'function_call_output' ? finalAnswer() : toolCall('read-1', 'read_file', { path: 'package.json' }));
+  // A new id for every call, as a provider gives: a continued run replays the earlier calls (docs/SESSION-RESUME.md), and an id they hold is refused.
+  let reads = 0;
+  const neverCalls = ({ input }) => (input.at(-1)?.type === 'function_call_output' ? finalAnswer() : toolCall(`read-${(reads += 1)}`, 'read_file', { path: 'package.json' }));
   let sessions = 0;
   async function session({ files = {}, pluginManager = plugins, tools = [tool('read_file')], toolSelectionMode = null, script = neverCalls, contextWindowTokens = null, busy = 0, runnerOptions = {} } = {}) {
     sessions += 1;

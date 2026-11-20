@@ -824,6 +824,8 @@ export class AgentRunner {
     try {
       return await loadHistoryJournal(path.join(this.#directory(task.id), 'transcript.jsonl'), {
         maxBytes, beforeRun,
+        // The text of a skill belongs to the run that loaded it, as the skill index does (lib/history-journal.mjs, step 4).
+        perRunTools: new Set([`chatmcp.${SKILL_LOAD_TOOL_NAME}`]),
         modelOutput: (result, { toolName }) => this.#modelOutput(result, { optimize: false, taskId: task.id, toolName }).output,
         redact: (value) => this.#redact(value),
       });
