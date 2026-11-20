@@ -1,11 +1,12 @@
-# MCP server for local clients (roadmap P6, ext-17)
+# MCP server for local clients (roadmap P6, ext-17 and ext-18)
 
 The Hub can serve the Model Context Protocol to MCP clients on the same computer (Claude Code, Codex, Claude Desktop). This document
-describes **the listener's core**, plan task ext-17: where it listens, how it is turned on, the gate every request passes, the token, and
-what it exposes. **It exposes no workspace tool yet**: the only tool is `hub_status`, which says that the server runs and which version it
-is, reads no workspace and changes nothing. The host with a manager and a task per client and approvals in the dashboard (ext-18), the
-verify/read/write tool profiles (ext-19), the connection kit and the stdio bridge (ext-20) and conformance with real clients (ext-21) come
-later.
+describes **the listener's core**, plan task ext-17 (where it listens, how it is turned on, the gate every request passes, the token), and
+**the host**, plan task ext-18: how a client's call goes through the Hub's own permission gate, with a manager and a task per client and
+the approvals in the dashboard, without colliding with the primary agent's task. **Through the host the Hub serves one workspace tool,
+`read_file`, in Read Only**, to prove the path; `hub_status` says that the server runs, which version it is and which tools the host serves,
+and reads no workspace. The verify/read/write tool profiles (ext-19), the connection kit and the stdio bridge (ext-20) and conformance with
+real clients (ext-21) come later.
 
 Threat model: [Surface 11](THREAT-MODEL.md#surface-11-the-hubs-mcp-server-for-local-clients). The client side of MCP (the Hub calling other
 servers) is [MCP-CLIENT.md](MCP-CLIENT.md).
@@ -78,7 +79,8 @@ refusals therefore adds at most one line per status and one summary per minute.
   connection kit of ext-20; `rotate()` makes a new one and the old one is refused from the next request on. No page shows or rotates it yet.
 - A damaged token file is no token: the next start makes a new one (every client then needs the new token).
 - Like the session file of the dashboard, the token file is readable by any program of the owner's account (the threat model's same-user
-  limit, RR-1). All clients share the one token and the one authorized bucket until ext-18 (RR-43).
+  limit, RR-1). All clients share the one token and the one authorized bucket (RR-43): the host tells them apart by the name each gives
+  itself, which authenticates nothing; a token per client is ext-20.
 
 ## Tools: an injected provider
 
@@ -87,15 +89,40 @@ refusals therefore adds at most one line per status and one summary per minute.
 - `tools` is an array, or a function asked per request, of `{ name, title?, description?, inputSchema, outputSchema?, annotations? }`. A
   name is 1-128 characters of `A-Z a-z 0-9 _ . -`, unique; the schemas are JSON Schema objects of `type: "object"`. A list that breaks these
   rules is refused (an exception), never served half.
-- Each tool is registered with `fromJsonSchema(inputSchema)`, so the SDK checks the arguments before `call(name, args, { signal })` runs; an
-  argument that does not fit is an `isError` result and the provider is not called. Title, description, schemas and annotations reach the
-  client as given.
+- Each tool is registered with `fromJsonSchema(inputSchema)`, so the SDK checks the arguments before `call(name, args, { signal, client })`
+  runs; an argument that does not fit is an `isError` result and the provider is not called. `client` is the client as it names itself
+  (`clientInfoOf`): `{ name, version }` from the `io.modelcontextprotocol/clientInfo` key of the request's `_meta` envelope (2026-07-28),
+  strings only, at most 256 characters each, or `null` (a 2025 client: in stateless mode its `tools/call` carries no clientInfo). Title,
+  description, schemas and annotations reach the client as given.
 - The order is deterministic: by name, in code-unit order, whatever order the provider used.
 - `tools/list` carries the cache hint of the 2026-07-28 revision: `ttlMs: 0`, `cacheScope: "private"` by default.
 
-The Hub's provider (`hubMcpProvider`) has one tool, `hub_status` (`readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`,
-`openWorldHint: false`), whose answer is `{"product":"DatGold","version":"<version>","mcpServer":"ext-17 core","workspaceTools":"none yet"}`:
-no path, no workspace, no secret.
+The Hub's provider is the host's (`mcpHostProvider`, below): `hub_status` (`hubMcpProvider`: `readOnlyHint: true`, `destructiveHint: false`,
+`idempotentHint: true`, `openWorldHint: false`), whose answer is
+`{"product":"DatGold","version":"<version>","mcpServer":"ext-18 host","workspaceTools":["read_file"],"scope":"read"}` (no path, no
+workspace, no secret), and the host's tools.
+
+## The host: a manager and a task per client (ext-18)
+
+`McpHost` (`lib/mcp/host.mjs`) is what a client's `tools/call` goes through. `hub.mjs` makes it at start, with nothing in it until a client
+calls, and hands its tools to the listener (`mcpHostProvider`).
+
+| | |
+|---|---|
+| Client | the name the client gives itself (`client.name` above), lower case, only `a-z 0-9 . _ -`, at most 64 characters (`clientIdOf`); no name is the client `client`. It tells the clients apart for the owner; it authenticates nothing: every client has the same token, and a token holder can give any name (RR-43) |
+| Manager | one `HubManager` per client, made with `assembleStudio` on the Hub's workspace at the client's first call (60 to 105 ms measured on Windows, a `tools/list` makes none), in a data folder of its own: `<data folder>/mcp-host/<16 hex of the workspace's SHA-256>/<task id>/`. Its checkpoints, its plan, its workflow file and its permission history are there; the primary agent's are never touched. It holds the owner's hooks (the Hub's own `HookRunner`) and, only when a tool of the host aims at an external server, the owner's `McpClientManager`; otherwise it offers no external server at all. At most 8 clients (`MAX_CLIENTS`); a ninth name gets `mcp_client_limit` |
+| Task | one per client for the life of its manager: `hostTaskId(workspace, client)`, a UUID drawn from both, the same at every start of the Hub. The plan of P6 says `mcp:<clientId>`; a task id must be a UUID (the plan, the ownership of a checkpoint and the workflow need one, and a colon in a file name is an alternate data stream on NTFS), so `mcp:<client>` is the tag of the client's approvals instead |
+| Calls | through the guarded session of `HubManager` (`#guardCalls`), like the calls of every agent: the arguments are checked, then the permission gate, the owner's PreToolUse hooks, a checkpoint before a change, the call, the PostToolUse hooks. A tool of the host names its target: a local tool of the Hub (`local.<tool>`, whose schema, description and annotations it takes) or `<server>.<tool>` of an external server, which then needs its own `inputSchema` and follows the owner's policy of `mcp-servers.json` |
+| Gate | locked to the scope (`lockGate`): `verify` and `read` are Read Only and stay so, `write` is Review (Read Only allowed); autonomous and Full Access throw `mcp_host_mode_refused` (403), from `configure()` and from a plain assignment of `mode` or `executionPolicy`, and a refused `configure()` changes nothing. The policy is host-review (sandbox-only allowed). The approval timeout is 90 s (`DEFAULT_APPROVAL_TIMEOUT_MS`), fixed: a client must not hang for the gate's usual 10 minutes. The owner answers in the dashboard |
+| Approvals | `pendingApprovals()` adds the clients' requests to `studio.permissions.pending` of `/api/state`: each is the gate's own item with `source: "mcp"`, `client` and `tag: "mcp:<client>"` (`tagPending`); POST `/api/studio/permissions/decide` reaches it (`decide()`). The approval card of the dashboard shows the tag and says that a local MCP client asked (`ApprovalStack`, `normalizeApproval` keeps a tag of that shape only) |
+| No answer | when the 90 s run out, the call returns `isError` with `structuredContent.error.code: "approval_timeout"` and `executed: false`; nothing was changed. A denial is `permission_denied` |
+| One writer | a call is a write when its tool is marked `write` or when the gate's category is anything but `read`, `checkpoint` (the client's own plan) and `blocked`. Before anyone is asked, a write is `workspace_busy` (`isError`, `executed: false`, `error.holder`) while another MCP write is under way, from its question to its end (`mcp_client`), while the Hub works in the workspace (`agent`: `hostPrimaryState` of `hub.mjs`, that is any task of the agents, the manager's own task or service operation, or a coding worker being merged; a state that cannot be read counts as busy), or while the workspace lock file `.chatmcp-workspace.lock` is held and not stale (`workspace_lock`). The same is checked again once the owner has answered, before the call runs. A read runs while the agent works |
+| Workspace | when the owner selects another workspace, a client's next call gets a manager and a task on the new one; the old manager stops and a request it was waiting for is cancelled |
+| Close | the Hub's stop closes the listener, then the host: every waiting request is answered no at once, the managers stop, and a later call is `mcp_host_closed` |
+
+In ext-18 the Hub's host serves ONE tool, `read_file` (target `local.read_file`: the Hub's own read tool, protected files refused,
+`readOnlyHint: true`), in the `read` scope (`HUB_HOST_TOOLS`). Which tools a client gets in which scope, and how the owner chooses the
+scope, are the profiles of ext-19; the suite drives `edit_file` and `update_plan` in the `write` scope through a host it makes itself.
 
 ## The SDK
 
@@ -128,12 +155,30 @@ window in each of the two buckets; 650 token-less GETs (60 x 401, 590 x 429) lea
 is 403 and counts nowhere, `none` and Node's `sec-fetch-mode: cors` pass; 2,000 refused POSTs add one line plus one summary, and every one is
 answered; the log without the token; rotation; `close()` frees the port; `startHubMcpServer` off, SDK missing, bad and dashboard port, port in
 use, on; three real `hub.mjs` runs (off; `CHATMCP_MCP_RUNTIME_DIR` empty: the Hub starts and logs `mcp_runtime_missing`; on: a client with
-the token lists `hub_status` only, and a shutdown frees the port). `tests/verify-mcp-runtime.mjs` covers the pins, the closure and the
+the token lists `hub_status` and the host's `read_file`, and a shutdown frees the port). `tests/verify-mcp-runtime.mjs` covers the pins, the closure and the
 staged server. Mutation list: `tests/mutation/mcp-server.json`.
+
+`tests/verify-mcp-server-approvals.mjs` (the host; a primary `HubManager` assembled as `hub.mjs` does, the dashboard's server of
+`createHubServer` and the listener of `startHubMcpServer` on free ports, a real v2 client): the client id and the task id; the host's
+refusals of a bad scope or tool; `tools/list` with the local tools' schemas and no manager made; in the write scope an `edit_file` is a
+pending request in `/api/state` within 1 s (measured 52 to 64 ms), tagged, approved through the decide route (the file changes) or denied
+(it does not); two clients, two tasks; 2 s injected and no answer: `approval_timeout`; `workspace_busy` while the primary agent holds its
+task (nobody asked, a read still runs), while another task's lock file is held (a stale one does not block), after an approval given once
+the agent started, and for a second write while one waits; the gate refuses autonomous and Full Access by `configure()` and by assignment
+and a refused request changes nothing; the read and verify scopes stay Read Only; the primary agent's task, checkpoints, plan and
+permission history are untouched and the host's checkpoint, plan and history are in its own folder; the owner's PreToolUse veto and the
+external policy (`deny`, `allow`) apply; 8 clients and a ninth refused; no workspace; a workspace switch; a `primaryState` that throws;
+the Hub's busy rule; `close()`; a real `hub.mjs` with the switch on serves `read_file` of the workspace through the host and closes it in
+its stop. `ui/tests/approval-mcp-client.test.mjs` renders the tag on the approval card. Mutation list: `tests/mutation/mcp-host.json`.
 
 ## Not verified here
 
 - No real client (Claude Code, Codex, Claude Desktop) has connected: that is ext-20 (connection kit) and ext-21 (interop), with the owner.
+  The names those clients give themselves, and so their tags, are not known yet.
+- The host's single-writer check runs before the question and again after the answer; the milliseconds between that second check and the
+  write are not covered: the primary agent does not ask the host, and the host writes no lock file into the workspace. An agent task in
+  another worktree counts as busy too.
+- The approval card with the tag was rendered by the unit test only, not seen in the desktop app.
 - No timing measurement of the token comparison.
 - The Linux and macOS protector of the token (AES-GCM) is exercised by the unit cases; the Windows DPAPI path only by the real `hub.mjs` runs
   on Windows.

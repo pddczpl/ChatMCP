@@ -195,7 +195,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, agentOptions: { ...(manager.agentOptions?.current() ?? agentOptionsView()) }, update: updateState(), browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, agentOptions: { ...(manager.agentOptions?.current() ?? agentOptionsView()) }, update: updateState(), browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[]), ...(manager.mcpHost?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = (message = 'Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.') => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error(message); e.statusCode = 409; throw e; } };
   // The state of the update notice with the state of the download under it (`update.download`) and what the last update left (`update.applied`, null when nothing): all memory, so reading it never touches the network or a file.
   const updateState = () => (updates ? { ...updates.status(), download: downloads ? downloads.status() : { state: 'idle' }, applied: applied ? applied.status() : null } : null);
@@ -495,7 +495,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/permissions/decide': result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
               ? gate.decide(payload.id,payload.approved)
               : taskEngine?.api?.decidePermission?.(payload.id,payload.approved)
-                || browser?.decidePermission?.(payload.id,payload.approved);
+                || browser?.decidePermission?.(payload.id,payload.approved)
+                || manager.mcpHost?.decide?.(payload.id,payload.approved);
               if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
               break;
           // Only the label of a checkpoint is the page's to give. Which task a checkpoint belongs to, and which files it covers, are the Hub's own record of what a tool call did (a review
@@ -716,6 +717,13 @@ export function createPrimaryAgentRunner(AgentRunner, { manager, provider, taskD
   return followProviderWindow(new AgentRunner({ manager, provider, taskDirectory, log, projectInstructions: manager.projectInstructionsSetting, agentOptions: manager.agentOptions }), env);
 }
 
+// What the host of the MCP server (lib/mcp/host.mjs) asks before a client's write: whether the Hub works in the workspace now. Any task of
+// the agents (the foreground one, a pooled chat, the Companion's), the manager's own task or service operation, or the coding orchestrator
+// merging a worker into the checkout: one writer at a time, so a client's write waits for all of them.
+export function hostPrimaryState(manager, agent) {
+  return () => ({ busy: Boolean(manager.taskId || manager.busy || agent?.state?.()?.activeTaskId || manager.codingOrchestrator?.integrating) });
+}
+
 // `url` is what is logged; `target` (the same address plus a one-time sign-in ticket in the fragment) is what is opened.
 async function openDashboard(url, manager, target = url) {
   if (process.platform !== 'win32') {
@@ -843,7 +851,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   let initialized=false,closing=false;
   let releaseInstance=async()=>{};
   let session=null;
-  let mcpServer=null;
+  let mcpServer=null,mcpHost=null;
   const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,updates,downloads,applied,
     isInitialized:()=>initialized});
   const url=`http://127.0.0.1:${options.port}`;
@@ -885,9 +893,16 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   manager.log(`Local-only Hub: 127.0.0.1 · Data: ${manager.hubDirectory}`);
   // The MCP server for local clients (docs/MCP-SERVER.md): its own listener, off unless the owner turned it on (CHATMCP_MCP_SERVER or
   // <data>/mcp-server.json). It never throws here: a missing SDK, a bad or busy port is a status and one log line, and the Hub runs on.
-  const { hubMcpProvider, startHubMcpServer } = await import('./lib/mcp/server.mjs');
+  // Its tools go through the host (lib/mcp/host.mjs): a manager and a task per client on the Hub's workspace, the Hub's permission gate in
+  // Read Only, approvals in /api/state and the decide route above; a write waits while the agent works. Nothing is made before a call.
+  const { startHubMcpServer } = await import('./lib/mcp/server.mjs');
+  const { HUB_HOST_TOOLS, McpHost, mcpHostProvider } = await import('./lib/mcp/host.mjs');
+  mcpHost = new McpHost({ bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'mcp-host'), workspace: () => manager.workspace,
+    primaryState: hostPrimaryState(manager, agent),
+    hooks: manager.hooks, mcp: manager.mcp, pluginManager: manager.pluginManager, secrets: manager.secrets, scope: 'read', tools: HUB_HOST_TOOLS, log: (line) => manager.log(line) });
+  manager.mcpHost = mcpHost;
   mcpServer = await startHubMcpServer({ env, directory: manager.hubDirectory, protector: createProtector({ bundleRoot: BUNDLE_ROOT, directory: manager.hubDirectory, env }),
-    name: 'DatGold Hub', version: VERSION, dashboardPort: options.port, log: (line) => manager.log(line), registerSecret: (value) => manager.registerSecret(value), ...hubMcpProvider({ version: VERSION }) })
+    name: 'DatGold Hub', version: VERSION, dashboardPort: options.port, log: (line) => manager.log(line), registerSecret: (value) => manager.registerSecret(value), ...mcpHostProvider({ host: mcpHost, version: VERSION }) })
     .catch((error) => { manager.log(`MCP server: not started (${error?.code ?? 'error'}).`); return null; });
   manager.mcpServer = mcpServer;
   if (options.open) await openDashboard(url, manager, dashboardUrl(url, server.issueBootstrapTicket()));
@@ -913,7 +928,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     mark('terminal'); await manager.terminal?.close(); manager.intelligence?.close();
     mark('agent'); await agent.shutdown().catch(() => {});
     mark('manager'); await manager.shutdown().catch(() => {});
-    mark('mcp server'); await mcpServer?.close().catch(() => {});
+    mark('mcp server'); await mcpServer?.close().catch(() => {}); await mcpHost?.close().catch(() => {});
     mark('server'); server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     mark('session'); await session?.remove().catch(() => {});
