@@ -11,7 +11,7 @@ gate's `external` category), C1 and C2 (ext-13 hardening, ext-11 the seam below)
 
 | Part | Where | What it does |
 |---|---|---|
-| SDK runtime | `scripts/mcp-runtime/` (package.json, package-lock.json, stage.mjs, verify.mjs, licenses/) | Pins `@modelcontextprotocol/client` 2.4.0 and its closure; the installer stages it into `DATGOLD-HUB/runtimes/mcp` |
+| SDK runtime | `scripts/mcp-runtime/` (package.json, package-lock.json, stage.mjs, verify.mjs, licenses/) | Pins `@modelcontextprotocol/client` 2.4.0 and its closure (and, since P6 ext-17, the server SDK 2.4.0 + `@modelcontextprotocol/node` 2.1.2 of [MCP-SERVER.md](MCP-SERVER.md)); the installer stages it into `DATGOLD-HUB/runtimes/mcp` |
 | Installer step | `scripts/Build-Installer.ps1` (after the Playwright step) | `npm ci --ignore-scripts`, `stage.mjs`, `verify.mjs`, copy to `DATGOLD-HUB/runtimes/mcp`, then `scripts/Verify-McpRuntime.mjs` with the bundled Node.js |
 | Build-time check | `scripts/Verify-McpRuntime.mjs <hub> [<runtime>]` | Checks the staged copy against its manifest, then the Hub's own `lib/mcp/client-manager.mjs` connects through it to a small stdio server, lists, calls and closes |
 | Loader | `DATGOLD-HUB/lib/mcp/sdk.mjs` | Finds the SDK and imports it on first use (`import()`); refuses another version (`mcp_runtime_invalid`) and says `mcp_runtime_missing` when there is none |
@@ -24,15 +24,18 @@ gate's `external` category), C1 and C2 (ext-13 hardening, ext-11 the seam below)
 ### Choice of versions (2026-11-20)
 
 - **`@modelcontextprotocol/client` 2.4.0** (published 2026-10-23, Apache-2.0), the newest release. The plan of 2026-10-19 probed 2.3.1; 2.4.0
-  came out since. The client is the only direct dependency: **`@modelcontextprotocol/node` (2.1.2) is not shipped** because it is the
-  Node.js HTTP adapter of the *server* SDK (hono, `@hono/node-server`, a peer dependency on `@modelcontextprotocol/server`), and the client
-  needs neither it nor the server package at run time. Both are pinned in `DATGOLD-HUB/tests/fixtures/mcp-reference` for the test servers.
-- The closure, measured: **13 packages, 1,146 files, 15,398,294 bytes (14.7 MiB)** as staged, licences Apache-2.0 2, MIT 9, ISC 2.
-- The client's `dist` files compile in seven more packages (ajv 8.18.0, ajv-formats 3.0.1, `@cfworker/json-schema` 4.1.1, content-type 1.0.5,
+  came out since. The client needs neither `@modelcontextprotocol/node` (2.1.2, the Node.js HTTP adapter of the *server* SDK: hono,
+  `@hono/node-server`, a peer dependency on `@modelcontextprotocol/server`) nor the server package at run time. Until P6 ext-17 the client was
+  the only direct dependency; since then the runtime also pins `@modelcontextprotocol/server` 2.4.0 and `@modelcontextprotocol/node` 2.1.2
+  for the Hub's own MCP server ([MCP-SERVER.md](MCP-SERVER.md)), loaded only by `lib/mcp/server-sdk.mjs`. The test servers keep their own pins in
+  `DATGOLD-HUB/tests/fixtures/mcp-reference`.
+- The closure, measured: **13 packages, 1,146 files, 15,398,294 bytes (14.7 MiB)** for the client alone (licences Apache-2.0 2, MIT 9, ISC 2);
+  with the server pair **17 packages, 1,880 files, 24,031,942 bytes (22.9 MiB)** as staged on 2026-11-20 (Apache-2.0 4, MIT 11, ISC 2).
+- The client's `dist` files (and the server's, the same seven at the same versions) compile in seven more packages (ajv 8.18.0, ajv-formats 3.0.1, `@cfworker/json-schema` 4.1.1, content-type 1.0.5,
   fast-deep-equal 3.1.3, fast-uri 3.1.8, json-schema-traverse 1.0.0) without their licence texts. The texts are vendored in
   `scripts/mcp-runtime/licenses/` and staged to `runtimes/mcp/licenses/bundled/`; `tests/verify-mcp-runtime.mjs` fails when the `dist` files
   name a package or version that is not vendored.
-- The LICENSE of the two SDK packages is Apache-2.0 and also carries the MIT License, for contributions not yet relicensed.
+- The LICENSE of the SDK packages is Apache-2.0 and also carries the MIT License, for contributions not yet relicensed.
 
 The notices are generated: `node scripts/generate-licenses.mjs` writes the list into THIRD-PARTY-NOTICES.md, DATGOLD-HUB/THIRD-PARTY-NOTICES.txt
 and docs/LICENSE-SCAN.md; `tests/verify-notices.mjs` fails when one of them differs from the lockfile and the vendored manifest.
