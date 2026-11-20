@@ -58,8 +58,8 @@ export async function expectedDocument({ notices = NOTICES_FILE, lockfile = LOCK
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
-// The MCP client runtime (DATGOLD-HUB/runtimes/mcp, staged by scripts/mcp-runtime/stage.mjs): every package of its lockfile, with the
-// licence of the lockfile entry, and the packages that @modelcontextprotocol/client compiles into its dist files (scripts/mcp-runtime/
+// The MCP SDK runtime (the client, and the server SDK with its Node adapter) (DATGOLD-HUB/runtimes/mcp, staged by scripts/mcp-runtime/stage.mjs): every package of its lockfile, with the
+// licence of the lockfile entry, and the packages that @modelcontextprotocol/client and /server compile into its dist files (scripts/mcp-runtime/
 // licenses/MANIFEST.json, whose texts are vendored). The same list is generated into THIRD-PARTY-NOTICES.md, DATGOLD-HUB/THIRD-PARTY-NOTICES.txt
 // and docs/LICENSE-SCAN.md.
 export const MCP_LOCKFILE = path.join(ROOT, 'scripts', 'mcp-runtime', 'package-lock.json');
@@ -95,7 +95,7 @@ export function renderMcpSection(kind, packages, bundled) {
   const [begin, end] = kind === 'text' ? MCP_MARKERS.text : MCP_MARKERS.markdown;
   const folder = 'DATGOLD-HUB/runtimes/mcp/node_modules';
   const intro = `${packages.length} packages of scripts/mcp-runtime/package-lock.json (${countLicenses(packages)}), staged whole into ${folder}, each with its own licence file in its folder. The licence is the \`license\` field of the lockfile entry.`;
-  const bundledIntro = `${bundled.length} packages compiled into the dist files of @modelcontextprotocol/client (${countLicenses(bundled)}). They are not packages of the lockfile and the client ships none of their texts; the texts are vendored in scripts/mcp-runtime/licenses/ and installed in DATGOLD-HUB/runtimes/mcp/licenses/bundled/.`;
+  const bundledIntro = `${bundled.length} packages compiled into the dist files of @modelcontextprotocol/client and @modelcontextprotocol/server (${countLicenses(bundled)}). They are not packages of the lockfile and neither package ships any of their texts; the texts are vendored in scripts/mcp-runtime/licenses/ and installed in DATGOLD-HUB/runtimes/mcp/licenses/bundled/.`;
   if (kind === 'text') {
     return [
       begin,

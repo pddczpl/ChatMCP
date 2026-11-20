@@ -1,10 +1,10 @@
-// Stages the MCP client SDK for the installer: node stage.mjs <new-destination>
+// Stages the MCP SDK runtime (the client, and the server with its Node adapter for the Hub's MCP server) for the installer: node stage.mjs <new-destination>
 //
 // Run after `npm ci --ignore-scripts` in this folder (Build-Installer.ps1 does both). Copies every package of package-lock.json (and only
 // those: never an arbitrary developer node_modules, never another tool's copy) from ./node_modules into <destination>/node_modules, the
 // vendored licence texts of what the client compiles in (licenses/) into <destination>/licenses/bundled, and writes
 // <destination>/mcp-runtime-manifest.json with the size and SHA-256 of every file. The installer copies the destination to
-// DATGOLD-HUB/runtimes/mcp, where lib/mcp/sdk.mjs finds it. verify.mjs checks a staged copy against the manifest.
+// DATGOLD-HUB/runtimes/mcp, where lib/mcp/sdk.mjs (client) and lib/mcp/server-sdk.mjs (server) find it. verify.mjs checks a staged copy against the manifest.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -60,6 +60,8 @@ export async function stageMcpRuntime(destination, { source = here } = {}) {
     schemaVersion: 1,
     name: 'datgold-mcp-runtime',
     client: manifest.dependencies['@modelcontextprotocol/client'],
+    server: manifest.dependencies['@modelcontextprotocol/server'],
+    node: manifest.dependencies['@modelcontextprotocol/node'],
     packages,
     bundled: bundled.map(({ name, version, license, file, sha256 }) => ({ name, version, license, file: `licenses/bundled/${file}`, sha256 })),
     files,
