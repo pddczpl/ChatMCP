@@ -17,9 +17,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findNeedles, runScenario } from './e2e/harness.mjs';
-import { call, say } from './e2e/scenarios.mjs';
+import { call, say, toolText, wasRefused } from './e2e/scenarios.mjs';
 import { ALLOWED_KEY_ENVS, liveEnvironment } from './live/lib/session.mjs';
-import { budgetVerdict, conservativeRates, EXIT, loadProviders, sandboxMarker } from './evaluate-live.mjs';
+import { budgetVerdict, conservativeRates, EXIT, loadProviders, redactor, sandboxMarker, taskStop } from './evaluate-live.mjs';
 
 const TESTS = path.dirname(fileURLToPath(import.meta.url));
 const HUB = path.resolve(TESTS, '..');
@@ -85,6 +85,17 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   t.equal(conservativeRates({ input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.5 }, []), { input: 1, output: 2 }, 'a cache write cheaper than input is charged as input');
   t.equal(conservativeRates({ input: 1, output: 2 }, [{ aboveInputTokens: 10, input: 0.5, output: 1 }]), { input: 1, output: 2 }, 'a tier cheaper than the base is not chosen');
 
+  // ---- unit: the per-task limits the runner enforces (the Hub's task API takes none) ------------------------------------------------------
+  const limits = { ledgers: [ledger(0.1)], budgetUsd: 1, steps: 3, maxSteps: 3, elapsedMs: 60_000, maxMinutes: 1 };
+  t.equal(taskStop(limits), null, 'at the step limit and at the minute limit: go on');
+  t.equal(taskStop({ ...limits, steps: 4 }), 'max_steps', 'one step past the limit: stop the task');
+  t.equal(taskStop({ ...limits, elapsedMs: 60_001 }), 'max_minutes', 'past the minutes: stop the task');
+  t.equal(taskStop({ ...limits, steps: 4, ledgers: [ledger(1.5)] }), 'budget', 'the budget stop wins over a task limit (it ends the whole run)');
+
+  // ---- unit: the redactor of everything the runner prints or writes ----------------------------------------------------------------------
+  t.equal(redactor(KEY)(`a ${KEY} b ${KEY}`), 'a [redacted] b [redacted]', 'the key value is replaced wherever it appears in a message');
+  t.equal(redactor(null)('nothing to hide'), 'nothing to hide', 'without a key the text is left alone');
+
   // ---- unit: the environment of the Hub --------------------------------------------------------------------------------------------------
   const home = t.dir('env-home');
   const planted = { ...baseEnvironment(), ...DECOYS, DEEPSEEK_API_KEY: KEY, CHATMCP_LIVE_OK: '1' };
@@ -121,12 +132,19 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   }
 
   // ---- process: refusals before anything starts ------------------------------------------------------------------------------------------
+  let pushResult = null;
   const mock = await t.mock({
     scenario: 'live-smoke',
     scenarios: {
-      'live-smoke': ({ turn }) => (turn === 0 ? call('write_file', { path: 'hello.txt', content: 'hello from the live runner\n' }) : say('Wrote hello.txt.')),
-      // Never finishes on its own: one read after another, slowly, until the step limit (or the budget stop) ends it.
-      'live-spender': async () => { await sleep(150); return call('read_file', { path: 'README.md' }); },
+      // The forced push goes to a remote that exists nowhere: the Hub asks about it even in Full Access, the runner must deny it, and run anyway it could only fail.
+      'live-smoke': ({ turn, last }) => {
+        if (turn === 0) return call('write_file', { path: 'hello.txt', content: 'hello from the live runner\n' });
+        if (turn === 1) return call('run_command', { command: 'git push --force nowhere-remote-of-the-live-test nothing-here' });
+        pushResult = toolText(last);
+        return say('Wrote hello.txt.');
+      },
+      // Never finishes on its own: one new file after another (progress, so the Hub's stall check does not end it), slowly, until the step limit (or the budget stop) ends it.
+      'live-spender': async ({ turn }) => { await sleep(150); return call('write_file', { path: `notes-${turn}.txt`, content: `step ${turn}` }); },
     },
   });
   const work = t.dir('providers');
@@ -198,7 +216,9 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   t.equal(report.tasks[0].effectiveProfile, 'live-mock', 'the task ran on the profile the runner made');
   t.check(report.tasks[0].modelCost.pricedResponses > 0 && report.tasks[0].modelCost.unpricedResponses === 0 && report.spentUsd > 0, 'the cost ledger priced every response', JSON.stringify(report.tasks[0].modelCost));
   t.check(report.spentUsd <= 1, 'the spend stayed inside the budget', String(report.spentUsd));
-  t.equal(report.tasks[0].maxSteps, 6, 'the task carried its step limit');
+  t.equal([report.tasks[0].maxSteps, report.tasks[0].maxMinutes, report.tasks[0].limitReached], [6, 2, null], 'the task ran under its limits and reached none');
+  t.equal(report.tasks[0].deniedApprovals, 1, 'the one question the Hub still asks in Full Access (a forced push) was answered');
+  t.check(wasRefused(pushResult), 'and answered no: the model was told the command was refused', pushResult?.slice(0, 200));
   t.equal(fs.readFileSync(path.join(scratchA, 'project', 'hello.txt'), 'utf8'), 'hello from the live runner\n', 'the file the scripted model wrote is in the scratch project');
   t.check(mock.state.requests.some((request) => request.hasAuthorization), 'the key reached the Hub (the model requests carried an Authorization header)');
   const watched = mock.watchReport();
@@ -222,6 +242,22 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   t.check(stopped.tasks[0].id === 'spender' && stopped.tasks[0].state !== 'completed', 'the running task was cancelled, not completed', JSON.stringify(stopped.tasks[0]?.state));
   t.equal(stopped.tasks.map((task) => task.id), ['spender'], 'the next task was never started');
   t.check(modelRequests(mock) < 30, 'the model was asked far fewer times than the step limit allows', String(modelRequests(mock)));
+
+  // ---- process: the per-task limits, enforced by the runner -------------------------------------------------------------------------------
+  mock.setScenario('live-spender');
+  const limitTasks = tasksFile([
+    { id: 'three-steps', prompt: 'Keep reading.', files: { 'README.md': '# scratch\n' }, maxSteps: 3, maxMinutes: 2 },
+    { id: 'three-seconds', prompt: 'Keep reading.', files: {}, maxSteps: 50, maxMinutes: 0.05 },
+  ]);
+  const reportC = path.join(t.scratch, 'report-limits.json');
+  const limited = await runRunner(['--providers', cheap, '--tasks', limitTasks, '--provider', 'mock', '--budget-usd', '5', '--scratch', path.join(t.scratch, 'run-limits'), '--output', reportC], gated);
+  outputs.push(limited.text);
+  t.equal(limited.code, EXIT.TASK_FAILED, 'tasks stopped at their limits did not complete: exit 1');
+  const limitedReport = JSON.parse(fs.readFileSync(reportC, 'utf8'));
+  t.equal(limitedReport.tasks.map((task) => [task.id, task.limitReached]), [['three-steps', 'max_steps'], ['three-seconds', 'max_minutes']], 'one task stopped at its step limit, the next at its minute limit (a task limit does not end the run)');
+  t.check(limitedReport.tasks[0].steps <= 5 && limitedReport.tasks[0].state !== 'completed', 'the three-step task was cancelled within two steps of its limit', JSON.stringify([limitedReport.tasks[0].steps, limitedReport.tasks[0].state]));
+  t.check(limitedReport.tasks[1].durationMs < 15_000 && limitedReport.tasks[1].steps < 50, 'the three-second task was cancelled long before its step limit', JSON.stringify([limitedReport.tasks[1].durationMs, limitedReport.tasks[1].steps]));
+  t.equal(limitedReport.stoppedBy, null, 'and the run itself was not stopped');
 
   // ---- nowhere: the key and the decoys -----------------------------------------------------------------------------------------------------
   const needles = [KEY, ...Object.values(DECOYS)];

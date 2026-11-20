@@ -154,11 +154,24 @@ export function checkGates(argv, env = process.env, exists = fs.existsSync) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const git = (...args) => { const r = spawnSync('git', args, { cwd: REPO, encoding: 'utf8', timeout: 10000, windowsHide: true }); return r.status === 0 ? r.stdout.trim() : null; };
 
-/** Runs one task to its end, the budget stop or its deadline. Every approval the Hub still asks for (Full Access asks for a few tools) is denied. */
+/** Why a task must be stopped now: 'budget' / 'cost_unknown' (the whole run stops), 'max_steps' / 'max_minutes' (only this task), or null. */
+export function taskStop({ ledgers, budgetUsd, steps, maxSteps, elapsedMs, maxMinutes }) {
+  const run = budgetVerdict(ledgers, budgetUsd).stop;
+  if (run) return run;
+  if (steps > maxSteps) return 'max_steps';
+  if (elapsedMs > maxMinutes * 60_000) return 'max_minutes';
+  return null;
+}
+const RUN_STOPS = new Set(['budget', 'cost_unknown']);
+
+/**
+ * Runs one task to its end, or until the runner stops it. The Hub's task API takes no step or time limit (POST /api/tasks/start ignores maxSteps and
+ * maxMinutes), so the runner enforces both: it cancels the task once it is past its limit (coarse, like the budget: the step that was running when the
+ * limit was seen may finish). Every approval the Hub still asks for (Full Access asks about a few tools, such as a push) is denied.
+ */
 async function runTask(hub, task, { budgetUsd, earlier }) {
   const started = Date.now();
-  const created = await startTask(hub, task.prompt, { maxSteps: task.maxSteps, maxMinutes: task.maxMinutes });
-  const deadline = started + task.maxMinutes * 60_000 + 30_000;
+  const created = await startTask(hub, task.prompt);
   let denied = 0;
   let stoppedBy = null;
   let cancelledAt = null;
@@ -169,21 +182,23 @@ async function runTask(hub, task, { budgetUsd, earlier }) {
       denied++;
     }
     const summary = state.agent.tasks.find((item) => item.id === created.id);
-    const verdict = budgetVerdict([...earlier, summary?.modelCost], budgetUsd);
-    if (!stoppedBy && verdict.stop) stoppedBy = verdict.stop;
-    if (!stoppedBy && Date.now() > deadline) stoppedBy = 'deadline';
+    const settled = settledTask(state, created.id);
+    if (!stoppedBy && !settled) {
+      stoppedBy = taskStop({ ledgers: [...earlier, summary?.modelCost], budgetUsd, steps: summary?.steps ?? 0, maxSteps: task.maxSteps, elapsedMs: Date.now() - started, maxMinutes: task.maxMinutes });
+    }
     if (stoppedBy && cancelledAt === null) {
       cancelledAt = Date.now();
       await hub.request('POST', '/api/tasks/cancel', { id: created.id });
     }
-    const settled = settledTask(state, created.id);
     if (settled) {
       const full = await hub.task(created.id);
+      // A run stop seen only once the task had settled still counts: the next task must not start past the budget.
+      const after = budgetVerdict([...earlier, full.modelCost], budgetUsd).stop;
       return {
-        stoppedBy: stoppedBy === 'deadline' ? null : stoppedBy,
+        stoppedBy: RUN_STOPS.has(stoppedBy) ? stoppedBy : after,
         record: {
           id: task.id, hubTaskId: created.id, state: full.state, errorCode: full.errorCode ?? null, steps: full.steps, toolCalls: full.toolCalls,
-          maxSteps: task.maxSteps, maxMinutes: task.maxMinutes, deniedApprovals: denied, timedOut: stoppedBy === 'deadline',
+          maxSteps: task.maxSteps, maxMinutes: task.maxMinutes, limitReached: stoppedBy && !RUN_STOPS.has(stoppedBy) ? stoppedBy : null, deniedApprovals: denied,
           effectiveProfile: full.effectiveProfile?.id ?? null, usage: full.usage ?? null, modelCost: full.modelCost, durationMs: Date.now() - started,
         },
       };
@@ -257,7 +272,7 @@ export async function runLive(gates, { log = console.log } = {}) {
 }
 
 /** Belt and braces: the key value never leaves this process in a message or the report, whatever text a failure carries. */
-const redactor = (key) => (text) => (key ? String(text).split(key).join('[redacted]') : String(text));
+export const redactor = (key) => (text) => (key ? String(text).split(key).join('[redacted]') : String(text));
 
 async function main(argv = process.argv.slice(2), env = process.env) {
   let gates;
