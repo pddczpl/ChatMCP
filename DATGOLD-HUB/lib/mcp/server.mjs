@@ -225,8 +225,8 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bo
 }
 
 /** The status tool of the Hub: harmless, no workspace. `workspaceTools` are the names of the tools the host serves (lib/mcp/host.mjs mcpHostProvider). */
-export function hubMcpProvider({ product = 'DatGold', version, workspaceTools = [] }) {
-  const text = JSON.stringify({ product, version, mcpServer: workspaceTools.length ? 'ext-18 host' : 'ext-17 core', workspaceTools: workspaceTools.length ? [...workspaceTools] : 'none yet' });
+export function hubMcpProvider({ product = 'DatGold', version, workspaceTools = [], scope }) {
+  const text = JSON.stringify({ product, version, mcpServer: workspaceTools.length ? 'ext-18 host' : 'ext-17 core', workspaceTools: workspaceTools.length ? [...workspaceTools] : 'none yet', ...(scope ? { scope } : {}) });
   return {
     tools: [{
       name: 'hub_status', title: 'DatGold Hub status',

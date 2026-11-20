@@ -60,6 +60,9 @@ export function hostTaskId(workspace, clientId) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${'89ab'[Number.parseInt(hex[16], 16) & 3]}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+/** A pending request of a client's gate as /api/state carries it: the gate's own item, with who asked (the dashboard shows the tag). */
+export const tagPending = (item, clientId) => ({ ...item, source: 'mcp', client: clientId, tag: `mcp:${clientId}` });
+
 const failure = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 /** A result that says nothing ran, in the shape of HubManager's refusals: the code first in the text, and in structuredContent. */
 const refusal = (code, message, extra = {}) => ({ isError: true, content: [{ type: 'text', text: `${code}: ${message}` }], structuredContent: { error: { code, message, ...extra }, executed: false } });
@@ -314,7 +317,7 @@ export class McpHost {
   /** The approvals the clients wait for, for /api/state: each one the gate's own, tagged with the client. */
   pendingApprovals() {
     return [...this.#ready.values()].filter((slot) => !slot.retired)
-      .flatMap((slot) => slot.gate.state().pending.map((item) => ({ ...item, source: 'mcp', client: slot.clientId, tag: slot.tag })));
+      .flatMap((slot) => slot.gate.state().pending.map((item) => tagPending(item, slot.clientId)));
   }
 
   /** The dashboard's answer to one of them; null when no client's gate has it (the route then answers 404). */
@@ -357,7 +360,7 @@ export class McpHost {
  * the client of the request.
  */
 export function mcpHostProvider({ host, version, product = 'DatGold' }) {
-  const status = hubMcpProvider({ product, version, workspaceTools: host.tools().map((tool) => tool.name) });
+  const status = hubMcpProvider({ product, version, workspaceTools: host.tools().map((tool) => tool.name), scope: host.scope });
   return {
     tools: () => [...status.tools, ...host.tools()],
     call: (name, args, context) => (name === 'hub_status' ? status.call(name, args, context) : host.call(name, args, context)),

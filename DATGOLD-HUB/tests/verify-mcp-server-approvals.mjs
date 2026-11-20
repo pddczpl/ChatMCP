@@ -23,7 +23,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { createHubServer } from '../hub.mjs';
+import { createHubServer, hostPrimaryState } from '../hub.mjs';
 import { loadMcpSdk } from '../lib/mcp/sdk.mjs';
 import { startHubMcpServer } from '../lib/mcp/server.mjs';
 import { McpServerTokenStore } from '../lib/mcp/server-token.mjs';
@@ -62,7 +62,7 @@ const codeOf = (result) => result?.structuredContent?.error?.code ?? null;
  * A primary HubManager on a fresh workspace (assembled as hub.mjs does), the dashboard's server (createHubServer) on a free port with the
  * host merged into its state and decide route, and the MCP listener (startHubMcpServer) on port 0 with the host's provider.
  */
-async function setup({ scope = 'write', timeout, tools = [READ, EDIT], hooks = null, mcp = null, files = { 'notes.txt': 'alpha\nbeta\n' } } = {}) {
+async function setup({ scope = 'write', timeout, tools = [READ, EDIT], hooks = null, mcp = null, primaryState = null, files = { 'notes.txt': 'alpha\nbeta\n' } } = {}) {
   const root = folder(`case-${randomBytes(4).toString('hex')}`);
   const workspace = path.join(root, 'workspace');
   fs.mkdirSync(workspace);
@@ -76,7 +76,7 @@ async function setup({ scope = 'write', timeout, tools = [READ, EDIT], hooks = n
   await primary.startLocal(workspace);
   const host = new McpHost({
     bundleRoot: HUB_ROOT, directory: path.join(primary.hubDirectory, 'mcp-host'), workspace: () => primary.workspace,
-    primaryState: () => ({ busy: primary.taskId !== null, taskId: primary.taskId }),
+    primaryState: primaryState ?? (() => ({ busy: primary.taskId !== null, taskId: primary.taskId })),
     hooks: primary.hooks, mcp: mcp ?? primary.mcp, pluginManager: primary.pluginManager, secrets: primary.secrets,
     scope, tools, ...(timeout ? { timeout } : {}), log: (line) => logs.push(line),
   });
@@ -388,7 +388,13 @@ try {
       assert.equal(gate.mode, 'review');
       assert.equal(gate.executionPolicy, 'host-review');
       assert.equal(gate.configure({ mode: 'readonly' }).mode, 'readonly');
+      // A refused request changes nothing, not even the part of it that alone would have been allowed.
+      assert.throws(() => gate.configure({ mode: 'review', executionPolicy: 'full-access', confirmation: 'FULL ACCESS' }), refused);
+      assert.equal(gate.mode, 'readonly', 'the mode of a refused request was not applied');
+      assert.throws(() => gate.configure({ mode: 'review', executionPolicy: 'no-such-policy' }), refused);
+      assert.equal(gate.mode, 'readonly');
       assert.equal(gate.configure({ mode: 'manual' }).mode, 'review', 'the legacy name of Review');
+      assert.equal(gate.configure({ executionPolicy: 'sandbox-only' }).executionPolicy, 'sandbox-only', 'stricter than host-review is allowed');
       assert.equal(gate.state().fullAccess, false);
     } finally { await env.close(); }
   });
@@ -544,16 +550,66 @@ try {
       const client = await env.client('closing-client');
       const call = client.callTool({ name: 'edit_file', arguments: { path: 'notes.txt', old_string: 'alpha', new_string: 'gamma' } });
       await pendingOf(env, 'mcp:closing-client', performance.now());
+      const closing = performance.now();
       await env.host.close();
       closed = true;
       const result = await call;
+      const ms = performance.now() - closing;
       assert.equal(result.isError, true, textOf(result));
+      assert.equal(codeOf(result), 'permission_denied', 'the gate answered no at once, the request did not run out');
+      assert.ok(ms < 5000, `the client had its answer ${Math.round(ms)} ms after close()`);
       assert.deepEqual(await env.pending(), []);
       assert.equal(env.host.state().clients.length, 0);
       assert.equal(env.file('notes.txt'), 'alpha\nbeta\n');
       const after = await client.callTool({ name: 'read_file', arguments: { path: 'notes.txt' } });
       assert.equal(codeOf(after), 'mcp_host_closed', textOf(after));
     } finally { if (!closed) await env.host.close(); await env.close(); }
+  });
+
+  await test('the owner chose another workspace: the client\'s next call gets a manager and a task on the new one; the old request is cancelled', async () => {
+    const env = await setup({ scope: 'write' });
+    try {
+      const client = await env.client('moving-client');
+      const call = client.callTool({ name: 'edit_file', arguments: { path: 'notes.txt', old_string: 'alpha', new_string: 'gamma' } });
+      await pendingOf(env, 'mcp:moving-client', performance.now());
+      const other = path.join(env.root, 'other-workspace');
+      fs.mkdirSync(other);
+      fs.writeFileSync(path.join(other, 'notes.txt'), 'second folder\n');
+      const oldTask = hostTaskId(env.primary.workspace, 'moving-client');
+      env.primary.workspace = fs.realpathSync(other);
+      const read = await client.callTool({ name: 'read_file', arguments: { path: 'notes.txt' } });
+      assert.match(textOf(read), /second folder/, 'the read is of the new workspace');
+      assert.equal(codeOf(await call), 'permission_denied', 'the request on the old workspace was cancelled');
+      const [entry] = env.host.state().clients;
+      assert.equal(entry.taskId, hostTaskId(env.primary.workspace, 'moving-client'));
+      assert.notEqual(entry.taskId, oldTask);
+      assert.equal(env.file('notes.txt'), 'alpha\nbeta\n');
+    } finally { await env.close(); }
+  });
+
+  await test('a primaryState that throws counts as busy: a write is refused, a read still runs', async () => {
+    const env = await setup({ scope: 'write', primaryState: () => { throw new Error('state unavailable'); } });
+    try {
+      const client = await env.client('unsure-client');
+      const result = await client.callTool({ name: 'edit_file', arguments: { path: 'notes.txt', old_string: 'alpha', new_string: 'gamma' } });
+      assert.equal(codeOf(result), 'workspace_busy', textOf(result));
+      assert.equal(result.structuredContent.error.holder, 'agent');
+      assert.notEqual((await client.callTool({ name: 'read_file', arguments: { path: 'notes.txt' } })).isError, true);
+    } finally { await env.close(); }
+  });
+
+  await test('hub.mjs hostPrimaryState: busy while the manager holds a task or a service operation, an agent task is active, or a coding worker is merged', () => {
+    const manager = { taskId: null, busy: false, codingOrchestrator: { integrating: false } };
+    let active = null;
+    const agent = { state: () => ({ activeTaskId: active }) };
+    const state = hostPrimaryState(manager, agent);
+    assert.deepEqual(state(), { busy: false });
+    manager.taskId = 'task-1'; assert.equal(state().busy, true); manager.taskId = null;
+    manager.busy = true; assert.equal(state().busy, true); manager.busy = false;
+    active = 'conversation-2'; assert.equal(state().busy, true); active = null;
+    manager.codingOrchestrator.integrating = true; assert.equal(state().busy, true); manager.codingOrchestrator.integrating = false;
+    assert.equal(state().busy, false);
+    assert.equal(hostPrimaryState({ taskId: null, busy: false }, null)().busy, false, 'no agent, no orchestrator');
   });
 
   // ---------------------------------------------------------------------------------------------------------------------------------

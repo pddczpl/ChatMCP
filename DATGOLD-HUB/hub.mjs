@@ -717,6 +717,13 @@ export function createPrimaryAgentRunner(AgentRunner, { manager, provider, taskD
   return followProviderWindow(new AgentRunner({ manager, provider, taskDirectory, log, projectInstructions: manager.projectInstructionsSetting, agentOptions: manager.agentOptions }), env);
 }
 
+// What the host of the MCP server (lib/mcp/host.mjs) asks before a client's write: whether the Hub works in the workspace now. Any task of
+// the agents (the foreground one, a pooled chat, the Companion's), the manager's own task or service operation, or the coding orchestrator
+// merging a worker into the checkout: one writer at a time, so a client's write waits for all of them.
+export function hostPrimaryState(manager, agent) {
+  return () => ({ busy: Boolean(manager.taskId || manager.busy || agent?.state?.()?.activeTaskId || manager.codingOrchestrator?.integrating) });
+}
+
 // `url` is what is logged; `target` (the same address plus a one-time sign-in ticket in the fragment) is what is opened.
 async function openDashboard(url, manager, target = url) {
   if (process.platform !== 'win32') {
@@ -891,7 +898,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const { startHubMcpServer } = await import('./lib/mcp/server.mjs');
   const { HUB_HOST_TOOLS, McpHost, mcpHostProvider } = await import('./lib/mcp/host.mjs');
   mcpHost = new McpHost({ bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'mcp-host'), workspace: () => manager.workspace,
-    primaryState: () => ({ busy: Boolean(manager.taskId || manager.busy || agent.state().activeTaskId || manager.codingOrchestrator?.integrating) }),
+    primaryState: hostPrimaryState(manager, agent),
     hooks: manager.hooks, mcp: manager.mcp, pluginManager: manager.pluginManager, secrets: manager.secrets, scope: 'read', tools: HUB_HOST_TOOLS, log: (line) => manager.log(line) });
   manager.mcpHost = mcpHost;
   mcpServer = await startHubMcpServer({ env, directory: manager.hubDirectory, protector: createProtector({ bundleRoot: BUNDLE_ROOT, directory: manager.hubDirectory, env }),

@@ -59,6 +59,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
               <ShieldAlert className={cn('h-4 w-4 shrink-0', pending ? 'text-warning' : 'text-muted')} />
               <span className="text-[14px] font-semibold">{decision ? (decisionKeys[decision] ? t(decisionKeys[decision]) : decision) : t('agents_apr_request')}</span>
               <Badge variant={risk.level === 'high' ? 'danger' : risk.level === 'medium' ? 'warning' : 'neutral'}>{risk.levelLabel}</Badge>
+              {item.requester && <Badge variant="info" data-testid="approval-requester" title={t('agents_apr_client_title')}>{item.requester}</Badge>}
               {pending && Number.isFinite(expiresAt) && (
                 <span className="ml-auto text-[12px] tabular-nums text-muted" title={item.expiresAt ? `${t('agents_apr_expires_at')} ${formatTime(item.expiresAt, lang)}` : undefined}>
                   {t('agents_apr_auto_deny')} {countdown(expiresAt - now)}
@@ -70,6 +71,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
               <div className="space-y-1">
                 <p className="text-[14px] font-medium leading-5 text-fg">{item.description}</p>
                 <p className="font-mono text-[12px] text-primary">{item.tool}</p>
+                {item.requester && <p className="text-[13px] text-muted" data-testid="approval-requester-note">{t('agents_apr_client', { client: item.requester })}</p>}
                 <p className="text-[13px] text-muted">{t('agents_apr_risk')} <span className="font-medium text-fg">{riskLabel}</span> <code className="ml-1 text-[12px] text-faint">{item.risk}</code></p>
                 {item.reason && item.reason !== item.description && <p className="text-[13px] text-muted">{item.reason}</p>}
                 {item.expiresAt && (

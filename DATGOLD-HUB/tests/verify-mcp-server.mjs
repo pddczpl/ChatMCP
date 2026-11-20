@@ -551,7 +551,7 @@ try {
     } finally { await hub.stop(); }
   });
 
-  await test('hub.mjs: on, a client with the token lists hub_status and the host's read_file, and a shutdown closes the listener', async () => {
+  await test('hub.mjs: on, a client with the token lists hub_status and the host read_file, and a shutdown closes the listener', async () => {
     const port = await freePort();
     const scratchDir = folder('e2e-on');
     const hub = await startHub({ scratch: scratchDir, env: { [MCP_SERVER_VARIABLE]: 'on', [MCP_SERVER_PORT_VARIABLE]: String(port), CHATMCP_MCP_RUNTIME_DIR: runtime } });
