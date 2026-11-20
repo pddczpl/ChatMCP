@@ -824,7 +824,7 @@ export class AgentRunner {
     try {
       return await loadHistoryJournal(path.join(this.#directory(task.id), 'transcript.jsonl'), {
         maxBytes, beforeRun,
-        modelOutput: (result) => this.#modelOutput(result, { optimize: false }).output,
+        modelOutput: (result, { toolName }) => this.#modelOutput(result, { optimize: false, taskId: task.id, toolName }).output,
         redact: (text) => this.#redact(text),
       });
     } catch (error) {

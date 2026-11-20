@@ -206,7 +206,8 @@ function fitHistory(items, maxBytes) {
  * Reads the journal of a task back (see the top of this file).
  * @param {string} file the task's transcript.jsonl
  * @param {object} options
- * @param {(result: unknown) => unknown} options.modelOutput the output the model is given for a stored tool result
+ * @param {(result: unknown, info: {toolName: string}) => unknown} options.modelOutput the output the model is given for a stored tool result
+ *   (`toolName` is the name the result record carries)
  * @param {(text: string) => string} [options.redact] masking of the process that loads
  * @param {number} [options.maxBytes] the size the history must fit
  * @param {number} [options.beforeRun] runs from this one on are not read (the run that is starting); Infinity reads all, and keeps the skill
@@ -233,7 +234,7 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
   const take = (record) => {
     const type = record?.type;
     if (REFERENCES.has(type)) {
-      if (typeof record.call_id === 'string') results.set(`${type}\u0000${record.call_id}`, record.result);
+      if (typeof record.call_id === 'string') results.set(`${type}\u0000${record.call_id}`, { result: record.result, toolName: typeof record.toolName === 'string' ? record.toolName : '' });
       return;
     }
     if (!JOURNAL.has(type)) return;
@@ -252,7 +253,7 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
       return;
     }
     if (!current || record.run > current.run) {
-      if (record.run <= lastRun) { damage('corrupt'); return; }
+      if (lastRun >= record.run) { damage('corrupt'); return; }
       // a record of a run whose start record is not there
       lastRun = record.run;
       current = { run: record.run, start: null, end: null, entries: [], error: 'journal_gap', counters: null };
@@ -318,7 +319,7 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
     error ??= run.error;
     if (run.end && run.end.items !== run.entries.length) error ??= 'journal_gap';
     const { kept, cut } = cutIncompleteTail(run.entries);
-    entries.push(...kept);
+    for (const entry of kept) entries.push(entry); // not push(...kept): a long run has more items than a call takes arguments
     interrupted = cut;
     read += 1;
     last = run;
@@ -341,7 +342,7 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
   // 6-8. the outputs made again, the opaque reasoning left out, the masking of this process
   const made = entries.map((entry) => (entry.result === undefined
     ? { item: entry.item, masked: false }
-    : { item: { type: 'function_call_output', call_id: entry.item.call_id, output: modelOutput(entry.result) }, masked: true }));
+    : { item: { type: 'function_call_output', call_id: entry.item.call_id, output: modelOutput(entry.result.result, { toolName: entry.result.toolName }) }, masked: true }));
   const items = [];
   for (const { item, masked } of made) {
     const [kept] = stripOpaque([item]);
