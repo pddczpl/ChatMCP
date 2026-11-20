@@ -76,7 +76,8 @@ served one after the other in the order they were made. Not handled: two Hubs wr
 - Images: 8 at most, 5 MiB each (decoded), an `image/*` type and base64 data; audio: 2 clips, 5 MiB each, `audio/*`. 256 content items at most. Unknown
   content types are dropped, and the note names them (escaped, five at most). `isError` is kept exactly when it is `true`; a result that is not an object
   is an error.
-- Then the model-facing cap of `lib/token-optimization.mjs` `optimizeToolResult`, when a task is given.
+- Then the model-facing cap of `lib/token-optimization.mjs` `optimizeToolResult`, when a task is given. The agent loop (`lib/agent.mjs`) calls
+  `optimizeToolResult` on every tool result itself, so a caller whose result goes on through that path passes `optimize: false`.
 
 It does not:
 
