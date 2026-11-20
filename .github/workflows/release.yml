@@ -1,0 +1,335 @@
+# The one release workflow (docs/RELEASING.md). It replaces the 24 hand-written publish-vX.Y.Z.yml files: 18 started on every push to
+# main and 6 on every completion of CI on main, and each ended "skipped" unless the commit message named its release.
+#
+# It is started by hand only (workflow_dispatch), by the owner. Every value of the release is derived by scripts/Resolve-ReleaseInputs.ps1
+# from the repository at the commit that is built: the version (cross-checked in every file that carries it), the Companion version,
+# the release notes and the title from their first H1, the asset names (DatGoldSetup.exe, DatGold-Browser-Companion.zip, their .sha256
+# files and RELEASE-MANIFEST.json; no old-named Companion copy since v3.11.1) and the hash-pinned v3.9.0 upgrade baseline.
+#
+# dry_run (the default) builds and tests everything and verifies the assets, but creates no tag and no release: the publish job is skipped.
+# A real release (dry_run unticked) runs only from main, on the commit main points at, after the regular CI succeeded on that exact commit;
+# it never moves an existing tag and makes a draft first, then publishes it. The signature of RELEASE-MANIFEST.json is added by hand
+# afterwards: the update-manifest signing key never reaches CI.
+#
+# The name must keep starting with "Publish": scripts/InstallerPayload.ps1, scripts/tests/updater-e2e and Build-TestPair.ps1 refuse
+# test keys and throwaway builds when GITHUB_WORKFLOW is like 'Publish*'.
+name: Publish DatGold release
+run-name: "${{ inputs.dry_run && 'Dry run' || 'RELEASE' }} of ${{ inputs.version || 'the package.json version' }} from ${{ github.ref_name }}"
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version X.Y.Z; empty takes the one in DATGOLD-HUB/package.json. Every other file must agree.'
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: 'Dry run: build and test everything, create no tag and no release. Untick only to publish.'
+        required: false
+        default: true
+        type: boolean
+      prerelease:
+        description: 'Publish as a pre-release (a test build) that is never the latest release; the notes H1 must say "(test build)".'
+        required: false
+        default: false
+        type: boolean
+      companion_version:
+        description: 'Expected Companion version; empty takes DATGOLD-HUB/extension/manifest.json. A different value stops the run.'
+        required: false
+        default: ''
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: publish-datgold-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  resolve:
+    name: Resolve release inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.values.outputs.version }}
+      tag: ${{ steps.values.outputs.tag }}
+      title: ${{ steps.values.outputs.title }}
+      notes_file: ${{ steps.values.outputs.notes_file }}
+      prerelease: ${{ steps.values.outputs.prerelease }}
+      companion_version: ${{ steps.values.outputs.companion_version }}
+      installer_asset: ${{ steps.values.outputs.installer_asset }}
+      companion_asset: ${{ steps.values.outputs.companion_asset }}
+      manifest_asset: ${{ steps.values.outputs.manifest_asset }}
+      artifact_prefix: ${{ steps.values.outputs.artifact_prefix }}
+      baseline_tag: ${{ steps.values.outputs.baseline_tag }}
+      baseline_asset: ${{ steps.values.outputs.baseline_asset }}
+      baseline_version: ${{ steps.values.outputs.baseline_version }}
+      baseline_sha256: ${{ steps.values.outputs.baseline_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+      - name: A real release runs only from main
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "A release (dry_run=false) must be started on main, not $GITHUB_REF; a dry run may start anywhere."; exit 1
+          fi
+          echo "dry_run=$DRY_RUN ref=$GITHUB_REF commit=$GITHUB_SHA"
+      - name: Derive every value of the release from the repository
+        id: values
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          INPUT_COMPANION: ${{ inputs.companion_version }}
+        run: |
+          set -euo pipefail
+          resolve() { pwsh -NoProfile -NonInteractive -File scripts/Resolve-ReleaseInputs.ps1 -Version "$INPUT_VERSION" -Prerelease "$INPUT_PRERELEASE" -CompanionVersion "$INPUT_COMPANION" "$@"; }
+          baseline_tag=$(resolve | sed -n 's/^baseline_tag=//p')
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$baseline_tag" > "$RUNNER_TEMP/baseline-release.json"
+          resolve -BaselineRelease "$RUNNER_TEMP/baseline-release.json" -GitHubOutput "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+  browser:
+    name: Real Chromium MV3 delivery gate
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Run actual extension IPC on scripted pages, without live login
+        working-directory: DATGOLD-HUB/ui
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/companion-release-evidence/results.json
+        run: |
+          mkdir -p "$RUNNER_TEMP/companion-release-evidence"
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npx playwright test e2e/companion-ipc.spec.mjs --workers=1 --reporter=line,json
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ needs.resolve.outputs.artifact_prefix }}-browser-evidence
+          path: ${{ runner.temp }}/companion-release-evidence
+          if-no-files-found: error
+  windows:
+    name: Build and test installed Windows upgrade
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      COMPANION_VERSION: ${{ needs.resolve.outputs.companion_version }}
+      INSTALLER_ASSET: ${{ needs.resolve.outputs.installer_asset }}
+      COMPANION_ASSET: ${{ needs.resolve.outputs.companion_asset }}
+      MANIFEST_ASSET: ${{ needs.resolve.outputs.manifest_asset }}
+      BASELINE_TAG: ${{ needs.resolve.outputs.baseline_tag }}
+      BASELINE_ASSET: ${{ needs.resolve.outputs.baseline_asset }}
+      BASELINE_VERSION: ${{ needs.resolve.outputs.baseline_version }}
+      BASELINE_SHA256: ${{ needs.resolve.outputs.baseline_sha256 }}
+      INPUT_PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Guard exact commit and all component versions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/native-release-evidence" -Force | Out-Null
+          $env:GITHUB_SHA | Set-Content "$env:RUNNER_TEMP/native-release-evidence/commit.txt" -Encoding utf8
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'Wrong checkout' }
+          # The same derivation on this checkout must give the same answer as the resolve job.
+          $again = pwsh -NoProfile -NonInteractive -File scripts/Resolve-ReleaseInputs.ps1 -Version $env:VERSION -Prerelease $env:INPUT_PRERELEASE -CompanionVersion $env:COMPANION_VERSION
+          if ($LASTEXITCODE -ne 0) { throw 'Release inputs do not resolve on the Windows checkout' }
+          if (-not ($again -contains "version=$env:VERSION") -or -not ($again -contains "companion_version=$env:COMPANION_VERSION")) { throw 'Release inputs differ between the resolve job and the Windows checkout' }
+          $again | Set-Content "$env:RUNNER_TEMP/native-release-evidence/release-inputs.txt" -Encoding utf8
+      - name: Native health, ownership and transactional rollback regression
+        run: |
+          python -m unittest discover -s scripts/tests -p test_release_source.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Release source provenance regression failed' }
+          python -m unittest discover -s scripts/tests -p test_release_inputs.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Release input resolver regression failed' }
+          dotnet run --project scripts/tests/native-lifecycle/NativeLifecycle.Tests.csproj --configuration Release 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/native-unit.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Native unit regression failed' }
+          powershell -NoProfile -File scripts/tests/Test-InstallerPayload.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Installer payload regression failed' }
+      - name: Complete no-skip Hub regression
+        run: |
+          python -m pip install -r DATGOLD-HUB/tests/requirements-e2e.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+          git config --global user.email 'ci@example.invalid'
+          git config --global user.name 'ci'
+          node DATGOLD-HUB/tests/run-all.mjs --no-skip all --json "$env:RUNNER_TEMP/native-release-evidence/node-summary.json" 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/node-all.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Hub regression failed' }
+      - name: Build fresh versioned Windows installer
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/build.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+      - name: Retrieve published hash-pinned upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download $env:BASELINE_TAG --repo $env:GITHUB_REPOSITORY --pattern $env:BASELINE_ASSET --dir "$env:RUNNER_TEMP/native-baseline"
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/native-baseline/$env:BASELINE_ASSET" -Algorithm SHA256).Hash -ne $env:BASELINE_SHA256) { throw 'Baseline checksum mismatch' }
+      - name: Real setup upgrade, installed EXE lifecycle and uninstall
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/$env:BASELINE_ASSET" -CandidateInstaller "dist/$env:INSTALLER_ASSET" -ExpectedBaselineVersion $env:BASELINE_VERSION -ExpectedCandidateVersion $env:VERSION -OutputDirectory "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
+      - name: Native WebView2 smoke and canonical Companion parity
+        run: |
+          node DATGOLD-HUB/ui/e2e/webview2-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'WebView2 smoke failed' }
+          powershell -NoProfile -File scripts/Build-BrowserCompanion.ps1 -VerifyInstallerPayload
+          if ($LASTEXITCODE -ne 0) { throw 'Companion source/ZIP/payload parity failed' }
+      - name: Verify final asset checksums and record provenance
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = @()
+          foreach ($name in @("$env:INSTALLER_ASSET","$env:COMPANION_ASSET")) {
+            $file = Join-Path dist $name
+            $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $expected = ((Get-Content "$file.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+            if ($actual -ne $expected) { throw "Checksum mismatch: $name" }
+            $assets += [ordered]@{ name=$name; sha256=$actual; bytes=(Get-Item $file).Length }
+          }
+          $native = Get-Content "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle/report.json" -Raw | ConvertFrom-Json
+          if ($native.result -ne 'PASS' -or $native.candidateSha256 -ne $assets[0].sha256) { throw 'Native evidence does not match the release EXE' }
+          [ordered]@{ version=$env:VERSION; companionVersion=$env:COMPANION_VERSION; commit=$env:GITHUB_SHA; workflowRun=$env:GITHUB_RUN_ID; assets=$assets; signedInEdgeVerified=$false; authenticodeSigned=$false } | ConvertTo-Json -Depth 6 | Set-Content "dist/$env:MANIFEST_ASSET" -Encoding utf8
+          python scripts/verify-release-source.py --commit "$env:GITHUB_SHA" --evidence "$env:RUNNER_TEMP/native-release-evidence"
+          if ($LASTEXITCODE -ne 0) { throw 'Source or generated-UI payload provenance verification failed' }
+      - name: Upload tested release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ needs.resolve.outputs.artifact_prefix }}-Windows-and-Companion
+          path: |
+            dist/${{ needs.resolve.outputs.installer_asset }}
+            dist/${{ needs.resolve.outputs.installer_asset }}.sha256
+            dist/${{ needs.resolve.outputs.companion_asset }}
+            dist/${{ needs.resolve.outputs.companion_asset }}.sha256
+            dist/${{ needs.resolve.outputs.manifest_asset }}
+          if-no-files-found: error
+      - name: Preserve actual Windows evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ needs.resolve.outputs.artifact_prefix }}-native-evidence
+          path: ${{ runner.temp }}/native-release-evidence
+          if-no-files-found: error
+  verify:
+    name: Verify the exact commit and the built assets
+    needs: [resolve, browser, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      COMPANION_VERSION: ${{ needs.resolve.outputs.companion_version }}
+      INSTALLER_ASSET: ${{ needs.resolve.outputs.installer_asset }}
+      COMPANION_ASSET: ${{ needs.resolve.outputs.companion_asset }}
+      ARTIFACT_PREFIX: ${{ needs.resolve.outputs.artifact_prefix }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require regular CI success on this exact release commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A release counts the CI run of the push to main (or one started by hand on main); a dry run of a branch may also count the
+          # pull request run of that commit.
+          events='["push","workflow_dispatch"]'
+          if [ "$DRY_RUN" = true ]; then events='["push","workflow_dispatch","pull_request"]'; fi
+          for attempt in $(seq 1 60); do
+            result=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=100" --jq "[.workflow_runs[] | select(.event as \$e | $events | index(\$e))][0] | [.status // \"missing\", .conclusion // \"none\", .event // \"none\"] | @tsv")
+            read -r status conclusion event <<< "$result"
+            if [ "$status" = completed ]; then
+              test "$conclusion" = success || { echo "CI ($event) ended: $conclusion"; exit 1; }
+              echo "CI ($event) succeeded on $GITHUB_SHA"; exit 0
+            fi
+            sleep 15
+          done
+          echo 'CI did not finish successfully on this commit before the deadline'; exit 1
+      - name: Retrieve only artifacts from this successful workflow run
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_PREFIX-Windows-and-Companion" --dir dist
+      - name: Verify the asset hashes against the manifest
+        run: python3 -I scripts/verify-release-assets.py --dist dist --commit "$GITHUB_SHA" --version "$VERSION" --companion-version "$COMPANION_VERSION" --asset "$INSTALLER_ASSET" --asset "$COMPANION_ASSET"
+      - name: Say what a dry run did not do
+        if: ${{ inputs.dry_run }}
+        run: echo "Dry run of v$VERSION at $GITHUB_SHA passed every gate. No tag and no release were created; the publish job is skipped." | tee -a "$GITHUB_STEP_SUMMARY"
+  publish:
+    name: Publish verified release
+    needs: [resolve, verify]
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      TITLE: ${{ needs.resolve.outputs.title }}
+      NOTES_FILE: ${{ needs.resolve.outputs.notes_file }}
+      PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      COMPANION_VERSION: ${{ needs.resolve.outputs.companion_version }}
+      INSTALLER_ASSET: ${{ needs.resolve.outputs.installer_asset }}
+      COMPANION_ASSET: ${{ needs.resolve.outputs.companion_asset }}
+      MANIFEST_ASSET: ${{ needs.resolve.outputs.manifest_asset }}
+      ARTIFACT_PREFIX: ${{ needs.resolve.outputs.artifact_prefix }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Retrieve only artifacts from this successful workflow run and verify them again
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo 'A release is published from main only'; exit 1; }
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_PREFIX-Windows-and-Companion" --dir dist
+          python3 -I scripts/verify-release-assets.py --dist dist --commit "$GITHUB_SHA" --version "$VERSION" --companion-version "$COMPANION_VERSION" --asset "$INSTALLER_ASSET" --asset "$COMPANION_ASSET"
+      - name: Publish version tag without moving existing tags and release assets
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo 'main moved; refusing stale publication'; exit 1; }
+          if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+            test "$(git rev-list -n1 "$TAG")" = "$GITHUB_SHA" || { echo 'Tag points at another commit'; exit 1; }
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$TAG" -m "$TITLE" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+          if [ "$PRERELEASE" = true ]; then
+            gh release create "$TAG" "dist/$INSTALLER_ASSET" "dist/$INSTALLER_ASSET.sha256" "dist/$COMPANION_ASSET" "dist/$COMPANION_ASSET.sha256" "dist/$MANIFEST_ASSET" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease --title "$TITLE" --notes-file "$NOTES_FILE"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
+          else
+            gh release create "$TAG" "dist/$INSTALLER_ASSET" "dist/$INSTALLER_ASSET.sha256" "dist/$COMPANION_ASSET" "dist/$COMPANION_ASSET.sha256" "dist/$MANIFEST_ASSET" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TITLE" --notes-file "$NOTES_FILE"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi
+          echo "Published $TAG. Sign $MANIFEST_ASSET by hand and upload the signature (docs/RELEASING.md); the signing key never reaches CI." | tee -a "$GITHUB_STEP_SUMMARY"
