@@ -337,6 +337,7 @@ export class BrowserRunner {
     });
     await execution.load(desired);
     execution.hooks=this.manager.hooks; // the owner's hooks: this manager's own data folder holds none
+    execution.mcp=this.manager.mcp; // the owner's MCP servers and approvals: the web session sees the same catalog (not closed by this manager)
     assembleStudio(execution,{bundleRoot:this.manager.bundleRoot});
     await execution.permissions.load();
     execution.permissions.mode=this.manager.permissions?.mode||'review';

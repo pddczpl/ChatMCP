@@ -17,7 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { McpClientManager } from '../lib/mcp/client-manager.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
-import { FIXTURE_SERVER, HUB, counterLines, delay, descendants, freePort, missingReason, newDescendants, rawHttpToolsList, referenceServer, runtimeRoot, startHttpServer, waitFor } from './support/mcp-tools.mjs';
+import { FIXTURE_SERVER, HUB, autoApprove, counterLines, delay, descendants, freePort, missingReason, newDescendants, rawHttpToolsList, referenceServer, runtimeRoot, startHttpServer, waitFor } from './support/mcp-tools.mjs';
 
 const missing = missingReason();
 if (missing) {
@@ -65,12 +65,13 @@ try {
   const sseOnly = await startHttpServer(node, [referenceServer('server-everything').entry, 'sse'], { env: { ...process.env, PORT: String(sseOnlyPort), HOST: '127.0.0.1' } });
   servers.push(sseOnly);
 
-  manager = new McpClientManager({
+  // The owner's approvals of the lists are given as the suite goes (autoApprove); tests/verify-mcp-hardening.mjs tests them.
+  manager = autoApprove(new McpClientManager({
     hubDirectory: path.join(scratch, 'hub'), protector, runtimeRoots: [runtimeRoot()],
     registerSecret: (value) => { if (!registered.includes(value)) registered.push(value); },
     secrets: () => registered,
     log: (line) => logLines.push(line),
-  });
+  }));
 
   const negotiated = {};
   for (const [id, url] of [['everything', `http://127.0.0.1:${everythingPort}/mcp`], ['fixture', fixture.url], ['paged', paged.url], ['legacy', legacy.url]]) {

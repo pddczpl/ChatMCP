@@ -17,7 +17,7 @@ export const MCP_CLIENT_PACKAGE = '@modelcontextprotocol/client';
 export const MCP_CLIENT_VERSION = '2.4.0';
 export const RUNTIME_DIR_ENV = 'CHATMCP_MCP_RUNTIME_DIR';
 const HUB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const REQUIRED_EXPORTS = Object.freeze(['Client', 'StreamableHTTPClientTransport', 'ReadBuffer', 'serializeMessage', 'SdkError', 'SdkErrorCode']);
+const REQUIRED_EXPORTS = Object.freeze(['Client', 'StreamableHTTPClientTransport', 'ReadBuffer', 'serializeMessage', 'deserializeMessage', 'SdkError', 'SdkErrorCode']);
 
 const fault = (code, message, extra = {}) => Object.assign(new Error(message), { code, statusCode: 503, ...extra });
 
@@ -72,7 +72,7 @@ const loaded = new Map();
 /**
  * Imports the SDK (once per folder) and returns the parts the client manager uses.
  * @returns {Promise<Readonly<{root: string, version: string, Client: Function, StreamableHTTPClientTransport: Function, ReadBuffer: Function,
- *   serializeMessage: Function, SdkError: Function, SdkErrorCode: object, inheritedEnvironment: readonly string[], spawn: Function}>>}
+ *   serializeMessage: Function, deserializeMessage: Function, SdkError: Function, SdkErrorCode: object, inheritedEnvironment: readonly string[], spawn: Function}>>}
  */
 export async function loadMcpSdk({ roots = defaultRuntimeRoots() } = {}) {
   const located = locateMcpRuntime(roots);
@@ -107,6 +107,7 @@ async function importSdk(located) {
     StreamableHTTPClientTransport: index.StreamableHTTPClientTransport,
     ReadBuffer: index.ReadBuffer,
     serializeMessage: index.serializeMessage,
+    deserializeMessage: index.deserializeMessage,
     SdkError: index.SdkError,
     SdkErrorCode: index.SdkErrorCode,
     inheritedEnvironment: Object.freeze([...stdio.DEFAULT_INHERITED_ENV_VARS]),
