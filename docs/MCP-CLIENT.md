@@ -172,6 +172,32 @@ await mcp.disconnect(id); await mcp.close();
   connected the instruction text is 7,535 bytes (measured 2026-11-20; listing every name would be about 12 KB).
 - **Never read**: a workspace `.mcp.json`. Only `mcp-servers.json` in the Hub's data folder is a source of servers.
 
+## End to end (slice E, plan task ext-15)
+
+`tests/verify-mcp-agent-e2e.mjs` runs the whole path with nothing of the Hub stood in: the owner's `mcp-servers.json` (a bearer header stored
+protected, referenced as `${WEB_TOKEN}`), a `HubManager` assembled with `assembleStudio`, the real `AgentRunner` and `GatewayProvider` speaking
+OpenAI Chat Completions over HTTP to the repository's scripted model (`tests/e2e/mock-model-server.mjs` in strict mode: a request the real API
+would refuse fails the suite), the real gate, hooks, `ConcurrentApiAgent` and `BrowserRunner`. The servers are real SDK servers:
+server-everything 2.3.1 and server-filesystem 2.4.0 (the latter started through a `.cmd` wrapper on Windows, a `#!` script elsewhere, as `npx.cmd`
+would be) and the v2 SDK fixture `tests/fixtures/mcp-fixture-server.mjs` over stdio and over Streamable HTTP. The owner's approvals are given only
+through `launchRecord` + `approveLaunch` and `toolReview` + `approveTools`, each with `expectedFingerprint`. What it proves (gate G2):
+
+| G2 criterion | What the suite shows |
+|---|---|
+| 1. Real servers on both transports | Before any approval no external tool reaches the model, the four stdio servers are `needs_launch_approval` and none is started, nothing is called. After it, each server's catalog count equals an independent `tools/list` in the version it negotiated: server-everything 22, server-filesystem 16, the fixture 7 (2025-11-25 over stdio and over HTTP) and 307 (`--tools 300`), the HTTP fixture 7; `serverInfo` is the pinned reference servers'. `mcp_call` round-trips through the model's wire on both transports and both generations; the bearer header arrives (the fixture records its sha256) |
+| 2. Autonomous mode asks | `files.create_directory` (no rule) asks: one pending question with the MCP card, one `approval_requested` event, the task `waiting_approval`; "no" is permission denied and the directory is not made, "yes" makes it. `files.move_file` (`deny`) is refused without a question. Full Access runs `create_directory`, still refuses `move_file`, and asks for `write_file`, which the real server marks `destructiveHint: true`. A PreToolUse hook with the matcher `mcp__everything__echo` fires once, with `tool_aliases`. The Hub's `OPENAI_API_KEY` is in neither server-everything's environment (its `get-env`) nor any model request (the mock's watch), and nor is the bearer token. A server asking the client for sampling, the roots or an elicitation gets a definite refusal (JSON-RPC -32021, an `isError` result), no model request is made for it, the task goes on |
+| 3. Children and the web transport, without bloat | The parent's model calls `spawn_agent`; the child (auto tool selection, its own `HubManager`, the same client manager) is told of the external tools and calls one. A web-transport session lists and calls one. With 366 external tools on six servers (one of 307) the instructions the model received are 8,133 bytes (budget 10 KiB, which listing every name would break), name 30 external tools and summarise the rest per server; `mcp_catalog` with a filter finds `big.tool_250` and `mcp_call` runs it |
+| 4. Adversarial servers cannot silently widen scope | A stdio server killed during a call ends the task as `tool_transport_failed` with exactly one invocation; the next task reconnects and the call is not sent again. A description changed after approval quarantines the server at the next preflight (`needs_review`, the diff names the field): its tools leave that task's catalog and instructions, nothing reaches it, and the fingerprint of the old lists cannot approve the new ones; a tool added later is quarantined the same way and never offered. `HubManager.shutdown()` leaves no process (counted by parent pid, with every pid seen before it, the wrapper and the server below it included) |
+
+Measured on 2026-11-21 (Windows 11, Node.js 24.19.0): 14 checks in about 21 s. The mutation list `tests/mutation/mcp-agent-e2e.json` breaks
+the parts this path depends on (launch approval, pins at the preflight, the server's environment, the declared capabilities, the secret header,
+the `.cmd` shim, `destructiveHint`, the hook alias, the lost call, the instruction cap, the child's client manager, the shutdown).
+
+Not proven here: servers other than the two reference servers and the v2 fixture (servers on other SDKs, Python servers, an `npx` download);
+real editors and the real ChatGPT page (the suite plays the Companion's part through `BrowserRunner`'s API); a real model choosing tools (the
+model is scripted, and only the Chat Completions wire is used); the HTTP routes and the screen of slice D (the approvals are given in code);
+OAuth, `listChanged`, resource subscriptions and the tasks extension; a coding worker or an access manager calling an external tool.
+
 ## Approvals: the API slice D will call
 
 ```js
@@ -194,13 +220,14 @@ mcp.status().servers[i];      // state: idle | connecting | connected | needs_re
 | `tests/verify-mcp-client-http.mjs` | server-everything in its Streamable HTTP mode and the fixture on `createMcpHandler`: counts, negotiation in both eras, a secret header, the hung and the lost call, no SSE fallback, an absent server |
 | `tests/verify-mcp-hardening.mjs` | launch approval, pins and quarantine, sanitized lists, result ceiling, read limit, aborted and hung calls, no Authorization across origins, `.mcp.json`, no process left (MCP-HARDENING.md) |
 | `tests/verify-mcp-agent-seam.mjs` | the seam above with the real `AgentRunner`, a scripted model, `tests/fixtures/mcp-seam-server.mjs`, a `ConcurrentApiAgent` child and the web transport |
+| `tests/verify-mcp-agent-e2e.mjs` | the whole path with real servers ("End to end" above): the reference servers and the v2 fixture on both transports and both protocol generations, the real `GatewayProvider` over the strict scripted model, approvals through the API, the gate, a hook, the environment, a child, the web transport, 366 tools, a killed server, a changed server, the shutdown |
 
 The two transport suites of slice A approve as they go (`autoApprove` in `tests/support/mcp-tools.mjs`, test code only); the approvals
 themselves are tested in `verify-mcp-hardening.mjs`.
 
 The servers come from `DATGOLD-HUB/tests/fixtures/mcp-reference` (package.json and lock file; `npm ci --ignore-scripts --prefix
 DATGOLD-HUB/tests/fixtures/mcp-reference`), the SDK from `scripts/mcp-runtime`; CI installs both before `run-all --no-skip all`. Mutation lists:
-`tests/mutation/mcp-runtime.json`, `mcp-client-stdio.json`, `mcp-client-http.json`. Child processes are counted by parent pid (and by the pids
+`tests/mutation/mcp-runtime.json`, `mcp-client-stdio.json`, `mcp-client-http.json`, `mcp-agent-e2e.json`. Child processes are counted by parent pid (and by the pids
 the servers report), never by process name.
 
 ## Not verified
@@ -210,6 +237,6 @@ the servers report), never by process name.
 - Servers beyond the two reference servers and the fixtures (servers built on other SDKs, Python servers, npx downloads on a slow network).
 - OAuth for HTTP servers, `listChanged` notifications, resources subscriptions, the 2026-07-28 tasks extension.
 - A coding worker and an access manager of ConcurrentApiAgent calling an external tool: they are handed the client manager like a child, but no
-  test drives one. A real model choosing an MCP tool (the seam suite scripts the model).
+  test drives one. A real model choosing an MCP tool (the seam and end-to-end suites script the model).
 - The mutation runner copies only `DATGOLD-HUB`: `scripts/mcp-runtime/stage.mjs` and `verify.mjs` are checked by the tampering cases of
   `verify-mcp-runtime.mjs` and the seeded defects of `verify-notices.mjs`, not by mutants.

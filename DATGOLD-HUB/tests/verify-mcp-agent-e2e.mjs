@@ -39,6 +39,7 @@ import {
   FIXTURE_SERVER, HUB, counterLines, delay, descendants, missingReason, newDescendants, processTable, rawHttpToolsList, rawToolsList,
   referenceFolder, referencePins, referenceServer, runtimeRoot, startHttpServer,
 } from './support/mcp-tools.mjs';
+import { powerShellChildEnvironment, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const missing = missingReason();
 if (missing) {
@@ -113,7 +114,8 @@ const protector = createProtector({ bundleRoot: HUB, directory: hubDirectory });
 const STDIO = {
   everything: { transport: 'stdio', command: node, args: [everything.entry, 'stdio'], policy: { tools: { echo: 'allow', 'get-env': 'allow', 'get-sum': 'allow', 'trigger-sampling-request': 'allow', 'get-roots-list': 'allow', 'trigger-elicitation-request': 'allow' } } },
   files: { transport: 'stdio', command: wrapper, args: [shared], policy: { tools: { read_text_file: 'allow', write_file: 'allow', move_file: 'deny' } } },
-  legacy: { transport: 'stdio', command: node, args: [FIXTURE_SERVER, '--reference', reference, '--era', 'legacy', '--counter', legacyCounter], policy: { default: 'allow' } },
+  // callMs 15 s: a call that is sent again after the kill (the mutant R2 of tests/mutation/mcp-agent-e2e.json) hangs only that long.
+  legacy: { transport: 'stdio', command: node, args: [FIXTURE_SERVER, '--reference', reference, '--era', 'legacy', '--counter', legacyCounter], timeouts: { callMs: 15_000 }, policy: { default: 'allow' } },
   big: { transport: 'stdio', command: node, args: [FIXTURE_SERVER, '--reference', reference, '--tools', '300', '--mutable', mutable, '--counter', bigCounter], policy: { default: 'allow' } },
 };
 const HTTP = {
@@ -172,11 +174,22 @@ async function run(key, prompt = 'do it') {
 }
 const resultText = (entry, index) => toolText(entry.results[index]);
 const serverState = (id) => hub.mcp.status().servers.find((server) => server.id === id);
-// Every process below this one with its parent pid, for the final count: an orphan whose wrapper died has no living parent to be found by.
+// Every process below this one with its parent pid, for the final count: an orphan whose wrapper died has no living parent to be found by. What was
+// there before the Hub started is left out (when this process has no console of its own, Windows gives it a conhost.exe child for its whole life).
 const seen = new Map();
 async function remember() {
   const table = await processTable();
-  for (const pid of await descendants()) seen.set(pid, table.get(pid));
+  for (const pid of await descendants()) if (!baseline.includes(pid)) seen.set(pid, table.get(pid));
+}
+/** For a failure message only (processes are counted by parent pid, never by name): pid, parent pid, program and command line of each. */
+function describe(pids) {
+  try {
+    if (win) {
+      const filter = pids.map((pid) => `ProcessId=${Number(pid)}`).join(' OR ');
+      return execFileSync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process -Filter '${filter}' | ForEach-Object { "$($_.ProcessId) <- $($_.ParentProcessId) $($_.Name): $($_.CommandLine)" }`], { encoding: 'utf8', windowsHide: true, env: powerShellChildEnvironment() }).trim();
+    }
+    return pids.map((pid) => { try { return `${pid}: ${fsSync.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ')}`; } catch { return `${pid}: gone`; } }).join('; ');
+  } catch (error) { return `${pids.join(', ')} (${error.message})`; }
 }
 const httpPids = async () => { const pids = new Set(); for (const server of httpServers) { pids.add(server.child.pid); for (const pid of await descendants(server.child.pid)) pids.add(pid); } return pids; };
 
@@ -533,7 +546,7 @@ try {
     await hub.shutdown();
     shutDown = true;
     const left = (await newDescendants(baseline, [...seen].map(([pid, ppid]) => ({ pid, ppid })))).filter((pid) => !owned.has(pid));
-    assert.deepEqual(left, [], `processes left after HubManager.shutdown(): ${left.join(', ')}`);
+    assert.deepEqual(left, [], `processes left after HubManager.shutdown(): ${left.length ? describe(left) : ''}`);
     assert.equal(hub.mcp.closed, true);
     ok(`HubManager.shutdown() stops every server it started (${running.length} processes seen below this one, wrapper and server included) and leaves none behind, counted by parent pid`);
   }
