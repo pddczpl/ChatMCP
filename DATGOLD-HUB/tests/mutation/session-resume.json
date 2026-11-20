@@ -1,0 +1,677 @@
+{
+  "suite": "verify-session-resume.mjs",
+  "description": "True resume (P9 ac-17): the history journal the runner writes into transcript.jsonl, the loader that reads it back (lib/history-journal.mjs), HistoryLedger.seed, and the resume path of AgentRunner.start.",
+  "mutations": [
+    {
+      "name": "J1",
+      "what": "a missing or repeated seq is not noticed",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (record.seq !== current.entries.length) { damage('journal_gap'); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J2",
+      "what": "a reference whose result record is missing is not noticed",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (!results.has(key)) { damage('journal_gap'); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J3",
+      "what": "a record of another version is read as version 1",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (record.v !== JOURNAL_VERSION) { damage('unknown_version'); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J4",
+      "what": "a reference to a kind of record this Hub does not know is looked up anyway",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (!REFERENCES.has(item.output_ref)) { damage('unknown_version'); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J5",
+      "what": "a run that ended with more items than are there is not noticed",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (run.end && run.end.items !== run.entries.length) error ??= 'journal_gap';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J6",
+      "what": "a run that began from the checkpoint text does not start the history again",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (run.start && source !== 'journal') { entries = []; error = null; }",
+          "new": "if (false) { entries = []; error = null; }"
+        }
+      ]
+    },
+    {
+      "name": "J7",
+      "what": "a run seeded from a journal that is not there is accepted",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "else if (run.start && source === 'journal' && entries.length === 0 && Number(run.start.seed?.items) > 0) error ??= 'journal_gap';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J8",
+      "what": "the damage found in a run is forgotten",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "    error ??= run.error;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J9",
+      "what": "the interrupted tail turn is not cut",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (first < 0) return { kept: entries, cut: [] };",
+          "new": "if (true) return { kept: entries, cut: [] };"
+        }
+      ]
+    },
+    {
+      "name": "J10",
+      "what": "only the unanswered call is cut, not its whole turn",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "while (begin > 0 && entries[begin - 1].role === 'model' && entries[begin - 1].batch === batch) begin -= 1;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J11",
+      "what": "the cut goes back over model items of an earlier turn",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "while (begin > 0 && entries[begin - 1].role === 'model' && entries[begin - 1].batch === batch) begin -= 1;",
+          "new": "while (begin > 0 && entries[begin - 1].role === 'model') begin -= 1;"
+        }
+      ]
+    },
+    {
+      "name": "J12",
+      "what": "a cut call is never said to have had a result",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "result: answered.has(entry.item.call_id) }));",
+          "new": "result: false }));"
+        }
+      ]
+    },
+    {
+      "name": "J13",
+      "what": "the note is given the cut calls of every run, not of the last",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "    interrupted = cut;",
+          "new": "    interrupted.push(...cut);"
+        }
+      ]
+    },
+    {
+      "name": "J14",
+      "what": "Responses reasoning items come back",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (item?.type === 'reasoning') continue;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J15",
+      "what": "Anthropic thinking blocks come back",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const OPAQUE_KEYS = Object.freeze(['providerBlocks', ",
+          "new": "const OPAQUE_KEYS = Object.freeze(["
+        }
+      ]
+    },
+    {
+      "name": "J16",
+      "what": "the Gemini part of a call comes back with its signature",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "'providerPart', 'providerParts', ",
+          "new": "'providerParts', "
+        }
+      ]
+    },
+    {
+      "name": "J17",
+      "what": "the bytes of a picture are passed through the masking",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (typeof value === 'string') return isPictureBytes(key, value, parent) ? value : redact(value);",
+          "new": "if (typeof value === 'string') return redact(value);"
+        }
+      ]
+    },
+    {
+      "name": "J18",
+      "what": "the replay is not masked with the secret list of the process that loads",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "items.push(masked ? kept : redactValue(kept, redact));",
+          "new": "items.push(kept);"
+        }
+      ]
+    },
+    {
+      "name": "J19",
+      "what": "the size cap may start the history between a call and its result",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const restartsAt = (items, index) => items[index]?.role === 'user'",
+          "new": "const restartsAt = (items, index) => true || items[index]?.role === 'user'"
+        }
+      ]
+    },
+    {
+      "name": "J20",
+      "what": "a trimmed history does not say that items were left out",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (bytes <= maxBytes) return { items: [note, ...items.slice(index)], bytes, dropped: index };",
+          "new": "if (bytes <= maxBytes) return { items: items.slice(index), bytes, dropped: index };"
+        }
+      ]
+    },
+    {
+      "name": "J21",
+      "what": "the skill indexes of earlier runs are replayed",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "entries = entries.filter((entry) => entry.kind !== 'skill_context' || (keepLastSkillIndex && entry.run === last.run));",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J22",
+      "what": "a history read whole loses the skill index of its last run",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "entry.kind !== 'skill_context' || (keepLastSkillIndex && entry.run === last.run)",
+          "new": "entry.kind !== 'skill_context' || false"
+        }
+      ]
+    },
+    {
+      "name": "J23",
+      "what": "the summary record is never applied",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "    if (through >= 0) {",
+          "new": "    if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "J24",
+      "what": "the run that is starting is read too",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const counted = runs.filter((run) => run.run < beforeRun);",
+          "new": "const counted = runs;"
+        }
+      ]
+    },
+    {
+      "name": "J25",
+      "what": "the pairing is not repaired",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const fitted = fitHistory(pairToolCalls(items), maxBytes);",
+          "new": "const fitted = fitHistory(items, maxBytes);"
+        }
+      ]
+    },
+    {
+      "name": "J26",
+      "what": "a truncated last line makes the journal unusable",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (pendingBad) skippedLastLine = true;",
+          "new": "if (pendingBad) return { ok: false, reason: 'corrupt' };"
+        }
+      ]
+    },
+    {
+      "name": "J27",
+      "what": "a damaged line in the middle is skipped silently",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const settleBad = () => { if (pendingBad) { damage('corrupt'); pendingBad = false; } };",
+          "new": "const settleBad = () => { pendingBad = false; };"
+        }
+      ]
+    },
+    {
+      "name": "J28",
+      "what": "every line is parsed, the ones the history does not use included",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (head && !JOURNAL.has(head[1]) && !REFERENCES.has(head[1])) { settleBad(); return; }",
+          "new": "if (head && false) { settleBad(); return; }"
+        }
+      ]
+    },
+    {
+      "name": "J29",
+      "what": "the counters of the last run are not returned",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "counters: last.counters ?? null, runs: read,",
+          "new": "counters: null, runs: read,"
+        }
+      ]
+    },
+    {
+      "name": "J30",
+      "what": "history of a run whose start record is missing is accepted",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "current = { run: record.run, start: null, end: null, entries: [], error: 'journal_gap', counters: null };",
+          "new": "current = { run: record.run, start: null, end: null, entries: [], error: null, counters: null };"
+        }
+      ]
+    },
+    {
+      "name": "J31",
+      "what": "a journal with no item is given as an empty history",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (entries.length === 0) return { ok: false, reason: 'empty' };",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J32",
+      "what": "runs out of order are accepted",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "      if (record.run <= lastRun) { damage('corrupt'); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J33",
+      "what": "a record of an earlier run after a later one began is accepted",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (record.run !== current.run) { damage('corrupt'); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J34",
+      "what": "an item that is not an object is accepted",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (!isObject(item) || !ROLES.has(record.role)) { damage('corrupt'); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "J35",
+      "what": "the items of a run are spread into one call (a run of 130,000 items or more throws)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "for (const entry of kept) entries.push(entry); // not push(...kept): a long run has more items than a call takes arguments",
+          "new": "entries.push(...kept);"
+        }
+      ]
+    },
+    {
+      "name": "J36",
+      "what": "the text of a skill an earlier run loaded is replayed",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const outputOf = (entry) => (perRunTools.has(entry.result.toolName) &&",
+          "new": "const outputOf = (entry) => (false &&"
+        }
+      ]
+    },
+    {
+      "name": "J37",
+      "what": "the last run read whole loses the text of the skill it loaded",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "&& !(keepLastSkillIndex && entry.run === last.run)",
+          "new": "&& true"
+        }
+      ]
+    },
+    {
+      "name": "L1",
+      "what": "a ledger that holds items can be seeded",
+      "patches": [
+        {
+          "file": "lib/history-ledger.mjs",
+          "old": "if (this.#items.length || this.#batch) throw fault('ledger_not_empty'",
+          "new": "if (false) throw fault('ledger_not_empty'"
+        }
+      ]
+    },
+    {
+      "name": "L2",
+      "what": "a seeded call does not count as answered",
+      "patches": [
+        {
+          "file": "lib/history-ledger.mjs",
+          "old": "else if (item.type === 'function_call_output' && this.#open.has(id)) { this.#open.delete(id); this.#answered.add(id); }",
+          "new": "else if (item.type === 'function_call_output' && this.#open.has(id)) { this.#open.delete(id); }"
+        }
+      ]
+    },
+    {
+      "name": "L3",
+      "what": "a seed with a call that has no result is accepted",
+      "patches": [
+        {
+          "file": "lib/history-ledger.mjs",
+          "old": "if (this.#open.size) { this.clear(); throw fault('unpaired_seed'",
+          "new": "if (false) { this.clear(); throw fault('unpaired_seed'"
+        }
+      ]
+    },
+    {
+      "name": "L4",
+      "what": "an item that is not an object is seeded",
+      "patches": [
+        {
+          "file": "lib/history-ledger.mjs",
+          "old": "if (item === null || typeof item !== 'object' || Array.isArray(item)) { this.clear(); throw fault('invalid_item'",
+          "new": "if (false) { this.clear(); throw fault('invalid_item'"
+        }
+      ]
+    },
+    {
+      "name": "G1",
+      "what": "the ledger's items are not journaled",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "context.history.onAppend((item, meta) => this.#journalItem(context, item, meta));",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "G2",
+      "what": "a tool output is copied into the journal instead of referring to its result record",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "const reference = item?.type === 'function_call_output' ? journal.sources.get(item.call_id) ?? null : null;",
+          "new": "const reference = null;"
+        }
+      ]
+    },
+    {
+      "name": "G3",
+      "what": "a router answer is not referred to",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "context.journal?.sources.set(call.call_id, 'catalog_result');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "G4",
+      "what": "a tool result is not referred to",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "context.journal?.sources.set(call.call_id, 'tool_result_full');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "G5",
+      "what": "a resumed run never uses the journal",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "        if (loaded.ok) {",
+          "new": "        if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "G6",
+      "what": "the call ids of the replayed history are not known to the run",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "for (const item of loaded.items) if (item?.type === 'function_call' && typeof item.call_id === 'string') context.seenCalls.add(item.call_id);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "G7",
+      "what": "the resumed note is not sent (the checkpoint text is)",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "if (resumedNote) context.history.appendUser([{type:'input_text',text:resumedNote}], { kind:'resume_note' });",
+          "new": "if (false) context.history.appendUser([{type:'input_text',text:resumedNote}], { kind:'resume_note' });"
+        }
+      ]
+    },
+    {
+      "name": "G8",
+      "what": "an output read back from the journal is passed through the token optimiser",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "const optimized = options.optimize === false ? result : optimizeToolResult(result, options);",
+          "new": "const optimized = optimizeToolResult(result, options);"
+        }
+      ]
+    },
+    {
+      "name": "G9",
+      "what": "the fallback to the checkpoint text is not announced",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "await this.#event(task, 'resume_fallback',",
+          "new": "await this.#event(task, 'continuation_note',"
+        }
+      ]
+    },
+    {
+      "name": "G10",
+      "what": "the start of a run is not journaled",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "await this.#appendTranscript(task, runStartRecord({ at: now(), run: context.journal.run, seed, counters }));",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "G11",
+      "what": "the end of a run is not journaled",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "if (context.journal) await this.#appendTranscript(task, runEndRecord(",
+          "new": "if (false) await this.#appendTranscript(task, runEndRecord("
+        }
+      ]
+    },
+    {
+      "name": "G12",
+      "what": "the seed leaves no room for what the run adds",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "const reserve = Buffer.byteLength(context.instructions) + historyBytes([{ role: 'user', content: promptParts }]) + (context.skillContext ? Buffer.byteLength(context.skillContext) : 0) + RESUME_RESERVE_BYTES;",
+          "new": "const reserve = 0;"
+        }
+      ]
+    },
+    {
+      "name": "G13",
+      "what": "the note does not say how the previous run ended",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "previous: previousRun }));",
+          "new": "previous: null }));"
+        }
+      ]
+    },
+    {
+      "name": "G14",
+      "what": "the note lists no unverified operation",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "resumedNote = this.#redact(resumeNote({ unverified: task.unverifiedOperations ?? [],",
+          "new": "resumedNote = this.#redact(resumeNote({ unverified: [],"
+        }
+      ]
+    },
+    {
+      "name": "G15",
+      "what": "the seq of a resumed run counts the seed",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "seq: meta.index - journal.seedCount,",
+          "new": "seq: meta.index,"
+        }
+      ]
+    },
+    {
+      "name": "G16",
+      "what": "the counters are never written with an item",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "counters: changed ? counters : null }))",
+          "new": "counters: null }))"
+        }
+      ]
+    },
+    {
+      "name": "G17",
+      "what": "the end of a run does not carry its counters",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "items: context.history.length - context.journal.seedCount, counters: this.#journalCounters(context) }));",
+          "new": "items: context.history.length - context.journal.seedCount, counters: null }));"
+        }
+      ]
+    },
+    {
+      "name": "G18",
+      "what": "a seed is read as a whole history (the last run's skill index kept)",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "beforeRun: task.runs.length }), context.controller.signal);",
+          "new": "beforeRun: Infinity }), context.controller.signal);"
+        }
+      ]
+    },
+    {
+      "name": "G19",
+      "what": "a router answer is written after the history record that refers to it",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "            await this.#persist(task, { at: now(), type: 'catalog_result', call_id: call.call_id, toolName: call.name, result });",
+          "new": "            void (async () => { await new Promise((resolve) => setTimeout(resolve, 50)); await this.#persist(task, { at: now(), type: 'catalog_result', call_id: call.call_id, toolName: call.name, result }); })();"
+        }
+      ]
+    },
+    {
+      "name": "G20",
+      "what": "the runner does not name skill_load as a tool whose result belongs to its run",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "perRunTools: new Set([`chatmcp.${SKILL_LOAD_TOOL_NAME}`]),",
+          "new": "perRunTools: new Set(),"
+        }
+      ]
+    }
+  ]
+}

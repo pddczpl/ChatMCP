@@ -126,6 +126,30 @@ export class HistoryLedger {
     this.#notify([record]);
   }
 
+  /**
+   * Starts the history with the items a journal replayed when a conversation goes on (lib/history-journal.mjs). They are taken as they are,
+   * not copied (the caller hands them over and keeps no reference), and the listeners are not told: they are not new, and the journal has
+   * them already. Only into an empty ledger with no batch open, and every call must have its result (the loader repairs the pairing first);
+   * a seed that breaks that is refused and leaves the ledger empty. A seeded call counts as answered: a later result for its id is refused.
+   * Returns how many items.
+   */
+  seed(items) {
+    if (this.#items.length || this.#batch) throw fault('ledger_not_empty', 'Only an empty ledger with no model turn open can be seeded.');
+    if (!Array.isArray(items)) throw fault('invalid_item', 'A seed is a list of history items.');
+    for (const item of items) {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) { this.clear(); throw fault('invalid_item', 'A seeded history item must be an object.'); }
+      const index = this.#items.length;
+      this.#items.push(item);
+      this.#itemBytes += jsonBytes(item);
+      if (item.role === 'user') this.#lastUser = index;
+      const id = item.call_id;
+      if (item.type === 'function_call' && typeof id === 'string' && id && !this.#open.has(id) && !this.#answered.has(id)) this.#open.set(id, index);
+      else if (item.type === 'function_call_output' && this.#open.has(id)) { this.#open.delete(id); this.#answered.add(id); }
+    }
+    if (this.#open.size) { this.clear(); throw fault('unpaired_seed', 'A seeded call has no result: pair the history before seeding it.'); }
+    return items.length;
+  }
+
   /** What the next model request is built from: a new array over the ledger's own items (see the top of this file). */
   snapshotForModel() {
     return this.#items.slice();

@@ -14,6 +14,7 @@ import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
 import { EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
 import { taskToolSelectionMode, selectTaskToolNames, isExternalTool } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
+import { historyBytes, itemRecord, journalCounters, loadHistoryJournal, resumeNote, runEndRecord, runStartRecord } from './history-journal.mjs';
 import { withoutStaleThinking } from './thinking-blocks.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
 import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArguments, shapeAgentResults } from './agent-results.mjs';
@@ -37,6 +38,9 @@ const STATUSES = new Set(['running', 'completed', 'failed', 'cancelled', 'interr
 const EVENT_LIMIT = 200;
 const EVENT_TEXT_LIMIT = 12000;
 const MAX_CONTEXT_BYTES = 48 * 1024 * 1024;
+// What a resumed run adds besides its instructions, its skill index and its prompt (the resumed note, the notices of background agents): the
+// history replayed from the journal is cut to leave this much of the 48 MiB free (lib/history-journal.mjs).
+const RESUME_RESERVE_BYTES = 256 * 1024;
 const MAX_ARGUMENT_BYTES = 4 * 1024 * 1024;
 const TOOL_TIMEOUT = 120000;
 // Initializing a task is bounded even when the user has opted out of model request/time limits.
@@ -774,6 +778,70 @@ export class AgentRunner {
     return promise;
   }
 
+  /**
+   * One line of the transcript and nothing else (task.json and the report stay as they are): the history journal writes a line per ledger
+   * item, and rewriting the task file for each would double the work of a step. In order with every other write of the task.
+   */
+  #appendTranscript(task, entry) {
+    const line = JSON.stringify(this.#clean(entry, { transcript: true })) + '\n';
+    const previous = this.writes.get(task.id) ?? Promise.resolve();
+    const promise = previous.catch(() => {}).then(async () => {
+      const dir = this.#directory(task.id);
+      await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+      await fs.appendFile(path.join(dir, 'transcript.jsonl'), line, { mode: 0o600 });
+    });
+    this.writes.set(task.id, promise);
+    promise.catch(() => {});
+    return promise;
+  }
+
+  #journalCounters(context) {
+    return journalCounters({ hookRun: context.finalRun ?? null, noticeTurns: context.noticeTurns ?? 0 });
+  }
+
+  /**
+   * The ledger's listener: the history record of one item (lib/history-journal.mjs). A tool result whose whole result was just written
+   * (tool_result_full, catalog_result) is a reference to it. Never throws: a journal that cannot be written makes the next resume fall back to
+   * the checkpoint text (it finds the hole), it does not stop the run.
+   */
+  #journalItem(context, item, meta) {
+    const journal = context.journal;
+    try {
+      const reference = item?.type === 'function_call_output' ? journal.sources.get(item.call_id) ?? null : null;
+      if (reference) journal.sources.delete(item.call_id);
+      const counters = this.#journalCounters(context);
+      const encoded = JSON.stringify(counters);
+      const changed = encoded !== journal.lastCounters;
+      journal.lastCounters = encoded;
+      void this.#appendTranscript(context.task, itemRecord({ at: now(), run: journal.run, seq: meta.index - journal.seedCount, meta, item, reference, counters: changed ? counters : null }))
+        .catch((error) => this.log(this.#redact(`History journal: ${error.message}`)));
+    } catch (error) { this.log(this.#redact(`History journal: ${error.message}`)); }
+  }
+
+  /** The history of the task's earlier runs, read back from its journal (lib/history-journal.mjs), or why it cannot be. Reads, runs nothing. */
+  async #loadHistory(task, { maxBytes, beforeRun }) {
+    await this.writes.get(task.id)?.catch(() => {});
+    try {
+      return await loadHistoryJournal(path.join(this.#directory(task.id), 'transcript.jsonl'), {
+        maxBytes, beforeRun,
+        // The text of a skill belongs to the run that loaded it, as the skill index does (lib/history-journal.mjs, step 4).
+        perRunTools: new Set([`chatmcp.${SKILL_LOAD_TOOL_NAME}`]),
+        modelOutput: (result, { toolName }) => this.#modelOutput(result, { optimize: false, taskId: task.id, toolName }).output,
+        redact: (value) => this.#redact(value),
+      });
+    } catch (error) {
+      this.log(this.#redact(`History journal unreadable: ${error.message}`));
+      return { ok: false, reason: 'read_failed', detail: this.#redact(String(error?.message ?? error)).slice(0, 300) };
+    }
+  }
+
+  /** What the journal of a stopped task holds as its model history, read the way a resumed run reads it (all runs, the last one's skill index kept). */
+  async historyFromJournal(id, { maxBytes = MAX_CONTEXT_BYTES } = {}) {
+    if (!TASK_ID.test(id ?? '') || !this.tasks.has(id)) throw fault('task_not_found', 'Không tìm thấy phiên hội thoại.', 404);
+    if (this.activeTaskId === id) throw fault('task_running', 'Phiên này đang chạy.', 409);
+    return this.#loadHistory(this.tasks.get(id), { maxBytes, beforeRun: Infinity });
+  }
+
   async #event(task, type, message, extra = {}, detail) {
     const full = this.#clean({ at: now(), type, message: String(message), state: task.state, ...extra });
     const visible = { ...full, message: clip(full.message) };
@@ -1037,6 +1105,8 @@ export class AgentRunner {
       state: 'created', stateReason: 'task_created', stateChangedAt: initial, stateHistory: [{ at: initial, from: null, to: 'created', reason: 'task_created' }],
     };
     const priorContext = existing ? this.#resumeEvidence(task) : null;
+    // How the run before this one ended, for the note of a run that goes on from the journal (the fields are reset below).
+    const previousRun = existing ? { status: existing.status, errorCode: existing.errorCode ?? null, error: existing.error ?? null } : null;
     task.workspace = binding; task.model = config.model ?? ''; task.provider = config.provider ?? null;
     // Only public metadata is persisted; no key or decrypted credential may
     // appear in a task, tool transcript, checkpoint or API response.
@@ -1279,15 +1349,43 @@ export class AgentRunner {
         }
       }
       this.#check(context);
+      const promptParts = [{type:'input_text',text:cleanPrompt}, ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts];
+      // True resume (lib/history-journal.mjs): a conversation that goes on starts from the history its earlier runs wrote into the journal, and
+      // the model is told, in a short note, what is unverified; nothing is run to rebuild it. A task with no journal (written before it
+      // existed), or one the loader cannot use, goes on from the checkpoint text as before, and an event says why. The history that is read
+      // back leaves room in the 48 MiB for what this run adds.
+      let seed = { source: existing ? 'checkpoint' : 'none', items: 0, bytes: 2, dropped: 0, cut: 0 };
+      let resumedNote = null;
+      if (existing) {
+        const reserve = Buffer.byteLength(context.instructions) + historyBytes([{ role: 'user', content: promptParts }]) + (context.skillContext ? Buffer.byteLength(context.skillContext) : 0) + RESUME_RESERVE_BYTES;
+        const loaded = await abortable(this.#loadHistory(task, { maxBytes: MAX_CONTEXT_BYTES - reserve, beforeRun: task.runs.length }), context.controller.signal);
+        if (loaded.ok) {
+          context.history.seed(loaded.items);
+          for (const item of loaded.items) if (item?.type === 'function_call' && typeof item.call_id === 'string') context.seenCalls.add(item.call_id);
+          seed = { source: 'journal', items: loaded.items.length, bytes: loaded.bytes, dropped: loaded.dropped, cut: loaded.interrupted.length };
+          resumedNote = this.#redact(resumeNote({ unverified: task.unverifiedOperations ?? [], interrupted: loaded.interrupted, calls: loaded.calls, dropped: loaded.dropped, previous: previousRun }));
+        } else {
+          seed = { ...seed, reason: loaded.reason };
+          await this.#event(task, 'resume_fallback', loaded.reason === 'no_journal'
+            ? 'Phiên này được ghi trước khi có nhật ký lịch sử: model nhận bản tóm tắt checkpoint của phiên như trước.'
+            : `Không dùng được nhật ký lịch sử của phiên (${loaded.reason}): model nhận bản tóm tắt checkpoint như trước. Không thao tác nào được chạy lại.`, {}, { reason: loaded.reason, ...(loaded.detail ? { detail: loaded.detail } : {}) });
+        }
+      }
+      // From here every item that enters the ledger is written to the journal; the seed is not written again.
+      context.journal = { run: task.runs.length, seedCount: context.history.length, sources: new Map(), lastCounters: null };
+      const counters = this.#journalCounters(context);
+      context.journal.lastCounters = JSON.stringify(counters);
+      await this.#appendTranscript(task, runStartRecord({ at: now(), run: context.journal.run, seed, counters }));
+      context.history.onAppend((item, meta) => this.#journalItem(context, item, meta));
       if (context.skillContext) context.history.appendUser([{type:'input_text',text:context.skillContext}], { kind:'skill_context' });
       if (context.skillIndex && selectedSkills.length) {
         const { bytes, maxBytes, inline, onDemand, omitted, dropped, tool } = context.skillIndex;
         await this.#event(task, 'skills_activated', skillIndexMessage(selectedSkills.map((s) => s.name), context.skillIndex, allowance.index), { status: 'running', selectedSkills: task.selectedSkills, skillIndex: { bytes, maxBytes, inline, onDemand, omitted, dropped, tool, budget: cleanBudget(allowance.index) } });
       }
-      if (context.resumeEvidence) context.history.appendUser([{type:'input_text',text:context.resumeEvidence}], { kind:'resume_evidence' });
+      if (resumedNote) context.history.appendUser([{type:'input_text',text:resumedNote}], { kind:'resume_note' });
+      else if (context.resumeEvidence) context.history.appendUser([{type:'input_text',text:context.resumeEvidence}], { kind:'resume_evidence' });
       await this.#tellAboutAgents(context);
-      context.history.appendUser([{type:'input_text',text:cleanPrompt},
-        ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts], { kind:'prompt' });
+      context.history.appendUser(promptParts, { kind:'prompt' });
       this.#advance(task, 'planning', 'preflight_done');
       clearTimeout(context.preflightTimer);
       context.preflightTimer = null;
@@ -1334,6 +1432,8 @@ export class AgentRunner {
     if (task.runs?.length) Object.assign(task.runs.at(-1), {status:task.status,state:task.state,finishedAt:task.finishedAt,endStep:task.steps,endToolCalls:task.toolCalls,finalText:task.finalText || task.error || ''});
     if (task.finalText) { task.dialogue ??= []; task.dialogue.push({role:'assistant',at:task.finishedAt,text:task.finalText,run:task.runs?.length ?? 1}); }
     try {
+      // The run's end in the journal: how many items it committed (what waited in an open batch never entered the ledger), and its counters.
+      if (context.journal) await this.#appendTranscript(task, runEndRecord({ at: now(), run: context.journal.run, items: context.history.length - context.journal.seedCount, counters: this.#journalCounters(context) }));
       await this.#close(context);
       await this.#event(task, task.status, task.status === 'completed' ? 'Đã nhận phản hồi kết thúc của model. Xem kết quả và bằng chứng kiểm tra bên dưới.' : task.error || 'Tác vụ đã dừng.', { status: task.status });
     } catch (saveError) {
@@ -1576,6 +1676,11 @@ export class AgentRunner {
           // Tool call/output must be contiguous: adapters require a correctly paired
           // call/result history, and the ledger keeps a recovery hint behind every result of this turn.
           const converted=this.#modelOutput(result,{ taskId: task.id, toolName: actualName });
+          // A router answer is written whole before the history record that refers to it (lib/history-journal.mjs: a reference points back).
+          if (call.name === 'mcp_catalog' || call.name === 'mcp_describe' || (call.name === 'mcp_capabilities' && result && Object.hasOwn(result, 'servers'))) {
+            await this.#persist(task, { at: now(), type: 'catalog_result', call_id: call.call_id, toolName: call.name, result });
+            context.journal?.sources.set(call.call_id, 'catalog_result');
+          }
           context.history.appendToolOutput(call.call_id,converted.output);
           if(verified)await this.#event(task,'goal_evidence',
             'Bằng chứng được host kiểm tra: '+verified.kind+
@@ -1592,9 +1697,6 @@ export class AgentRunner {
             await this.#event(task,'progress_stalled','Đã thử hai chiến lược nhưng vẫn lặp bằng chứng; lưu checkpoint và dừng.',{},{
               progress:task.progress,verifiedSummary:evidenceReport(task.progress,task.goalPlan)});
             throw fault('progress_stalled','Agent bị đình trệ sau hai lần đổi chiến lược. Công cụ không tạo thêm bằng chứng độc lập; xem kế hoạch, Git diff và kết quả test thực trước khi tiếp tục.');
-          }
-          if (call.name === 'mcp_catalog' || call.name === 'mcp_describe' || (call.name === 'mcp_capabilities' && result && Object.hasOwn(result, 'servers'))) {
-            await this.#persist(task, { at: now(), type: 'catalog_result', call_id: call.call_id, toolName: call.name, result });
           }
           for (const warning of converted.warnings) await this.#event(task, 'media_notice', warning, { toolName: call.name });
         }
@@ -1775,6 +1877,8 @@ export class AgentRunner {
     // Record even an isError result, then give it to the model for recovery.
     // Persist the result before clearing the pending marker.
     await this.#persist(task, { at: now(), type: 'tool_result_full', toolName, call_id: call.call_id, result });
+    // The history record of this result refers to the record just written instead of copying it (lib/history-journal.mjs).
+    context.journal?.sources.set(call.call_id, 'tool_result_full');
     // The checkpoint the guard made for THIS call (only a call that changes files has one), noted on the pending call by #checkpointed before the call ran.
     const checkpointId = task.pendingCall?.checkpointId;
     task.pendingCall = null;
@@ -1813,8 +1917,9 @@ export class AgentRunner {
     return JSON.stringify(mediaSafe(result), null, 2) ?? '(Công cụ không trả nội dung.)';
   }
 
+  // `optimize: false` (a result read back from the journal): the token optimiser's receipts live in memory only, so the output is the whole result.
   #modelOutput(result, options = {}) {
-    const optimized = optimizeToolResult(result, options);
+    const optimized = options.optimize === false ? result : optimizeToolResult(result, options);
     const images = [];
     const warnings = [];
     const walk = (item) => {
