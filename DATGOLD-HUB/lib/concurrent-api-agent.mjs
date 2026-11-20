@@ -280,6 +280,7 @@ export class ConcurrentApiAgent {
           dataDirectory: path.join(this.directory, 'workspace-access', stable), log: this.log });
         await access.load(sourceRoot);
         access.hooks = this.manager.hooks; // the owner's hooks, as for a child: its own data folder holds none
+        access.mcp = this.manager.mcp; // the owner's MCP servers and approvals, shared (it never closes them: mcpOwned stays false)
         assembleStudio(access, { bundleRoot: this.bundleRoot });
         await access.permissions.load();
         access.permissions.mode = this.manager.permissions?.mode || 'review';
@@ -436,6 +437,9 @@ export class ConcurrentApiAgent {
     // agent without the owner's hooks. The project's own file is looked for where the project is, not in the agent's worktree.
     manager.hooks = this.manager.hooks;
     manager.hooksProjectRoot = record.sourceRoot;
+    // The SAME McpClientManager as the Hub's, for the same reason: the child offers the owner's approved servers, under the owner's policy, and its
+    // shutdown does not close them (mcpOwned stays false). Its own data folder holds no mcp-servers.json.
+    manager.mcp = this.manager.mcp;
     // Only an agent that another agent started (spawn_agent, a workflow) ends with SubagentStop; a conversation a person started, even one that runs
     // here because the first was busy, ends with Stop.
     if (record.parentTaskId) manager.lifecycleAgent = { kind: 'subagent', role: record.role || null, parentTaskId: record.parentTaskId, conversationId: record.conversationId || record.parentTaskId, workflowId: record.workflowId || null, phaseId: record.phaseId || null };
