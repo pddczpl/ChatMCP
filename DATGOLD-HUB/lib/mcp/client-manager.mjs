@@ -864,7 +864,8 @@ export class McpClientManager {
   }
 
   /**
-   * One tools/call. The timeout (timeoutMs, else the server's timeouts.callMs) covers the whole call, progress included; when it passes the SDK
+   * One tools/call. The timeout (the server's timeouts.callMs, or the caller's timeoutMs when that is shorter: the agent passes its own deadline,
+   * and the owner's word for the server must still hold) covers the whole call, progress included; when it passes the SDK
    * sends notifications/cancelled and this rejects with `mcp_call_timeout`. Nothing is ever sent twice. A caller's abort before anything was
    * sent rejects with the signal's reason; after the request went out it rejects with mcp_call_aborted, executed: 'unknown'. The result goes
    * through limitToolResult (the 8 MiB ceiling, only png/jpeg/gif/webp images), so only {content, structuredContent?, isError?} comes back.
@@ -875,7 +876,7 @@ export class McpClientManager {
     const tool = connection.rawTools.get(name);
     if (!tool || !connection.tools.has(name)) throw fault('mcp_tool_unknown', `The MCP server "${serverId}" has no tool "${String(name).slice(0, 128)}".`, { statusCode: 404, executed: false });
     if (!isObject(args)) throw fault('mcp_arguments_invalid', 'The arguments of an MCP tool call must be an object.', { statusCode: 400, executed: false });
-    const requested = Number.isFinite(timeoutMs) ? timeoutMs : connection.timeouts.callMs;
+    const requested = Number.isFinite(timeoutMs) ? Math.min(timeoutMs, connection.timeouts.callMs) : connection.timeouts.callMs;
     const limit = Math.min(MAX_CALL_TIMEOUT_MS, Math.max(MIN_CALL_TIMEOUT_MS, Math.trunc(requested)));
     signal?.throwIfAborted();
     const channel = connection.channel;
@@ -906,7 +907,7 @@ export class McpClientManager {
     const connection = await this.#usable(serverId, signal);
     if (!connection.prompts.some((prompt) => prompt.name === name)) throw fault('mcp_prompt_unknown', `The MCP server "${serverId}" has no prompt "${String(name).slice(0, 128)}".`, { statusCode: 404, executed: false });
     if (!isObject(args) || Object.values(args).some((value) => typeof value !== 'string')) throw fault('mcp_arguments_invalid', 'The arguments of an MCP prompt must be strings.', { statusCode: 400, executed: false });
-    const timeout = Math.min(MAX_CALL_TIMEOUT_MS, Math.max(MIN_CALL_TIMEOUT_MS, Math.trunc(Number.isFinite(timeoutMs) ? timeoutMs : connection.timeouts.callMs)));
+    const timeout = Math.min(MAX_CALL_TIMEOUT_MS, Math.max(MIN_CALL_TIMEOUT_MS, Math.trunc(Number.isFinite(timeoutMs) ? Math.min(timeoutMs, connection.timeouts.callMs) : connection.timeouts.callMs)));
     const answer = await this.#request(connection, () => connection.client.getPrompt({ name, arguments: args }, { signal, timeout }), `${serverId}:prompts/get:${name}`, signal);
     return bounded(answer, 'prompt');
   }
@@ -917,7 +918,7 @@ export class McpClientManager {
     const connection = await this.#usable(serverId, signal);
     if (!connection.capabilities?.resources) throw fault('mcp_capability_missing', `The MCP server "${serverId}" does not offer resources.`, { statusCode: 400, executed: false });
     if (typeof uri !== 'string' || !uri || uri.length > 32_768) throw fault('mcp_arguments_invalid', 'A resource URI must be a non-empty string.', { statusCode: 400, executed: false });
-    const timeout = Math.min(MAX_CALL_TIMEOUT_MS, Math.max(MIN_CALL_TIMEOUT_MS, Math.trunc(Number.isFinite(timeoutMs) ? timeoutMs : connection.timeouts.callMs)));
+    const timeout = Math.min(MAX_CALL_TIMEOUT_MS, Math.max(MIN_CALL_TIMEOUT_MS, Math.trunc(Number.isFinite(timeoutMs) ? Math.min(timeoutMs, connection.timeouts.callMs) : connection.timeouts.callMs)));
     const answer = await this.#request(connection, () => connection.client.readResource({ uri }, { signal, timeout }), `${serverId}:resources/read`, signal);
     return bounded(answer, 'resource');
   }

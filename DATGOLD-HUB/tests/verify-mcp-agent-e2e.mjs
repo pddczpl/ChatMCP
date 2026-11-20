@@ -490,7 +490,8 @@ try {
     const before = counterLines(legacyCounter).filter((line) => line === 'call sleep').length;
     script('HUNG', [mcpCall('legacy.sleep')]);
     const started = Date.now();
-    const task = await Promise.race([run('HUNG'), delay(30_000).then(() => null)]);
+    let timer;
+    const task = await Promise.race([run('HUNG'), new Promise((resolve) => { timer = setTimeout(resolve, 30_000, null); })]).finally(() => clearTimeout(timer));
     const elapsed = Date.now() - started;
     assert.ok(task, `the hung call did not end within 30 s: the owner's timeouts.callMs of ${STDIO.legacy.timeouts.callMs} ms was not applied`);
     assert.equal(task.status, 'failed');
@@ -582,3 +583,5 @@ try {
   await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });
 }
 if (!process.exitCode) console.log(`PASS mcp-agent-e2e: ${checks} checks`);
+// Everything was closed and counted above; an idle keep-alive or a timer of a closed runner must not hold the run.
+process.exit(process.exitCode ?? 0);
