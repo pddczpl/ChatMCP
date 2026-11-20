@@ -203,6 +203,71 @@ const runs = (workflow, events) => events.filter((event) => triggers(workflow, e
   ok(`${mutations.length} defects put into in-memory copies of the workflows (an old glob back, no branch filter, a pinned branch, a lost docs path, the old concurrency group, cancelled main runs, docs no longer ignored) are each detected`);
 }
 
+// ---- 7. one release workflow, started by hand only, a dry run unless the owner unticks it ---------------------------------------------------
+// Up to v3.11.2 every release had its own publish-vX.Y.Z.yml (30 files) that started on every push to main and ended "skipped" unless the
+// commit message began with "release: ChatMCP vX.Y.Z". release.yml replaces them (docs/RELEASING.md); scripts/Resolve-ReleaseInputs.ps1
+// derives every value, so the file names no version at all.
+const releaseRules = (text) => {
+  const problems = [];
+  const workflow = parseWorkflow(text);
+  const events = Object.keys(workflow.on);
+  if (events.length !== 1 || events[0] !== 'workflow_dispatch') problems.push(`release.yml starts on ${JSON.stringify(events)}, it may start on workflow_dispatch only`);
+  for (const event of [
+    { name: 'push', branch: 'main', files: ['DATGOLD-HUB/package.json'] },
+    { name: 'push', tag: 'v3.12.0', files: [] },
+    { name: 'pull_request', action: 'synchronize', base: 'main', head: 'feat/x', files: ['.github/workflows/release.yml'] },
+  ]) if (triggers(workflow, event)) problems.push(`release.yml is started by ${event.name}`);
+  const inputs = workflow.on.workflow_dispatch?.inputs ?? {};
+  if (inputs.dry_run?.type !== 'boolean' || inputs.dry_run?.default !== true) problems.push('release.yml: the input dry_run must be a boolean that defaults to true');
+  if (inputs.prerelease?.type !== 'boolean' || inputs.prerelease?.default !== false) problems.push('release.yml: the input prerelease must be a boolean that defaults to false');
+  if (inputs.version?.default !== '') problems.push('release.yml: the input version must default to empty (the version of DATGOLD-HUB/package.json)');
+  if (!/^name: Publish /m.test(text)) problems.push('release.yml: the name must start with "Publish" (InstallerPayload.ps1 and the updater e2e tools refuse test keys in a workflow named Publish*)');
+  const publish = /^ {2}publish:\n([\s\S]*?)(?=^ {2}\S|(?![\s\S]))/m.exec(text)?.[1] ?? '';
+  if (!/^ {4}if: \$\{\{ inputs\.dry_run == false \}\}$/m.test(publish)) problems.push('release.yml: the publish job must run only when dry_run is false');
+  if (!/^ {4}needs: \[resolve, verify\]$/m.test(publish)) problems.push('release.yml: the publish job must wait for the verify job');
+  const writers = [...text.matchAll(/^ +contents: write$/gm)].length;
+  if (writers !== 1 || !/^ {6}contents: write$/m.test(publish)) problems.push(`release.yml: only the publish job may write (found ${writers} "contents: write")`);
+  if (/gh release create|git push|git tag /.test(text.replace(publish, ''))) problems.push('release.yml: a tag or a release is made outside the publish job');
+  const code = text.replace(/^\s*#.*$/gm, ''); // full-line comments may tell the history
+  if (/head_commit\.message|release: ChatMCP/.test(code)) problems.push('release.yml still reads a release commit message');
+  const versions = code.match(/\bv?\d+\.\d+\.\d+\b/g);
+  if (versions) problems.push(`release.yml hard-codes the versions ${[...new Set(versions)].join(', ')}; scripts/Resolve-ReleaseInputs.ps1 derives them`);
+  for (const [label, pattern] of [
+    ['the exact-commit CI gate', /actions\/workflows\/ci\.yml\/runs\?head_sha=\$GITHUB_SHA/],
+    ['the "main moved" guard', /git ls-remote origin refs\/heads\/main \| cut -f1\)" = "\$GITHUB_SHA"/],
+    ['the guard that never moves a tag', /test "\$\(git rev-list -n1 "\$TAG"\)" = "\$GITHUB_SHA"/],
+    ['a draft first', /gh release create [^\n]*--draft/],
+    ['the resolver', /scripts\/Resolve-ReleaseInputs\.ps1/],
+    ['the asset check before publication', /scripts\/verify-release-assets\.py/],
+  ]) if (!pattern.test(publish + text)) problems.push(`release.yml lost ${label}`);
+  return problems;
+};
+{
+  assert.deepEqual(files.filter((name) => /^publish-v/.test(name)), [], 'the publish-vX.Y.Z.yml files are gone: release.yml is the one release workflow');
+  const releasing = files.filter((name) => /gh release (create|edit|upload)|git push origin "?refs\/tags/.test(source[name]));
+  assert.deepEqual(releasing, ['release.yml'], 'exactly one workflow creates tags or releases');
+  assert.deepEqual(releaseRules(source['release.yml']), []);
+  ok('one release workflow: release.yml starts on workflow_dispatch only, dry_run defaults to true, only its publish job writes and runs only when dry_run is false; no publish-v*.yml is left');
+  const text = source['release.yml'];
+  const mutations = [
+    ['a push trigger added back', (t) => t.replace('on:\n  workflow_dispatch:\n', 'on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n')],
+    ['dry_run defaulting to false', (t) => t.replace(/(dry_run:\n(?: {8}.*\n)*? {8}default: )true/, '$1false')],
+    ['dry_run as a string', (t) => t.replace(/(dry_run:\n(?: {8}.*\n)*? {8}type: )boolean/, '$1string')],
+    ['the publish job without its condition', (t) => t.replace('    if: ${{ inputs.dry_run == false }}\n', '')],
+    ['a hard-coded version', (t) => t.replace('TAG: ${{ needs.resolve.outputs.tag }}', 'TAG: v3.12.0')],
+    ['the release commit message back', (t) => t.replace('  resolve:\n', "  resolve:\n    if: startsWith(github.event.head_commit.message, 'release: ChatMCP')\n")],
+    ['the verify job writing', (t) => t.replace('    permissions:\n      contents: read\n      actions: read\n', '    permissions:\n      contents: write\n      actions: read\n')],
+    ['the main-moved guard dropped', (t) => t.replace(/ +test "\$\(git ls-remote origin refs\/heads\/main[^\n]*\n/, '')],
+    ['a name that no longer starts with Publish', (t) => t.replace('name: Publish DatGold release', 'name: DatGold release')],
+  ];
+  for (const [label, change] of mutations) {
+    const after = change(text);
+    assert.notEqual(after, text, `the mutation "${label}" changed nothing`);
+    assert.notDeepEqual(releaseRules(after), [], `the defect "${label}" was not detected`);
+  }
+  ok(`${mutations.length} defects put into an in-memory copy of release.yml (push trigger, dry_run false or a string, no condition on publish, a version, the commit message, a second writer, no main-moved guard, another name) are each detected`);
+}
+
 // ---------------------------------------------------------------------------------------------------------------- model-catalog.yml: a weekly job that may write a branch, and nothing more
 // It holds a token that can push and open a pull request, so it must never be started by what a pull request carries, and what it uses must be pinned. It rebuilds the snapshot of models.dev
 // that new installs start from; a person merges what it offers.

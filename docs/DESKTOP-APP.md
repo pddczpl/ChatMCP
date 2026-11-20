@@ -96,14 +96,14 @@ Dùng máy ảo Windows sạch, ghi lại kết quả:
 
 Không đánh dấu bước này hoàn tất chỉ vì dotnet build hoặc CI xanh.
 
-## 5. Phát hành: workflow publish và chữ ký của manifest
+## 5. Phát hành: workflow release và chữ ký của manifest
 
-Tag và GitHub Release không được tạo bằng tay. Mỗi phiên bản có workflow riêng `.github/workflows/publish-vX.Y.Z.yml` (mẫu mới nhất: `publish-v3.11.2.yml`). Nó chỉ chạy khi vào `main` một commit có đúng tiêu đề phát hành mà workflow đó kiểm (dòng `if:` của các job), và trên đúng commit đó:
+Tag và GitHub Release không được tạo bằng tay. Chỉ có một workflow phát hành, `.github/workflows/release.yml` ("Publish DatGold release"); chủ dự án chạy nó bằng tay (`workflow_dispatch`), một push không bao giờ khởi động nó. Các bước chính xác, các giá trị được suy ra và cách chạy thử nằm trong [RELEASING.md](RELEASING.md). Đến v3.11.2 mỗi phiên bản có một `publish-vX.Y.Z.yml` riêng, chạy khi vào `main` một commit có tiêu đề phát hành của đúng phiên bản đó; các file đó đã bị xóa. Trên đúng commit được chạy, workflow:
 
-1. kiểm tra commit và mọi số phiên bản (Hub, UI, hai project .NET, Companion);
-2. chạy cổng Chromium MV3 của Companion, toàn bộ test Hub không bỏ qua, build installer mới, nâng cấp thật từ bản 3.9.0 đã phát hành, vòng đời của EXE đã cài, gỡ cài và smoke WebView2;
+1. suy ra phiên bản, phiên bản Companion, file ghi chú phát hành, tiêu đề (từ dòng H1 đầu tiên của ghi chú) và tên các file tải về bằng `scripts/Resolve-ReleaseInputs.ps1`, và dừng nếu các file (Hub, UI, lock, hai project .NET, Companion) không khớp nhau;
+2. chạy cổng Chromium MV3 của Companion, toàn bộ test Hub không bỏ qua, build installer mới, nâng cấp thật từ bản 3.9.0 đã phát hành (ghim bằng SHA-256), vòng đời của EXE đã cài, gỡ cài và smoke WebView2;
 3. so checksum và ghi `RELEASE-MANIFEST.json` (phiên bản, commit, lần chạy, tên, kích thước và SHA-256 của `DatGoldSetup.exe` và `DatGold-Browser-Companion.zip`);
-4. chỉ khi CI thường đã xanh trên commit đó: đẩy tag (một tag đã có không bao giờ bị dời) và tạo release với `DatGoldSetup.exe`, `DatGold-Browser-Companion.zip`, hai file `.sha256` và `RELEASE-MANIFEST.json`, đánh dấu latest.
+4. chỉ khi CI thường đã xanh trên commit đó, và chỉ khi `dry_run` được bỏ chọn (mặc định là chạy thử, không tạo gì): đẩy tag (một tag đã có không bao giờ bị dời) và tạo release nháp rồi phát hành với `DatGoldSetup.exe`, `DatGold-Browser-Companion.zip`, hai file `.sha256` và `RELEASE-MANIFEST.json`, đánh dấu latest (hoặc pre-release khi chọn `prerelease`).
 
 Workflow không ký. Chữ ký `RELEASE-MANIFEST.json.sig` (ECDSA P-256 trên đúng các byte của manifest đã phát hành) do chủ dự án thêm sau đó, bằng tay và ngoại tuyến, với khóa riêng không nằm trong thư mục Git nào:
 

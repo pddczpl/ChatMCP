@@ -11,7 +11,7 @@ Two numbers decide whether CI can be trusted as evidence: **how many runs one pu
 | `dco.yml` | `pull_request` (opened, reopened, synchronize, edited) | nothing | `dco-<PR number>` |
 | `browser-companion-regression.yml` | `pull_request` and `push` to `main`, only for the Companion paths it lists; `workflow_dispatch` | other changes | `browser-companion-<PR number or ref>` |
 | `browser-companion-package.yml` | the same, for the extension and its packaging scripts | other changes | `companion-zip-<PR number or ref>` |
-| `publish-v*.yml` | push to `main` (18 files) or completion of CI on `main` (6 files); each job is guarded by a condition on the commit | nothing at the trigger | per commit |
+| `release.yml` (Publish DatGold release) | `workflow_dispatch` only, started by the owner ([RELEASING.md](RELEASING.md)); a push never starts it | nothing: it is never started by a push or a pull request | `publish-datgold-<commit>`, never cancelled |
 
 What was wrong: `ci.yml` ran on `push` for `main` and for `dev/**`, `fix/**`, `feat/**`, `refactor/**` **and** on `pull_request`, so every push to a branch with a pull request started it twice. `browser-companion-regression.yml` and `browser-companion-package.yml` each pinned one feature branch in `push` with the same effect. `phase1-component-tests.yml` was pinned to a branch that no longer exists; it is deleted, and the suites it ran are part of `node tests/run-all.mjs` in `ci.yml`. A branch **without** a pull request is no longer built on push; open the pull request, or start `ci.yml` by hand (`workflow_dispatch`).
 
@@ -23,7 +23,7 @@ If branch protection makes jobs of `ci.yml` **required** status checks, a docume
 
 ## How "one run per push" was checked without GitHub
 
-`tests/verify-ci-triggers.mjs` reads the real workflow files with a small model of GitHub's trigger rules (`tests/fixtures/workflow-triggers.mjs`: branch, tag and path filters with `*`, `**` and `!`, the default activity types of `pull_request`, the rule that `paths-ignore` skips a run only when every changed file matches, and the concurrency group with its expressions). It replays the events GitHub sends for one pushed commit, and for each of the 23 workflow files asserts at most one run:
+`tests/verify-ci-triggers.mjs` reads the real workflow files with a small model of GitHub's trigger rules (`tests/fixtures/workflow-triggers.mjs`: branch, tag and path filters with `*`, `**` and `!`, the default activity types of `pull_request`, the rule that `paths-ignore` skips a run only when every changed file matches, and the concurrency group with its expressions). It replays the events GitHub sends for one pushed commit, and for each workflow file asserts at most one run:
 
 - a push to a branch that has an open pull request: the `push` event and the `pull_request` "synchronize" event (nine branch names, including the two that used to be pinned);
 - a code change, a documentation-only change and a mixed change;
@@ -241,4 +241,4 @@ Change: `timeout-minutes: 30` (1800 s), 48% above the slowest run seen (1214 s).
 ## Not verified here, and open
 
 - The first real run of `docs-gates.yml`, of the changed concurrency expressions, and of the claims job: nothing here can start a GitHub run. They are checked by the trigger model and by running the same commands locally (`verify-docs`, `verify-trust-labels`, `verify-notices`, `verify-threat-model`).
-- `publish-v*.yml`: 24 release workflows remain, one per release. Eighteen start on **every** push to `main` and six on every completion of CI on `main`; their jobs are guarded by a condition on the commit message and end "skipped", but each one is a run. They inflate the run count per merge on `main` (not per pull request) and hide the interesting runs in the list. Deleting those of releases that are out is the owner's decision, so it is not done here. `ci-health.mjs` counts the `CI` workflow by default for that reason.
+- `publish-v*.yml`: these release workflows (30 by v3.11.2; 24 when this page was first written) started on **every** push to `main` or every completion of CI on `main` and ended "skipped" unless the commit message named their release, so each merge to `main` cost about 30 extra runs. They were replaced by the one hand-started `release.yml` ([RELEASING.md](RELEASING.md)); `tests/verify-ci-triggers.mjs` fails when a `publish-v*.yml` comes back or `release.yml` gets a `push` trigger. The run count per merge on `main` after the change is measured by `scripts/ci-health.mjs` on GitHub, not here.
