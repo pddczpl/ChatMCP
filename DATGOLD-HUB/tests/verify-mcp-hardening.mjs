@@ -20,7 +20,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, mkdirSy
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { McpClientManager, MAX_MESSAGE_BYTES, MAX_NAME_LENGTH } from '../lib/mcp/client-manager.mjs';
+import { LineReader, McpClientManager, MAX_MESSAGE_BYTES, MAX_NAME_LENGTH } from '../lib/mcp/client-manager.mjs';
 import { LIMITS } from '../lib/mcp/sanitize.mjs';
 import { RESULT_LIMITS } from '../lib/mcp/result-limits.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
@@ -219,6 +219,23 @@ try {
     assert.match(text.at(-1), /DatGold limited this result: text cut/);
     console.log(`  (50 MB result limited in ${Date.now() - started} ms)`);
     await manager.disconnect('big');
+  });
+
+  await test('the stdio line reader: messages split over chunks are joined, a line that never ends is refused once it passes the limit', () => {
+    const seen = [];
+    const reader = new LineReader({ maxBytes: 1024, parse: (text) => JSON.parse(text) });
+    const line = Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { text: 'x'.repeat(300) } })}\n${JSON.stringify({ jsonrpc: '2.0', id: 2, result: {} })}\n`);
+    for (let at = 0; at < line.length; at += 7) reader.push(line.subarray(at, at + 7), (message) => seen.push(message.id));
+    assert.deepEqual(seen, [1, 2], 'two messages read from 7-byte chunks');
+    reader.push(Buffer.from('not json\n'), () => seen.push('bad'));
+    assert.deepEqual(seen, [1, 2], 'a line that is not JSON is skipped');
+    // no newline ever: refused at the chunk that passes the limit, not held for ever
+    const endless = new LineReader({ maxBytes: 1024, parse: JSON.parse });
+    endless.push(Buffer.alloc(600, 0x61), () => {});
+    assert.throws(() => endless.push(Buffer.alloc(600, 0x61), () => {}), (error) => error.code === 'mcp_message_too_large');
+    assert.equal(endless.size, 0, 'what was held is dropped');
+    // one chunk holding a whole line over the limit, newline included
+    assert.throws(() => new LineReader({ maxBytes: 1024, parse: JSON.parse }).push(Buffer.from(`"${'y'.repeat(2000)}"\n`), () => {}), (error) => error.code === 'mcp_message_too_large');
   });
 
   await test(`one incoming message over the read limit closes the connection with mcp_message_too_large (default ${MAX_MESSAGE_BYTES} bytes)`, async () => {

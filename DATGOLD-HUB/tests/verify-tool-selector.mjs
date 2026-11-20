@@ -561,6 +561,8 @@ try{
     assert.equal(directToolsFor(chosen).byName.get('read_file'),'local.read_file','and is never offered directly');
     const own={tools:[...catalog.tools,{name:'remote.only_here',originalName:'only_here',server:'remote',inputSchema:{type:'object'}}]};
     assert.equal(directToolsFor(own).byName.has('only_here'),false,'an external tool with a name no local tool has is not offered directly either');
+    // and not when there is room for it under the direct-tool cap (above, the local tools fill the 100 places first)
+    assert.deepEqual(directToolsFor({tools:own.tools.filter(tool=>tool.server==='remote')}).functions,[],'a catalog of external tools only offers no direct function');
     assert.ok(!directToolsFor(chosen).functions.some(fn=>directToolsFor(chosen).byName.get(fn.name).startsWith('remote.')));
     const withStudio={tools:[...mixed.tools,{name:'studio.search',originalName:'search',server:'studio',inputSchema:{type:'object'}}]};
     assert.deepEqual(selectTaskCatalog(withStudio,'Fix the bug.').tools.filter(tool=>tool.server!=='local').map(tool=>tool.name),['remote.read_file'],'the studio tools of the Hub are still left out of the selection, external ones are not');
