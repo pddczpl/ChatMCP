@@ -81,7 +81,7 @@ function decode(input, maxBytes) {
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
   catch {
     const loose = bytes.toString('utf8');
-    throw new YamlSubsetError(lineAt(loose, Math.max(0, loose.indexOf('�'))), 'not_utf8');
+    throw new YamlSubsetError(lineAt(loose, Math.max(0, loose.indexOf('\uFFFD'))), 'not_utf8');
   }
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   return text;
