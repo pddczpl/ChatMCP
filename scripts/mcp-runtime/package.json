@@ -1,0 +1,13 @@
+{
+  "name": "datgold-mcp-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Build-time dependency closure of the MCP client SDK that the installer stages into DATGOLD-HUB/runtimes/mcp (stage.mjs). The Hub loads it lazily (lib/mcp/sdk.mjs) and keeps no runtime dependency of its own. Never install on end-user machines.",
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.4.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

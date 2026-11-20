@@ -1,0 +1,11 @@
+{
+ "suite": "verify-mcp-client-http.mjs",
+ "description": "What the Streamable HTTP suite of the MCP client manager must notice (lib/mcp/client-manager.mjs): the configured headers, a lost answer, the no-replay rule.",
+ "mutations": [
+  { "name": "H1-headers-dropped", "what": "the configured headers are not sent", "patches": [{ "file": "lib/mcp/client-manager.mjs", "old": "requestInit: { headers: { ...config.headers } },", "new": "requestInit: {}," }] },
+  { "name": "H2-lost-answer-unnamed", "what": "an HTTP answer cut off is reported as an ordinary failure", "patches": [{ "file": "lib/mcp/client-manager.mjs", "old": "const networkFailure = connection.transport === 'http' && error?.name === 'TypeError' && error?.cause !== undefined;", "new": "const networkFailure = false;" }] },
+  { "name": "H3-replay-after-failure", "what": "a call that failed or timed out is POSTed once more", "patches": [{ "file": "lib/mcp/client-manager.mjs", "old": "return await connection.client.callTool({ name, arguments: args }, { signal, timeout: limit, maxTotalTimeout: limit, resetTimeoutOnProgress: false, toolDefinition: tool });", "new": "return await connection.client.callTool({ name, arguments: args }, { signal, timeout: limit, maxTotalTimeout: limit, resetTimeoutOnProgress: false, toolDefinition: tool }).catch(() => connection.client.callTool({ name, arguments: args }, { signal, timeout: limit, toolDefinition: tool }));" }] },
+  { "name": "H4-no-timeout", "what": "the call timeout is not passed to the SDK (its 60 s default applies)", "patches": [{ "file": "lib/mcp/client-manager.mjs", "old": "{ signal, timeout: limit, maxTotalTimeout: limit, resetTimeoutOnProgress: false, toolDefinition: tool }", "new": "{ signal, toolDefinition: tool }" }] },
+  { "name": "H5-secret-header-not-registered", "what": "a protected header value is not registered with the masker", "patches": [{ "file": "lib/mcp/server-config.mjs", "old": "          resolved.headers[name] = await this.protector.unprotect(value.secret);\n          secrets.add(resolved.headers[name]);", "new": "          resolved.headers[name] = await this.protector.unprotect(value.secret);" }] }
+ ]
+}

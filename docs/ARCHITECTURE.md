@@ -123,9 +123,13 @@ Node.js >=22.12 khi chạy từ source, Git for Windows để sử dụng Git/wo
 
 Các nguồn Cloud Harness proxy và Render/Docker public-hosting không còn là phụ thuộc sản phẩm.
 
+The MCP client SDK (`@modelcontextprotocol/client` and its closure, pinned in `scripts/mcp-runtime`) is not a dependency of the Hub either: the installer stages it into `DATGOLD-HUB/runtimes/mcp` like the intelligence runtime, and `lib/mcp/sdk.mjs` imports it only when an external MCP server is connected ([MCP-CLIENT.md](MCP-CLIENT.md)).
+
 ## 16. Độ lệch so với thiết kế và hạng mục chưa làm
 
 Không hỗ trợ public SaaS, public multi-tenant hoặc Cloud Harness backend. MCP client tích hợp một cách chính thức cho local server khác, Windows Sandbox cấp hệ điều hành, benchmark model thật và clean-VM installer E2E là các hướng tương lai. Cập nhật trong ứng dụng đã có từ 3.11.0 (thông báo, tải bản có chữ ký và cài khi người dùng bấm); còn thiếu một bản cập nhật tự cài không cần bấm. Các tài liệu thiết kế Phase 1–4 là lịch sử, không phải mô tả hiện tại.
+
+MCP client, state on 2026-11-20 (roadmap P2, slice A): the Hub has the SDK runtime and a connection manager for the owner's servers (`lib/mcp/`: `mcp-servers.json`, stdio and Streamable HTTP, secrets, the process tree, version negotiation, list guards, no replay). **External tools are not offered to the model yet**: no agent, catalog, permission gate, route or screen uses the manager. See [MCP-CLIENT.md](MCP-CLIENT.md).
 
 ## 17. Parallel Coding Workers và Skills Registry nâng cao
 
