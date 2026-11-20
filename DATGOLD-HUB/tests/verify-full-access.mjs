@@ -20,14 +20,14 @@ try {
   ok(gate.state().executionPolicy==='full-access'&&gate.state().fullAccess,'explicit full access activated');
   let audit=0;gate.onEvent=e=>{if(e.type==='full_access_tool')audit++;};
   const result=await gate.authorize({name:'desktop-commander.start_process',args:{path:'/some/outside/workspace',command:'example'},taskId:'task'});
-  ok(result.allowed&&result.category==='execute','shell tool authorized without approval in full access');
+  ok(result.allowed&&result.category==='external','shell tool of an external server authorized without approval in full access');
   ok(pathChecks===0,'full access does not apply workspace path gate');
   const stopped=new AbortController();stopped.abort(new Error('STOP'));
   await assert.rejects(gate.authorize({name:'desktop-commander.start_process',taskId:'task',signal:stopped.signal}),/STOP/);passed++;
   // Full Access still stops for what cannot be taken back (see tests/verify-full-access-always-ask.mjs).
   const dangerousRun=gate.authorize({name:'desktop-commander.delete_file',args:{file:'/outside'},taskId:'task'});
   for(let i=0;i<200&&gate.state().pending.length===0;i++)await new Promise(resolve=>setTimeout(resolve,10));
-  ok(gate.state().pending.length===1&&gate.state().pending[0].category==='dangerous','a destructive tool still asks in Full Access');
+  ok(gate.state().pending.length===1&&gate.state().pending[0].category==='external','a destructive tool of an external server still asks in Full Access');
   gate.decide(gate.state().pending[0].id,false);
   const dangerous=await dangerousRun;
   ok(!dangerous.allowed&&audit===1,'and runs only when the owner approves it (audited full-access calls: the shell tool only)');
@@ -36,8 +36,13 @@ try {
   ok(reloaded.state().fullAccess,'full access is persisted across restart');
   reloaded.configure({executionPolicy:'host-review'});
   ok(reloaded.state().fullAccess===false,'full access can be disabled');
-  await assert.rejects(reloaded.authorize({name:'desktop-commander.start_process',args:{path:'/outside'},taskId:'task'}),/not in selected workspace/);passed++;
-  ok(pathChecks===1,'host-review restores workspace path checks');
+  // host-review asks about an external tool again; its paths are the server's business and are not inspected against the workspace (plan task ext-12).
+  const asking=reloaded.authorize({name:'desktop-commander.start_process',args:{path:'/outside'},taskId:'task'});
+  for(let i=0;i<200&&reloaded.state().pending.length===0;i++)await new Promise(resolve=>setTimeout(resolve,10));
+  ok(reloaded.state().pending.length===1,'host-review asks about an external tool again');
+  reloaded.decide(reloaded.state().pending[0].id,false);
+  ok((await asking).allowed===false,'and a "no" refuses it');
+  ok(pathChecks===0,'an external tool\'s path is not inspected against the workspace');
   reloaded.configure({executionPolicy:'sandbox-only'});
   const deny=await reloaded.authorize({name:'desktop-commander.start_process',args:{},taskId:'task'});
   ok(!deny.allowed&&deny.reason.includes('Sandbox-only'),'sandbox-only blocks external MCP');

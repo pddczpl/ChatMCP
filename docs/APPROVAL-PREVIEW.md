@@ -111,6 +111,17 @@ Nothing is written, and the model gets the refusal as the result of the call (`s
 is. A "no" is `permission_denied` as before. A call that came without a card (Autonomous, Full Access, no hook) is held to nothing; the write itself still re-hashes the file right before the rename
 (`writeFileAtomic`), as it did.
 
+## A tool of an external MCP server
+
+A tool of an external server (every name that is not `local.*` or `studio.*`, plan task ext-12) has no change to preview and is held to nothing after the answer: the Hub cannot know what the server
+will do. Its card is `detail.kind = 'mcp'` (`mcpCard` in `lib/permissions.mjs`): `server` and `tool` (the name split at its first dot), `transport`, `launch` (the command that starts a stdio server,
+masked) or `origin` (the scheme, host and port of an HTTP server, nothing else of its address) when the caller described the server through `attachExternalPolicy({ describeServer })`, else null, and
+`arguments`, which is the very text of the request's `preview`: `previewArguments`, the masker of every other call that is not local. The request and its history row also carry `server` and `tool`.
+When the server marks the tool `destructiveHint: true` (the boolean only), the request's `reason` says that the server marked it destructive (`DESTRUCTIVE_NOTE`): that is why such a tool is asked
+about under Full Access and under `allow` as well.
+The page draws it in `ui/src/components/approval/McpToolPreview.tsx` (`ui/tests/approval-mcp.test.mjs` renders the card the Hub's own gate made). When the gate asks, runs or refuses such a call is
+in [THREAT-MODEL.md](THREAT-MODEL.md), Surface 10.
+
 ## What this does not cover
 
 - Shell commands, `move_path` and `delete_path`: no preview.
