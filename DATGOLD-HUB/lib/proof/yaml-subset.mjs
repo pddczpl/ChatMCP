@@ -24,6 +24,7 @@ const REASONS = {
   not_utf8: 'the file is not UTF-8 text',
   bom_misplaced: 'a byte order mark is allowed only at the start of the file',
   control_character: 'a control character is not allowed',
+  hidden_character: 'a hidden character is not allowed',
   bare_cr: 'a line break must be LF or CRLF, not a lone CR',
   tab_indent: 'indentation must be spaces, not tabs',
   directive: 'YAML directives (%) are not supported',
@@ -57,7 +58,11 @@ export class YamlSubsetError extends Error {
 }
 
 const KEY = /^([A-Za-z0-9_][A-Za-z0-9_.-]*)[ ]*:(?=[ ]|$)(.*)$/;
-const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+// Every control character but TAB: C0, DEL and C1 (C1 is not YAML-printable). LF never reaches the test (lines are split on it) and a
+// CR left in a line is refused before as `bare_cr`.
+const CONTROL = /(?!\t)\p{Cc}/u;
+// A comment starts at a `#` after whitespace; a plain scalar that had one is marked, so that a schema can refuse a command cut there.
+const COMMENT = /[ \t]#/;
 const INTEGER = /^-?(?:0|[1-9][0-9]{0,15})$/;
 
 /** The 1-based line of the character at `index` of `text`. */
@@ -97,6 +102,8 @@ function splitLines(text) {
     if (line.includes('\r')) throw new YamlSubsetError(number, 'bare_cr');
     if (line.includes('\uFEFF')) throw new YamlSubsetError(number, 'bom_misplaced');
     if (CONTROL.test(line)) throw new YamlSubsetError(number, 'control_character');
+    // U+2028 and U+2029 end a line for some readers and not for others (and for JavaScript's `.`): never in a file.
+    if (/[\p{Zl}\p{Zp}]/u.test(line)) throw new YamlSubsetError(number, 'hidden_character', 'a line or paragraph separator');
     return line;
   });
 }
@@ -162,7 +169,7 @@ function plainScalar(text, line) {
   if (first === '%') throw new YamlSubsetError(line, 'directive');
   if (first === '}' || first === ']' || first === ',') throw new YamlSubsetError(line, 'flow_collection');
   if (/^-(?:[ \t]|$)/.test(text)) throw new YamlSubsetError(line, 'unexpected_sequence', 'a list item cannot follow a key on its line');
-  const comment = /[ \t]#/.exec(text);
+  const comment = COMMENT.exec(text);
   const value = (comment ? text.slice(0, comment.index) : text).trim();
   if (/:(?:[ \t]|$)/.test(value)) throw new YamlSubsetError(line, 'syntax', 'a value cannot hold ": "; quote it');
   if (value === '' || value === '~' || value === 'null') return null;
@@ -268,7 +275,7 @@ class Parser {
     }
     if (text[0] === '|' || text[0] === '>') return this.block(text, line, indent);
     if (text[0] === '"' || text[0] === "'") return { kind: 'scalar', line, value: quoted(text, line), style: 'quoted' };
-    return { kind: 'scalar', line, value: plainScalar(text, line), style: 'plain' };
+    return { kind: 'scalar', line, value: plainScalar(text, line), style: 'plain', comment: COMMENT.test(text) };
   }
 
   /** A literal or folded block scalar whose header is `header`; its parent sits at `indent`. */

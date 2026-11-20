@@ -8,8 +8,8 @@ The identifier keeps the old name (`.chatmcp/`, see [NAMING.md](NAMING.md)), lik
 
 **What exists today:** the reader, the schema, the baseline rule, the trust store and the proposal (`DATGOLD-HUB/lib/proof/acceptance.mjs`,
 `lib/proof/yaml-subset.mjs`, `lib/proof/trust-store.mjs`). **What does not exist yet:** nothing runs the checks (the check runner is
-pod-21), nothing in the agent or the app uses the file, there is no approval dialog (pod-24) and no `chatmcp verify trust` or
-`verify init` command (pod-34). Until those land, a check can be called *runnable* by the API but nothing runs it.
+pod-21), nothing in the agent or the app uses the file, there is no `chatmcp verify trust` or `verify init` command (the CLI, pod-24)
+and no approval dialog in the app (the Proof tab, pod-34). Until those land, a check can be called *runnable* by the API but nothing runs it.
 
 ## Example
 
@@ -66,8 +66,23 @@ one spelling (`./tools/` becomes `tools`), `manual.inspect` always a list and `m
 
 **Paths.** `cwd`, `inspect` and `protected` are relative to the workspace. Refused (`cwd_outside_workspace` for `cwd`,
 `path_outside_workspace` for the others): an absolute path (`/x`, `\x`, `C:\x`), a drive-relative one (`D:x`), a UNC path (`\\server\x`),
-`~`, any `..` segment and any `:`. This is a check of the text only; a symbolic link inside the workspace that points outside is the
-check runner's to refuse (pod-21), because only the runner sees the disk at run time.
+`~`, any `..` segment and any `:`. A `cwd` is also refused (`reserved_name`) when one of its parts is a Windows device name, with or
+without an extension (`CON`, `PRN`, `AUX`, `NUL`, `COM0`-`COM9`, `LPT0`-`LPT9`, also with a superscript digit, `CONIN$`, `CONOUT$`), or
+ends in a dot or a space (`....`, `a `). This is a check of the text only: containment must be checked again on the **real** path at
+run time (a symbolic link or a junction inside the workspace can point outside), which is the check runner's job (pod-21), because only
+the runner sees the disk then.
+
+**Hidden characters.** The owner approves a file by its hash after reading it, so the text read must be the text that runs. Every
+string of the schema (`run`, `cwd`, `setup`, `text`, `note`, `inspect`, `protected`; an `id` is ASCII anyway) refuses
+(`hidden_character`) control characters other than TAB and LF, format characters (bidi controls such as U+202E and U+2066-U+2069,
+zero-width characters, tag characters), every default-ignorable code point (this includes variation selectors), line and paragraph
+separators, noncharacters and lone surrogates, whether written raw or as an escape (`"\e"`, `"‮"`). A line break is allowed only in
+a block scalar, where the file shows it. The YAML layer already refuses raw C0 and C1 controls (`control_character`) and raw U+2028 and
+U+2029.
+
+**Comments in commands.** A plain value ends at ` #`. For `run` and `setup`, a plain value that lost a comment there is refused
+(`ambiguous_comment`) when the part kept holds a quote or a backtick (`run: echo "a # b"` would run `echo "a`): quote the whole command
+or use a block scalar. `run: npm test # the unit tests` stays valid.
 
 ## The YAML that is read
 
@@ -96,12 +111,13 @@ Everything else is refused with the line and a reason, never guessed at:
 | `complex_key`, `unsupported_key` | `? key`, a quoted key, a key with spaces |
 | `unclosed_quote`, `bad_escape`, `trailing_content` | a quote not closed on its line, an unknown escape, text after the closing quote |
 | `unexpected_sequence`, `reserved_indicator`, `block_scalar_header`, `syntax` | `key: - x`, a value starting with `@` or a backtick, `|x`, `a: b: c` |
-| `not_utf8`, `bom_misplaced`, `control_character`, `bare_cr` | bytes that are not UTF-8 (a UTF-16 file), a BOM after the start, NUL and other control characters, a lone CR |
+| `not_utf8`, `bom_misplaced`, `control_character`, `bare_cr`, `hidden_character` | bytes that are not UTF-8 (a UTF-16 file), a BOM after the start, NUL and every other C0 or C1 control character but TAB, a lone CR, a raw U+2028 or U+2029 |
 | `too_large`, `too_deep` | more than 64 KiB; collections nested more than 16 deep |
 
 The schema adds its own reasons: `empty_file`, `not_a_mapping`, `unknown_key`, `missing_version`, `unsupported_version`, `missing_key`,
 `bad_type`, `bad_value`, `bad_id`, `duplicate_id`, `empty_criteria`, `check_and_manual`, `no_check_or_manual`, `empty_checks`,
-`empty_manual`, `cwd_outside_workspace`, `path_outside_workspace`, `too_many`. An error is an `AcceptanceError` with
+`empty_manual`, `cwd_outside_workspace`, `path_outside_workspace`, `reserved_name`, `hidden_character`, `ambiguous_comment`,
+`too_many`. An error is an `AcceptanceError` with
 `code: 'acceptance_invalid'`, `line` (the physical line, counted the same with CRLF and a BOM), `reason` and a message such as
 `.chatmcp/acceptance.yml line 8: aliases (*) are not supported`.
 
@@ -119,8 +135,8 @@ agent read). So these two rules are not options:
    file the agent creates when there was none at the start gives no criteria (`blocked: 'no_baseline'`). A baseline that does not read
    throws: it is the owner's file to fix, and it is never read as "no criteria".
 2. **Trust by hash.** A check may run only when the sha256 of the exact bytes of the baseline file is in
-   `<hub data folder>/proof/trusted-acceptance.json`, recorded after the owner approved that file. The agent's tools cannot write the
-   Hub's data folder. Any edit changes the hash, so an edited file is untrusted until the owner approves it again. Without trust,
+   `<hub data folder>/proof/trusted-acceptance.json`, recorded after the owner approved that file. The agent's file tools refuse the
+   Hub's data folder (a shell command can still write it; see below). Any edit changes the hash, so an edited file is untrusted until the owner approves it again. Without trust,
    `runnable` is empty and `blocked` is `acceptance_untrusted`. Only the answer `true` of the store counts.
 
 The trust store (`createTrustStore(hubDir)`) has `trust(sha256, {approvedBy, at})`, `isTrusted(sha256)`, `revoke(sha256)` and `list()`.
@@ -128,7 +144,18 @@ Its file is `{"version": 1, "trusted": {"<sha256>": {"approvedBy": "...", "at": 
 rename) with writes taken in turn inside the process. It is read strictly: bad JSON, another version, an extra key, a key that is not a
 digest, an entry without exactly its two fields, more than 1 MiB or a folder in its place make the **whole** file "nothing trusted", never
 "all trusted"; the next `trust()` moves the corrupt file aside as `trusted-acceptance.corrupt-<time>-<n>.json` and writes a valid one.
-The approval dialog in the app (pod-24) and `chatmcp verify trust` (pod-34) will call `trust()`; today only code does.
+`chatmcp verify trust` (the CLI, pod-24) and the approval dialog in the Proof tab (pod-34) will call `trust()`; today only code does.
+
+**The bytes must come from one source.** The hash is over the exact bytes, so the same file with CRLF and with LF line breaks has two
+hashes. The bytes hashed when the owner approves and the bytes passed as the baseline at task start must be read the same way (the raw
+bytes of the working-tree file, not a copy re-encoded by Git or an editor); otherwise a trusted file looks untrusted. That fails closed
+(nothing runs), but pod-21 and pod-24 must read the file the same way.
+
+**What the store does and does not protect against.** It protects against commands put into the workspace file (a dependency, a pasted
+issue, a page the agent read, an edit the agent makes with its file tools, which refuse the Hub's data folder). It does not protect
+against an agent that can run shell commands as the same user: an approved `run_command`, or anything under Full Access, can write
+`trusted-acceptance.json` like any other file of that user. The store is "unconfined" in the same sense as the ledger of the plan; a
+confined store needs the separated execution account.
 
 ## API
 
@@ -144,8 +171,9 @@ const result = await resolveAcceptance({ baseline: baselineBytes, current: curre
 
 `proposeAcceptance(workspace)` builds a proposed file from what `discoverProjectChecks` finds (npm scripts, TypeScript, Playwright,
 pytest, `dotnet test` for a `.sln`/`.slnx` or project file in the root, Cargo, Go, make): one criterion per check, or one manual criterion
-to fill in when nothing is found, with `.chatmcp/**` protected. It returns `{file, text, sha256, acceptance, suggested}`, writes nothing and
-runs nothing; `verify init` (pod-34) will print it.
+to fill in when nothing is found, with `.chatmcp/**` protected. It returns `{file, text, sha256, acceptance, suggested, skipped}`, writes nothing and
+runs nothing; `verify init` (the CLI, pod-24) will print it. A discovered check whose criterion the reader would refuse (a solution
+file whose name holds a hidden character, say) is left out and listed in `skipped` as `{command, from, reason}`.
 
 ## Tests
 

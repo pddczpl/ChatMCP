@@ -121,6 +121,96 @@
       "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "`      - run: ${q(check.command)}`", "new": "`      - run: ${check.command.replace(/ /g, ' #')}`" }]
     },
     {
+      "name": "PA-hidden-unchecked",
+      "what": "hidden characters reach the commands and texts (Trojan Source)",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (hidden) fail(node.line, 'hidden_character',", "new": "  if (false) fail(node.line, 'hidden_character'," }]
+    },
+    {
+      "name": "PA-hidden-no-controls",
+      "what": "control characters from an escape (ESC, CR, NUL, C1) are allowed",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "const HIDDEN = /(?![\\t\\n])\\p{Cc}|", "new": "const HIDDEN = /" }]
+    },
+    {
+      "name": "PA-hidden-no-default-ignorable",
+      "what": "default-ignorable code points that are not format characters (variation selectors) are allowed",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "|\\p{Default_Ignorable_Code_Point}", "new": "" }]
+    },
+    {
+      "name": "PA-hidden-no-noncharacter",
+      "what": "noncharacters are allowed",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "|\\p{Noncharacter_Code_Point}", "new": "" }]
+    },
+    {
+      "name": "PA-line-break-outside-block",
+      "what": "a quoted \"\\n\" hides a second command line",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (node.style !== 'block' && node.value.includes('\\n')) fail(node.line, 'hidden_character', `a line break in ${what}`);", "new": "" }]
+    },
+    {
+      "name": "PA-ambiguous-comment-off",
+      "what": "a plain command cut at \" #\" inside a quote is accepted",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "if (node.style === 'plain' && node.comment === true && /[\"'`]/.test(value))", "new": "if (false)" }]
+    },
+    {
+      "name": "PA-ambiguous-any-comment",
+      "what": "every plain command with a comment is refused (`npm test # x` too)",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "node.comment === true && /[\"'`]/.test(value)", "new": "node.comment === true" }]
+    },
+    {
+      "name": "PA-setup-not-a-command",
+      "what": "setup steps are read as plain text, not as commands",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": ".map((item) => command(item, 'a `setup` command'));", "new": ".map((item) => string(item, 'a `setup` command', ACCEPTANCE_LIMITS.run));" }]
+    },
+    {
+      "name": "PA-device-names-allowed",
+      "what": "a cwd may name a Windows device or end in a dot or space",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (folder && parts.some((part) => DEVICE.test(part) || /[. ]$/.test(part))) fail(node.line, 'reserved_name', value);", "new": "" }]
+    },
+    {
+      "name": "PA-trailing-dot-allowed",
+      "what": "a cwd part may end in a dot or a space",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "DEVICE.test(part) || /[. ]$/.test(part)", "new": "DEVICE.test(part)" }]
+    },
+    {
+      "name": "PA-device-without-extension-only",
+      "what": "`nul.txt` is not a device",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "conin\\$|conout\\$)(?:\\..*)?$/iu;", "new": "conin\\$|conout\\$)$/iu;" }]
+    },
+    {
+      "name": "PA-device-any-prefix",
+      "what": "a folder that only starts like a device (`console`, `com10`) is refused",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "conin\\$|conout\\$)(?:\\..*)?$/iu;", "new": "conin\\$|conout\\$)/iu;" }]
+    },
+    {
+      "name": "PA-propose-throws",
+      "what": "a discovered check that the reader refuses makes proposeAcceptance throw",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "    try { parseAcceptance(['version: 1', 'criteria:', '  - id: probe', ...criterion, ''].join('\\n')); } catch (error) {", "new": "    if (false) { const error = null;" }]
+    },
+    {
+      "name": "PA-propose-skip-unreported",
+      "what": "a skipped check is not reported",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "      skipped.push({ command: check.command, from: check.from, reason: error.reason });\n", "new": "" }]
+    },
+    {
+      "name": "PA-propose-empty-when-all-skipped",
+      "what": "when every check is skipped no manual criterion is written (an invalid file)",
+      "patches": [{ "file": "lib/proof/acceptance.mjs", "old": "  if (!kept) {", "new": "  if (!suggested.length) {" }]
+    },
+    {
+      "name": "YS-c1-allowed",
+      "what": "raw C1 controls (U+0080-U+009F) pass the YAML layer",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "const CONTROL = /(?!\\t)\\p{Cc}/u;", "new": "const CONTROL = /[\\x00-\\x08\\x0b-\\x1f\\x7f]/u;" }]
+    },
+    {
+      "name": "YS-line-separator-allowed",
+      "what": "raw U+2028 and U+2029 pass the YAML layer",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "    if (/[\\p{Zl}\\p{Zp}]/u.test(line)) throw", "new": "    if (false) throw" }]
+    },
+    {
+      "name": "YS-comment-flag-off",
+      "what": "a plain scalar never says that a comment was removed",
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "style: 'plain', comment: COMMENT.test(text) };", "new": "style: 'plain', comment: false };" }]
+    },
+    {
       "name": "TS-corrupt-reads-entries",
       "what": "a store with a malformed entry keeps its other entries (and a `*` key)",
       "patches": [{ "file": "lib/proof/trust-store.mjs", "old": "    if (!DIGEST.test(digest) || !isPlainObject(entry) || !sameKeys(entry, ['approvedBy', 'at'])) return null;", "new": "    if (!isPlainObject(entry)) continue;" }]
@@ -253,7 +343,7 @@
     {
       "name": "YS-comment-without-space",
       "what": "`#` without whitespace before it starts a comment (cuts `x#y`)",
-      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "  const comment = /[ \\t]#/.exec(text);", "new": "  const comment = /[ \\t]?#/.exec(text);" }]
+      "patches": [{ "file": "lib/proof/yaml-subset.mjs", "old": "const COMMENT = /[ \\t]#/;", "new": "const COMMENT = /[ \\t]?#/;" }]
     },
     {
       "name": "YS-colon-in-plain",

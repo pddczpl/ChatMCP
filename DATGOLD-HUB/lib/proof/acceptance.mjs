@@ -25,6 +25,12 @@ export const ACCEPTANCE_LIMITS = Object.freeze({
   timeout: { min: 1, max: 3600, default: 600 }, repeat: { min: 1, max: 20, default: 1 }, exit: { min: 0, max: 255, default: 0 },
 });
 const ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+// A character that shows differently from what it is (Trojan Source): the owner approves a file by its sha256 after READING it, so the
+// text read must be the text that runs. Control characters but TAB and LF, format characters (bidi controls, zero-width, tag
+// characters), every default-ignorable code point, line and paragraph separators, noncharacters and lone surrogates.
+const HIDDEN = /(?![\t\n])\p{Cc}|\p{Cf}|\p{Default_Ignorable_Code_Point}|\p{Zl}|\p{Zp}|\p{Noncharacter_Code_Point}|\p{Cs}/u;
+// Windows names that are not plain folders: devices (with or without an extension) and names ending in a dot or a space.
+const DEVICE = /^(?:con|prn|aux|nul|com[0-9\p{No}]|lpt[0-9\p{No}]|conin\$|conout\$)(?:\..*)?$/iu;
 
 const REASONS = {
   empty_file: 'the file has no content',
@@ -43,6 +49,9 @@ const REASONS = {
   empty_checks: '`checks` needs at least one check',
   empty_manual: '`manual` needs `inspect` or `note`',
   cwd_outside_workspace: '`cwd` must be a relative folder inside the workspace',
+  reserved_name: '`cwd` names a Windows device or ends in a dot or a space',
+  hidden_character: 'a hidden or control character is not allowed (the text read must be the text that runs)',
+  ambiguous_comment: 'a ` #` cut a command that holds a quote; quote the whole command or use a block scalar',
   path_outside_workspace: 'a path must be relative and inside the workspace',
   too_many: 'too many entries',
 };
@@ -92,7 +101,18 @@ function sequence(entry, limit) {
 function string(node, what, limit) {
   if (node.kind !== 'scalar' || typeof node.value !== 'string') fail(node.line, 'bad_type', `${what} must be text`);
   if (!node.value.trim() || node.value.length > limit) fail(node.line, 'bad_value', `${what} must be 1 to ${limit} characters`);
+  const hidden = HIDDEN.exec(node.value);
+  if (hidden) fail(node.line, 'hidden_character', `U+${hidden[0].codePointAt(0).toString(16).toUpperCase().padStart(4, '0')} in ${what}`);
+  // A line break only where the file shows one: in a block scalar (a quoted "\n" would hide the second line).
+  if (node.style !== 'block' && node.value.includes('\n')) fail(node.line, 'hidden_character', `a line break in ${what}`);
   return node.value;
+}
+
+/** A command (`run`, a `setup` step): also refused when a ` #` comment cut a plain value that holds a quote. */
+function command(node, what) {
+  const value = string(node, what, ACCEPTANCE_LIMITS.run);
+  if (node.style === 'plain' && node.comment === true && /["'`]/.test(value)) fail(node.line, 'ambiguous_comment', value.slice(0, 60));
+  return value;
 }
 
 function integer(node, what, { min, max }) {
@@ -105,11 +125,12 @@ function integer(node, what, { min, max }) {
  * A relative path (or glob) inside the workspace, in one spelling: `/` separators, no `.` segments, no trailing `/`. Refused: absolute
  * paths (`/x`, `\x`, `C:\x`), drive-relative (`D:x`) and UNC (`\\server`) paths, `~`, any `..` segment and any `:` (Windows streams).
  */
-function relativePath(node, what, reason) {
+function relativePath(node, what, reason, { folder = false } = {}) {
   const value = string(node, what, ACCEPTANCE_LIMITS.path);
   if (/^[\\/~]/.test(value) || value.includes(':') || path.win32.isAbsolute(value) || path.posix.isAbsolute(value)) fail(node.line, reason, value);
   const parts = value.split(/[\\/]+/).filter((part) => part && part !== '.');
   if (parts.includes('..')) fail(node.line, reason, value);
+  if (folder && parts.some((part) => DEVICE.test(part) || /[. ]$/.test(part))) fail(node.line, 'reserved_name', value);
   return parts.join('/') || '.';
 }
 
@@ -118,8 +139,8 @@ function readCheck(node) {
   const f = fields(node, ['run', 'cwd', 'timeout', 'expect', 'repeat']);
   if (!f.has('run')) fail(node.line, 'missing_key', 'run');
   const check = {
-    run: string(f.get('run').value, '`run`', ACCEPTANCE_LIMITS.run),
-    cwd: f.has('cwd') ? relativePath(f.get('cwd').value, '`cwd`', 'cwd_outside_workspace') : '.',
+    run: command(f.get('run').value, '`run`'),
+    cwd: f.has('cwd') ? relativePath(f.get('cwd').value, '`cwd`', 'cwd_outside_workspace', { folder: true }) : '.',
     timeout: f.has('timeout') ? integer(f.get('timeout').value, '`timeout`', ACCEPTANCE_LIMITS.timeout) : ACCEPTANCE_LIMITS.timeout.default,
     expect: { exit: ACCEPTANCE_LIMITS.exit.default },
     repeat: f.has('repeat') ? integer(f.get('repeat').value, '`repeat`', ACCEPTANCE_LIMITS.repeat) : ACCEPTANCE_LIMITS.repeat.default,
@@ -195,7 +216,7 @@ export function parseAcceptance(input) {
   const reproduce = { setup: [] };
   if (f.has('reproduce')) {
     const r = fields(mapping(f.get('reproduce')), ['setup']);
-    if (r.has('setup')) reproduce.setup = sequence(r.get('setup'), ACCEPTANCE_LIMITS.setup).map((item) => string(item, 'a `setup` command', ACCEPTANCE_LIMITS.run));
+    if (r.has('setup')) reproduce.setup = sequence(r.get('setup'), ACCEPTANCE_LIMITS.setup).map((item) => command(item, 'a `setup` command'));
   }
   return { version: 1, criteria, protected: protectedGlobs, reproduce };
 }
@@ -283,8 +304,9 @@ function idFor(command, taken) {
 
 /**
  * A proposed acceptance file for the project at `workspace` (absolute), built from discoverProjectChecks: one criterion per discovered
- * check, or one manual criterion to fill in when nothing was found, and `.chatmcp/**` protected. Writes nothing and runs nothing.
- * Returns {file, text, sha256, acceptance, suggested}.
+ * check, or one manual criterion to fill in when nothing usable was found, and `.chatmcp/**` protected. A check whose criterion the
+ * reader would refuse is left out and listed in `skipped` ({command, from, reason}). Writes nothing and runs nothing.
+ * Returns {file, text, sha256, acceptance, suggested, skipped}.
  */
 export async function proposeAcceptance(workspace) {
   if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) throw new TypeError('proposeAcceptance needs the absolute workspace folder.');
@@ -297,15 +319,24 @@ export async function proposeAcceptance(workspace) {
     'criteria:',
   ];
   const taken = new Set();
+  const skipped = [];
+  let kept = 0;
   for (const check of suggested) {
-    lines.push(`  - id: ${idFor(check.command, taken)}`, `    text: ${q(`The check \`${check.command}\` passes (found in ${check.from}).`)}`,
-      '    checks:', `      - run: ${q(check.command)}`);
+    const criterion = [`    text: ${q(`The check \`${check.command}\` passes (found in ${check.from}).`)}`, '    checks:', `      - run: ${q(check.command)}`];
+    // The reader decides: a criterion it would refuse (a file name with a hidden character, say) is reported, not written.
+    try { parseAcceptance(['version: 1', 'criteria:', '  - id: probe', ...criterion, ''].join('\n')); } catch (error) {
+      if (!(error instanceof AcceptanceError)) throw error;
+      skipped.push({ command: check.command, from: check.from, reason: error.reason });
+      continue;
+    }
+    lines.push(`  - id: ${idFor(check.command, taken)}`, ...criterion);
+    kept++;
   }
-  if (!suggested.length) {
+  if (!kept) {
     lines.push('  - id: done', `    text: ${q('Describe what done means for this project.')}`, '    manual:',
       `      note: ${q('No test, build or lint command was found; replace this with the checks of the project.')}`);
   }
   lines.push('protected:', `  - ${q('.chatmcp/**')}`, '');
   const text = lines.join('\n');
-  return { file: ACCEPTANCE_FILE, text, sha256: acceptanceSha256(text), acceptance: parseAcceptance(text), suggested };
+  return { file: ACCEPTANCE_FILE, text, sha256: acceptanceSha256(text), acceptance: parseAcceptance(text), suggested, skipped };
 }

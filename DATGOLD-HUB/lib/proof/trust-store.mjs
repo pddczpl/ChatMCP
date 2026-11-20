@@ -1,14 +1,17 @@
 // The owner's list of trusted acceptance files (docs/PROOF-ACCEPTANCE.md, plan task pod-20): `<hubDir>/proof/trusted-acceptance.json`.
 //
 // A check of `.chatmcp/acceptance.yml` may run only when the sha256 of the exact bytes of that file is in this list, put there after the
-// owner approved it. The file lives in the Hub's data folder, which the agent's tools cannot write. The format is
+// owner approved it. The file lives in the Hub's data folder, which the agent's file tools refuse. The format is
 //   {"version": 1, "trusted": {"<sha256 hex>": {"approvedBy": "<who>", "at": "<ISO time>"}}}
 // and it is read strictly: anything else (bad JSON, another version, an extra key, a key that is not a digest, an entry without its two
 // fields, more than 1 MiB, a folder in its place) makes the WHOLE file "nothing trusted" - never "all trusted". Writes are atomic
 // (temporary file + rename) and serialised per file inside the process, so concurrent trust/revoke calls all land and the file is always
 // valid JSON. Trusting over a corrupt file moves it aside (`trusted-acceptance.corrupt-<time>-<n>.json`) for the owner to look at.
 //
-// The approval dialog of the app and `chatmcp verify trust` that call trust() come later (plan tasks pod-24 and pod-34).
+// `chatmcp verify trust` (the CLI, plan task pod-24) and the approval dialog of the Proof tab (pod-34) that call trust() come later.
+//
+// What it protects against: commands put into the workspace file (the agent's file tools refuse the Hub's data folder). What it does
+// not: an agent that runs shell commands as the same user (an approved run_command, Full Access) can write this file like any other.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
