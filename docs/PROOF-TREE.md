@@ -47,7 +47,7 @@ Other exports, for the later pods and the tests: `blobId`, `treeId`, `buildTree`
   files, bytes,                        // counts of what is in the tree
   excluded: { protected, runs, gitlinks },
   limits: { maxFiles, maxBytes },
-  limitations: ['ignored-paths-not-covered' | 'ignore-rules-not-applied', 'counts-from-last-full-snapshot'?],
+  limitations: ['untracked-ignored-paths-not-covered' | 'ignore-rules-not-applied', 'counts-from-last-full-snapshot'?],
   unbounded?: 'files' | 'bytes',
   takenAt: '<ISO time>', durationMs,
 }
@@ -71,10 +71,12 @@ and `limitations` says so. Two ids can be compared only when their `treeAlgorith
 
 A full snapshot seeds a fresh index from the raw rows (`update-index --index-info`), lets Git check them against the files
 (`update-index --refresh` hashes and writes no object), runs `add -A`, and builds the tree from `ls-files -s` in Node. A cached snapshot
-runs `add -A` on the kept index (only changed files are hashed; only blobs of changed files are written, to the private store), drops the
-entries that changed ignore rules now exclude, and builds the tree the same way. The id equals what `git add -A && git write-tree`
-gives in a fresh index with no system or global configuration: `.gitattributes` conversions (`text`, `eol`, `ident`,
-`working-tree-encoding`) apply, the person's and the repository's line-ending settings do not.
+runs `add -A` on the kept index (only changed files are hashed; only blobs of changed files are written, to the private store), adds with
+`add -f` the tracked files that are on disk but not in that index (force-added since, or written again after a deletion), drops the
+entries that changed ignore rules now exclude and the repository does not track, and builds the tree the same way. The id equals what
+`git add -A`, then `git add -f` of the repository's tracked paths that are on disk, then `git write-tree` give in a fresh index with no
+system or global configuration: `.gitattributes` conversions (`text`, `eol`, `ident`, `working-tree-encoding`) apply, the person's and
+the repository's line-ending settings do not.
 
 **The repository's own index and object store are never written, not even their file times.** That is why there is no
 `GIT_ALTERNATE_OBJECT_DIRECTORIES`: when Git finds an object it is about to write in an alternate store, it "freshens" it by rewriting
@@ -115,9 +117,12 @@ When Git cannot list the files the walk applies no ignore rule (`ignoreRules: 'n
   index and its blob deleted from the private store. The secret is then hashed once by Git, never part of an id.
   `PRIVATE_FILE` says "one or more digits" in `.tfstate.<digits>`, which a glob cannot: up to nine digits are written out and ten or
   more are matched by a prefix (an over-match: such a name is left out although `PRIVATE_FILE` would keep it).
-- **Ignored paths** (limitation `ignored-paths-not-covered`): what `.gitignore`, `.git/info/exclude` exclude is not in the tree, **also
-  when the repository tracks it**, because the index is the engine's own and starts empty. A change to an ignored file does not change
-  the id.
+- **Untracked ignored paths** (limitation `untracked-ignored-paths-not-covered`): what `.gitignore` and `.git/info/exclude` exclude is
+  not in the tree **unless the repository tracks it**. Ignore rules apply to untracked files only, as in Git: every path of the
+  repository's own index (read with `ls-files --cached`, never written; the tree of `HEAD` when there is no index yet) that is a file
+  on disk is in the tree, so a force-added build output or a committed lock file under a broad ignore pattern is covered, and an edit
+  of it changes the id. A tracked file deleted from the working tree drops out. A change to an untracked ignored file does not change
+  the id. When Git cannot be used (`ignoreRules: 'none'`) nothing is ignored at all. (Found by the audit of PR #132, finding F1.)
 - **Nested repositories** are a gitlink to their checked-out commit (a submodule, or any folder with `.git`), as `git add` records them;
   one without a commit cannot be added and is left out (`excluded.gitlinks`). Their content is not covered.
 - What a sparse checkout did not put on disk is not in the tree.
@@ -129,9 +134,10 @@ then drop it as above).
 
 ## Tests
 
-`DATGOLD-HUB/tests/verify-proof-tree.mjs` compares every id with an independent reference: plain `git add -A && git write-tree` in a
-throw-away bare repository (its own index and objects, the workspace's objects as an alternate), without system or global
-configuration. Fixtures: worktree (`.git` file), submodule, sparse checkout, LFS pointer (with and without a repository LFS filter), a
+`DATGOLD-HUB/tests/verify-proof-tree.mjs` compares every id with an independent reference: plain `git add -A`, `git add -f` of the paths the
+repository's own index tracks that are still on disk, and `git write-tree`, in a throw-away bare repository (its own index and objects,
+the workspace's objects as an alternate, the workspace's `.git/info/exclude`), without system or global configuration. Fixtures:
+tracked files that an ignore rule matches (edited, force-added later, un-tracked, deleted), worktree (`.git` file), submodule, sparse checkout, LFS pointer (with and without a repository LFS filter), a
 clean filter whose program writes a canary (the canary must stay absent; a control shows plain `git add` does write it), fsmonitor and
 textconv, a path over 260 characters, a symlink (where the system allows creating one), an executable bit (not on Windows), CRLF files
 with `core.autocrlf=true` in the person's and the repository's configuration plus the person's own ignore and attributes files and a filter of their global configuration (whose canary must stay absent), a

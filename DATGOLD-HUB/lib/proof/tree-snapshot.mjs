@@ -13,8 +13,9 @@
 //                  fsmonitor, anything refusalsForRunner names), when the workspace is not a repository, when Git is missing, when
 //                  Git fails, or when a first scan would write more than ~3,000 new blobs.
 //
-// Both leave out protected files (lib/protected-paths.mjs) and `.chatmcp/runs`. Paths that .gitignore excludes are not covered
-// (they are not in the tree even when Git tracks them); when Git cannot be used the ignore rules are not applied at all.
+// Both leave out protected files (lib/protected-paths.mjs) and `.chatmcp/runs`. Untracked paths that .gitignore excludes are not
+// covered; a path the repository tracks is, whatever .gitignore says (as in Git, ignore rules apply to untracked files only). When Git
+// cannot be used the ignore rules are not applied at all.
 // A full snapshot (task start, final, pack) bypasses every cache and also computes `rawTree`; a cached snapshot reuses the
 // stat information of the last one and is meant for the calls in between.
 import { randomUUID } from 'node:crypto';
@@ -40,7 +41,7 @@ export const LIMITS = Object.freeze({
 export const RUNS_FOLDER = '.chatmcp/runs';
 /** What a snapshot does not see; recorded on every snapshot so a reader never assumes more. */
 export const LIMITATION = Object.freeze({
-  ignoredPaths: 'ignored-paths-not-covered',
+  ignoredPaths: 'untracked-ignored-paths-not-covered',
   ignoreRulesNotApplied: 'ignore-rules-not-applied',
   countsFromLastFull: 'counts-from-last-full-snapshot',
 });
@@ -265,9 +266,9 @@ export class TreeSnapshotter {
     return { objectFormat: format === 'sha256' ? 'sha256' : 'sha1', fileMode: fileMode && process.platform !== 'win32', filters: [...new Set(filters)] };
   }
 
-  async gitPlaces(plan, indexFile, { excludes = true } = {}) {
-    const objectDirectory = path.join(this.stateDir, 'objects');
-    await ensureObjectDirectory(objectDirectory);
+  async gitPlaces(plan, indexFile, { excludes = true, objectDirectory: readOnlyObjects = null } = {}) {
+    const objectDirectory = readOnlyObjects ?? path.join(this.stateDir, 'objects');
+    if (!readOnlyObjects) await ensureObjectDirectory(objectDirectory);
     const emptyConfig = path.join(this.stateDir, 'empty.gitconfig');
     await fs.writeFile(emptyConfig, '', { flag: 'a' });
     const hooks = path.join(this.stateDir, 'no-hooks');
@@ -290,6 +291,29 @@ export class TreeSnapshotter {
     return { git, env, objectDirectory };
   }
 
+  /**
+   * The paths the repository tracks, read (never written) from its own index; from HEAD when it has no index. Kept while the index file
+   * keeps its size, time and inode. `{paths: string[], set: Set<string>}`; empty when Git cannot read either.
+   */
+  async trackedPaths(plan, signal) {
+    const indexFile = path.join(plan.gitDir, 'index');
+    const stat = await fs.stat(indexFile).catch(() => null);
+    const key = stat ? `${stat.size}:${stat.mtimeMs}:${stat.ino}` : 'no-index';
+    if (this.tracked?.key === key) return this.tracked;
+    let listed = [];
+    if (stat) {
+      const { git } = await this.gitPlaces(plan, indexFile, { excludes: false });
+      listed = splitNul((await git(['ls-files', '-z', '--cached'], { signal, allowFailure: true })).stdout);
+    } else {
+      // no index yet (a clone without checkout, say): the tree of HEAD, read from the repository's objects (reading freshens nothing)
+      const { git } = await this.gitPlaces(plan, path.join(this.stateDir, `head-${randomUUID()}.index`), { excludes: false, objectDirectory: path.resolve(plan.commonDir, 'objects') });
+      listed = splitNul((await git(['ls-tree', '-r', '-z', '--name-only', '--full-tree', 'HEAD'], { signal, allowFailure: true })).stdout);
+    }
+    const set = new Set(listed);
+    this.tracked = { key, paths: [...set], set };
+    return this.tracked;
+  }
+
   /** The files of the workspace, relative with "/" (a nested repository ends with "/"), with Git's ignore rules when Git may list. */
   async listFiles(plan, signal) {
     if (plan.gitListing) {
@@ -297,7 +321,12 @@ export class TreeSnapshotter {
       try {
         const { git } = await this.gitPlaces(plan, scratch, { excludes: false }); // the listing names protected files so that they are counted
         const result = await git(['ls-files', '-z', '--others', '--exclude-standard'], { signal });
-        return { paths: splitNul(result.stdout), ignoreRules: 'git' };
+        // Ignore rules apply to untracked files only: what the repository tracks is listed whatever .gitignore says
+        const others = splitNul(result.stdout);
+        const listed = new Set(others);
+        const paths = [...others];
+        for (const file of (await this.trackedPaths(plan, signal)).paths) if (!listed.has(file) && !listed.has(`${file}/`)) { listed.add(file); paths.push(file); }
+        return { paths, ignoreRules: 'git' };
       } finally { await fs.rm(scratch, { force: true }); }
     }
     const paths = [];
@@ -485,14 +514,26 @@ export class TreeSnapshotter {
   async indexTree(plan, git, objectDirectory, signal, { fresh }) {
     await git(['add', '-A', '--', '.', ...this.unresolvedGitlinks.map((relative) => `:(exclude,literal)${relative}`)], { signal });
     let entries = await this.indexEntries(git, signal);
-    const fingerprint = await this.ignoreFingerprint(plan, entries);
-    if (!fresh && fingerprint !== this.ignoreRules) {
-      const ignored = splitNul((await git(['ls-files', '-z', '--cached', '--ignored', '--exclude-standard'], { signal })).stdout);
-      if (ignored.length) {
-        await git(['rm', '-q', '--cached', '--ignore-unmatch', '--pathspec-from-file=-', '--pathspec-file-nul'], { input: ignored.map((file) => `:(literal)${file}\0`).join(''), signal });
-        entries = await this.indexEntries(git, signal);
-      }
+    const tracked = await this.trackedPaths(plan, signal);
+    const literal = (files) => files.map((file) => `:(literal)${file}\0`).join('');
+    // A file the repository tracks belongs in the tree even when an ignore rule matches it, and add -A never adds an ignored file that the
+    // temporary index does not hold yet (force-added since, or deleted and written again): add those that are on disk.
+    const held = new Set(entries.map((entry) => entry.path));
+    const missing = [];
+    for (const file of tracked.paths) {
+      if (held.has(file) || exclusionOf(file)) continue;
+      const stat = await fs.lstat(path.join(this.root, file)).catch(() => null);
+      if (stat && (stat.isFile() || stat.isSymbolicLink())) missing.push(file);
     }
+    if (missing.length) await git(['add', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'], { input: literal(missing), signal });
+    // Entries that the ignore rules now exclude and the repository does not track leave the reused index.
+    const fingerprint = `${await this.ignoreFingerprint(plan, entries)}#${tracked.key}`;
+    let dropped = [];
+    if (!fresh && fingerprint !== this.ignoreRules) {
+      dropped = splitNul((await git(['ls-files', '-z', '--cached', '--ignored', '--exclude-standard'], { signal })).stdout).filter((file) => !tracked.set.has(file));
+      if (dropped.length) await git(['rm', '-q', '--cached', '--ignore-unmatch', '--pathspec-from-file=-', '--pathspec-file-nul'], { input: literal(dropped), signal });
+    }
+    if (missing.length || dropped.length) entries = await this.indexEntries(git, signal);
     this.ignoreRules = fingerprint;
     const leaked = entries.filter((entry) => exclusionOf(entry.path));
     if (leaked.length) {
