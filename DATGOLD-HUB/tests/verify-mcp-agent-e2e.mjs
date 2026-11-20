@@ -114,8 +114,8 @@ const protector = createProtector({ bundleRoot: HUB, directory: hubDirectory });
 const STDIO = {
   everything: { transport: 'stdio', command: node, args: [everything.entry, 'stdio'], policy: { tools: { echo: 'allow', 'get-env': 'allow', 'get-sum': 'allow', 'trigger-sampling-request': 'allow', 'get-roots-list': 'allow', 'trigger-elicitation-request': 'allow' } } },
   files: { transport: 'stdio', command: wrapper, args: [shared], policy: { tools: { read_text_file: 'allow', write_file: 'allow', move_file: 'deny' } } },
-  // callMs 15 s: a call that is sent again after the kill (the mutant R2 of tests/mutation/mcp-agent-e2e.json) hangs only that long.
-  legacy: { transport: 'stdio', command: node, args: [FIXTURE_SERVER, '--reference', reference, '--era', 'legacy', '--counter', legacyCounter], timeouts: { callMs: 15_000 }, policy: { default: 'allow' } },
+  // The owner's call deadline for this server, 4 s: shorter than the agent's own (120 s per tool call), so it is the one that ends a hung call.
+  legacy: { transport: 'stdio', command: node, args: [FIXTURE_SERVER, '--reference', reference, '--era', 'legacy', '--counter', legacyCounter], timeouts: { callMs: 4_000 }, policy: { default: 'allow' } },
   big: { transport: 'stdio', command: node, args: [FIXTURE_SERVER, '--reference', reference, '--tools', '300', '--mutable', mutable, '--counter', bigCounter], policy: { default: 'allow' } },
 };
 const HTTP = {
@@ -206,7 +206,8 @@ try {
     assert.match(entry.results[1], /unknown_tool/, 'an HTTP server whose lists are not approved has no tool in the catalog');
     assert.ok(!entry.system.includes('everything.') && !entry.system.includes('web.'), 'and the model is told of none');
     for (const id of Object.keys(STDIO)) assert.equal(serverState(id).state, 'needs_launch_approval', `${id}: ${JSON.stringify(serverState(id))}`);
-    assert.equal(serverState('web').state, 'needs_review', 'the preflight connected the HTTP server; its lists wait for the owner');
+    // The preflight waits 3 s at most; on a slow machine the connect it started may end after the task.
+    await until(() => serverState('web').state === 'needs_review', 'the HTTP server to be connected with its lists waiting for the owner', 15_000);
     const owned = await httpPids();
     assert.deepEqual((await newDescendants(baseline)).filter((pid) => !owned.has(pid)), [], 'no stdio server was started (the processes below this one are the two HTTP servers it started itself)');
     assert.deepEqual(counterLines(webCounter).filter((line) => line.startsWith('call')), [], 'nothing was called');
@@ -480,6 +481,25 @@ try {
     assert.ok(found.tools.some((tool) => tool.name === 'big.tool_250'), entry.results[0].slice(0, 300));
     assert.equal(resultText(entry, 1), 'tool_250 ran');
     ok(`with ${total} external tools (one server of 307) the instructions the model received are ${bytes} bytes (budget ${INSTRUCTION_BUDGET_BYTES}), list ${listed} external names, summarise big; mcp_catalog filter=tool_250 finds big.tool_250 and mcp_call runs it`);
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------ G2.4 the owner's call deadline
+  {
+    // A tool that never answers, on a server whose owner set timeouts.callMs to 4 s: the agent's call ends then (the shorter of the owner's deadline
+    // and the agent's own), the server is told to cancel, and the call reached it once.
+    const before = counterLines(legacyCounter).filter((line) => line === 'call sleep').length;
+    script('HUNG', [mcpCall('legacy.sleep')]);
+    const started = Date.now();
+    const task = await Promise.race([run('HUNG'), delay(30_000).then(() => null)]);
+    const elapsed = Date.now() - started;
+    assert.ok(task, `the hung call did not end within 30 s: the owner's timeouts.callMs of ${STDIO.legacy.timeouts.callMs} ms was not applied`);
+    assert.equal(task.status, 'failed');
+    assert.equal(task.errorCode, 'tool_transport_failed', task.error);
+    assert.match(task.error, /did not answer within 4000 ms/, task.error);
+    assert.ok(elapsed >= 3_500 && elapsed < 20_000, `it ended at the owner's deadline (${elapsed} ms)`);
+    await until(() => counterLines(legacyCounter).includes('cancelled sleep'), 'the server to see notifications/cancelled', 10_000);
+    assert.equal(counterLines(legacyCounter).filter((line) => line === 'call sleep').length, before + 1, 'one invocation');
+    ok(`a hung call on a server whose owner set timeouts.callMs to 4 s ends then (${elapsed} ms) as tool_transport_failed, not at the agent's own 120 s; the server is told to cancel and saw the call once`);
   }
 
   // ------------------------------------------------------------------------------------------------------------------ G2.4 the server dies mid-call
