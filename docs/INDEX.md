@@ -31,6 +31,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Hooks](HOOKS.md) — Owner-level lifecycle hooks (a Claude Code compatible subset), the approval of a project hooks file, what a hook can and cannot do, and what is not verified
 - [ChatGPT Web Companion privacy](COMPANION-PRIVACY.md) — Terms-of-Use risk, outbound secret scanner, protected-file deny-list, review before send, and what they do not do
 - [Windows Setup](WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
+- [Releasing](RELEASING.md) — the one hand-started release workflow, what it derives, the dry run and the owner's steps
 - [Desktop Application](DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
 - [User Guide](USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
 - [Development](DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions

@@ -306,6 +306,10 @@ export interface ApprovalRequest {
   expiresAt?: string;
   diff?: string;
   currentSha?: string;
+  /** 'mcp' for a request of a local MCP client through the Hub's MCP server host (lib/mcp/host.mjs), with its client id and its tag mcp:<client>. */
+  source?: string;
+  client?: string;
+  tag?: string;
 }
 
 export interface AiProfile {

@@ -155,7 +155,13 @@ export interface ApprovalView {
   expiresAt?: string;
   decision?: string;
   detail?: Record<string, unknown>;
+  /** Who asked, when it is not an agent of the Hub: mcp:<client> for a local MCP client (the Hub's MCP server host). */
+  requester?: string;
 }
+
+/** The tag of a request of a local MCP client, as the host wrote it (mcp:<client>, the client id being a-z 0-9 . _ -); anything else is no tag. */
+const MCP_TAG = /^mcp:[a-z0-9._-]{1,64}$/;
+const requesterOf = (raw: ApprovalRequest) => (raw.source === 'mcp' && typeof raw.tag === 'string' && MCP_TAG.test(raw.tag) ? raw.tag : undefined);
 
 export function normalizeApproval(raw: ApprovalRequest): ApprovalView {
   const detail = raw.detail && typeof raw.detail === 'object' ? raw.detail as Record<string, unknown> : undefined;
@@ -168,5 +174,6 @@ export function normalizeApproval(raw: ApprovalRequest): ApprovalView {
     newContent: typeof detail?.new_string === 'string' ? detail.new_string : undefined,
     command: typeof detail?.command === 'string' ? detail.command : raw.command,
     preview: raw.preview, diff: raw.diff, expiresAt: raw.expiresAt, decision: raw.decision, detail,
+    requester: requesterOf(raw),
   };
 }

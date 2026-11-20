@@ -49,9 +49,9 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/review/reject-created','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/review/reject-created','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/mcp/server/upsert','/api/mcp/server/delete','/api/mcp/server/test','/api/mcp/server/launch-record','/api/mcp/server/approve-launch','/api/mcp/server/tool-review','/api/mcp/server/approve-tools','/api/mcp/server/tool-policy','/api/mcp/reload','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
-export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/task-review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/auth/chatgpt/callback']);
+export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/task-review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/api/mcp/servers','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
 export const SESSION_ROUTES = Object.freeze(['/api/session/ticket','/api/session/redeem']);
 // Everything under /api/ and /auth/ needs `Authorization: Bearer <per-launch secret>` except these named exceptions:
@@ -195,8 +195,23 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, agentOptions: { ...(manager.agentOptions?.current() ?? agentOptionsView()) }, update: updateState(), browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, agentOptions: { ...(manager.agentOptions?.current() ?? agentOptionsView()) }, update: updateState(), browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[]), ...(manager.mcpHost?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = (message = 'Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.') => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error(message); e.statusCode = 409; throw e; } };
+  // The owner's external MCP servers (lib/mcp/http-api.mjs, docs/MCP-CLIENT.md): the routes work on the client manager assembleStudio gave the manager, and
+  // every write refuses while a task, a coding or dynamic worker or a delegate runs (409 mcp_task_active), like the other settings of a run.
+  // The module is imported on first use, like every part of lib/mcp (tests/verify-mcp-runtime.mjs: hub.mjs imports none of it statically).
+  let mcpRoutes = null;
+  let mcpModule = null;
+  const mcpApi = async () => {
+    if (!manager.mcp) throw Object.assign(new Error('The MCP client manager is not initialized.'), { statusCode: 503, code: 'mcp_unavailable' });
+    mcpModule ??= import('./lib/mcp/http-api.mjs');
+    const { McpHttpApi } = await mcpModule;
+    if (mcpRoutes?.mcp !== manager.mcp) {
+      mcpRoutes = new McpHttpApi({ mcp: manager.mcp, mask: (text) => redact(text, manager.secrets ?? []),
+        busy: () => Boolean(taskEngine?.state()?.activeTaskId || dynamic?.activeRunId || coding?.active || coding?.integrating || delegates?.running) });
+    }
+    return mcpRoutes;
+  };
   // The state of the update notice with the state of the download under it (`update.download`) and what the last update left (`update.applied`, null when nothing): all memory, so reading it never touches the network or a file.
   const updateState = () => (updates ? { ...updates.status(), download: downloads ? downloads.status() : { state: 'idle' }, applied: applied ? applied.status() : null } : null);
   const updateUnavailable = () => Object.assign(new Error('Kiểm tra bản cập nhật chưa khởi tạo.'), { statusCode: 503, code: 'update_unavailable' });
@@ -396,6 +411,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       if (req.method === 'GET' && url.pathname === '/api/ai/catalog/models') { await catalogReady; return json(200, modelsList(modelsQuery(url.searchParams))); }
       if (req.method === 'GET' && url.pathname === '/api/ai/presets') return json(200,{ presets: publicPresets(provider?.env ?? process.env), envKeys: provider?.envKeys() ?? [] });
       if (req.method === 'GET' && url.pathname === '/api/ai/profiles') return json(200, { profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId });
+      // The owner's external MCP servers as the screen may see them: no secret, in plain or protected form (lib/mcp/http-api.mjs).
+      if (req.method === 'GET' && url.pathname === '/api/mcp/servers') return json(200, await (await mcpApi()).servers());
       if (req.method === 'GET' && url.pathname === '/api/sandbox/status') return json(200, sandboxEngine.status());
       // The update notice (lib/update-check.mjs): what the Hub already knows about a newer release. A read of memory, never a request to the network: the check is the POST below.
       if (req.method === 'GET' && url.pathname === '/api/update/status') { if (!updates) return json(503, { error: 'Kiểm tra bản cập nhật chưa khởi tạo.', code: 'update_unavailable' }); return json(200, { update: updateState() }); }
@@ -495,7 +512,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/permissions/decide': result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
               ? gate.decide(payload.id,payload.approved)
               : taskEngine?.api?.decidePermission?.(payload.id,payload.approved)
-                || browser?.decidePermission?.(payload.id,payload.approved);
+                || browser?.decidePermission?.(payload.id,payload.approved)
+                || manager.mcpHost?.decide?.(payload.id,payload.approved);
               if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
               break;
           // Only the label of a checkpoint is the page's to give. Which task a checkpoint belongs to, and which files it covers, are the Hub's own record of what a tool call did (a review
@@ -656,6 +674,17 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/update/download-cancel': { if (!downloads) throw updateUnavailable(); const answer = await downloads.cancel(); result = { update: updateState(), cancelled: answer.cancelled }; break; }
           // The owner has read what the last update left (lib/update-applied.mjs): the note is cleared in memory. The file was consumed when the Hub started, so nothing is written and nothing is asked.
           case '/api/update/applied-dismiss': if (!applied) throw updateUnavailable(); applied.dismiss(); result = { update: updateState() }; break;
+          // The owner's external MCP servers (lib/mcp/http-api.mjs): the body is checked there, every write refuses while a task is active (409 mcp_task_active),
+          // and an approval names the fingerprint the owner was shown (expectedFingerprint).
+          case '/api/mcp/server/upsert': result = await (await mcpApi()).upsert(payload); break;
+          case '/api/mcp/server/delete': result = await (await mcpApi()).remove(payload); break;
+          case '/api/mcp/server/test': result = await (await mcpApi()).test(payload); break;
+          case '/api/mcp/server/launch-record': result = await (await mcpApi()).launchRecord(payload); break;
+          case '/api/mcp/server/approve-launch': result = await (await mcpApi()).approveLaunch(payload); break;
+          case '/api/mcp/server/tool-review': result = await (await mcpApi()).toolReview(payload); break;
+          case '/api/mcp/server/approve-tools': result = await (await mcpApi()).approveTools(payload); break;
+          case '/api/mcp/server/tool-policy': result = await (await mcpApi()).toolPolicy(payload); break;
+          case '/api/mcp/reload': result = await (await mcpApi()).reload(payload); break;
           case '/api/hub/shutdown': result = { ok: true }; setTimeout(() => void onShutdown(), 150); break;
           default: return unknownAction();
         }
@@ -714,6 +743,13 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
 // or small window gets the task-selected schemas instead of all 103. AgentRunner is passed in because main() loads it lazily.
 export function createPrimaryAgentRunner(AgentRunner, { manager, provider, taskDirectory, log, env = process.env }) {
   return followProviderWindow(new AgentRunner({ manager, provider, taskDirectory, log, projectInstructions: manager.projectInstructionsSetting, agentOptions: manager.agentOptions }), env);
+}
+
+// What the host of the MCP server (lib/mcp/host.mjs) asks before a client's write: whether the Hub works in the workspace now. Any task of
+// the agents (the foreground one, a pooled chat, the Companion's), the manager's own task or service operation, or the coding orchestrator
+// merging a worker into the checkout: one writer at a time, so a client's write waits for all of them.
+export function hostPrimaryState(manager, agent) {
+  return () => ({ busy: Boolean(manager.taskId || manager.busy || agent?.state?.()?.activeTaskId || manager.codingOrchestrator?.integrating) });
 }
 
 // `url` is what is logged; `target` (the same address plus a one-time sign-in ticket in the fragment) is what is opened.
@@ -843,7 +879,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   let initialized=false,closing=false;
   let releaseInstance=async()=>{};
   let session=null;
-  let mcpServer=null;
+  let mcpServer=null,mcpHost=null;
   const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,updates,downloads,applied,
     isInitialized:()=>initialized});
   const url=`http://127.0.0.1:${options.port}`;
@@ -885,9 +921,16 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   manager.log(`Local-only Hub: 127.0.0.1 · Data: ${manager.hubDirectory}`);
   // The MCP server for local clients (docs/MCP-SERVER.md): its own listener, off unless the owner turned it on (CHATMCP_MCP_SERVER or
   // <data>/mcp-server.json). It never throws here: a missing SDK, a bad or busy port is a status and one log line, and the Hub runs on.
-  const { hubMcpProvider, startHubMcpServer } = await import('./lib/mcp/server.mjs');
+  // Its tools go through the host (lib/mcp/host.mjs): a manager and a task per client on the Hub's workspace, the Hub's permission gate in
+  // Read Only, approvals in /api/state and the decide route above; a write waits while the agent works. Nothing is made before a call.
+  const { startHubMcpServer } = await import('./lib/mcp/server.mjs');
+  const { HUB_HOST_TOOLS, McpHost, mcpHostProvider } = await import('./lib/mcp/host.mjs');
+  mcpHost = new McpHost({ bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'mcp-host'), workspace: () => manager.workspace,
+    primaryState: hostPrimaryState(manager, agent),
+    hooks: manager.hooks, mcp: manager.mcp, pluginManager: manager.pluginManager, secrets: manager.secrets, scope: 'read', tools: HUB_HOST_TOOLS, log: (line) => manager.log(line) });
+  manager.mcpHost = mcpHost;
   mcpServer = await startHubMcpServer({ env, directory: manager.hubDirectory, protector: createProtector({ bundleRoot: BUNDLE_ROOT, directory: manager.hubDirectory, env }),
-    name: 'DatGold Hub', version: VERSION, dashboardPort: options.port, log: (line) => manager.log(line), registerSecret: (value) => manager.registerSecret(value), ...hubMcpProvider({ version: VERSION }) })
+    name: 'DatGold Hub', version: VERSION, dashboardPort: options.port, log: (line) => manager.log(line), registerSecret: (value) => manager.registerSecret(value), ...mcpHostProvider({ host: mcpHost, version: VERSION }) })
     .catch((error) => { manager.log(`MCP server: not started (${error?.code ?? 'error'}).`); return null; });
   manager.mcpServer = mcpServer;
   if (options.open) await openDashboard(url, manager, dashboardUrl(url, server.issueBootstrapTicket()));
@@ -913,7 +956,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     mark('terminal'); await manager.terminal?.close(); manager.intelligence?.close();
     mark('agent'); await agent.shutdown().catch(() => {});
     mark('manager'); await manager.shutdown().catch(() => {});
-    mark('mcp server'); await mcpServer?.close().catch(() => {});
+    mark('mcp server'); await mcpServer?.close().catch(() => {}); await mcpHost?.close().catch(() => {});
     mark('server'); server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     mark('session'); await session?.remove().catch(() => {});

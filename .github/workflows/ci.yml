@@ -206,6 +206,10 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Install headless Chromium and platform dependencies
         run: npx playwright install --with-deps chromium
+      # The MCP servers tab (e2e/mcp-servers.spec.mjs) starts a stdio server through the Hub, which needs the client SDK the installer stages
+      # (docs/MCP-CLIENT.md). The fixture server it starts is plain JSON-RPC, so the reference servers are not needed here.
+      - name: Install the MCP client SDK runtime
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix ../../scripts/mcp-runtime
       - name: React contract regression tests (no model API required)
         run: npm run test:unit
       - name: Build current React UI and run required E2E with a scripted provider
