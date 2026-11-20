@@ -6,8 +6,9 @@ Only the owner starts a release. Tags and GitHub Releases are never made by hand
 
 Up to v3.11.2 every release had its own `publish-vX.Y.Z.yml` that started when a commit whose message named that
 release reached `main`. Those 24 files are gone: 18 of them started on **every** push to `main` and 6 on every completion of CI on
-`main`, and each ended "skipped", and each one carried its version, Companion version, title and asset names typed in by hand. A commit message no longer
-starts a release.
+`main`, and each ended "skipped"; each one carried its version, Companion version, title and asset names typed in by hand. A commit
+message no longer starts a release: the owner decided on 2026-11-21 that a release is started by running this workflow, with a dry run
+(`dry_run`, ticked by default, so a click by mistake publishes nothing) before the real run.
 
 ## What the workflow derives
 
@@ -24,7 +25,10 @@ run, listing every problem, when the files disagree:
 | assets | `DatGoldSetup.exe`, `DatGold-Browser-Companion.zip`, their `.sha256` files, `RELEASE-MANIFEST.json` | the names `scripts/Build-Installer.ps1` and `scripts/Build-BrowserCompanion.ps1` write; no old-named `ChatMCP-Browser-Companion.zip` (owner's decision of 2026-10-28, from v3.11.1 on) |
 | upgrade baseline | the published v3.9.0 `ChatMCPSetup.exe`, pinned by SHA-256 in the script (owner's decision) | the `digest` GitHub records for that asset, and the hash of the downloaded file |
 
-The workflow file itself names no version; `tests/verify-ci-triggers.mjs` fails when one appears, when a `push` trigger comes back,
+`tests/verify-release-workflow.mjs` compares `release.yml` line by line with a frozen copy of `publish-v3.11.2.yml`
+(`DATGOLD-HUB/tests/fixtures/release/publish-v3.11.2.yml`): the same jobs, runners, time limits, pinned actions, steps in the same order
+and the same commands, where only the values that are now derived differ; the few lines that changed on purpose are listed in that suite
+with their reason. The workflow file itself names no version; `tests/verify-ci-triggers.mjs` fails when one appears, when a `push` trigger comes back,
 when `dry_run` stops defaulting to true, or when a second `publish-v*.yml` is added.
 
 ## The jobs
@@ -44,6 +48,22 @@ when `dry_run` stops defaulting to true, or when a second `publish-v*.yml` is ad
 The CI gate counts the `push` run of `main` or a run of `ci.yml` started by hand on `main`; a dry run also counts the `pull_request`
 run of that commit. When the commit at the top of `main` changed only documentation, `ci.yml` did not run on it: start it by hand first
 (`gh workflow run ci.yml --repo pddczpl/ChatMCP --ref main`) and wait for it to pass.
+
+## The first run after the switch
+
+GitHub starts a `workflow_dispatch` workflow only from the default branch ("To trigger the `workflow_dispatch` event, your workflow
+must be in the default branch", [Manually running a workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)),
+so `release.yml` cannot run before the pull request that adds it is merged. The order is therefore:
+
+1. merge the pull request that adds `release.yml`;
+2. dry run on `main`, which publishes nothing:
+
+   ~~~powershell
+   gh workflow run release.yml --repo pddczpl/ChatMCP --ref main -f dry_run=true
+   ~~~
+
+   Expected: `resolve`, `browser`, `windows` and `verify` succeed, `publish` is skipped, and no tag or release appears;
+3. whatever that run shows goes into a follow-up pull request; the first real release comes after a green dry run.
 
 ## Steps for the owner
 

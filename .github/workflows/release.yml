@@ -189,10 +189,10 @@ jobs:
         run: |
           gh release download $env:BASELINE_TAG --repo $env:GITHUB_REPOSITORY --pattern $env:BASELINE_ASSET --dir "$env:RUNNER_TEMP/native-baseline"
           if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
-          if ((Get-FileHash (Join-Path "$env:RUNNER_TEMP/native-baseline" $env:BASELINE_ASSET) -Algorithm SHA256).Hash -ne $env:BASELINE_SHA256) { throw 'Baseline checksum mismatch' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/native-baseline/$env:BASELINE_ASSET" -Algorithm SHA256).Hash -ne $env:BASELINE_SHA256) { throw 'Baseline checksum mismatch' }
       - name: Real setup upgrade, installed EXE lifecycle and uninstall
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller (Join-Path "$env:RUNNER_TEMP/native-baseline" $env:BASELINE_ASSET) -CandidateInstaller (Join-Path dist $env:INSTALLER_ASSET) -ExpectedBaselineVersion $env:BASELINE_VERSION -ExpectedCandidateVersion $env:VERSION -OutputDirectory "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/$env:BASELINE_ASSET" -CandidateInstaller "dist/$env:INSTALLER_ASSET" -ExpectedBaselineVersion $env:BASELINE_VERSION -ExpectedCandidateVersion $env:VERSION -OutputDirectory "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle"
           if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
       - name: Native WebView2 smoke and canonical Companion parity
         run: |
@@ -204,7 +204,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $assets = @()
-          foreach ($name in @($env:INSTALLER_ASSET, $env:COMPANION_ASSET)) {
+          foreach ($name in @("$env:INSTALLER_ASSET","$env:COMPANION_ASSET")) {
             $file = Join-Path dist $name
             $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
             $expected = ((Get-Content "$file.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
@@ -213,7 +213,7 @@ jobs:
           }
           $native = Get-Content "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle/report.json" -Raw | ConvertFrom-Json
           if ($native.result -ne 'PASS' -or $native.candidateSha256 -ne $assets[0].sha256) { throw 'Native evidence does not match the release EXE' }
-          [ordered]@{ version=$env:VERSION; companionVersion=$env:COMPANION_VERSION; commit=$env:GITHUB_SHA; workflowRun=$env:GITHUB_RUN_ID; assets=$assets; signedInEdgeVerified=$false; authenticodeSigned=$false } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path dist $env:MANIFEST_ASSET) -Encoding utf8
+          [ordered]@{ version=$env:VERSION; companionVersion=$env:COMPANION_VERSION; commit=$env:GITHUB_SHA; workflowRun=$env:GITHUB_RUN_ID; assets=$assets; signedInEdgeVerified=$false; authenticodeSigned=$false } | ConvertTo-Json -Depth 6 | Set-Content "dist/$env:MANIFEST_ASSET" -Encoding utf8
           python scripts/verify-release-source.py --commit "$env:GITHUB_SHA" --evidence "$env:RUNNER_TEMP/native-release-evidence"
           if ($LASTEXITCODE -ne 0) { throw 'Source or generated-UI payload provenance verification failed' }
       - name: Upload tested release files
@@ -249,12 +249,13 @@ jobs:
       COMPANION_VERSION: ${{ needs.resolve.outputs.companion_version }}
       INSTALLER_ASSET: ${{ needs.resolve.outputs.installer_asset }}
       COMPANION_ASSET: ${{ needs.resolve.outputs.companion_asset }}
-      ARTIFACT: ${{ needs.resolve.outputs.artifact_prefix }}-Windows-and-Companion
+      ARTIFACT_PREFIX: ${{ needs.resolve.outputs.artifact_prefix }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
-      - name: Require regular CI success on this exact commit
+          fetch-depth: 0
+      - name: Require regular CI success on this exact release commit
         shell: bash
         run: |
           set -euo pipefail
@@ -273,7 +274,7 @@ jobs:
           done
           echo 'CI did not finish successfully on this commit before the deadline'; exit 1
       - name: Retrieve only artifacts from this successful workflow run
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir dist
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_PREFIX-Windows-and-Companion" --dir dist
       - name: Verify the asset hashes against the manifest
         run: python3 -I scripts/verify-release-assets.py --dist dist --commit "$GITHUB_SHA" --version "$VERSION" --companion-version "$COMPANION_VERSION" --asset "$INSTALLER_ASSET" --asset "$COMPANION_ASSET"
       - name: Say what a dry run did not do
@@ -299,7 +300,7 @@ jobs:
       INSTALLER_ASSET: ${{ needs.resolve.outputs.installer_asset }}
       COMPANION_ASSET: ${{ needs.resolve.outputs.companion_asset }}
       MANIFEST_ASSET: ${{ needs.resolve.outputs.manifest_asset }}
-      ARTIFACT: ${{ needs.resolve.outputs.artifact_prefix }}-Windows-and-Companion
+      ARTIFACT_PREFIX: ${{ needs.resolve.outputs.artifact_prefix }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -309,7 +310,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main || { echo 'A release is published from main only'; exit 1; }
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir dist
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_PREFIX-Windows-and-Companion" --dir dist
           python3 -I scripts/verify-release-assets.py --dist dist --commit "$GITHUB_SHA" --version "$VERSION" --companion-version "$COMPANION_VERSION" --asset "$INSTALLER_ASSET" --asset "$COMPANION_ASSET"
       - name: Publish version tag without moving existing tags and release assets
         run: |
@@ -324,12 +325,11 @@ jobs:
             git tag -a "$TAG" -m "$TITLE" "$GITHUB_SHA"
             git push origin "refs/tags/$TAG"
           fi
-          files=("dist/$INSTALLER_ASSET" "dist/$INSTALLER_ASSET.sha256" "dist/$COMPANION_ASSET" "dist/$COMPANION_ASSET.sha256" "dist/$MANIFEST_ASSET")
           if [ "$PRERELEASE" = true ]; then
-            gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease --title "$TITLE" --notes-file "$NOTES_FILE"
+            gh release create "$TAG" "dist/$INSTALLER_ASSET" "dist/$INSTALLER_ASSET.sha256" "dist/$COMPANION_ASSET" "dist/$COMPANION_ASSET.sha256" "dist/$MANIFEST_ASSET" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease --title "$TITLE" --notes-file "$NOTES_FILE"
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
           else
-            gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TITLE" --notes-file "$NOTES_FILE"
+            gh release create "$TAG" "dist/$INSTALLER_ASSET" "dist/$INSTALLER_ASSET.sha256" "dist/$COMPANION_ASSET" "dist/$COMPANION_ASSET.sha256" "dist/$MANIFEST_ASSET" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TITLE" --notes-file "$NOTES_FILE"
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
           fi
           echo "Published $TAG. Sign $MANIFEST_ASSET by hand and upload the signature (docs/RELEASING.md); the signing key never reaches CI." | tee -a "$GITHUB_STEP_SUMMARY"
