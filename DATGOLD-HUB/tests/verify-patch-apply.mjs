@@ -301,6 +301,16 @@ const ADVERSARIAL = [
     files: { 'f.txt': L('a', 'b', 'c', 'x', 'a', 'b', 'c', 'x', 'a', 'b', 'c') },
     patch: P(...H('f.txt'), '@@ -5,3 +5,3 @@', ' a', '-b', '+B1', ' c', '@@ -9,3 +9,3 @@', ' a', '-b', '+B2', ' c'),
     expect: { 'f.txt': L('a', 'b', 'c', 'x', 'a', 'B1', 'c', 'x', 'a', 'B2', 'c') } },
+  { name: 'the offset of a hunk carries to the next: it picks the right one of two copies', git: 'same',
+    files: { 'f.txt': L('p1', 'p2', 'h1', 'h2', 'h3', 'a', 'b', 'c', 'q', 'a', 'b', 'c', 'q', 'a', 'b', 'c', 'z') },
+    patch: P(...H('f.txt'), '@@ -2,3 +2,3 @@', ' h2', '-h3', '+H3', ' a', '@@ -8,3 +8,3 @@', ' a', '-b', '+B', ' c'),
+    expect: { 'f.txt': L('p1', 'p2', 'h1', 'h2', 'H3', 'a', 'b', 'c', 'q', 'a', 'B', 'c', 'q', 'a', 'b', 'c', 'z') },
+    hunks: [{ offset: 2 }, { offset: 2, line: 10 }] },
+  { name: 'a line added after a last line that has no newline, the diff not saying so', git: 'differs',
+    why: 'git compares the missing newline as content; the engine matches the line and gives it the newline it needs before the added one',
+    files: { 'f.txt': 'a\nb' },
+    patch: P(...H('f.txt'), '@@ -1,2 +1,3 @@', ' a', ' b', '+c'),
+    expect: { 'f.txt': 'a\nb\nc\n' } },
   { name: 'hunks out of order: refused', git: 'differs',
     why: 'git searches the whole file for every hunk; the engine places each hunk after the one before it, so two hunks never overlap or swap',
     files: { 'f.txt': L(...F10) },
@@ -360,6 +370,33 @@ const ADVERSARIAL = [
     files: { 'f.txt': L('a', 'b') },
     patch: P('--- a/f.txt\t2026-01-01 00:00:00.000000000 +0000', '+++ b/f.txt\t2026-01-01 00:00:01.000000000 +0000', '@@ -1,2 +1,2 @@', ' a', '-b', '+B'),
     expect: { 'f.txt': L('a', 'B') } },
+  { name: 'an @@ header that counts too few lines: refused, not half applied', git: 'differs', gitApplies: true,
+    why: 'git applies the counted lines and ignores the rest; the engine refuses lines that look like hunk lines right after a hunk',
+    files: { 'f.txt': L('a', 'b', 'c', 'd', 'e', 'f') },
+    patch: P(...H('f.txt'), '@@ -2,3 +2,3 @@', ' b', '-c', '+C', ' d', '-e', '+E', ' f'),
+    error: 'malformed' },
+  { name: 'a ---/+++ header without any hunk', git: 'differs', why: 'a header that changes nothing is refused as malformed, never taken as done',
+    files: { 'f.txt': L('a') }, patch: P(...H('f.txt')), error: 'malformed' },
+  { name: 'a diff --git header with nothing to change', git: 'differs', why: 'a header that changes nothing is refused as malformed, never taken as done',
+    files: { 'f.txt': L('a') }, patch: P('diff --git a/f.txt b/f.txt', 'index 1111111..2222222 100644'), error: 'malformed' },
+  { name: 'an LF file and a diff whose every line got a CR on its way (a CRLF clipboard): LF out', git: 'differs', gitApplies: false,
+    why: 'git compares the carriage return as content; the engine sees CRs on every patch line and none on the lines they match, and drops them',
+    files: { 'f.txt': L('a', 'b', 'c') },
+    patch: P(...H('f.txt'), '@@ -1,3 +1,3 @@', ' a', '-b', '+B', ' c').replace(/\n/g, '\r\n').replace('--- a/f.txt\r\n+++ b/f.txt\r\n', '--- a/f.txt\n+++ b/f.txt\n'),
+    expect: { 'f.txt': L('a', 'B', 'c') } },
+  { name: 'a mixed file: the CRs a git diff carries are kept as given', git: 'same',
+    files: { 'f.txt': 'a\r\nb\nc\r\n' },
+    patch: P(...H('f.txt'), '@@ -1,3 +1,4 @@', ' a\r', '-b', '+B', '+n\r', ' c\r'),
+    expect: { 'f.txt': 'a\r\nB\nn\r\nc\r\n' } },
+  { name: 'a file with a byte order mark, its first line replaced by a diff without one: the mark stays', git: 'differs', gitApplies: false,
+    why: 'git compares the mark as part of the first line; the engine sets it aside and keeps it',
+    files: { 'f.js': '\ufeffimport a;\nb();\n' },
+    patch: P(...H('f.js'), '@@ -1,2 +1,2 @@', '-import a;', '+import z;', ' b();'),
+    expect: { 'f.js': '\ufeffimport z;\nb();\n' }, hunks: [{ fuzz: 0 }] },
+  { name: 'a file with a byte order mark and a diff git wrote from it (the mark in the line)', git: 'same',
+    files: { 'f.js': '\ufeffimport a;\nb();\n' },
+    patch: P(...H('f.js'), '@@ -1,2 +1,2 @@', '-\ufeffimport a;', '+\ufeffimport z;', ' b();'),
+    expect: { 'f.js': '\ufeffimport z;\nb();\n' } },
   { name: 'a symlink (mode 120000)', git: 'not-run', why: 'the engine writes text files only; git would make a link',
     files: {},
     patch: P('diff --git a/link b/link', 'new file mode 120000', '--- /dev/null', '+++ b/link', '@@ -0,0 +1 @@', '+../../etc/passwd', '\\ No newline at end of file'),
@@ -534,12 +571,31 @@ ok(`${ENVELOPE.length} envelope cases and ${MALFORMED_ENVELOPES.length} malforme
   for (const p of refused) {
     assert.throws(() => checkPatchPath(p), (error) => error instanceof PatchError && error.code === 'unsafe_path', `path refused: ${JSON.stringify(p)?.slice(0, 40)}`);
   }
+  // `..` also ends in a dot; it must be refused as what it is, a climb out of the folder, by its own rule.
+  assert.throws(() => checkPatchPath('a/../b'), /a "\.\." segment/, 'a .. segment is named as such');
   ok(`${accepted.length} paths accepted, ${refused.length} refused (absolute, drive, UNC, .., ., empty segment, backslash, NUL and control characters, .git, device names, trailing dot or space, colon, length)`);
 
   assert.equal(PATCH_LIMITS.maxPatchBytes, 8 * 1024 * 1024);
   assert.equal(PATCH_LIMITS.maxFiles, 1000);
   assert.equal(PATCH_LIMITS.maxHunks, 10000);
   assert.equal(PATCH_LIMITS.maxFileBytes, 32 * 1024 * 1024);
+  assert.equal(PATCH_LIMITS.maxSearchSteps, 100_000_000);
+  {
+    // A long hunk against a long file of equal lines: every start position compares almost the whole hunk. Refused at the bound, quickly.
+    const file = 'a\n'.repeat(200_000) + 'b\n';
+    const hunk = P(...H('f.txt'), '@@ -100,602 +100,602 @@', ...Array(600).fill(' a'), '-c', '+d', ' a');
+    const started = performance.now();
+    const result = applyPatch(hunk, { 'f.txt': file });
+    const took = performance.now() - started;
+    assert.equal(result.error?.code, 'too_large', `the search bound (${result.error?.message})`);
+    assert.match(result.error.message, /f\.txt, hunk 1/);
+    assert.ok(took < 20_000, `refused in ${Math.round(took)} ms`);
+    const moved = P(...H('f.txt'), '@@ -2,3 +2,3 @@', ' a', '-b', '+B', ' c');
+    const movedFile = { 'f.txt': 'x\n'.repeat(50) + 'a\nb\nc\nx\n' };
+    assert.ok(applyPatch(moved, movedFile).ok, 'the moved hunk applies with the default bound');
+    assert.equal(applyPatch(moved, movedFile, { limits: { maxSearchSteps: 20 } }).error?.code, 'too_large', 'a caller may lower the bound');
+    ok(`a search past ${PATCH_LIMITS.maxSearchSteps} line comparisons is refused (${Math.round(took)} ms), and the bound can be lowered`);
+  }
   assert.ok(Object.isFrozen(PATCH_LIMITS), 'the limits cannot be changed by a caller');
   assert.deepEqual(FUZZ_LEVELS, ['exact', 'trailing-whitespace', 'trimmed', 'unicode-punctuation']);
   const two = P(...H('a.txt'), '@@ -1,2 +1,2 @@', ' a', '-b', '+B', ...H('b.txt'), '@@ -1,2 +1,2 @@', ' a', '-b', '+B', '@@ -5,2 +5,2 @@', ' e', '-f', '+F');
@@ -549,6 +605,8 @@ ok(`${ENVELOPE.length} envelope cases and ${MALFORMED_ENVELOPES.length} malforme
   assert.equal(code(() => parsePatch(two, { limits: { maxHunks: 2 } })), 'too_many_hunks');
   assert.equal(code(() => parsePatch(two, { limits: { maxPatchBytes: 1e12 } })), 'none', 'a caller may lower a limit, raising one past the default is ignored');
   assert.equal(code(() => parsePatch('x'.repeat(PATCH_LIMITS.maxPatchBytes + 1))), 'too_large');
+  assert.equal(code(() => parsePatch('x'.repeat(PATCH_LIMITS.maxPatchBytes + 1), { limits: { maxPatchBytes: PATCH_LIMITS.maxPatchBytes * 2 } })), 'too_large', 'a raised limit is ignored');
+  assert.equal(code(() => parsePatch('\u00e9'.repeat(PATCH_LIMITS.maxPatchBytes / 2 + 1))), 'too_large', 'the limit counts UTF-8 bytes, not characters');
   assert.equal(applyPatch(two, { 'a.txt': 'a\nb\n', 'b.txt': 'big'.repeat(100) }, { limits: { maxFileBytes: 50 } }).error.code, 'too_large', 'a file past the limit is refused');
   assert.equal(code(() => parsePatch(42)), 'malformed');
   assert.equal(code(() => parsePatch('')), 'empty');
@@ -576,8 +634,10 @@ ok(`${ENVELOPE.length} envelope cases and ${MALFORMED_ENVELOPES.length} malforme
   assert.deepEqual(patchPaths(parsePatch(E('*** Update File: a.txt', '*** Move to: b.txt', '@@', '-x', '+y', '*** Add File: c.txt', '+c', '*** Delete File: d.txt'))), { reads: ['a.txt', 'b.txt', 'c.txt', 'd.txt'], writes: ['a.txt', 'b.txt', 'c.txt', 'd.txt'] });
   ok('the parsed form: quoted names decoded and checked, envelope anchors and end-of-file, modes from the index line, patchPaths lists what to read and write');
 
-  const direct = applyFilePatch('a\nb\nc\n', unified.files[0]);
-  assert.equal(direct.text, 'a\nb\nc\nn\n'.replace('c\nn\n', 'c\nn\n'), 'applyFilePatch works on one file');
+  const direct = applyFilePatch('a\nb\nc\nd\n', unified.files[0]);
+  assert.equal(direct.text, 'a\nb\nc\nn\nd\n', 'applyFilePatch works on one file');
+  assert.deepEqual(direct.hunks, [{ hunk: 1, header: '@@ -3,2 +3,3 @@ heading', line: 3, expectedLine: 3, offset: 0, fuzz: 0, fuzzName: 'exact', matchedLines: 2, anchorLines: [] }]);
+  assert.equal(direct.mode, '100755', 'the mode the index line names');
   assert.throws(() => applyFilePatch('x\n', unified.files[0]), (error) => error instanceof PatchError && error.code === 'context_mismatch' && error.hunk === 1 && error.file === 'a.txt');
   const twice = applyPatch(P(...H('a.txt'), '@@ -1,2 +1,2 @@', ' a', '-b', '+B', ...H('a.txt'), '@@ -1,2 +1,2 @@', ' a', '-B', '+C'), { 'a.txt': 'a\nb\n' });
   assert.ok(twice.ok && twice.changes.length === 1 && twice.changes[0].text === 'a\nC\n', 'the same file twice in one patch: the second section applies to the result of the first');
@@ -628,25 +688,36 @@ ok(`${ENVELOPE.length} envelope cases and ${MALFORMED_ENVELOPES.length} malforme
     ...ADVERSARIAL.filter((c) => c.git !== 'not-run').map((c) => ({ patch: c.patch, files: c.files })),
     ...ENVELOPE.map((c) => ({ patch: c.patch, files: c.files })),
   ];
-  const norm = (text) => text.replace(/\r\n/g, '\n').replace(/\r$/, '').replace(/\n$/, '');
+  // Lines of a text as a file has them: split on LF, no line after a final LF, one CR before the LF is the line end, not the line.
+  const lineTexts = (text) => {
+    if (text === '') return [];
+    const parts = text.split('\n');
+    if (parts[parts.length - 1] === '') parts.pop();
+    return parts.map((part) => (part.endsWith('\r') ? part.slice(0, -1) : part));
+  };
+  // The ladder written again here, apart from the engine's: the fourth rung by explicit character lists.
+  const punct = (s) => s.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-').replace(/[\u2018\u2019\u201a\u201b]/g, '\'').replace(/[\u201c\u201d\u201e\u201f]/g, '"')
+    .replace(/[\u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000]/g, ' ');
   const LADDER = [
     (a, b) => a === b,
     (a, b) => a.trimEnd() === b.trimEnd(),
     (a, b) => a.trim() === b.trim(),
+    (a, b) => punct(a).trim() === punct(b).trim(),
   ];
   let applied = 0;
   let refused = 0;
   let verifiedHunks = 0;
-  const ITERATIONS = 600;
+  const ITERATIONS = 2000;
   for (let n = 0; n < ITERATIONS; n += 1) {
     const base = pick(bases);
     let patch = base.patch;
     const files = { ...base.files };
     const rounds = 1 + Math.floor(random() * 3);
     for (let r = 0; r < rounds; r += 1) {
-      if (random() < 0.6) patch = mutateLines(patch, NOISE);
+      if (random() < 0.4) patch = mutateLines(patch, NOISE);
       else { const key = pick(Object.keys(files).length ? Object.keys(files) : ['f.txt']); if (typeof files[key] === 'string') files[key] = mutateFile(files[key]); }
     }
+    if (process.env.PATCH_FUZZ_DUMP && Number(process.env.PATCH_FUZZ_DUMP) === n) fs.writeFileSync(path.join(os.tmpdir(), 'patch-fuzz-case.json'), JSON.stringify({ patch, files }));
     let first;
     let second;
     try { first = applyPatch(patch, files); second = applyPatch(patch, files); } catch (error) {
@@ -664,11 +735,21 @@ ok(`${ENVELOPE.length} envelope cases and ${MALFORMED_ENVELOPES.length} malforme
     // and the new text is the old one with exactly those lines replaced.
     const parsed = parsePatch(patch);
     const state = new Map(Object.entries(files));
+    const touches = new Map();
+    for (const f of parsed.files) for (const p of new Set([f.oldPath, f.newPath])) if (p !== null) touches.set(p, (touches.get(p) ?? 0) + 1);
     parsed.files.forEach((filePatch, index) => {
       const report = first.reports[index];
+      // A file that several sections touch is checked by the engine section by section; the re-check below needs the text before each section.
+      if ([filePatch.oldPath, filePatch.newPath].some((p) => p !== null && touches.get(p) > 1)) {
+        filePatch.hunks.forEach((hunk, h) => assert.equal(report.hunks[h].matchedLines, hunk.lines.filter((l) => l.op !== '+').length));
+        return;
+      }
       const original = filePatch.kind === 'add' ? '' : state.get(filePatch.oldPath);
       if (filePatch.kind === 'delete') { state.delete(filePatch.oldPath); return; }
-      const orig = original === '' ? [] : norm(original).split('\n');
+      // A byte order mark is set aside unless a line of the patch holds one (docs/PATCH-ENGINE.md).
+      const bomAside = original.startsWith('\ufeff') && !filePatch.hunks.some((h) => h.lines.some((l) => l.text.includes('\ufeff')));
+      const body = bomAside ? original.slice(1) : original;
+      const orig = lineTexts(body);
       const out = [];
       let cursor = 0;
       filePatch.hunks.forEach((hunk, h) => {
@@ -680,7 +761,7 @@ ok(`${ENVELOPE.length} envelope cases and ${MALFORMED_ENVELOPES.length} malforme
         oldLines.forEach((l, k) => {
           const fileLine = orig[start + k];
           assert.ok(fileLine !== undefined, `fuzz ${n}: the hunk lies inside the file`);
-          const same = diag.fuzz < 3 ? LADDER[diag.fuzz](fileLine, l.text) : true;
+          const same = LADDER[diag.fuzz](fileLine, l.text);
           assert.ok(same, `fuzz ${n}: line ${start + k + 1} matches at rung ${diag.fuzz} (${JSON.stringify(fileLine)} vs ${JSON.stringify(l.text)})`);
         });
         out.push(...orig.slice(cursor, start));
@@ -690,14 +771,12 @@ ok(`${ENVELOPE.length} envelope cases and ${MALFORMED_ENVELOPES.length} malforme
         verifiedHunks += 1;
       });
       out.push(...orig.slice(cursor));
-      const target = filePatch.kind === 'rename' ? filePatch.newPath : filePatch.newPath;
-      const written = first.changes.filter((c) => c.path === target).at(-1);
+      const target = filePatch.newPath;
+      const written = first.changes.find((c) => c.path === target);
       const text = written ? written.text : state.get(target);
-      if (filePatch.hunks.length && parsed.files.filter((f) => f.newPath === target || f.oldPath === target).length === 1) {
-        assert.equal(norm(text ?? ''), out.join('\n'), `fuzz ${n}: the new text is the old one with the hunks' lines replaced, nothing else`);
-      }
-      if (filePatch.kind === 'rename') state.delete(filePatch.oldPath);
-      state.set(target, text);
+      const result = lineTexts(bomAside ? (text ?? '').replace(/^\ufeff/, '') : text ?? '');
+      assert.ok(!bomAside || (text ?? '').startsWith('\ufeff'), `fuzz ${n}: the byte order mark is kept`);
+      assert.deepEqual(result, out,`fuzz ${n}: the new text is the old one with the hunks' lines replaced, nothing else`);
     });
   }
   assert.ok(applied > 50 && refused > 50, `the fuzz exercises both outcomes (${applied} applied, ${refused} refused)`);

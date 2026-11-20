@@ -1,0 +1,357 @@
+{
+  "suite": "verify-patch-apply.mjs",
+  "mutations": [
+    {
+      "name": "ambiguous-takes-first",
+      "what": "two equally good places: the first one is taken instead of refusing",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "const hits = findAll(keys, needle, from, to, 2, budget);",
+          "new": "const hits = findAll(keys, needle, from, to, 1, budget);"
+        }
+      ]
+    },
+    {
+      "name": "line-numbers-ignored",
+      "what": "the place the diff names does not win over another match",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "    if (expected !== null && expected >= from && expected <= to && findAll(keys, needle, expected, expected, 1, budget).length) return { pos: expected, fuzz: level };\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "rung-1-is-exact",
+      "what": "the trailing-whitespace rung compares exactly",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "  (s) => s.trimEnd(),\n",
+          "new": "  (s) => s,\n"
+        }
+      ]
+    },
+    {
+      "name": "rung-3-quotes",
+      "what": "curly double quotes are read as single quotes",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "  if (code >= 0x201c && code <= 0x201f) return '\"';",
+          "new": "  if (code >= 0x201c && code <= 0x201f) return '\\'';"
+        }
+      ]
+    },
+    {
+      "name": "ladder-stops-at-2",
+      "what": "the default ladder stops before the Unicode rung",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "? Math.max(0, Math.min(3, options.maxFuzz)) : 3;",
+          "new": "? Math.max(0, Math.min(3, options.maxFuzz)) : 2;"
+        }
+      ]
+    },
+    {
+      "name": "no-start-anchor",
+      "what": "a hunk that names line 1 may move",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "const atStart = hunk.oldStart <= 1;",
+          "new": "const atStart = false;"
+        }
+      ]
+    },
+    {
+      "name": "no-end-anchor",
+      "what": "a hunk without trailing context may match before the end",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "const atEnd = trailingContext === 0;",
+          "new": "const atEnd = false;"
+        }
+      ]
+    },
+    {
+      "name": "hunks-may-overlap",
+      "what": "the next hunk is searched from the start of the file again",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "    cursor = pos + m;\n",
+          "new": "    cursor = 0;\n"
+        }
+      ]
+    },
+    {
+      "name": "offset-not-carried",
+      "what": "the offset of a hunk is not carried to the next one",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "      delta = offset;\n",
+          "new": "      delta = 0;\n"
+        }
+      ]
+    },
+    {
+      "name": "old-no-eol-unchecked",
+      "what": "the old side's missing final newline is not checked against the file",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "      if (hunk.oldNoEol && !(reachesEnd && n > 0 && !lines[n - 1].nl)) {",
+          "new": "      if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "new-no-eol-ignored",
+      "what": "the patch cannot take the final newline away",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "      last.nl = false;\n",
+          "new": "      last.nl = true;\n"
+        }
+      ]
+    },
+    {
+      "name": "middle-line-no-newline",
+      "what": "a line without newline that is no longer last keeps having none",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "if (!out[k].nl) { out[k].nl = true;",
+          "new": "if (false) { out[k].nl = true;"
+        }
+      ]
+    },
+    {
+      "name": "crlf-never",
+      "what": "added lines never take the CRLF of the file",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "  const crlf = !literal && prefersCrlf(lines);",
+          "new": "  const crlf = false;"
+        }
+      ]
+    },
+    {
+      "name": "transit-cr-kept",
+      "what": "CRs added on the way are written into the file",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "  const literal = anyCr && !inTransit;",
+          "new": "  const literal = anyCr;"
+        }
+      ]
+    },
+    {
+      "name": "bom-not-set-aside",
+      "what": "the byte order mark is matched as part of the first line",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "  const lines = splitFile(bom ? original.slice(1) : original);",
+          "new": "  const lines = splitFile(original);"
+        }
+      ]
+    },
+    {
+      "name": "dot-segments",
+      "what": "a .. segment is allowed",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "    if (segment === '.' || segment === '..') refuse",
+          "new": "    if (segment === '.') refuse"
+        }
+      ]
+    },
+    {
+      "name": "device-names",
+      "what": "a Windows device name is allowed",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "    if (DEVICE_NAME.test(segment)) refuse('a Windows device name');\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "stray-lines-after-hunk",
+      "what": "lines after a hunk that its header does not count are ignored",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "    if (!header && next !== '-- ' && next !== '--' && /^[ +-]/.test(next)) {",
+          "new": "    if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "git-binary-patch",
+      "what": "a GIT binary patch is not recognised as binary",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "} else if (line === 'GIT binary patch' ||",
+          "new": "} else if (line === 'GIT binary patch!' ||"
+        }
+      ]
+    },
+    {
+      "name": "delete-leaves-lines",
+      "what": "a deletion that leaves lines behind is accepted",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "    if (left !== 0) throw",
+          "new": "    if (false) throw"
+        }
+      ]
+    },
+    {
+      "name": "rename-overwrites",
+      "what": "a rename onto an existing file overwrites it",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "filePatch.kind === 'copy') && target !== null) {",
+          "new": "filePatch.kind === 'copy') && false) {"
+        }
+      ]
+    },
+    {
+      "name": "limits-raised",
+      "what": "a caller may raise a limit",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "value >= 0 && value < out[key]) out[key] = value;",
+          "new": "value >= 0) out[key] = value;"
+        }
+      ]
+    },
+    {
+      "name": "context-free-insert-anywhere",
+      "what": "a hunk without lines to match is placed by its line number alone",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "        else if (expected === n && n >= cursor) pos = n;",
+          "new": "        else if (expected <= n && expected >= cursor) pos = expected;"
+        }
+      ]
+    },
+    {
+      "name": "first-anchor-nearest",
+      "what": "the first anchor takes the nearest match instead of requiring one",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "        const found = a === 0",
+          "new": "        const found = false"
+        }
+      ]
+    },
+    {
+      "name": "end-of-file-marker-lost",
+      "what": "the envelope end-of-file anchor is dropped",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "          current.endOfFile = true;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "octal-as-decimal",
+      "what": "octal escapes of quoted names are read as decimal",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "bytes.push(parseInt(text.slice(i + 1, i + 4), 8))",
+          "new": "bytes.push(parseInt(text.slice(i + 1, i + 4), 10))"
+        }
+      ]
+    },
+    {
+      "name": "search-unbounded",
+      "what": "the search cost is never counted",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "    budget.left -= k + 1;\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "timestamp-kept",
+      "what": "the timestamp after a TAB stays in the file name",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "const name = tab >= 0 ? rest.slice(0, tab) :",
+          "new": "const name = tab >= 0 ? rest :"
+        }
+      ]
+    },
+    {
+      "name": "empty-header-accepted",
+      "what": "a diff --git header with nothing to change is taken as done",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "if (section.kind === 'modify' && !modeChange) throw",
+          "new": "if (false) throw"
+        }
+      ]
+    },
+    {
+      "name": "git-dir-allowed",
+      "what": "a path into .git is allowed",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "refuse('it writes into .git');",
+          "new": ";"
+        }
+      ]
+    },
+    {
+      "name": "utf8-length-chars",
+      "what": "the size limit counts characters, not UTF-8 bytes",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "if (text.length > limits.maxPatchBytes || utf8Length(text) > limits.maxPatchBytes) {",
+          "new": "if (text.length > limits.maxPatchBytes) {"
+        }
+      ]
+    },
+    {
+      "name": "no-final-newline-marker-old",
+      "what": "a no-newline marker after a - line is not recorded for the old side",
+      "patches": [
+        {
+          "file": "lib/patch-apply.mjs",
+          "old": "  if (last.op !== '+') hunk.oldNoEol = true;\n",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}
