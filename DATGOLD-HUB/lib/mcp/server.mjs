@@ -16,8 +16,9 @@
 // refusal of the gate (401, 403, 404, 429) is logged in full only the first time its status is seen in a window (createRefusalLog); the
 // others are counted and summed up in one line when the window ends, so a flood adds a bounded number of lines.
 //
-// Tools come from an injected provider ({tools, call}); ext-17's Hub exposes only `hub_status` (hubMcpProvider), which reads no workspace
-// and changes nothing. The verify/read/write profiles and their approvals are P6 ext-18/ext-19.
+// Tools come from an injected provider ({tools, call}); `call` gets the request's signal and the client as it names itself (clientInfoOf).
+// The Hub's provider is the host's (lib/mcp/host.mjs, ext-18): `hub_status`, which reads no workspace and changes nothing, and the tools
+// the host serves through the Hub's permission gate (read_file in ext-18). The verify/read/write profiles are P6 ext-19.
 import http from 'node:http';
 import { performance } from 'node:perf_hooks';
 import { loadMcpServerSdk } from './server-sdk.mjs';
@@ -56,9 +57,21 @@ export function normalizeTools(tools) {
   return list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
+const CLIENT_INFO_KEY = 'io.modelcontextprotocol/clientInfo';
+/**
+ * The client of a request as it names itself: `{name, version}` from the per-request `_meta` envelope of the 2026-07-28 revision (the SDK
+ * lifts it into `context.mcpReq.envelope`), strings only and at most 256 characters each; null when the request carries none (a 2025
+ * client: in stateless mode its tools/call has no clientInfo). It is the client's own word, under the one token every client shares.
+ */
+export function clientInfoOf(context) {
+  const info = context?.mcpReq?.envelope?.[CLIENT_INFO_KEY];
+  if (!plainObject(info) || typeof info.name !== 'string') return null;
+  return { name: info.name.slice(0, 256), version: typeof info.version === 'string' ? info.version.slice(0, 256) : null };
+}
+
 /**
  * The factory createMcpHandler calls once per request (stateless): a fresh McpServer with the provider's tools, each registered with
- * fromJsonSchema(inputSchema) so that the SDK checks the arguments before `call(name, args, {signal})` runs.
+ * fromJsonSchema(inputSchema) so that the SDK checks the arguments before `call(name, args, {signal, client})` runs (client: clientInfoOf).
  * @param {{name: string, version: string, tools: object[] | (() => object[]), call: Function, listCacheHint?: {ttlMs?: number, cacheScope?: string}}} options
  */
 export function createMcpServerFactory(sdk, { name, version, tools, call, listCacheHint = DEFAULT_LIST_CACHE_HINT } = {}) {
@@ -74,7 +87,7 @@ export function createMcpServerFactory(sdk, { name, version, tools, call, listCa
         inputSchema: sdk.fromJsonSchema(structuredClone(tool.inputSchema)),
         ...(tool.outputSchema !== undefined ? { outputSchema: sdk.fromJsonSchema(structuredClone(tool.outputSchema)) } : {}),
         ...(tool.annotations !== undefined ? { annotations: { ...tool.annotations } } : {}),
-      }, async (args, context) => call(tool.name, args ?? {}, { signal: context?.mcpReq?.signal }));
+      }, async (args, context) => call(tool.name, args ?? {}, { signal: context?.mcpReq?.signal, client: clientInfoOf(context) }));
     }
     return server;
   };
@@ -211,9 +224,9 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bo
   };
 }
 
-/** The provider of ext-17's Hub: one harmless status tool, no workspace tool. */
-export function hubMcpProvider({ product = 'DatGold', version }) {
-  const text = JSON.stringify({ product, version, mcpServer: 'ext-17 core', workspaceTools: 'none yet' });
+/** The status tool of the Hub: harmless, no workspace. `workspaceTools` are the names of the tools the host serves (lib/mcp/host.mjs mcpHostProvider). */
+export function hubMcpProvider({ product = 'DatGold', version, workspaceTools = [] }) {
+  const text = JSON.stringify({ product, version, mcpServer: workspaceTools.length ? 'ext-18 host' : 'ext-17 core', workspaceTools: workspaceTools.length ? [...workspaceTools] : 'none yet' });
   return {
     tools: [{
       name: 'hub_status', title: 'DatGold Hub status',

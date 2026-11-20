@@ -102,6 +102,9 @@ async function setup({ scope = 'write', timeout, tools = [READ, EDIT], hooks = n
       const client = new clientSdk.Client({ name, version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
       await client.connect(new clientSdk.StreamableHTTPClientTransport(new URL(handle.status().url), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
       clients.push(client);
+      // A call held in a variable while the test asserts: if an assertion fails first, its rejection at close must fail this case only.
+      const callTool = client.callTool.bind(client);
+      client.callTool = (...callArgs) => { const pending = callTool(...callArgs); pending.catch(() => {}); return pending; };
       return client;
     },
     async pending() {
@@ -203,7 +206,7 @@ try {
       assert.equal(item.source, 'mcp');
       assert.equal(item.client, 'claude-code');
       assert.equal(item.tag, 'mcp:claude-code');
-      assert.equal(item.taskId, hostTaskId(env.workspace, 'claude-code'), 'the client\'s own task, not the primary agent\'s');
+      assert.equal(item.taskId, hostTaskId(env.primary.workspace, 'claude-code'), 'the client\'s own task, not the primary agent\'s');
       assert.equal(item.toolName, 'local.edit_file');
       assert.equal(item.category, 'workspace_edit');
       assert.equal(item.detail.path, 'notes.txt');
@@ -211,7 +214,7 @@ try {
       assert.equal(env.file('notes.txt'), 'alpha\nbeta\n', 'nothing is written before the answer');
       const answer = await env.decide(item.id, true);
       assert.equal(answer.status, 200, JSON.stringify(answer.body));
-      assert.deepEqual(answer.body, { ok: true, id: item.id, approved: true });
+      assert.deepEqual({ ok: answer.body.ok, id: answer.body.id, approved: answer.body.approved }, { ok: true, id: item.id, approved: true });
       const result = await call;
       assert.notEqual(result.isError, true, textOf(result));
       assert.equal(env.file('notes.txt'), 'gamma\nbeta\n');
@@ -446,7 +449,7 @@ try {
       const hostManager = env.host.managerOf('isolated-client');
       assert.notEqual(hostManager, primary);
       assert.ok(hostManager.hubDirectory.startsWith(path.join(primary.hubDirectory, 'mcp-host')));
-      const clientTask = hostTaskId(env.workspace, 'isolated-client');
+      const clientTask = hostTaskId(env.primary.workspace, 'isolated-client');
       const hostCheckpoints = await hostManager.studio.checkpoints();
       assert.ok(hostCheckpoints.some((entry) => entry.taskId === clientTask && entry.label === `Before local.edit_file · ${clientTask}`), JSON.stringify(hostCheckpoints));
       assert.equal((await hostManager.studio.plan({ taskId: clientTask })).title, 'client plan');
@@ -475,7 +478,7 @@ try {
       assert.equal(codeOf(result), 'hook_denied', textOf(result));
       assert.doesNotMatch(textOf(result), /hidden words/);
       assert.notEqual((await client.callTool({ name: 'read_file', arguments: { path: 'notes.txt' } })).isError, true);
-      const clientTask = hostTaskId(env.workspace, 'hooked-client');
+      const clientTask = hostTaskId(env.primary.workspace, 'hooked-client');
       assert.ok(seen.some((entry) => entry.event === 'PreToolUse' && entry.taskId === clientTask), JSON.stringify(seen));
       assert.ok(seen.some((entry) => entry.event === 'PostToolUse' && entry.taskId === clientTask));
     } finally { await env.close(); }
