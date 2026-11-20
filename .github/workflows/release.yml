@@ -171,6 +171,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native unit regression failed' }
           powershell -NoProfile -File scripts/tests/Test-InstallerPayload.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Installer payload regression failed' }
+      # The same test tools as the Hub tests job of ci.yml installs before its no-skip run (tests/verify-release-workflow.mjs checks the two
+      # lists agree): a suite that cannot find them is skipped, and --no-skip turns a skip into a failure.
+      - name: Install the ACP test tools
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix DATGOLD-HUB/tests/acp-tools
+          if ($LASTEXITCODE -ne 0) { throw 'ACP test tools installation failed' }
+      - name: Install the MCP client SDK and the MCP reference servers
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix scripts/mcp-runtime
+          if ($LASTEXITCODE -ne 0) { throw 'MCP client SDK installation failed' }
+          npm ci --ignore-scripts --no-audit --no-fund --prefix DATGOLD-HUB/tests/fixtures/mcp-reference
+          if ($LASTEXITCODE -ne 0) { throw 'MCP reference servers installation failed' }
       - name: Complete no-skip Hub regression
         run: |
           python -m pip install -r DATGOLD-HUB/tests/requirements-e2e.txt

@@ -152,6 +152,9 @@ const ADDED = new Set([ // steps of release.yml with no counterpart in 3.11.2
   'Verify the asset hashes against the manifest',
   'Say what a dry run did not do',
   'Retrieve only artifacts from this successful workflow run and verify them again',
+  // the test tools of the suites that came after 3.11.2 (ACP, MCP), installed as ci.yml installs them (check 6)
+  'Install the ACP test tools',
+  'Install the MCP client SDK and the MCP reference servers',
 ]);
 
 export function compare(frozen, release) {

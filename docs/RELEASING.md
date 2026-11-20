@@ -65,6 +65,12 @@ so `release.yml` cannot run before the pull request that adds it is merged. The 
    Expected: `resolve`, `browser`, `windows` and `verify` succeed, `publish` is skipped, and no tag or release appears;
 3. whatever that run shows goes into a follow-up pull request; the first real release comes after a green dry run.
 
+The first dry run (2026-11-21, run 44816344277 on `7dda49d7`) did its job: `resolve` and `browser` passed, and `windows` failed in
+"Complete no-skip Hub regression" with 203 of 214 suites passing. The other 11 (the ACP and MCP suites) were skipped because their test
+tools were not installed, and `--no-skip` counts a skip as a failure. `publish-v3.11.2.yml`, which `release.yml` copies, predates those
+suites. The fix installs the same folders as the Hub tests job of `ci.yml` (ACP test tools, MCP client SDK, MCP reference servers), and
+`tests/verify-release-workflow.mjs` now fails when the two lists differ. A second dry run on `main` is needed after that fix.
+
 ## Steps for the owner
 
 1. Prepare the release in a pull request like any other change: the version in the five files of the table, the Companion version if the
