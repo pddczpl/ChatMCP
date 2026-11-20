@@ -30,7 +30,6 @@ import { createUpdateDownloader } from './lib/update-download.mjs';
 import { createAppliedNote } from './lib/update-applied.mjs';
 import { loadReleaseKeys } from './lib/release-signature.mjs';
 import { createProtector } from './lib/secret-box.mjs';
-import { McpHttpApi } from './lib/mcp/http-api.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.11.2-react-agent';
@@ -200,9 +199,13 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   const requireNoTask = (message = 'Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.') => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error(message); e.statusCode = 409; throw e; } };
   // The owner's external MCP servers (lib/mcp/http-api.mjs, docs/MCP-CLIENT.md): the routes work on the client manager assembleStudio gave the manager, and
   // every write refuses while a task, a coding or dynamic worker or a delegate runs (409 mcp_task_active), like the other settings of a run.
+  // The module is imported on first use, like every part of lib/mcp (tests/verify-mcp-runtime.mjs: hub.mjs imports none of it statically).
   let mcpRoutes = null;
-  const mcpApi = () => {
+  let mcpModule = null;
+  const mcpApi = async () => {
     if (!manager.mcp) throw Object.assign(new Error('The MCP client manager is not initialized.'), { statusCode: 503, code: 'mcp_unavailable' });
+    mcpModule ??= import('./lib/mcp/http-api.mjs');
+    const { McpHttpApi } = await mcpModule;
     if (mcpRoutes?.mcp !== manager.mcp) {
       mcpRoutes = new McpHttpApi({ mcp: manager.mcp, mask: (text) => redact(text, manager.secrets ?? []),
         busy: () => Boolean(taskEngine?.state()?.activeTaskId || dynamic?.activeRunId || coding?.active || coding?.integrating || delegates?.running) });
@@ -409,7 +412,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       if (req.method === 'GET' && url.pathname === '/api/ai/presets') return json(200,{ presets: publicPresets(provider?.env ?? process.env), envKeys: provider?.envKeys() ?? [] });
       if (req.method === 'GET' && url.pathname === '/api/ai/profiles') return json(200, { profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId });
       // The owner's external MCP servers as the screen may see them: no secret, in plain or protected form (lib/mcp/http-api.mjs).
-      if (req.method === 'GET' && url.pathname === '/api/mcp/servers') return json(200, await mcpApi().servers());
+      if (req.method === 'GET' && url.pathname === '/api/mcp/servers') return json(200, await (await mcpApi()).servers());
       if (req.method === 'GET' && url.pathname === '/api/sandbox/status') return json(200, sandboxEngine.status());
       // The update notice (lib/update-check.mjs): what the Hub already knows about a newer release. A read of memory, never a request to the network: the check is the POST below.
       if (req.method === 'GET' && url.pathname === '/api/update/status') { if (!updates) return json(503, { error: 'Kiểm tra bản cập nhật chưa khởi tạo.', code: 'update_unavailable' }); return json(200, { update: updateState() }); }
@@ -672,15 +675,15 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/update/applied-dismiss': if (!applied) throw updateUnavailable(); applied.dismiss(); result = { update: updateState() }; break;
           // The owner's external MCP servers (lib/mcp/http-api.mjs): the body is checked there, every write refuses while a task is active (409 mcp_task_active),
           // and an approval names the fingerprint the owner was shown (expectedFingerprint).
-          case '/api/mcp/server/upsert': result = await mcpApi().upsert(payload); break;
-          case '/api/mcp/server/delete': result = await mcpApi().remove(payload); break;
-          case '/api/mcp/server/test': result = await mcpApi().test(payload); break;
-          case '/api/mcp/server/launch-record': result = await mcpApi().launchRecord(payload); break;
-          case '/api/mcp/server/approve-launch': result = await mcpApi().approveLaunch(payload); break;
-          case '/api/mcp/server/tool-review': result = await mcpApi().toolReview(payload); break;
-          case '/api/mcp/server/approve-tools': result = await mcpApi().approveTools(payload); break;
-          case '/api/mcp/server/tool-policy': result = await mcpApi().toolPolicy(payload); break;
-          case '/api/mcp/reload': result = await mcpApi().reload(payload); break;
+          case '/api/mcp/server/upsert': result = await (await mcpApi()).upsert(payload); break;
+          case '/api/mcp/server/delete': result = await (await mcpApi()).remove(payload); break;
+          case '/api/mcp/server/test': result = await (await mcpApi()).test(payload); break;
+          case '/api/mcp/server/launch-record': result = await (await mcpApi()).launchRecord(payload); break;
+          case '/api/mcp/server/approve-launch': result = await (await mcpApi()).approveLaunch(payload); break;
+          case '/api/mcp/server/tool-review': result = await (await mcpApi()).toolReview(payload); break;
+          case '/api/mcp/server/approve-tools': result = await (await mcpApi()).approveTools(payload); break;
+          case '/api/mcp/server/tool-policy': result = await (await mcpApi()).toolPolicy(payload); break;
+          case '/api/mcp/reload': result = await (await mcpApi()).reload(payload); break;
           case '/api/hub/shutdown': result = { ok: true }; setTimeout(() => void onShutdown(), 150); break;
           default: return unknownAction();
         }
