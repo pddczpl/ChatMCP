@@ -42,6 +42,49 @@ export interface SandboxStatus {
   backends?: BackendCapabilityReport[];
 }
 
+// ---- external MCP servers (GET /api/mcp/servers and the POST routes under /api/mcp/, lib/mcp/http-api.mjs of the Hub) ----------------------------
+export type McpPolicyWord = 'ask' | 'allow' | 'deny';
+export type McpConnectionState = 'idle' | 'connecting' | 'connected' | 'needs_review' | 'needs_launch_approval' | 'failed' | 'lost' | 'closed';
+/** A value of an env or headers map as the Hub shows it: a plain value, or only that a secret is set (never the secret). */
+export interface McpMapEntry { value?: string; secret: boolean }
+export interface McpLaunchState { required: boolean; approved: boolean; fingerprint: string | null }
+export interface McpListDiff { added: { kind: string; name: string }[]; removed: { kind: string; name: string }[]; changed: { kind: string; name: string; fields: string[] }[] }
+export interface McpServerStatus {
+  id: string; transport: 'stdio' | 'http'; state: McpConnectionState; enabled: boolean;
+  review: { state: 'unpinned' | 'pinned' | 'needs_review'; fingerprint: string | null; reason?: string; diff?: McpListDiff | null } | null;
+  launch: McpLaunchState | null; refused: { tools: number; prompts: number; resources: number };
+  protocolVersion: string | null; server: { name: string; version: string } | null; tools: number | null; connectedAt: string | null; calls: number;
+  lastError: { code: string; message: string } | null; retryAt: string | null;
+}
+export interface McpToolView { name: string; title?: string; description: string; annotations: Record<string, boolean>; rule: McpPolicyWord | null; policy: McpPolicyWord }
+export interface McpServerView {
+  id: string; transport: 'stdio' | 'http'; enabled: boolean; timeouts: { connectMs: number; callMs: number };
+  policy: { default?: McpPolicyWord; tools?: Record<string, McpPolicyWord> }; trust: { annotations: boolean }; touchesWorkspace: boolean;
+  env: Record<string, McpMapEntry>; command?: string; args?: string[]; cwd?: string; url?: string; headers?: Record<string, McpMapEntry>;
+  status: McpServerStatus | null; tools: McpToolView[];
+  toolReview: { state: 'unpinned' | 'pinned' | 'needs_review' | 'not_connected'; fingerprint: string | null; refused: { tools: number; prompts: number; resources: number } | null };
+}
+export interface McpServersAnswer {
+  runtime: { state: string; version?: string; code?: string }; configLoaded: boolean; configError: { code: string; message: string } | null;
+  closed: boolean; maxServers: number; servers: McpServerView[];
+}
+export interface McpLaunchRecord {
+  required: boolean; approved: boolean; fingerprint: string | null;
+  record: { version: number; transport: 'stdio'; command: string; args: string[]; cwd: string | null; envKeys: string[]; executable: string | null; sha256: string | null } | null;
+}
+export interface McpToolDefinition { name: string; title?: string; description: string; inputSchema?: unknown; annotations?: Record<string, unknown> }
+export interface McpToolReview {
+  state: 'unpinned' | 'pinned' | 'needs_review' | 'not_connected'; fingerprint: string | null; diff?: McpListDiff | null; reason?: string;
+  tools: McpToolDefinition[]; prompts: { name: string; description?: string }[]; refused: { tools: number; prompts: number; resources: number } | null;
+}
+/** A value of an env or headers map as the page sends it: plain text, a secret to store protected, or "keep the secret already stored". */
+export type McpMapInput = string | { value: string; secret: true } | { keep: true };
+export interface McpServerInput {
+  transport: 'stdio' | 'http'; command?: string; args?: string[]; cwd?: string; url?: string; headers?: Record<string, McpMapInput>; env: Record<string, McpMapInput>;
+  enabled: boolean; trust: { annotations: boolean }; touchesWorkspace: boolean; timeouts?: { connectMs: number; callMs: number };
+}
+export interface McpTestAnswer { ok: boolean; error: { code: string; message: string } | null; status: McpServerStatus | null }
+
 const UI_BUILD = '3.11.2-react-agent';
 let currentCsrfToken = '';
 
@@ -328,4 +371,16 @@ export const api = {
   /** The same for the baseline of a task. */
   previewTaskRestore: (taskId: string) =>
     request<RestorePreview>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ taskId, dryRun: true }) }),
+  // External MCP servers (the MCP tab). Every write is refused with 409 mcp_task_active while a task runs; an approval sends the fingerprint the owner was shown.
+  getMcpServers: () => request<McpServersAnswer>('/api/mcp/servers'),
+  upsertMcpServer: (id: string, server: McpServerInput) => request<{ server: McpServerView; created: boolean }>('/api/mcp/server/upsert', { method: 'POST', body: JSON.stringify({ id, server }) }),
+  deleteMcpServer: (id: string) => request<{ deleted: boolean; id: string }>('/api/mcp/server/delete', { method: 'POST', body: JSON.stringify({ id }) }),
+  testMcpServer: (id: string) => request<McpTestAnswer>('/api/mcp/server/test', { method: 'POST', body: JSON.stringify({ id }) }),
+  getMcpLaunchRecord: (id: string) => request<McpLaunchRecord>('/api/mcp/server/launch-record', { method: 'POST', body: JSON.stringify({ id }) }),
+  approveMcpLaunch: (id: string, expectedFingerprint: string) => request<{ ok: boolean; fingerprint: string | null }>('/api/mcp/server/approve-launch', { method: 'POST', body: JSON.stringify({ id, expectedFingerprint }) }),
+  getMcpToolReview: (id: string) => request<McpToolReview>('/api/mcp/server/tool-review', { method: 'POST', body: JSON.stringify({ id }) }),
+  approveMcpTools: (id: string, expectedFingerprint: string) => request<{ ok: boolean; fingerprint: string }>('/api/mcp/server/approve-tools', { method: 'POST', body: JSON.stringify({ id, expectedFingerprint }) }),
+  setMcpToolPolicy: (id: string, patch: { default?: McpPolicyWord | null; tools?: Record<string, McpPolicyWord | null> }) =>
+    request<{ server: McpServerView }>('/api/mcp/server/tool-policy', { method: 'POST', body: JSON.stringify({ id, ...patch }) }),
+  reloadMcpServers: () => request<McpServersAnswer>('/api/mcp/reload', { method: 'POST', body: '{}' }),
 };

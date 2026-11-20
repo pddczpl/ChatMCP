@@ -2,9 +2,9 @@
 
 The owner's external MCP servers (`mcp-servers.json` in the Hub's data folder) are offered to the agent behind the permission gate, **once the
 owner approved them**: a stdio server is started only after its launch record was approved, and a server's tools reach the catalog only while
-its lists match the pin the owner approved ([MCP-HARDENING.md](MCP-HARDENING.md)). **There is no screen and no HTTP route for these approvals
-yet** (slice D, ext-14): until then only code (the tests, `scripts/Verify-McpRuntime.mjs`) calls `approveLaunch` and `approveTools`, so on an
-installed Hub no external tool reaches the model. Slices: A (ext-9 runtime, ext-10 client manager, this page's first part), B (ext-12 the
+its lists match the pin the owner approved ([MCP-HARDENING.md](MCP-HARDENING.md)). The owner adds servers and gives both approvals on the **MCP
+servers** tab of the work panel (slice D, ext-14; [The screen and its routes](#the-screen-and-its-routes)); besides the routes behind it, only
+code (the tests, `scripts/Verify-McpRuntime.mjs`) calls `approveLaunch` and `approveTools`. Slices: A (ext-9 runtime, ext-10 client manager, this page's first part), B (ext-12 the
 gate's `external` category), C1 and C2 (ext-13 hardening, ext-11 the seam below), D (ext-14 API and screen), E (ext-15 real servers end to end).
 
 ## What exists after this slice
@@ -18,6 +18,8 @@ gate's `external` category), C1 and C2 (ext-13 hardening, ext-11 the seam below)
 | Server list | `DATGOLD-HUB/lib/mcp/server-config.mjs` | `<hubDirectory>/mcp-servers.json`: validation, secrets through `createProtector`, `${NAME}` expansion |
 | Connections | `DATGOLD-HUB/lib/mcp/client-manager.mjs` | `McpClientManager`: connect, list, call, status, close |
 | Hub wiring | `lib/assemble.mjs`, `lib/manager.mjs` | The manager of the Hub's data folder gets one `McpClientManager` (`manager.mcp`), which reads the list at start; `state()` carries `mcp: status()`; `shutdown()` closes it |
+| Routes (slice D) | `DATGOLD-HUB/lib/mcp/http-api.mjs`, `hub.mjs` | `GET /api/mcp/servers` and nine POST routes for the owner's screen ([below](#the-screen-and-its-routes)) |
+| Screen (slice D) | `DATGOLD-HUB/ui/src/components/inspector/McpTab.tsx`, `ui/src/lib/mcp-servers.ts` | The MCP servers tab of the work panel (under "More") |
 
 ### Choice of versions (2026-11-20)
 
@@ -205,7 +207,7 @@ real editors and the real ChatGPT page (the suite plays the Companion's part thr
 model is scripted, and only the Chat Completions wire is used); the HTTP routes and the screen of slice D (the approvals are given in code);
 OAuth, `listChanged`, resource subscriptions and the tasks extension; a coding worker or an access manager calling an external tool.
 
-## Approvals: the API slice D will call
+## Approvals
 
 ```js
 await mcp.launchRecord(id);   // {required, approved, fingerprint, record: {command, args, cwd, envKeys, executable, sha256}}; HTTP: required false
@@ -218,6 +220,35 @@ mcp.status().servers[i];      // state: idle | connecting | connected | needs_re
 `expectedFingerprint` is always the fingerprint the owner was shown; `{fingerprint}` is not read. The records are kept beside
 `mcp-servers.json`: `mcp-approvals.json` (launch records, no secret) and `mcp-pins.json` (hashes of the lists).
 
+## The screen and its routes
+
+The **MCP servers** tab of the work panel (under "More"; `McpTab.tsx`) is the owner's way to add a server and to approve it. It shows what the Hub
+reports and sends the owner's decisions to the routes below (`lib/mcp/http-api.mjs`, answered by `hub.mjs`); nothing is decided in the page.
+
+| Route | Body | What it does |
+|---|---|---|
+| `GET /api/mcp/servers` | | Every configured server as `publicServer` shows it (no secret, in plain or protected form: `{secret: true}` says one is set), its connection state (`status()`, with `lastError` and the preflight's `retryAt`), its tools with the owner's `rule` and the word that applies (`policy`), descriptions cut to 600 characters, and the review state of its lists; `runtime`, and `configError` when `mcp-servers.json` could not be read (the list is then the one read before) |
+| `POST /api/mcp/server/upsert` | `{id, server}` | Adds or replaces one server (`McpServerStore.save`: a value is a string, `{value, secret: true}` or `{keep: true}`). A `policy` left out keeps the stored one. The server's open connection is closed and the file read again, so the next connect uses what was saved and its back-off is cleared |
+| `POST /api/mcp/server/delete` | `{id}` | Removes it and closes its connection. Its records in `mcp-approvals.json` and `mcp-pins.json` stay, bound to their fingerprints |
+| `POST /api/mcp/server/test` | `{id}` | `connect` (an explicit connect is not held back by the back-off), or for a connected server `listTools({refresh: true})`, which checks the lists against the pin again; answers `{ok, error, status}`. No tool is called |
+| `POST /api/mcp/server/launch-record` | `{id}` | `launchRecord`: the command, args and cwd (secret values as `[secret]`), the env NAMES, the executable and its sha256, the fingerprint |
+| `POST /api/mcp/server/approve-launch` | `{id, expectedFingerprint}` | `approveLaunch`; a record that changed since it was shown is 409 `mcp_launch_changed` |
+| `POST /api/mcp/server/tool-review` | `{id}` | `toolReview`: the sanitized tools and prompts, and the diff against the pin when they changed |
+| `POST /api/mcp/server/approve-tools` | `{id, expectedFingerprint}` | `approveTools`; lists that changed since they were shown are 409 `mcp_fingerprint_mismatch` |
+| `POST /api/mcp/server/tool-policy` | `{id, default?, tools?}` | The owner's word to the gate, `ask`, `allow` or `deny`, for the server (`default`) or per tool (`tools: {<tool>: word}`); `null` clears one; at most 256 rules per body. The rest of the server is saved as it is (each secret kept); the gate reads the policy at each call, so the connection stays |
+| `POST /api/mcp/reload` | `{}` | Reads `mcp-servers.json` again (a file edited by hand) and closes the open connections, which reopen at the next task or test; a file that breaks a rule is 400 and stays in `configError` until a reload works |
+
+- The POST routes are in `POST_ROUTES` and need what every dashboard POST needs: the bearer, the page's Origin, the `local-dashboard` marker and the
+  CSRF token. A body with a key the route does not know is refused (`mcp_request_invalid`), so `{fingerprint}` in place of `expectedFingerprint` is a 400.
+- Every route that changes the servers, their approvals or their connections (all but the GET, `launch-record` and `tool-review`) answers **409
+  `mcp_task_active`** while a task, a coding or dynamic worker or a delegate runs, like the other settings of a run. The writes run one at a time.
+- `status()` alone says a stdio server without a connection is approved when any record of it was approved, even one that changed since; the list
+  computes the launch record of such a server (once per change: an upsert, an approval, a reload) and shows whether that record is the approved one.
+- The page: the form takes the id, stdio (command, one argument per line, cwd) or HTTP (url, headers), env rows with a "secret" box, and the trust
+  and `touchesWorkspace` switches; a stored secret comes back as an empty field marked "set", sent as `{keep: true}` when left empty. A card shows the
+  state, the last error and the back-off, "Test connection", the launch record with "Approve this launch" (which sends the fingerprint shown and then
+  tests the server), the lists to review with their diff and "Approve this list", and each tool with its rule (`As the default`, ask, allow, deny).
+
 ## Tests
 
 | Suite | What it runs |
@@ -228,13 +259,15 @@ mcp.status().servers[i];      // state: idle | connecting | connected | needs_re
 | `tests/verify-mcp-hardening.mjs` | launch approval, pins and quarantine, sanitized lists, result ceiling, read limit, aborted and hung calls, no Authorization across origins, `.mcp.json`, no process left (MCP-HARDENING.md) |
 | `tests/verify-mcp-agent-seam.mjs` | the seam above with the real `AgentRunner`, a scripted model, `tests/fixtures/mcp-seam-server.mjs`, a `ConcurrentApiAgent` child and the web transport |
 | `tests/verify-mcp-agent-e2e.mjs` | the whole path with real servers ("End to end" above): the reference servers and the v2 fixture on both transports and both protocol generations, the real `GatewayProvider` over the strict scripted model, approvals through the API, the gate, a hook, the environment, a child, the web transport, 366 tools, a killed server, a changed server, the shutdown |
+| `tests/verify-mcp-http.mjs` | the routes of the screen against a real Hub: their layers, upsert and list, secrets planted in env and a header that never come back (GET, state, launch record, errors, the data folder, the log), approvals by the fingerprint shown and stale ones refused, a deny set by the route refusing the tool in a real task, 409 while a task waits, five writes at once, reload of a file edited by hand or broken, delete |
+| `ui/tests/mcp-tab.test.mjs`, `ui/e2e/mcp-servers.spec.mjs` | the tab's form and what it renders for each state; in the production build against a real Hub, the owner adds the seam fixture, approves its launch and its tools (the page sends the fingerprints it showed), sees the tools and sets one to deny |
 
 The two transport suites of slice A approve as they go (`autoApprove` in `tests/support/mcp-tools.mjs`, test code only); the approvals
 themselves are tested in `verify-mcp-hardening.mjs`.
 
 The servers come from `DATGOLD-HUB/tests/fixtures/mcp-reference` (package.json and lock file; `npm ci --ignore-scripts --prefix
 DATGOLD-HUB/tests/fixtures/mcp-reference`), the SDK from `scripts/mcp-runtime`; CI installs both before `run-all --no-skip all`. Mutation lists:
-`tests/mutation/mcp-runtime.json`, `mcp-client-stdio.json`, `mcp-client-http.json`, `mcp-agent-e2e.json`. Child processes are counted by parent pid (and by the pids
+`tests/mutation/mcp-runtime.json`, `mcp-client-stdio.json`, `mcp-client-http.json`, `mcp-agent-e2e.json`, `mcp-http.json` (the routes of the screen). Child processes are counted by parent pid (and by the pids
 the servers report), never by process name.
 
 ## Not verified
@@ -245,5 +278,7 @@ the servers report), never by process name.
 - OAuth for HTTP servers, `listChanged` notifications, resources subscriptions, the 2026-07-28 tasks extension.
 - A coding worker and an access manager of ConcurrentApiAgent calling an external tool: they are handed the client manager like a child, but no
   test drives one. A real model choosing an MCP tool (the seam and end-to-end suites script the model).
+- The screen with a real server other than the fixtures, an HTTP server that needs a header to connect, and the routes while a coding or dynamic worker
+  or a delegate runs (`busy()` counts them; the suite drives only the main task). A secret typed into `command` or `args` is shown as typed.
 - The mutation runner copies only `DATGOLD-HUB`: `scripts/mcp-runtime/stage.mjs` and `verify.mjs` are checked by the tampering cases of
   `verify-mcp-runtime.mjs` and the seeded defects of `verify-notices.mjs`, not by mutants.
