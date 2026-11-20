@@ -16,7 +16,7 @@
 //   7. A workspace .mcp.json starts nothing; HubManager.shutdown() leaves no child process (by parent pid).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -134,7 +134,8 @@ try {
 
   await test('a launch approval does not survive a different executable (the sha256 is checked at every connect)', async () => {
     const copy = path.join(scratch, path.basename(node));
-    writeFileSync(copy, readFileSync(node));
+    writeFileSync(copy, readFileSync(node), { mode: 0o755 });
+    chmodSync(copy, 0o755); // POSIX: the copy must be executable (the umask may have taken the bit off)
     await manager.store.save('copied', { transport: 'stdio', command: copy, args: [MALICIOUS] });
     await approveLaunch(manager, 'copied');
     await manager.connect('copied');
