@@ -74,7 +74,7 @@ function firstNamed(text) {
   for (const maxLength of [0, -1, 1.5, '256', NaN, 100_000]) refused('abc', 'bad_limit', { maxLength });
   const started = performance.now();
   refused('a'.repeat(10_000_000), 'name_too_long');
-  refused(`${'a'.repeat(200)} `, 'name_bad_characters');
+  refused(`${'a'.repeat(100)} `, 'name_bad_characters');
   assert.ok(performance.now() - started < 200, 'a 10 MB name is refused by its length before the pattern runs');
   assert.equal(LIMITS.nameMaxLength, 128);
   ok('names: [A-Za-z0-9_.-]{1,128}, reserved words refused, a refusal names the reason and an escaped preview, never a rewrite');

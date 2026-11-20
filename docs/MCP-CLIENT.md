@@ -1,10 +1,11 @@
-# MCP client (roadmap P2, slice A)
+# MCP client (roadmap P2)
 
-**External MCP tools are NOT offered to the model yet.** This slice adds the runtime and the connection manager only: no agent, no tool
-catalog the model sees, no permission gate, no route and no screen uses them. The Hub reads the owner's server list and reports its state;
-it connects to a server only when code calls `connect()`, and in this slice only the tests do. The later slices of P2 put the tools behind
-the permission gate (ext-12), connect them to the agent, the spawned agents and the web transport (ext-11), harden them (ext-13), add the
-API and the screen (ext-14) and test the whole path with real servers (ext-15).
+The owner's external MCP servers (`mcp-servers.json` in the Hub's data folder) are offered to the agent behind the permission gate, **once the
+owner approved them**: a stdio server is started only after its launch record was approved, and a server's tools reach the catalog only while
+its lists match the pin the owner approved ([MCP-HARDENING.md](MCP-HARDENING.md)). **There is no screen and no HTTP route for these approvals
+yet** (slice D, ext-14): until then only code (the tests, `scripts/Verify-McpRuntime.mjs`) calls `approveLaunch` and `approveTools`, so on an
+installed Hub no external tool reaches the model. Slices: A (ext-9 runtime, ext-10 client manager, this page's first part), B (ext-12 the
+gate's `external` category), C1 and C2 (ext-13 hardening, ext-11 the seam below), D (ext-14 API and screen), E (ext-15 real servers end to end).
 
 ## What exists after this slice
 
@@ -71,7 +72,13 @@ Nothing imports the SDK when the Hub starts: without it the Hub starts, serves `
 - `transport`: `stdio` (command, args, cwd, env) or `http` (Streamable HTTP: url, headers, env). `sse`, the legacy HTTP+SSE transport, is
   refused. A url is `https://`, or `http://` to `127.0.0.1`, `[::1]` or `localhost`; a user name or password in the url is refused.
 - `enabled` (default `true`), `timeouts.connectMs` (1,000 to 120,000, default 30,000) and `timeouts.callMs` (1,000 to 900,000, default 120,000).
-- `policy` is stored as given (a JSON object of at most 16 KiB) and **not enforced** in this slice.
+- `policy` is the owner's word to the permission gate: `{"default": "ask" | "allow" | "deny", "tools": {"<tool>": "ask" | "allow" | "deny"}}`,
+  where `<tool>` is the server's own name of the tool (without `<server>.`). A tool's rule wins over the default; nothing set is `ask`. An
+  unknown key or word is refused when the file is read (the whole file, like every other fault). What the gate then does is in
+  [THREAT-MODEL.md](THREAT-MODEL.md) Surface 10: `deny` refuses everywhere, Full Access runs, `destructiveHint: true` still asks.
+- `trust: {"annotations": true}` lets the gate believe the server's `readOnlyHint` (Read Only runs an `allow`ed tool only then); default false.
+- `touchesWorkspace: true` makes the Hub take a workspace checkpoint before every call of that server (an external tool is not checkpointed
+  otherwise; RR-42); default false.
 - Secrets. A value is a string or `{"secret": "<blob>"}`, the blob made by `createProtector` (Windows DPAPI; AES-256-GCM elsewhere). Always
   stored protected, whatever the caller asked:
   - an env name that looks like a credential (the `SECRET_ENV_NAME` rule of `lib/shell-runner.mjs`: `GITHUB_TOKEN`, `DB_PASSWORD` ...);
@@ -122,9 +129,11 @@ await mcp.disconnect(id); await mcp.close();
   `input_required` result is an error (`autoFulfill: false`), so a call is never re-sent with answers. There is no HTTP+SSE fallback. A
   result whose `resultType` the SDK does not know is treated as complete (the SDK 2.4.0 itself refuses one on a 2026-07-28 connection).
 - **Lists** are walked page by page by the manager, not by the SDK: a repeated cursor (also A, B, A), an empty cursor or more than 1,000 pages
-  refuse the whole list (`mcp_list_cursor_repeated`, `mcp_list_cursor_invalid`, `mcp_list_too_many_pages`), as do an empty, too long (over 128
-  characters), control-character or duplicate name (`mcp_list_invalid_name`, `mcp_list_duplicate_name`). Each server's tools get a
-  fingerprint (`fingerprint()` of `lib/catalog.mjs`).
+  refuse the whole list (`mcp_list_cursor_repeated`, `mcp_list_cursor_invalid`, `mcp_list_too_many_pages`). Every item then goes through
+  `sanitizeList` (lib/mcp/sanitize.mjs), the **one name rule** of the Hub: 1 to 128 characters of `[A-Za-z0-9_.-]` (the MCP tool-name rule),
+  checked per item. A bad name, and the second of two items with one name, are refused alone and counted in `status().servers[].refused`; the
+  rest of the list stays. (Slice A refused the whole list for a bad or duplicate name, at 128 characters, while the sanitizer allowed 256 per
+  item: C2 made it one rule.) The tools and prompts are pin-checked (`review` in the status).
 - **Calls are never repeated.** `timeoutMs` (else `timeouts.callMs`) covers the whole call; when it passes, the SDK sends
   `notifications/cancelled` and the call ends with `mcp_call_timeout`. A lost answer (the process died, the HTTP response was cut off) ends
   with `mcp_connection_lost`. Both carry `executed: 'unknown'`: the server may have run the call. Nothing sends it again: the HTTP transport
@@ -133,6 +142,42 @@ await mcp.disconnect(id); await mcp.close();
   DELETE when the connection is closed (not exercised: the HTTP servers of the suites are stateless or 2026-07-28). No OAuth in this slice: a
   server that answers 401 is not connected.
 
+## The seam (slice C2, plan task ext-11)
+
+- **Catalog.** `HubManager.internalCatalog()` adds, to the Hub's own tools, the tools of every server in `mcp.catalogGroups()`: connected,
+  launch-approved, and its lists match the pin. A tool is `<server>.<tool>` with `server` and `originalName` (the gate's name rule), carries the
+  server's sanitized description, schema and annotations, and `catalog.servers[<id>]` has the server's real `serverInfo` and capabilities. Its
+  prompts (`<server>.<prompt>`, `server`) and resources (`uri`, `name`, `mimeType`, `server`) are in `catalog.prompts` / `catalog.resources`.
+- **Preflight.** `createAgentSession` (every run of the agent, a spawned agent and the web transport) first awaits `mcp.prepare()`: every
+  enabled server that may start is connected (once; then pooled) and a connected one is listed again, so a change since the last task is caught
+  by the pin before the catalog is built. It never fails the task: a server that cannot be reached is not in the catalog.
+- **Calls.** A call to `<server>.<tool>` passes the same guard as the Hub's own (`#guardCalls`: the gate with the owner's policy, the
+  PreToolUse hooks under the name and the alias `mcp__<server>__<tool>`, the workflow, a checkpoint only for a `touchesWorkspace` server), then
+  `mcp.callTool`. What the server never received (quarantined lists, an unknown tool) and a JSON-RPC error answer are `isError` results the model
+  reads; a timeout, a lost connection or an abort after the request went out throws, and the agent stops the task as `tool_transport_failed`
+  without replaying it. `mcp_capabilities` gets a prompt and reads a resource through the same session (`getPrompt`, `readResource`).
+- **The same servers everywhere.** A `spawn_agent` child, an access manager of ConcurrentApiAgent, a coding worker and a web session on another
+  workspace are each handed the Hub's `McpClientManager` before they are assembled (`mcpOwned` false: they never close it), so they offer the
+  same servers under the same approvals and policy (`assembleStudio` attaches the policy to every gate). The auto tool selection keeps
+  external tools in the run's catalog (they are never offered as direct functions).
+- **Instructions.** The agent's instructions name at most 40 tools that are not offered directly (the Hub's own first, then the servers from
+  the smallest to the largest) and summarise the rest as `server X: N tools, use mcp_catalog filter=X`. With a 308-tool server and an 8-tool one
+  connected the instruction text is 7,535 bytes (measured 2026-11-20; listing every name would be about 12 KB).
+- **Never read**: a workspace `.mcp.json`. Only `mcp-servers.json` in the Hub's data folder is a source of servers.
+
+## Approvals: the API slice D will call
+
+```js
+await mcp.launchRecord(id);   // {required, approved, fingerprint, record: {command, args, cwd, envKeys, executable, sha256}}; HTTP: required false
+await mcp.approveLaunch(id, { expectedFingerprint });   // mcp_fingerprint_required (400), mcp_launch_changed (409)
+mcp.toolReview(id);           // {state: unpinned | pinned | needs_review | not_connected, fingerprint, diff?, tools, prompts, refused}
+await mcp.approveTools(id, { expectedFingerprint });    // mcp_fingerprint_required (400), mcp_fingerprint_mismatch (409), mcp_not_connected (409)
+mcp.status().servers[i];      // state: idle | connecting | connected | needs_review | needs_launch_approval | failed | lost; launch, review, refused, stderr
+```
+
+`expectedFingerprint` is always the fingerprint the owner was shown; `{fingerprint}` is not read. The records are kept beside
+`mcp-servers.json`: `mcp-approvals.json` (launch records, no secret) and `mcp-pins.json` (hashes of the lists).
+
 ## Tests
 
 | Suite | What it runs |
@@ -140,6 +185,11 @@ await mcp.disconnect(id); await mcp.close();
 | `tests/verify-mcp-runtime.mjs` | Pins and closure, the loader, a real Hub with and without the runtime, stage + verify + tampering, `Verify-McpRuntime.mjs`, the compiled-in packages |
 | `tests/verify-mcp-client-stdio.mjs` | The config rules; the real server-everything 2.3.1 and server-filesystem 2.4.0, the v2 fixture and a plain JSON-RPC server: tool counts against an independent `tools/list`, echo, negotiation, the `.cmd` (or shell) wrapper and its tree, the environment, pagination and its guards, the hung and the lost call, unknown result types, secrets in status and log, no process left after `close()` and `HubManager.shutdown()` |
 | `tests/verify-mcp-client-http.mjs` | server-everything in its Streamable HTTP mode and the fixture on `createMcpHandler`: counts, negotiation in both eras, a secret header, the hung and the lost call, no SSE fallback, an absent server |
+| `tests/verify-mcp-hardening.mjs` | launch approval, pins and quarantine, sanitized lists, result ceiling, read limit, aborted and hung calls, no Authorization across origins, `.mcp.json`, no process left (MCP-HARDENING.md) |
+| `tests/verify-mcp-agent-seam.mjs` | the seam above with the real `AgentRunner`, a scripted model, `tests/fixtures/mcp-seam-server.mjs`, a `ConcurrentApiAgent` child and the web transport |
+
+The two transport suites of slice A approve as they go (`autoApprove` in `tests/support/mcp-tools.mjs`, test code only); the approvals
+themselves are tested in `verify-mcp-hardening.mjs`.
 
 The servers come from `DATGOLD-HUB/tests/fixtures/mcp-reference` (package.json and lock file; `npm ci --ignore-scripts --prefix
 DATGOLD-HUB/tests/fixtures/mcp-reference`), the SDK from `scripts/mcp-runtime`; CI installs both before `run-all --no-skip all`. Mutation lists:
@@ -152,5 +202,7 @@ the servers report), never by process name.
   `Verify-McpRuntime.mjs` (CI's windows-installer job does), but an installed DatGold has not been started against a real server.
 - Servers beyond the two reference servers and the fixtures (servers built on other SDKs, Python servers, npx downloads on a slow network).
 - OAuth for HTTP servers, `listChanged` notifications, resources subscriptions, the 2026-07-28 tasks extension.
+- A coding worker and an access manager of ConcurrentApiAgent calling an external tool: they are handed the client manager like a child, but no
+  test drives one. A real model choosing an MCP tool (the seam suite scripts the model).
 - The mutation runner copies only `DATGOLD-HUB`: `scripts/mcp-runtime/stage.mjs` and `verify.mjs` are checked by the tampering cases of
   `verify-mcp-runtime.mjs` and the seeded defects of `verify-notices.mjs`, not by mutants.

@@ -33,6 +33,8 @@ if (missing) {
   console.log(`CHATMCP_TEST_SKIP: ${missing}`);
   process.exit(0);
 }
+// A Hub assembled the normal way finds the SDK beside DATGOLD-HUB; a copy of the Hub (the mutation runner's) has none there, so it is named here.
+process.env.CHATMCP_MCP_RUNTIME_DIR ??= runtimeRoot();
 
 let failures = 0;
 let passed = 0;
@@ -97,7 +99,7 @@ try {
     assert.equal(shown.required, true);
     assert.equal(shown.approved, false);
     assert.match(shown.fingerprint, /^[0-9a-f]{64}$/);
-    assert.equal(shown.record.executable, realpathSync(node));
+    assert.equal(shown.record.executable, realpathSync.native(node));
     assert.equal(shown.record.sha256, sha256(node));
     assert.deepEqual(shown.record.envKeys, ['API_TOKEN', 'PLAIN']);
     assert.deepEqual(shown.record.args, [MALICIOUS, '--count-file', counter]);
@@ -172,8 +174,10 @@ try {
     assert.ok(groups[0].capabilities.tools);
     const result = await manager.callTool('pins', 'tool_1', {});
     assert.equal(result.content[0].text, 'tool_1 ran');
-    // the rug pull: the second tools/list changes tool_1's description
-    await manager.listTools('pins', { refresh: true });
+    // the rug pull: the second tools/list changes tool_1's description; the task preflight (prepare) lists again and catches it
+    await manager.prepare();
+    // prepare() connected every other enabled server this manager has approved, too (as a task preflight does): they are closed again here
+    for (const id of [...manager.connections.keys()]) if (id !== 'pins') await manager.disconnect(id);
     const changed = serverStatus(manager, 'pins');
     assert.equal(changed.state, 'needs_review');
     assert.equal(changed.review.state, 'needs_review');
@@ -228,7 +232,30 @@ try {
     assert.equal(error.executed, 'unknown');
     await waitFor(() => serverStatus(small, 'flood').state === 'lost', 'the connection to be closed');
     assert.equal(serverStatus(small, 'flood').lastError.code, 'mcp_message_too_large');
+    // a message that arrives in one chunk, newline included, is refused too (the 8 KiB tools/list of a 4 KiB reader)
+    const tiny = newManager({ hubDirectory: path.join(scratch, 'tiny-hub'), maxMessageBytes: 4096 });
+    await tiny.store.save('wide', malicious(['--description-bytes', '8192']));
+    await approveLaunch(tiny, 'wide');
+    await rejects(tiny.connect('wide'), 'mcp_message_too_large', 'an 8 KiB list with a 4 KiB limit');
+    assert.equal(serverStatus(tiny, 'wide').lastError.code, 'mcp_message_too_large');
     await small.close();
+    await tiny.close();
+  });
+
+  await test('a bare command is resolved on the PATH the server gets (PATHEXT on Windows) to the file whose sha256 is approved', async () => {
+    const bin = path.join(scratch, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const shim = path.join(bin, process.platform === 'win32' ? 'fakeserver.cmd' : 'fakeserver');
+    writeFileSync(shim, process.platform === 'win32' ? `@"${node}" "${MALICIOUS}" %*\r\n` : `#!/bin/sh\nexec "${node}" "${MALICIOUS}" "$@"\n`, { mode: 0o755 });
+    await manager.store.save('bare', { transport: 'stdio', command: 'fakeserver', env: { PATH: bin } });
+    const shown = await manager.launchRecord('bare');
+    assert.equal(shown.record.command, 'fakeserver');
+    assert.equal(shown.record.executable, realpathSync.native(shim));
+    assert.equal(shown.record.sha256, sha256(shim));
+    await manager.store.save('missing-bin', { transport: 'stdio', command: 'no-such-program-here', env: { PATH: bin } });
+    assert.equal((await manager.launchRecord('missing-bin')).record.executable, null, 'a command that is found nowhere has no executable');
+    await manager.store.remove('bare');
+    await manager.store.remove('missing-bin');
   });
 
   await test('stderr is kept by the bounded collector: 64 KiB of a 5 MB flood', async () => {

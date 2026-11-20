@@ -6,7 +6,8 @@
 //   node tests/fixtures/mcp-seam-server.mjs [--tools N] [--count-file PATH] [--workdir DIR]
 //
 // Tools: echo {text} (readOnlyHint true), create_issue {title}, wipe_cache (destructiveHint true), forbidden, write_note {text} (writes note.txt in
-// --workdir), images (a PNG and an SVG image block), crash (exits without answering), and tool_1 .. tool_N when --tools N is given.
+// --workdir), images (a PNG and an SVG image block), crash (exits without answering), bad_params (a JSON-RPC error -32602), and tool_1 .. tool_N
+// when --tools N is given.
 // Prompts: greet {name} (prompts/get answers one user message). Resources: mem://seam/notes (resources/read answers its text).
 // Every tools/call appends "<tool name>\n" to --count-file, synchronously, before anything else happens. The process ends when stdin ends.
 import { appendFileSync, writeFileSync } from 'node:fs';
@@ -34,6 +35,7 @@ function tools() {
     { name: 'write_note', description: 'Writes note.txt in the work folder.', inputSchema: object({ text: { type: 'string' } }, ['text']) },
     { name: 'images', description: 'Returns a PNG and an SVG.', inputSchema: object() },
     { name: 'crash', description: 'Exits without answering.', inputSchema: object() },
+    { name: 'bad_params', description: 'Answers with a JSON-RPC error.', inputSchema: object() },
   ];
   for (let index = 1; index <= flags.tools; index += 1) list.push({ name: `tool_${index}`, description: `Tool number ${index} of the large fixture.`, inputSchema: object() });
   return list;
@@ -58,6 +60,7 @@ function call(id, params) {
   }
   if (name === 'images') return answer(id, { content: [{ type: 'image', data: PNG, mimeType: 'image/png' }, { type: 'image', data: SVG, mimeType: 'image/svg+xml' }] });
   if (name === 'crash') process.exit(3);
+  if (name === 'bad_params') return fail(id, -32602, 'Invalid params: title is required');
   if (/^tool_\d+$/.test(name) && Number(name.slice(5)) <= flags.tools) return answer(id, text(`${name} ran`));
   return answer(id, { ...text('unknown tool'), isError: true });
 }

@@ -1,8 +1,7 @@
 # MCP client hardening
 
-Roadmap phase P2 (MCP client behind the permission gate), plan task ext-13, slice C1: the pure, self-contained part. Three modules take plain data in and
-give plain data out. **None of them is wired into the Hub yet**: no MCP server is started, listed or called through them today. A later slice (C2) connects
-them to the client manager and the catalog. Nothing here imports the MCP SDK.
+Roadmap phase P2 (MCP client behind the permission gate), plan task ext-13. Slice C1 wrote three pure modules (plain data in, plain data out, no MCP SDK);
+slice C2 wired them into the client manager (`lib/mcp/client-manager.mjs`) and added the owner's launch approval: see "Wired into the client manager" below.
 
 | Module | What it is for |
 |---|---|
@@ -17,7 +16,8 @@ Guarantees (each one is a test in `tests/verify-mcp-sanitize.mjs`):
 
 - **Total.** Every export answers garbage (null, numbers, 5 MB strings, 100,000-deep objects, throwing getters, proxies, `__proto__` keys) with a refusal
   and a reason, never an exception. Only own properties are read, so a polluted `Object.prototype` adds nothing.
-- **Names** match `[A-Za-z0-9_.-]`, are 1 to 256 characters long and are not `__proto__`, `constructor` or `prototype`. A bad name is **refused, never
+- **Names** match `[A-Za-z0-9_.-]`, are 1 to 128 characters long (the MCP tool-name rule; 256 in C1, lowered in C2 so that the client manager and the
+  sanitizer have one rule) and are not `__proto__`, `constructor` or `prototype`. A bad name is **refused, never
   rewritten**: a rewritten name would ask the server for something other than what the owner approved. The refusal carries an ASCII preview in which a
   hidden character is spelled `\u{200B}`.
 - **Descriptions and titles**: the hidden characters are removed first, then the text is cut to 2,048 UTF-8 bytes at a code point (never half of a
@@ -77,7 +77,9 @@ served one after the other in the order they were made. Not handled: two Hubs wr
   audio, the strings of resource links and the JSON of `structuredContent` (which gets what the content left). 4 KiB of it are kept for the note that
   tells the model what was cut or dropped (`[DatGold limited this result: text cut: 44044288 of 52428800 bytes not shown (ceiling 8388608 bytes)]` for a 50 MiB text). A text is cut at a code
   point.
-- Images: 8 at most, 5 MiB each (decoded), an `image/*` type and base64 data; audio: 2 clips, 5 MiB each, `audio/*`. 256 content items at most. Unknown
+- Images: 8 at most, 5 MiB each (decoded), base64 data of a type the model providers accept: `image/png`, `image/jpeg`, `image/gif` or `image/webp`
+  (`PROVIDER_IMAGE_TYPES`; C2). Any other image type (`image/svg+xml`, `image/bmp` ...), also as the blob of an embedded resource, is dropped and the note
+  names its type: it never reaches the model as an image block. Audio: 2 clips, 5 MiB each, `audio/*`. 256 content items at most. Unknown
   content types are dropped, and the note names them (escaped, five at most). `isError` is kept exactly when it is `true`; a result that is not an object
   is an error.
 - Then the model-facing cap of `lib/token-optimization.mjs` `optimizeToolResult`, when a task is given. The agent loop (`lib/agent.mjs`) calls
@@ -86,14 +88,46 @@ served one after the other in the order they were made. Not handled: two Hubs wr
 It does not:
 
 - cap what the model sees below 8 MiB for most MCP tools: `optimizeToolResult` compacts only the tool names it knows (`run_command`, `git_*`, `test_*`,
-  `web_*` ...), so a result of any other tool reaches the model at up to the ceiling. **Open for C2**: a model-facing cap for MCP results, or a rule in
-  `optimizeToolResult`;
-- bound what is **read** from the transport: the 8 MiB is applied to a result that was already parsed. The stdio reader of the client manager must stop
-  at a ceiling of its own (C2);
+  `web_*` ...), so a result of any other tool reaches the model at up to the ceiling. **Still open after C2** (no decision was asked for in C2): a
+  model-facing cap for MCP results, or a rule in `optimizeToolResult`;
+- bound what is **read** from the transport: the 8 MiB is applied to a result that was already parsed. The stdio reader of the client manager stops at a
+  ceiling of its own (64 MiB per message, C2, below);
 - remove hidden characters from result text, or validate `structuredContent` against the tool's `outputSchema`.
 
 `createStderrCollector({maxBytes})` keeps at most `maxBytes` (default 64 KiB) of a server's stderr, the first half and the most recent half, counts what it
 dropped and returns whole UTF-8 characters with hidden characters removed.
+
+## Wired into the client manager (slice C2)
+
+What `McpClientManager` does with these modules, and the approvals it adds. Until the screen and the HTTP routes of slice D (ext-14) exist, the
+approvals are given only by code (the tests, `scripts/Verify-McpRuntime.mjs`): on an installed Hub no server is started or offered yet.
+
+- **Launch approval (stdio).** `launchRecord(id)` gives `{required, approved, fingerprint, record}`; the record is the command, the arguments and the
+  working folder once their `${NAME}` references are expanded, with every secret value replaced by `[secret]`, the NAMES of the env map (never a value),
+  the executable the Hub will start (resolved on the PATH the server gets, with PATHEXT on Windows, as a real path) and the sha256 of that file. Its
+  fingerprint is a sha256 of the record's canonical JSON. `connect` spawns nothing until `approveLaunch(id, {expectedFingerprint})` was given that
+  fingerprint (`mcp_launch_not_approved`, 409, state `needs_launch_approval`), and any change of the record (an argument, an env name, other bytes in the
+  executable) asks again; the Hub then spawns the file it hashed. A stale `expectedFingerprint` is `mcp_launch_changed`; none, or the key
+  `{fingerprint}`, is `mcp_fingerprint_required`. Kept in `mcp-approvals.json` beside `mcp-servers.json` (no secret in it). HTTP servers have no launch
+  record: the https-only rule (http only to a loopback address) stays, and a cross-origin redirect is not followed, so the `Authorization` header never
+  reaches another origin (`redirectPolicy: 'same-origin'`, tested).
+- **Lists.** Every tools, prompts and resources list goes through `sanitizeList` before anything else sees it: the catalog, the instructions, the
+  approval card and `toolReview`. One name rule for the Hub, 1-128 characters, per item (the client manager no longer refuses a whole list for a name);
+  the count of refused items is `status().servers[].refused`.
+- **Pins.** Tools and prompts are pin-checked (`createPinStore`, `mcp-pins.json`) at connect and at every task preflight (`prepare`). Unpinned or
+  changed lists make the server `needs_review` (the status carries the diff of `diffEntries`): its tools are absent from `catalogGroups()` and a call is
+  refused with `mcp_needs_review` before anything is sent. `toolReview(id)` shows what was checked; `approveTools(id, {expectedFingerprint})` pins it and
+  refuses a stale fingerprint (`mcp_fingerprint_mismatch`). Resources are NOT pinned: a resource list is data that changes (files, records); only its
+  `uri`, `name` and `mimeType` are offered, never a description or a title.
+- **Results.** Every `callTool` result goes through `limitToolResult` (`optimize: false`: the agent loop optimizes it once). Prompt and resource answers
+  are bounded copies (`copyJson`, 8 MiB).
+- **Reading stdio.** The client manager reads the newline-delimited JSON itself (`LineReader`), not with the SDK's `ReadBuffer` (which copies its whole
+  buffer on each chunk and caps the buffer at 10 MiB in all, not per message): one message over 64 MiB (`MAX_MESSAGE_BYTES`) closes the connection
+  before it is parsed, with `mcp_message_too_large` in the status and on the call. 64 MiB lets a 50 MB result be read and then cut to the 8 MiB ceiling.
+- **stderr** goes into `createStderrCollector` (64 KiB, `status().servers[].stderr` has its counts); the first 200 lines also go to the Hub log, masked.
+- **Calls.** A hung call ends at its timeout and is never sent again; a caller's abort after the request went out is `mcp_call_aborted` with
+  `executed: 'unknown'` (an abort before anything was sent rejects with the signal's reason).
+- **Never read**: a workspace `.mcp.json`.
 
 ## Tests
 
@@ -103,5 +137,6 @@ dropped and returns whole UTF-8 characters with hidden characters removed.
 | `tests/verify-mcp-fingerprint-pins.mjs` | every kind of noise listed above keeps a pin, every listed change does not and the diff names the item and the field; the store, corrupt and unreadable files, concurrency |
 | `tests/verify-mcp-result-limits.mjs` | the ceiling, structured content, media, unknown types, `isError`, `optimizeToolResult`, the stderr collector, totality |
 | `tests/verify-mcp-malicious-fixture.mjs` | the fixture over real stdio with a few lines of JSON-RPC: 1 MB description to 2 KB, changed description to `needs_review`, 50 MB result capped, a hung call counted once, a 5 MB stderr flood, a repeated cursor, a `$ref` cycle |
+| `tests/verify-mcp-hardening.mjs` | the wiring above through the real client manager and the fixture: launch approval, pins and quarantine, the 1 MB description, the 50 MB result, the read limit, stderr, hung and aborted calls, the cross-origin redirect, `.mcp.json`, no process left after `HubManager.shutdown()` |
 
-Mutation lists: `tests/mutation/mcp-sanitize.json`, `mcp-fingerprint-pins.json`, `mcp-result-limits.json`.
+Mutation lists: `tests/mutation/mcp-sanitize.json`, `mcp-fingerprint-pins.json`, `mcp-result-limits.json`, `mcp-hardening.json` (C2).

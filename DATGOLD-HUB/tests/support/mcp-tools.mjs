@@ -116,6 +116,34 @@ export async function newDescendants(baseline, known = []) {
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * For the transport suites of slice A (verify-mcp-client-stdio / -http, scripts/Verify-McpRuntime.mjs does the same by hand): the owner's two
+ * approvals given as the tests go, so that those suites keep testing the transport. Every stdio server saved through manager.store.save gets
+ * its launch record approved (the record shown is the one approved), and every connect() is followed by the approval of the lists it saw.
+ * TEST CODE ONLY: the approvals themselves (refusals, stale fingerprints, quarantine) are tested in tests/verify-mcp-hardening.mjs.
+ */
+export function autoApprove(manager) {
+  const save = manager.store.save.bind(manager.store);
+  manager.store.save = async (id, input) => {
+    const view = await save(id, input);
+    if (view.transport === 'stdio') {
+      try {
+        const shown = await manager.launchRecord(id);
+        if (shown.required) await manager.approveLaunch(id, { expectedFingerprint: shown.fingerprint });
+      } catch { /* a server that cannot be resolved fails at connect() with its own error */ }
+    }
+    return view;
+  };
+  const connect = manager.connect.bind(manager);
+  manager.connect = async (id, options) => {
+    await connect(id, options);
+    const review = manager.toolReview(id);
+    if (review.state === 'unpinned' || review.state === 'needs_review') await manager.approveTools(id, { expectedFingerprint: review.fingerprint });
+    return manager.connections.get(id).summary();
+  };
+  return manager;
+}
+
 export async function waitFor(test, label, ms = 10_000) {
   const end = Date.now() + ms;
   for (;;) {

@@ -129,7 +129,7 @@ const png = (decodedBytes) => Buffer.alloc(decodedBytes, 7).toString('base64');
   for (const mimeType of ['image/svg+xml', 'image/bmp', 'image/tiff', 'image/x-icon', 'image/heic']) {
     const other = limitToolResult({ content: [image(3, mimeType)] });
     assert.deepEqual(other.result.content.map((item) => item.type), ['text'], mimeType);
-    assert.deepEqual(other.notes, ['1 item(s) dropped: an image of a type the model providers do not accept (only image/png, image/jpeg, image/gif and image/webp)'], mimeType);
+    assert.deepEqual(other.notes, ['1 item(s) dropped: an image of type "' + mimeType + '", which the model providers do not accept (only image/png, image/jpeg, image/gif and image/webp)'], mimeType);
   }
   const svgBlob = limitToolResult({ content: [{ type: 'resource', resource: { uri: 'mem://s', mimeType: 'image/svg+xml', blob: png(3) } }] });
   assert.deepEqual(svgBlob.result.content.map((item) => item.type), ['text'], 'an embedded SVG blob is not an image either');

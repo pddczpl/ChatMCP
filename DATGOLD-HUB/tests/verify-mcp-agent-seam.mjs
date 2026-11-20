@@ -21,16 +21,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { AgentRunner } from '../lib/agent.mjs';
+import { AgentRunner, createAgentInstructions, INSTRUCTION_NAME_LIMIT } from '../lib/agent.mjs';
+import { compactAgentInstructions } from '../lib/gemini-compat.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { BrowserRunner } from '../lib/browser-runner.mjs';
-import { HUB, counterLines, delay, descendants, missingReason, newDescendants } from './support/mcp-tools.mjs';
+import { HUB, counterLines, delay, descendants, missingReason, newDescendants, runtimeRoot } from './support/mcp-tools.mjs';
 
 const missing = missingReason();
 if (missing) {
   console.log(`CHATMCP_TEST_SKIP: ${missing}`);
   process.exit(0);
 }
+// A Hub assembled the normal way finds the SDK beside DATGOLD-HUB; a copy of the Hub (the mutation runner's) has none there, so it is named here.
+process.env.CHATMCP_MCP_RUNTIME_DIR ??= runtimeRoot();
 setTimeout(() => { console.error('FAIL: the MCP agent seam suite exceeded its own time budget'); process.exit(2); }, 240_000).unref();
 
 let checks = 0;
@@ -38,8 +41,9 @@ const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 const SEAM = path.join(HUB, 'tests', 'fixtures', 'mcp-seam-server.mjs');
 const HOOK = path.join(HUB, 'tests', 'fixtures', 'hook-program.mjs');
 const node = process.execPath;
-// The instruction text of a run with a 300-tool server and a 7-tool server connected (measured: see the PR); a list of every name would be ~10 KB more.
-const INSTRUCTION_BUDGET_BYTES = 16 * 1024;
+// The instruction text of a run with a 308-tool server and an 8-tool server connected: 7,535 bytes measured on 2026-11-20 with the 40-name cap; the same
+// run listing every name is about 12 KB, over this budget.
+const INSTRUCTION_BUDGET_BYTES = 9 * 1024;
 const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'datgold-mcp-seam-')));
 const baseline = await descendants();
 async function until(test, label, ms = 30_000) {
@@ -63,7 +67,7 @@ await fs.mkdir(hubDirectory, { recursive: true });
 await fs.writeFile(path.join(hubDirectory, 'mcp-servers.json'), JSON.stringify({ version: 1, servers: {
   ext: {
     transport: 'stdio', command: node, args: [SEAM, '--count-file', counter, '--workdir', work],
-    policy: { tools: { echo: 'allow', forbidden: 'deny', images: 'allow', crash: 'allow', write_note: 'allow', wipe_cache: 'allow' } },
+    policy: { tools: { echo: 'allow', forbidden: 'deny', images: 'allow', crash: 'allow', write_note: 'allow', wipe_cache: 'allow', bad_params: 'allow' } },
     trust: { annotations: true }, touchesWorkspace: true,
   },
   big: { transport: 'stdio', command: node, args: [SEAM, '--tools', '300', '--count-file', bigCounter], policy: { default: 'allow' } },
@@ -145,7 +149,7 @@ try {
     assert.equal(echo.annotations.readOnlyHint, true);
     assert.equal(catalog.servers.ext.serverInfo.name, 'mcp-seam-fixture');
     assert.ok(catalog.servers.ext.capabilities.resources, 'the server\'s real capabilities');
-    assert.equal(catalog.counts.big, 307);
+    assert.equal(catalog.counts.big, 308);
     assert.ok(catalog.prompts.some((prompt) => prompt.server === 'ext' && prompt.originalName === 'greet'));
     assert.ok(catalog.resources.some((resource) => resource.server === 'ext' && resource.uri === 'mem://seam/notes'));
     assert.ok(catalog.tools.some((tool) => tool.name === 'local.read_file'), 'the local tools are still there');
@@ -197,6 +201,45 @@ try {
     gate.configure({ mode: 'autonomous', leaveFullAccess: true });
     ok('Full Access: a tool marked destructiveHint: true (even allowed) still asks; one without a rule runs; an explicit deny still refuses');
   }
+  {
+    gate.configure({ mode: 'readonly' });
+    const entry = script('READONLY', [mcpCall('ext.echo', { text: 'read only' }), mcpCall('ext.create_issue', { title: 'No' })]);
+    const task = await run('READONLY');
+    assert.equal(task.status, 'completed', task.error);
+    assert.match(entry.outputs[0], /echo: read only/, 'allow + readOnlyHint + trust.annotations runs in Read Only');
+    assert.match(entry.outputs[1], /Permission denied/);
+    assert.equal(gate.state().pending.length, 0);
+    gate.configure({ mode: 'autonomous' });
+    ok('Read Only: ext.echo (allow, readOnlyHint, the owner trusts the server\'s annotations) runs; ext.create_issue is refused without a question');
+  }
+  {
+    // the lists stop matching the pin while a task runs (the preflight had pinned them): the call is refused before anything is sent
+    const entry = script('RUG', [mcpCall('ext.echo', { text: 'after the change' })]);
+    const respond = provider.respond;
+    provider.respond = async (request) => {
+      if (/Run RUG:/.test(userTexts(request.input).join(' ')) && !request.input.some((item) => item.type === 'function_call_output')) hub.mcp.connections.get('ext').review = { state: 'needs_review', fingerprint: null };
+      return respond(request);
+    };
+    const before = counterLines(counter).length;
+    const task = await run('RUG');
+    provider.respond = respond;
+    assert.equal(task.status, 'completed', task.error);
+    assert.match(entry.outputs[0], /mcp_needs_review/);
+    assert.match(entry.outputs[0], /"executed":false|executed.{0,4}false/);
+    assert.equal(counterLines(counter).length, before, 'nothing reached the server');
+    await hub.mcp.listTools('ext', { refresh: true });
+    assert.equal(hub.mcp.toolReview('ext').state, 'pinned', 'the lists still match the pin once listed again');
+    ok('a server quarantined while a task runs: the call is refused as a result (mcp_needs_review, executed: false), nothing reaches the server, and the task goes on');
+  }
+  {
+    const entry = script('PROTO', [mcpCall('ext.bad_params'), mcpCall('ext.echo', { text: 'still running' })]);
+    const task = await run('PROTO');
+    assert.equal(task.status, 'completed', task.error);
+    assert.match(entry.outputs[0], /-32602/);
+    assert.match(entry.outputs[0], /"isError":\s*true/);
+    assert.match(entry.outputs[1], /echo: still running/, 'the task went on after the error result');
+    ok('a JSON-RPC error from the server is an isError result the model reads (protocolCode -32602); the task goes on');
+  }
 
   // ------------------------------------------------------------------------------------------------------------------ 3. hooks
   {
@@ -219,14 +262,23 @@ try {
     const task = await run('BUDGET', 'look at the catalog');
     assert.equal(task.status, 'completed', task.error);
     const bytes = Buffer.byteLength(entry.instructions);
-    console.log(`  (instructions with 307 + 7 external tools: ${bytes} bytes)`);
+    console.log(`  (instructions with 308 + 8 external tools: ${bytes} bytes)`);
     assert.ok(bytes < INSTRUCTION_BUDGET_BYTES, `${bytes} bytes`);
     const listed = (entry.instructions.match(/^- (?:ext|big)\.\S+$/gm) ?? []).length;
     assert.ok(listed <= 40, `${listed} external names listed`);
     assert.match(entry.instructions, /server big: \d+ tools, use mcp_catalog filter=big/);
     const found = JSON.parse(entry.outputs[0]);
     assert.ok(found.tools.some((tool) => tool.name === 'big.tool_250'), entry.outputs[0].slice(0, 400));
-    ok(`with a 307-tool server the instructions are ${bytes} bytes (budget ${INSTRUCTION_BUDGET_BYTES}), list at most 40 external names, summarise the rest per server, and mcp_catalog filter=tool_250 finds big.tool_250`);
+    ok(`with a 308-tool server the instructions are ${bytes} bytes (budget ${INSTRUCTION_BUDGET_BYTES}), list at most 40 external names, summarise the rest per server, and mcp_catalog filter=tool_250 finds big.tool_250`);
+    // the instructions of a run with no direct tools (createAgentInstructions) keep the same cap, and the text-only Gemini rewrite still finds its sentence
+    const plain = createAgentInstructions(hub.internalCatalog(), { path: work });
+    const names = (plain.match(/^- \S+$/gm) ?? []).length;
+    assert.equal(INSTRUCTION_NAME_LIMIT, 40);
+    assert.equal(names, INSTRUCTION_NAME_LIMIT, `${names} names listed`);
+    assert.match(plain, /the first 40 names are listed below and the rest are summarised per server/);
+    assert.match(plain, /- server big: \d+ tools, use mcp_catalog filter=big/);
+    assert.match(compactAgentInstructions(plain), /discoverable using JSON text actions for mcp_catalog/);
+    ok('the instructions without direct tools list 40 names and summarise the rest per server; the text-only Gemini rewrite still applies');
   }
 
   // ------------------------------------------------------------------------------------------------------------------ 5. images, checkpoint
