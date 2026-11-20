@@ -5,7 +5,9 @@
 //   3. The SDK: a real v2 client (lib/mcp/sdk.mjs) against the listener lists the provider's exact tools with their annotations, in a
 //      deterministic order; a 2025 `initialize` works without a session; `server/discover` with the full _meta envelope answers 2026-07-28.
 //   4. The gate in front of it: no token / wrong token -> 401 with WWW-Authenticate; a foreign Host or Origin -> 403; an oversize body -> 413;
-//      the rate limit -> 429; bound to 127.0.0.1 only; the request log never carries the token; a rotated token is refused at once.
+//      a browser page's request (Sec-Fetch-Site) -> 403; separate rate limits for authorized and token-less requests -> 429, so a flood of
+//      token-less requests never locks out the owner's client; bound to 127.0.0.1 only; the request log never carries the token and a flood
+//      of refusals adds a bounded number of lines; a rotated token is refused at once.
 //   5. startHubMcpServer: off -> nothing listens; the SDK missing -> no throw, `mcp_runtime_missing`; on -> listens, close() frees the port.
 //   6. A real hub.mjs (the e2e helper): off by default (nothing on the configured port), the SDK missing (the Hub starts and logs
 //      mcp_runtime_missing), on (a client with the token lists hub_status; a shutdown closes the listener).
@@ -20,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadMcpSdk } from '../lib/mcp/sdk.mjs';
 import { loadMcpServerSdk, locateMcpServerRuntime, MCP_NODE_VERSION, MCP_SERVER_VERSION } from '../lib/mcp/server-sdk.mjs';
-import { createMcpServerFactory, createRateLimiter, startHubMcpServer, startMcpListener, MCP_SERVER_PATH } from '../lib/mcp/server.mjs';
+import { DEFAULT_ANONYMOUS_RATE_LIMIT, DEFAULT_RATE_LIMIT, createMcpServerFactory, createRateLimiter, startHubMcpServer, startMcpListener, MCP_SERVER_PATH } from '../lib/mcp/server.mjs';
 import { McpServerTokenStore, MCP_TOKEN_FILE } from '../lib/mcp/server-token.mjs';
 import { DEFAULT_MCP_SERVER_PORT, MCP_SERVER_FILE, MCP_SERVER_PORT_VARIABLE, MCP_SERVER_VARIABLE, McpServerSettingStore, mcpServerSetting } from '../lib/mcp/server-setting.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
@@ -327,25 +329,88 @@ try {
     } finally { await listener.close(); }
   });
 
-  await test('the rate limit trips with 429 and Retry-After, also for requests without a token', async () => {
+  await test('authorized and token-less requests have separate buckets: each trips with 429 and Retry-After, a new window resets both', async () => {
     let clock = 1_000;
-    const { listener, token, url } = await fixtureListener({ rateLimit: { windowMs: 60_000, max: 3 }, now: () => clock });
+    const { listener, token, url } = await fixtureListener({ rateLimit: { windowMs: 60_000, max: 3 }, anonymousRateLimit: { windowMs: 60_000, max: 2 }, now: () => clock });
     try {
       const auth = { authorization: `Bearer ${token}` };
-      assert.equal((await post(url, INITIALIZE, auth)).status, 200);
       assert.equal((await post(url, INITIALIZE)).status, 401);
-      assert.equal((await post(url, INITIALIZE, auth)).status, 200);
+      assert.equal((await post(url, INITIALIZE, { authorization: `Bearer ${token}x` })).status, 401, 'a wrong token is token-less for the limit');
+      const anonymous = await post(url, INITIALIZE);
+      assert.equal(anonymous.status, 429, 'the third token-less request in the window');
+      assert.equal(anonymous.headers.get('retry-after'), '60');
+      for (let index = 0; index < 3; index += 1) assert.equal((await post(url, INITIALIZE, auth)).status, 200, `authorized request ${index + 1} is not slowed by the token-less ones`);
       const limited = await post(url, INITIALIZE, auth);
       assert.equal(limited.status, 429);
       assert.equal(limited.headers.get('retry-after'), '60');
       clock += 60_000;
       assert.equal((await post(url, INITIALIZE, auth)).status, 200, 'a new window lets requests through again');
+      assert.equal((await post(url, INITIALIZE)).status, 401, 'for both buckets');
     } finally { await listener.close(); }
     const limiter = createRateLimiter({ windowMs: 1000, max: 2, now: () => 0 });
     assert.equal(limiter.take('a').ok, true);
     assert.equal(limiter.take('a').ok, true);
     assert.equal(limiter.take('a').ok, false);
     assert.equal(limiter.take('b').ok, true, 'per client key');
+  });
+
+  await test('a flood of token-less GETs (what <img src> sends: right Host, no Origin) never locks out the owner\'s client', async () => {
+    assert.ok(DEFAULT_ANONYMOUS_RATE_LIMIT.max < DEFAULT_RATE_LIMIT.max, 'the token-less bucket is the smaller one');
+    const { listener, token, url } = await fixtureListener();
+    try {
+      const statuses = new Map();
+      for (let index = 0; index < DEFAULT_RATE_LIMIT.max + 50; index += 1) {
+        const { status } = await fetch(url).then(async (response) => { await response.arrayBuffer(); return response; });
+        statuses.set(status, (statuses.get(status) ?? 0) + 1);
+      }
+      assert.deepEqual(Object.fromEntries(statuses), { 401: DEFAULT_ANONYMOUS_RATE_LIMIT.max, 429: DEFAULT_RATE_LIMIT.max + 50 - DEFAULT_ANONYMOUS_RATE_LIMIT.max });
+      assert.equal((await post(url, INITIALIZE, { authorization: `Bearer ${token}` })).status, 200, 'the authorized initialize still goes through');
+    } finally { await listener.close(); }
+  });
+
+  await test('a request from a browser page (Sec-Fetch-Site other than none) is refused with 403 before it is counted; Node clients are not', async () => {
+    const { listener, token, url } = await fixtureListener({ anonymousRateLimit: { windowMs: 60_000, max: 2 } });
+    try {
+      const auth = { authorization: `Bearer ${token}` };
+      for (const site of ['cross-site', 'same-site', 'same-origin']) {
+        assert.equal((await fetch(url, { headers: { 'sec-fetch-site': site, 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': 'image' } })).status, 403, `an <img> of a page (${site})`);
+        assert.equal((await post(url, INITIALIZE, { ...auth, 'sec-fetch-site': site, 'sec-fetch-mode': 'cors' })).status, 403, `even with the token (${site})`);
+      }
+      for (let index = 0; index < 10; index += 1) await fetch(url, { headers: { 'sec-fetch-site': 'cross-site' } });
+      assert.equal((await post(url, INITIALIZE)).status, 401, 'the browser requests used none of the token-less bucket');
+      assert.equal((await post(url, INITIALIZE, { 'sec-fetch-site': 'none', 'sec-fetch-mode': 'navigate' })).status, 401, 'a URL the owner typed is not a page\'s request');
+      // Node's fetch (undici), and so the SDK client, sends sec-fetch-mode: cors and no Sec-Fetch-Site: refusing on the mode would lock out every Node client.
+      assert.equal((await post(url, INITIALIZE, { ...auth, 'sec-fetch-mode': 'cors' })).status, 200, 'a Node client');
+    } finally { await listener.close(); }
+  });
+
+  await test('a flood of refused requests adds a bounded number of log lines: the first of each status, then one summary per window', async () => {
+    const { listener, url, lines } = await fixtureListener();
+    const flood = 2000;
+    const origin = { origin: 'https://evil.example' };
+    let refusedCount = 0;
+    for (let start = 0; start < flood; start += 50) {
+      const batch = await Promise.all(Array.from({ length: Math.min(50, flood - start) }, () => post(url, '{}', origin)));
+      refusedCount += batch.filter((answer) => answer.status === 403).length;
+    }
+    assert.equal(refusedCount, flood, 'what fetch(url, {method: POST, mode: no-cors}) sends is refused');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.ok(lines.length <= 2, `the flood logged ${lines.length} lines`);
+    assert.match(lines[0], /^MCP server: POST \/mcp 403 /);
+    await listener.close();
+    assert.equal(lines.filter((line) => /refused/.test(line)).length, 1, 'close() writes the summary that was pending');
+    assert.match(lines.at(-1), new RegExp(`^MCP server: ${flood - 1} more refused requests in the last \\d+ s \\(403: ${flood - 1}\\)$`));
+
+    const quick = await fixtureListener({ refusalLogWindowMs: 300 });
+    try {
+      for (let index = 0; index < 5; index += 1) await post(quick.url, '{}', origin);
+      await post(quick.url, INITIALIZE);
+      await waitFor(() => quick.lines.some((line) => /more refused/.test(line)), { timeoutMs: 5000, label: 'the summary of the window' });
+      assert.deepEqual(quick.lines.filter((line) => / (?:401|403) /.test(line) && !/more refused/.test(line)).map((line) => line.replace(/ \(\d+ ms\)$/, '')), ['MCP server: POST /mcp 403', 'MCP server: POST /mcp 401'], 'the first of each status in full');
+      assert.match(quick.lines.find((line) => /more refused/.test(line)), /^MCP server: 4 more refused requests in the last 0 s \(403: 4\)$/);
+      await post(quick.url, '{}', origin);
+      await waitFor(() => quick.lines.filter((line) => /^MCP server: POST \/mcp 403/.test(line)).length === 2, { timeoutMs: 5000, label: 'a new window logs in full again' });
+    } finally { await quick.listener.close(); }
   });
 
   await test('the request log names method, path and status, and never the token', async () => {
