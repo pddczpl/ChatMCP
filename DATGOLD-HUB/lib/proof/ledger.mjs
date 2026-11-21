@@ -12,7 +12,8 @@
 //
 // Output is never stored: a check receipt holds the sha256 and the byte count of stdout and stderr and a redacted preview of at most
 // 2 KiB. Every string of every record is masked by maskSecrets (lib/permissions.mjs, the masker of the approval card) before it is
-// written. Nothing in the agent writes a ledger yet: the wiring is pod-17's.
+// written, but for the digests and Git object ids of a check record, which its schema holds to hex. Nothing in the agent writes a
+// ledger yet: the wiring is pod-17's.
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
@@ -33,6 +34,7 @@ export const TORN_DETAIL = 'the last line has no line end: a write that did not 
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const DEVICE_NAME = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?$/i;
 const HEX64 = /^[0-9a-f]{64}$/;
+const TREE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const HASH_SUFFIX = /,"hash":"([0-9a-f]{64})"\}$/;
 const ENVELOPE = 'v,seq,prev,ts,type,record';
@@ -87,10 +89,17 @@ function cutChars(text, maxChars) {
   return { text: text.slice(0, end), cut: true };
 }
 
-const maskDeep = (value, secrets) => {
-  if (typeof value === 'string') return maskSecrets(value, secrets);
+// The digests and Git object ids of a check record: hex the Hub computed, not text. A short registered secret occurs inside a random
+// digest by chance (a 4-digit one in about one sha256 of a thousand), and masking it there would break the receipt while it hides
+// nothing. They are written as they are; the schema holds each of them to hex, so no text passes through them unmasked.
+const CHECK_DIGESTS = new Set([['commandSha256'], ['argsSha256'], ['stdout', 'sha256'], ['stderr', 'sha256'], ['treeBefore', 'tree'],
+  ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));
+
+/** Every string of `value` masked, but for the strings at the paths `keep` names (JSON of the list of keys; nothing inside an array). */
+const maskDeep = (value, secrets, keep = null, at = []) => {
+  if (typeof value === 'string') return keep?.has(JSON.stringify(at)) ? value : maskSecrets(value, secrets);
   if (Array.isArray(value)) return value.map((item) => maskDeep(item, secrets));
-  if (isPlainObject(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskDeep(item, secrets)]));
+  if (isPlainObject(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskDeep(item, secrets, keep, [...at, key])]));
   return value;
 };
 
@@ -153,7 +162,7 @@ function streamProblem(stream) {
 function checkProblem(record) {
   if (!sameFields(record, CHECK_FIELDS)) return `a check record has exactly the fields ${CHECK_FIELDS.join(', ')}`;
   if (typeof record.command !== 'string' || record.command.length > COMMAND_CHARS || typeof record.commandTruncated !== 'boolean') return 'command';
-  if (!HEX64.test(String(record.commandSha256)) || !HEX64.test(String(record.argsSha256))) return 'commandSha256 and argsSha256 are 64 hex digits';
+  if ([record.commandSha256, record.argsSha256].some((hash) => typeof hash !== 'string' || !HEX64.test(hash))) return 'commandSha256 and argsSha256 are 64 hex digits';
   if (typeof record.cwd !== 'string' || typeof record.shell !== 'string') return 'cwd and shell are text';
   if (record.exit !== null && !Number.isInteger(record.exit)) return 'exit is an integer or null';
   if (record.signal !== null && typeof record.signal !== 'string') return 'signal is text or null';
@@ -165,7 +174,10 @@ function checkProblem(record) {
   if (record.toolchain !== null && (!isPlainObject(record.toolchain) || !sameFields(record.toolchain, TOOLCHAIN_FIELDS)
     || TOOLCHAIN_FIELDS.some((name) => record.toolchain[name] !== null && typeof record.toolchain[name] !== 'string'))) return `toolchain is null or {${TOOLCHAIN_FIELDS.join(', ')}}`;
   for (const name of ['treeBefore', 'treeAfter']) {
-    if (record[name] !== null && (!isPlainObject(record[name]) || !sameFields(record[name], TREE_FIELDS))) return `${name} is null or a tree reference`;
+    const ref = record[name];
+    if (ref === null) continue;
+    if (!isPlainObject(ref) || !sameFields(ref, TREE_FIELDS)) return `${name} is null or a tree reference`;
+    for (const id of ['tree', 'rawTree']) if (ref[id] !== null && (typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))) return `${name}.${id} is null or a Git object id in hex`;
   }
   if (!Number.isSafeInteger(record.durationMs) || record.durationMs < 0) return 'durationMs is a count';
   return null;
@@ -269,9 +281,14 @@ export class ProofLedger {
     if (!isPlainObject(record)) throw fault('ledger_bad_record', 'a record is a JSON object');
     let copy;
     try { copy = JSON.parse(JSON.stringify(record)); } catch (error) { throw fault('ledger_bad_record', `the record is not JSON: ${error.message}`); }
-    const masked = maskDeep(copy, this.secrets() ?? []);
+    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);
     if (type === 'check') {
-      // A secret the receipt's builder did not know can be longer once masked: the preview stays within its 2 KiB.
+      // A secret the receipt's builder did not know can be longer once masked: the command stays within its 4,096 characters and the
+      // preview within its 2 KiB.
+      if (typeof masked.command === 'string') {
+        const cut = cutChars(masked.command, COMMAND_CHARS);
+        if (cut.cut) Object.assign(masked, { command: cut.text, commandTruncated: true });
+      }
       for (const name of ['stdout', 'stderr']) {
         if (!isPlainObject(masked[name]) || typeof masked[name].preview !== 'string') continue;
         const cut = cutUtf8(masked[name].preview, PREVIEW_BYTES);
