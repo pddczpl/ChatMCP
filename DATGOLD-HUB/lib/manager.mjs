@@ -12,8 +12,9 @@ export const VERSION = '3.11.2';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
 export const BACKENDS = Object.freeze(['local']);
 // The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add
-// something are offered next to them (code intelligence, test discovery, checkpoints); the rest would duplicate local.*.
-const LOCAL_BACKEND_STUDIO_TOOLS = new Set(['symbols', 'references', 'definitions', 'index_status', 'checks', 'skills', 'diff_check', 'checkpoints', 'checkpoint', 'review']);
+// something are offered next to them (code intelligence, test discovery, checkpoints); the rest would duplicate local.*. The MCP host
+// (lib/mcp/host.mjs) offers a client only Studio tools of this list: the others are in no session's catalog.
+export const LOCAL_BACKEND_STUDIO_TOOLS = new Set(['symbols', 'references', 'definitions', 'index_status', 'checks', 'skills', 'diff_check', 'checkpoints', 'checkpoint', 'review']);
 // An external (MCP) call is not in this list: a server runs outside the Hub and its tools say nothing reliable about what they touch. A checkpoint is
 // taken before an external call only for a server the owner flagged `touchesWorkspace: true` in mcp-servers.json (#checkpointBefore).
 const CHECKPOINT_CATEGORIES = new Set(['workspace_edit', 'dangerous', 'execute', 'unknown']);

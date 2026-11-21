@@ -12,13 +12,16 @@
 //   5. the path must be /mcp                                                                                                 -> 404
 //   6. Authorization: Bearer <token>, checked in constant time (lib/mcp/server-token.mjs)                                    -> 401
 //   7. the SDK (createMcpHandler, stateless: no sessions; 2026-07-28 and 2025 clients), with its body limit                  -> 413
+//   8. the token's scope (ext-19): a tools/call of a tool outside it is answered by the SDK's scope challenge, before any
+//      tool handler runs                                                                                  -> 403 insufficient_scope
 // One log line per request names the method, `/mcp` or `(other path)`, the status and the time: never a header, a query or a body. A
 // refusal of the gate (401, 403, 404, 429) is logged in full only the first time its status is seen in a window (createRefusalLog); the
 // others are counted and summed up in one line when the window ends, so a flood adds a bounded number of lines.
 //
-// Tools come from an injected provider ({tools, call}); `call` gets the request's signal and the client as it names itself (clientInfoOf).
-// The Hub's provider is the host's (lib/mcp/host.mjs, ext-18): `hub_status`, which reads no workspace and changes nothing, and the tools
-// the host serves through the Hub's permission gate (read_file in ext-18). The verify/read/write profiles are P6 ext-19.
+// Tools come from an injected provider ({tools, call, scopeChallenge?}); `call` gets the request's signal, the client as it names itself
+// (clientInfoOf) and, when the listener knows the token's scope, that scope (`scopes`, from the request's authInfo). The Hub's provider is
+// the profiles' (lib/mcp/tool-profiles.mjs, ext-19): `hub_status`, which reads no workspace and changes nothing, and the tools of the
+// token's scope, which the host (lib/mcp/host.mjs, ext-18) serves through the Hub's permission gate.
 import http from 'node:http';
 import { performance } from 'node:perf_hooks';
 import { loadMcpServerSdk } from './server-sdk.mjs';
@@ -71,23 +74,38 @@ export function clientInfoOf(context) {
 
 /**
  * The factory createMcpHandler calls once per request (stateless): a fresh McpServer with the provider's tools, each registered with
- * fromJsonSchema(inputSchema) so that the SDK checks the arguments before `call(name, args, {signal, client})` runs (client: clientInfoOf).
- * @param {{name: string, version: string, tools: object[] | (() => object[]), call: Function, listCacheHint?: {ttlMs?: number, cacheScope?: string}}} options
+ * fromJsonSchema(inputSchema) so that the SDK checks the arguments before `call(name, args, {signal, client, scopes?})` runs (client:
+ * clientInfoOf; scopes: the request's authInfo.scopes, when the listener set them). `tools` may be a function of the request (the SDK's
+ * {era, authInfo, requestInfo}). `scopeChallenge(toolName, authInfo)`, when given, answers a tools/call before any handler runs: a
+ * {scopes, errorDescription} it returns makes the SDK answer HTTP 403 with `WWW-Authenticate: Bearer error="insufficient_scope"`, in both
+ * protocol eras (the SDK asks the server instance's resolveScopeChallenge, which is wrapped here; a SDK without it refuses every request).
+ * @param {{name: string, version: string, tools: object[] | ((request?: object) => object[]), call: Function, scopeChallenge?: Function, listCacheHint?: {ttlMs?: number, cacheScope?: string}}} options
  */
-export function createMcpServerFactory(sdk, { name, version, tools, call, listCacheHint = DEFAULT_LIST_CACHE_HINT } = {}) {
+export function createMcpServerFactory(sdk, { name, version, tools, call, scopeChallenge, listCacheHint = DEFAULT_LIST_CACHE_HINT } = {}) {
   if (typeof call !== 'function') throw new TypeError('createMcpServerFactory needs a call function.');
   if (typeof name !== 'string' || !name || typeof version !== 'string' || !version) throw new TypeError('createMcpServerFactory needs a name and a version.');
-  const listOf = typeof tools === 'function' ? () => normalizeTools(tools()) : (() => { const fixed = normalizeTools(tools); return () => fixed; })();
-  return () => {
+  if (scopeChallenge !== undefined && typeof scopeChallenge !== 'function') throw new TypeError('The scope challenge of createMcpServerFactory must be a function.');
+  const listOf = typeof tools === 'function' ? (request) => normalizeTools(tools(request)) : (() => { const fixed = normalizeTools(tools); return () => fixed; })();
+  return (request) => {
+    const authInfo = request?.authInfo;
+    const scoped = authInfo ? { scopes: Array.isArray(authInfo.scopes) ? [...authInfo.scopes] : [] } : {};
     const server = new sdk.McpServer({ name, version }, { capabilities: { tools: {} }, cacheHints: { 'tools/list': { ...listCacheHint } } });
-    for (const tool of listOf()) {
+    for (const tool of listOf(request)) {
       server.registerTool(tool.name, {
         ...(tool.title !== undefined ? { title: tool.title } : {}),
         ...(tool.description !== undefined ? { description: tool.description } : {}),
         inputSchema: sdk.fromJsonSchema(structuredClone(tool.inputSchema)),
         ...(tool.outputSchema !== undefined ? { outputSchema: sdk.fromJsonSchema(structuredClone(tool.outputSchema)) } : {}),
         ...(tool.annotations !== undefined ? { annotations: { ...tool.annotations } } : {}),
-      }, async (args, context) => call(tool.name, args ?? {}, { signal: context?.mcpReq?.signal, client: clientInfoOf(context) }));
+      }, async (args, context) => call(tool.name, args ?? {}, Object.assign({ signal: context?.mcpReq?.signal, client: clientInfoOf(context) }, scoped)));
+    }
+    if (scopeChallenge) {
+      const resolve = server.resolveScopeChallenge;
+      if (typeof resolve !== 'function') throw new Error('This MCP server SDK cannot answer a scope challenge, so no request is served.');
+      server.resolveScopeChallenge = async (context) => {
+        const challenge = context?.request?.method === 'tools/call' ? await scopeChallenge(context.request.params?.name, context.authInfo ?? authInfo) : undefined;
+        return challenge ?? resolve(context);
+      };
     }
     return server;
   };
@@ -147,13 +165,19 @@ export function createRefusalLog({ log = () => {}, windowMs = DEFAULT_REFUSAL_LO
   };
 }
 
+/** The authInfo of a request with the valid token: never the token itself, only the scope it has now (read per request). */
+export const MCP_TOKEN_CLIENT_ID = 'datgold-mcp-token';
+
 /**
- * Listens on 127.0.0.1:<port> (0: any free port) and serves `factory` behind the gate described at the top of this file.
+ * Listens on 127.0.0.1:<port> (0: any free port) and serves `factory` behind the gate described at the top of this file. `scopeOf()`, when
+ * given, is the scope of the token now: a request with the valid token carries it to the SDK as its authInfo (`req.auth`), so the factory
+ * lists and the scope challenge refuses by it.
  * @returns {Promise<{server: http.Server, port: number, url: string, close: () => Promise<void>}>}
  */
-export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bodyLimit = DEFAULT_BODY_LIMIT, rateLimit = DEFAULT_RATE_LIMIT, anonymousRateLimit = DEFAULT_ANONYMOUS_RATE_LIMIT,
+export async function startMcpListener({ sdk, port = 0, factory, verifyToken, scopeOf, bodyLimit = DEFAULT_BODY_LIMIT, rateLimit = DEFAULT_RATE_LIMIT, anonymousRateLimit = DEFAULT_ANONYMOUS_RATE_LIMIT,
   refusalLogWindowMs = DEFAULT_REFUSAL_LOG_WINDOW_MS, now = Date.now, log = () => {} } = {}) {
   if (typeof verifyToken !== 'function') throw new TypeError('startMcpListener needs verifyToken.');
+  if (scopeOf !== undefined && typeof scopeOf !== 'function') throw new TypeError('The scopeOf of startMcpListener must be a function.');
   const handler = sdk.createMcpHandler(factory, {
     legacy: 'stateless', maxRequestBodySize: bodyLimit,
     onerror: (error) => log(`MCP server: request rejected by the SDK (${String(error?.code ?? error?.name ?? 'error')})`),
@@ -198,6 +222,7 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bo
       if (pathname !== MCP_SERVER_PATH) return refuse(404, 'Not found.');
       if (!match) return refuse(401, 'Unauthorized: this MCP server needs its access token.', { 'www-authenticate': REALM });
       if (!authorized) return refuse(401, 'Unauthorized: the access token is not valid.', { 'www-authenticate': `${REALM}, error="invalid_token"` });
+      if (scopeOf) req.auth = { token: '(verified)', clientId: MCP_TOKEN_CLIENT_ID, scopes: [...scopeOf()] };
       await serve(req, res);
     } catch {
       if (!res.headersSent) refuse(500, 'Internal error.');
@@ -224,7 +249,11 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, bo
   };
 }
 
-/** The status tool of the Hub: harmless, no workspace. `workspaceTools` are the names of the tools the host serves (lib/mcp/host.mjs mcpHostProvider). */
+/**
+ * ext-18's status tool: harmless, no workspace. `workspaceTools` are the names of the tools the host serves (lib/mcp/host.mjs mcpHostProvider).
+ * Nothing in the product uses it since ext-19: hub.mjs serves mcpProfileProvider (lib/mcp/tool-profiles.mjs), which has a hub_status of its
+ * own. Kept for the ext-18 host tests (tests/verify-mcp-server-approvals.mjs, through mcpHostProvider).
+ */
 export function hubMcpProvider({ product = 'DatGold', version, workspaceTools = [], scope }) {
   const text = JSON.stringify({ product, version, mcpServer: workspaceTools.length ? 'ext-18 host' : 'ext-17 core', workspaceTools: workspaceTools.length ? [...workspaceTools] : 'none yet', ...(scope ? { scope } : {}) });
   return {
@@ -240,10 +269,12 @@ export function hubMcpProvider({ product = 'DatGold', version, workspaceTools = 
 
 /**
  * Starts the Hub's MCP server when the owner has turned it on. Never throws for what the owner can fix (the setting, the port, the SDK):
- * the answer is in status() and in one log line. `roots` overrides where the SDK is looked for (tests).
- * @returns {Promise<{setting: McpServerSettingStore, tokens: McpServerTokenStore | null, status: () => object, rotate: () => Promise<string>, close: () => Promise<void>}>}
+ * the answer is in status() and in one log line. `roots` overrides where the SDK is looked for (tests). The token's scope (ext-19) reaches
+ * every request (the listener's scopeOf) and every call (`liveScopes`, the scope now, which the profiles ask again after the owner's
+ * answer); setScope() changes it from the next request on.
+ * @returns {Promise<{setting: McpServerSettingStore, tokens: McpServerTokenStore | null, status: () => object, rotate: () => Promise<string>, setScope: (scope: string[]) => Promise<string[]>, close: () => Promise<void>}>}
  */
-export async function startHubMcpServer({ env = process.env, directory, protector, roots, name, version, dashboardPort, tools, call, log = () => {}, registerSecret = () => {}, bodyLimit, rateLimit, anonymousRateLimit } = {}) {
+export async function startHubMcpServer({ env = process.env, directory, protector, roots, name, version, dashboardPort, tools, call, scopeChallenge, log = () => {}, registerSecret = () => {}, bodyLimit, rateLimit, anonymousRateLimit } = {}) {
   const setting = new McpServerSettingStore({ directory, env, log });
   await setting.load();
   const current = setting.current();
@@ -251,12 +282,19 @@ export async function startHubMcpServer({ env = process.env, directory, protecto
   let listener = null;
   const handle = {
     setting, tokens: null,
-    status: () => Object.freeze({ ...status }),
+    status: () => Object.freeze({ ...status, ...(handle.tokens ? { scope: [...handle.tokens.scope()] } : {}) }),
     async rotate() {
       if (!handle.tokens) throw Object.assign(new Error('The MCP server is not running.'), { code: 'mcp_server_off', statusCode: 409 });
       const token = await handle.tokens.rotate();
       registerSecret(token);
       return token;
+    },
+    /** The owner's choice of profiles for the token (lib/mcp/server-scope.mjs); refused (400) for an unknown or empty scope. */
+    async setScope(scope) {
+      if (!handle.tokens) throw Object.assign(new Error('The MCP server is not running.'), { code: 'mcp_server_off', statusCode: 409 });
+      const next = await handle.tokens.setScope(scope);
+      log(`MCP server: the token's scope is now ${next.join(', ')}.`);
+      return next;
     },
     async close() {
       if (!listener) return;
@@ -288,12 +326,13 @@ export async function startHubMcpServer({ env = process.env, directory, protecto
   }
   handle.tokens = tokens;
   try {
-    const factory = createMcpServerFactory(sdk, { name, version, tools, call });
-    listener = await startMcpListener({ sdk, port: current.port, factory, verifyToken: (candidate) => tokens.verify(candidate), log, ...(bodyLimit ? { bodyLimit } : {}), ...(rateLimit ? { rateLimit } : {}), ...(anonymousRateLimit ? { anonymousRateLimit } : {}) });
+    const scopedCall = typeof call === 'function' ? (toolName, args, context) => call(toolName, args, { ...context, liveScopes: () => tokens.scope() }) : call;
+    const factory = createMcpServerFactory(sdk, { name, version, tools, call: scopedCall, ...(scopeChallenge ? { scopeChallenge } : {}) });
+    listener = await startMcpListener({ sdk, port: current.port, factory, verifyToken: (candidate) => tokens.verify(candidate), scopeOf: () => tokens.scope(), log, ...(bodyLimit ? { bodyLimit } : {}), ...(rateLimit ? { rateLimit } : {}), ...(anonymousRateLimit ? { anonymousRateLimit } : {}) });
   } catch (error) {
     return fail('failed', error?.code === 'EADDRINUSE' ? 'mcp_server_port_in_use' : 'mcp_server_listen_failed', `${MCP_SERVER_HOST}:${current.port} (${error?.code ?? error?.message ?? 'error'}).`);
   }
   status = { ...status, state: 'listening', code: undefined, port: listener.port, url: listener.url };
-  log(`MCP server: listening on ${listener.url} (loopback only; every request needs the access token).`);
+  log(`MCP server: listening on ${listener.url} (loopback only; every request needs the access token; the token's scope: ${tokens.scope().join(', ') || 'none'}).`);
   return handle;
 }

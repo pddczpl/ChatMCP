@@ -13,7 +13,8 @@
 //   5. The primary agent's task, the lock file, its checkpoints, its plan and its permission history are untouched; the host's
 //      checkpoint is in the host's own folder.
 //   6. The owner's hooks (a PreToolUse veto) and the external-tool policy (`deny`, `allow`) apply to a client's call.
-//   7. A real hub.mjs with the switch on: the client lists hub_status and read_file, and reads a workspace file through the host.
+//   7. A real hub.mjs with the switch on and a token whose scope opts the read profile in (ext-19): the client lists hub_status, the
+//      verify and the read profiles, and reads a workspace file through the host.
 // Every listener binds port 0 or a port freePort() just found: never 3007 (the owner's Hub) and never a fixed 3008.
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -503,7 +504,9 @@ try {
       status: () => null,
     };
     const schema = { type: 'object', properties: { text: { type: 'string' } } };
-    const tools = [{ name: 'fake_echo', target: 'fake.echo', inputSchema: schema }, { name: 'fake_shout', target: 'fake.shout', inputSchema: schema }];
+    // fake_shout is offered as read-only by the owner's spec: the host's read-only check (ext-19) is for the Hub's own tools, and an external
+    // tool, always `external` for the gate, still runs by the owner's policy.
+    const tools = [{ name: 'fake_echo', target: 'fake.echo', inputSchema: schema }, { name: 'fake_shout', target: 'fake.shout', inputSchema: schema, annotations: { readOnlyHint: true } }];
     const env = await setup({ scope: 'write', tools, mcp: fakeMcp });
     try {
       const client = await env.client('external-client');
@@ -615,13 +618,20 @@ try {
   // ---------------------------------------------------------------------------------------------------------------------------------
   // 7. A real hub.mjs
   // ---------------------------------------------------------------------------------------------------------------------------------
-  await test('hub.mjs: on, the client lists hub_status and read_file and reads a workspace file through the host (mcp:<client>)', async () => {
+  await test('hub.mjs: on, with read in the token\'s scope the client lists read_file and reads a workspace file through the host (mcp:<client>)', async () => {
     const port = await freePort();
     const scratchDir = folder('e2e-host');
     const project = path.join(scratchDir, 'project');
     fs.mkdirSync(project, { recursive: true });
     fs.writeFileSync(path.join(project, 'hello.txt'), 'hello from the workspace\n');
-    const hub = await startHub({ scratch: scratchDir, project, env: { [MCP_SERVER_VARIABLE]: 'on', [MCP_SERVER_PORT_VARIABLE]: String(port), CHATMCP_MCP_RUNTIME_DIR: runtime } });
+    // The token the Hub will find, made beforehand with the read profile opted in (the owner's choice; ext-20's connection kit offers it).
+    const stateDir = path.join(scratchDir, 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    const made = new McpServerTokenStore({ directory: stateDir, protector: createProtector({ bundleRoot: HUB_ROOT, directory: stateDir }) });
+    await made.load();
+    await made.ensure();
+    await made.setScope(['verify', 'read']);
+    const hub = await startHub({ scratch: scratchDir, stateDir, project, env: { [MCP_SERVER_VARIABLE]: 'on', [MCP_SERVER_PORT_VARIABLE]: String(port), CHATMCP_MCP_RUNTIME_DIR: runtime } });
     try {
       await waitFor(() => hub.logText().includes(`MCP server: listening on http://127.0.0.1:${port}/mcp`), { timeoutMs: 20_000, label: 'the MCP listener' });
       const tokens = new McpServerTokenStore({ directory: hub.stateDir, protector: createProtector({ bundleRoot: HUB_ROOT, directory: hub.stateDir }) });
@@ -631,13 +641,14 @@ try {
       await client.connect(new clientSdk.StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
       try {
         const { tools } = await client.listTools();
-        assert.deepEqual(tools.map((tool) => tool.name), ['hub_status', 'read_file']);
+        assert.ok(tools.some((tool) => tool.name === 'read_file'), 'read is in the token\'s scope');
+        assert.ok(!tools.some((tool) => tool.name === 'edit_file'), 'write is not');
         const read = await client.callTool({ name: 'read_file', arguments: { path: 'hello.txt' } });
         assert.notEqual(read.isError, true, textOf(read));
         assert.match(textOf(read), /hello from the workspace/);
         const status = JSON.parse(textOf(await client.callTool({ name: 'hub_status', arguments: {} })));
-        assert.equal(status.scope, 'read', 'the Hub serves its host in the read scope (Read Only)');
-        assert.deepEqual(status.workspaceTools, ['read_file']);
+        assert.deepEqual(status.scope, ['verify', 'read'], 'the token\'s scope decides what the Hub serves');
+        assert.ok(status.workspaceTools.includes('read_file'));
         const secret = await client.callTool({ name: 'read_file', arguments: { path: '.env' } });
         assert.equal(secret.isError, true, 'a protected file is refused as for every agent');
       } finally { await client.close(); }
