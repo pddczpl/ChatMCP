@@ -14,7 +14,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { exists, resolveProgram } from './runtime.mjs';
 
@@ -58,7 +58,10 @@ export function scrubEnv(env, { keep = [], secrets = [] } = {}) {
   return output;
 }
 
-/** Keeps the first 60% and the last 40% of a byte budget, and counts what was dropped. */
+/**
+ * Keeps the first 60% and the last 40% of a byte budget, and counts what was dropped. The sha256 covers every byte pushed, the dropped
+ * middle included (docs/PROOF-LEDGER.md): it is the hash of what the command wrote, not of what was kept.
+ */
 export class BoundedCapture {
   constructor(limit) {
     this.headLimit = Math.max(1, Math.floor(limit * 0.6));
@@ -68,9 +71,11 @@ export class BoundedCapture {
     this.tail = [];
     this.tailBytes = 0;
     this.total = 0;
+    this.hash = createHash('sha256');
   }
 
   push(chunk) {
+    this.hash.update(chunk);
     this.total += chunk.length;
     let rest = chunk;
     if (this.headBytes < this.headLimit) {
@@ -95,8 +100,10 @@ export class BoundedCapture {
     const head = Buffer.concat(this.head);
     const omitted = this.total - head.length - tail.length;
     const decode = (buffer) => buffer.toString('utf8');
-    if (omitted <= 0) return { text: decode(Buffer.concat([head, tail])), truncated: false, omitted: 0, totalBytes: this.total };
-    return { text: `${decode(head)}\n[... đã lược ${omitted} byte ở giữa đầu ra ...]\n${decode(tail)}`, truncated: true, omitted, totalBytes: this.total };
+    // copy(): the hash goes on for the bytes that are still to come (a background task is asked while it runs).
+    const sha256 = this.hash.copy().digest('hex');
+    if (omitted <= 0) return { text: decode(Buffer.concat([head, tail])), truncated: false, omitted: 0, totalBytes: this.total, sha256 };
+    return { text: `${decode(head)}\n[... đã lược ${omitted} byte ở giữa đầu ra ...]\n${decode(tail)}`, truncated: true, omitted, totalBytes: this.total, sha256 };
   }
 }
 
@@ -347,6 +354,8 @@ export class ShellRunner {
       stderr: powershell ? decodeClixml(err.text) : err.text,
       truncated: { stdout: out.truncated, stderr: err.truncated },
       outputBytes: { stdout: out.totalBytes, stderr: err.totalBytes },
+      // Of the raw bytes each stream delivered until it closed (or was cut after a lingering exit), before any CLIXML decoding.
+      outputSha256: { stdout: out.sha256, stderr: err.sha256 },
     };
   }
 
