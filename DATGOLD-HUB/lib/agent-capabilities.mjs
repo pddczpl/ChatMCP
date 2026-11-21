@@ -7,6 +7,7 @@ import https from 'node:https';
 import net from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { commandSha256 } from './proof/ledger.mjs';
 const execFileAsync = promisify(execFile);
 const object = (props, required = []) => ({ type: 'object', properties: props, required, additionalProperties: false });
 const string = (description, other = {}) => ({ type: 'string', description, ...other });
@@ -148,11 +149,14 @@ export class AgentCapabilities {
     const started = Date.now();
     const result = await this.shell.run({ command:commands[framework], cwd, timeoutMs: Math.max(1000,Math.min(600000,timeoutSeconds*1000)), signal });
     const record={framework,command:commands[framework],cwd,exitCode:result.exitCode,timedOut:result.timedOut,cancelled:result.cancelled,
-      durationMs: Date.now()-started, stdout: result.stdout.slice(-70000),stderr:result.stderr.slice(-30000), truncated:result.truncated};
+      durationMs: Date.now()-started, stdout: result.stdout.slice(-70000),stderr:result.stderr.slice(-30000), truncated:result.truncated,
+      // docs/PROOF-LEDGER.md: of the exact command and of every byte the run wrote, not of the slices kept above.
+      commandSha256:commandSha256(commands[framework]),outputSha256:result.outputSha256,outputBytes:result.outputBytes};
     if(taskId) this.testRuns.set(taskId,record);
     return {isError:record.exitCode !== 0 || record.timedOut || record.cancelled,content:[{type:'text',
       text:'Test '+framework+' exitCode='+record.exitCode+', timeout='+record.timedOut+'\n'+record.stdout+'\n'+record.stderr}],
-      structuredContent:{framework,exitCode:record.exitCode,timedOut:record.timedOut,cancelled:record.cancelled,durationMs:record.durationMs,truncated:record.truncated}};
+      structuredContent:{framework,exitCode:record.exitCode,timedOut:record.timedOut,cancelled:record.cancelled,durationMs:record.durationMs,truncated:record.truncated,
+        commandSha256:record.commandSha256,outputSha256:record.outputSha256,outputBytes:record.outputBytes}};
   }
   async gh(args,{signal}={}) {
     const {root}=await this.workspace.resolve('');

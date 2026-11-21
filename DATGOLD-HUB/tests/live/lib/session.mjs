@@ -63,6 +63,43 @@ export async function upsertProfile(hub, id, entry, rates) {
 /** Full Access, because the tasks run the model's commands (tests and builds) without a person to approve them: why the runner demands a sandbox. */
 export const fullAccess = (hub) => hub.post('/api/studio/permissions/config', { mode: 'full-access', confirmation: 'FULL ACCESS' });
 
+/** The task states in which the Hub is still working on a task (tests/e2e/hub-process.mjs settledTask uses the same list). */
+const WORKING_STATES = new Set(['created', 'queued', 'planning', 'running', 'waiting_approval', 'verifying']);
+/** Settled: a resting state, and the Hub has let go of it. A subagent is in `activeTaskIds` while its runner holds it (`activeTaskId` is only the first). */
+export function isSettled(state, task) {
+  const active = Array.isArray(state.agent.activeTaskIds) ? state.agent.activeTaskIds : [state.agent.activeTaskId];
+  return Boolean(task) && !WORKING_STATES.has(task.state) && !active.includes(task.id);
+}
+
+/**
+ * The Hub as the spend governor sees it (tests/live/lib/budget.mjs governTask): the task through GET /api/tasks/:id (usage, modelCost, steps, state),
+ * whether the Hub has let go of it, the approval requests and the other tasks of the Hub through /api/state. The other tasks are the subagents a task
+ * starts with spawn_agent or spawn_workflow (ConcurrentApiAgent lists them there with their own usage and cost ledger): each comes with `settled`, so
+ * that the governor can wait for them. Every approval of this Hub is denied (the Hub is the run's own, and nobody is there to answer one); `escalate`
+ * stops the Hub itself, for a task that a refused or unanswered cancel could not stop.
+ */
+export function hubClient(hub) {
+  return {
+    async observe(id) {
+      const state = await hub.state();
+      const response = await hub.request('GET', `/api/tasks/${encodeURIComponent(id)}`);
+      return {
+        task: response.ok ? response.json : null,
+        settled: isSettled(state, state.agent.tasks.find((item) => item.id === id)),
+        pending: state.studio.permissions.pending,
+        others: state.agent.tasks.filter((item) => item.id !== id).map((item) => ({ ...item, settled: isSettled(state, item) })),
+      };
+    },
+    deny: (requestId) => hub.post('/api/studio/permissions/decide', { id: requestId, approved: false }),
+    async cancel(id) {
+      const response = await hub.request('POST', '/api/tasks/cancel', { id });
+      return { ok: response.ok, status: response.status };
+    },
+    final: (id) => hub.task(id),
+    escalate: () => hub.killTree(),
+  };
+}
+
 /** Names (never values) of the provider key variables the Hub itself sees in its environment. */
 export async function providerKeyVariables(hub) {
   const presets = (await hub.get('/api/ai/presets')).json;
