@@ -71,12 +71,25 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   await fs.writeFile(path.join(other,'README.md'),'# Second workspace\n');
   await app.hub.post('/api/workspaces/add',{path:other});
   await expect(page.getByRole('button',{name:'second-workspace',exact:true})).toBeVisible();
+  // The Hub's answer to the activation is held back, as a slow runner holds it: in CI run 44813034061 it came 117 ms after the click and the
+  // message went at 104 ms, and the task started in the primary folder. The click, "Hội thoại mới" and the message all come before the answer
+  // here, every time, and the task must still start in the folder the owner chose.
+  const activation='**/api/workspaces/activate';
+  let answered=false,startedFirst=null;
+  await page.route(activation,async route=>{await new Promise(resolve=>setTimeout(resolve,1500));answered=true;await route.continue();});
+  const noteStart=request=>{if(new URL(request.url()).pathname==='/api/tasks/start'&&startedFirst===null)startedFirst=!answered;};
+  page.on('request',noteStart);
+  const activated=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/workspaces/activate');
   await page.getByRole('button',{name:'second-workspace',exact:true}).click();
   await page.getByRole('button',{name:'Hội thoại mới',exact:true}).click();
   const thirdPrompt='Summarize another workspace independently.';
   await send(page,thirdPrompt);
   const third=await taskByPrompt(app,thirdPrompt);
   await waitForState(app.hub,third.id,'completed');
+  await activated;
+  page.off('request',noteStart);
+  await page.unroute(activation);
+  expect(startedFirst,'the message went before the Hub answered the activation').toBe(true);
   expect(third.workspacePath).toBe(await fs.realpath(other));
   expect((await app.hub.state()).workspace.path).toBe(app.project);
   await expect(page.getByTestId('background-task')).toHaveCount(3);
@@ -114,6 +127,33 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   expect((await app.hub.get('/api/tasks/'+encodeURIComponent(first.id))).status).toBe(404);
   expect((await fs.stat(path.join(app.project,'README.md'))).isFile()).toBe(true);
   await page.screenshot({path:testInfo.outputPath('background-tasks-light-1280.png'),fullPage:true});
+});
+
+test('a folder added with the sidebar\'s + is the chosen one past the next polls, and the next task runs in it', async ({page,app})=>{
+  app.mock.define('added-workspace',()=>say('Đã làm trong thư mục vừa thêm.'));
+  app.mock.setScenario('added-workspace');
+  await onboard(page,app);
+  const added=path.join(app.scratch,'added-workspace');
+  await fs.mkdir(added,{recursive:true});
+  await fs.writeFile(path.join(added,'README.md'),'# Added workspace\n');
+  // The folder dialog is the system's own window; the page is given its answer.
+  await page.route('**/api/workspace/browse',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({path:added})}));
+  await page.locator('aside').getByRole('button',{name:'Thêm workspace',exact:true}).click();
+  const row=page.locator('aside').getByRole('button',{name:'added-workspace',exact:true});
+  // The sidebar puts a choice that is not in its cached list back to the cached active folder; the cache was older than the folder, so the
+  // folder just added used to be put back to the old one at once, for good, while the Hub had it active.
+  await expect(row).toHaveAttribute('aria-pressed','true');
+  const polled=()=>page.waitForResponse(response=>new URL(response.url()).pathname==='/api/state');
+  await polled();
+  await polled();
+  await expect(row).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('button[title^="Thư mục:"]')).toContainText('added-workspace');
+  const prompt='Work in the folder that was just added.';
+  await send(page,prompt);
+  const task=await taskByPrompt(app,prompt);
+  await waitForState(app.hub,task.id,'completed');
+  expect(task.workspacePath).toBe(await fs.realpath(added));
+  expect((await app.hub.state()).workspaces.activePath).toBe(await fs.realpath(added));
 });
 
 
