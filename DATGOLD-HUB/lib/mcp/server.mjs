@@ -249,7 +249,11 @@ export async function startMcpListener({ sdk, port = 0, factory, verifyToken, sc
   };
 }
 
-/** The status tool of the Hub: harmless, no workspace. `workspaceTools` are the names of the tools the host serves (lib/mcp/host.mjs mcpHostProvider). */
+/**
+ * ext-18's status tool: harmless, no workspace. `workspaceTools` are the names of the tools the host serves (lib/mcp/host.mjs mcpHostProvider).
+ * Nothing in the product uses it since ext-19: hub.mjs serves mcpProfileProvider (lib/mcp/tool-profiles.mjs), which has a hub_status of its
+ * own. Kept for the ext-18 host tests (tests/verify-mcp-server-approvals.mjs, through mcpHostProvider).
+ */
 export function hubMcpProvider({ product = 'DatGold', version, workspaceTools = [], scope }) {
   const text = JSON.stringify({ product, version, mcpServer: workspaceTools.length ? 'ext-18 host' : 'ext-17 core', workspaceTools: workspaceTools.length ? [...workspaceTools] : 'none yet', ...(scope ? { scope } : {}) });
   return {

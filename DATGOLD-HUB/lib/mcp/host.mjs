@@ -36,7 +36,7 @@ import { hubMcpProvider } from './server.mjs';
 export const DEFAULT_APPROVAL_TIMEOUT_MS = 90_000;
 export const MAX_CLIENTS = 8;
 export const MCP_HOST_SCOPES = Object.freeze(['verify', 'read', 'write', 'profiles']);
-/** What ext-18's Hub let a client call through the host: one read tool, to prove the path (the Hub serves the profiles of ext-19 now). */
+/** What ext-18's Hub let a client call through the host: one read tool, to prove the path. The Hub serves the profiles of ext-19 now; kept for the ext-18 host tests. */
 export const HUB_HOST_TOOLS = Object.freeze([Object.freeze({ name: 'read_file', target: 'local.read_file' })]);
 const MODES_OF_SCOPE = Object.freeze({ profiles: Object.freeze(['readonly', 'review']), verify: Object.freeze(['readonly']), read: Object.freeze(['readonly']), write: Object.freeze(['readonly', 'review']) });
 const DEFAULT_MODE = Object.freeze({ verify: 'readonly', read: 'readonly', write: 'review' });
@@ -398,8 +398,10 @@ export class McpHost {
 }
 
 /**
- * The provider of the Hub's MCP server with the host: ext-17's hub_status, answered here, and the host's tools, answered by host.call with
- * the client of the request.
+ * ext-18's provider of the MCP server with the host: ext-17's hub_status, answered here, and every tool of the host to every token, answered
+ * by host.call with the client of the request. Nothing in the product uses it since ext-19: hub.mjs serves mcpProfileProvider
+ * (lib/mcp/tool-profiles.mjs), which lists and allows the tools of the token's scope. Kept for the ext-18 host tests
+ * (tests/verify-mcp-server-approvals.mjs), which drive a host of their own in the verify, read and write scopes.
  */
 export function mcpHostProvider({ host, version, product = 'DatGold' }) {
   const status = hubMcpProvider({ product, version, workspaceTools: host.tools().map((tool) => tool.name), scope: host.scope });
