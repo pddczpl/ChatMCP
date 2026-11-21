@@ -45,6 +45,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Skill selection](SKILL-SELECTION.md) — How the Hub picks skills for a request (word overlap, no model), the labelled corpus of 347 requests, the baseline numbers and what they cannot see
 - [MCP client hardening](MCP-HARDENING.md) — What reaches the model of an MCP server (names, descriptions, schemas, annotations), the fingerprint pins against a rug pull, the bounds on results and stderr, the hostile test server, and what is not wired yet
 - [Proof-of-Done: the acceptance file](PROOF-ACCEPTANCE.md) — Version 1 of `.chatmcp/acceptance.yml` (P4, pod-20): the schema, the strict YAML subset and its refusals with line numbers, criteria only from the baseline, checks runnable only when the owner trusted the file's sha256, the proposal; nothing runs the checks yet
+- [Proof-of-Done: which changes touched the checks](PROOF-TAMPER.md) — The test-tamper detector (P4, pod-22): the baseline-to-final diff classified (test files, test configuration, check scripts, CI, the acceptance file, lockfiles hashed), the heuristics (assertions removed, skip markers, widened tolerances, `|| true`), `checks_modified` per criterion in neutral words, and its limitations; not called by the agent yet
 
 ### Phase 0: Desktop Contract Reconnection
 - [Phase 0 Audit](PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment

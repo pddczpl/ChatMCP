@@ -1,0 +1,787 @@
+{
+  "suite": "verify-proof-tamper.mjs",
+  "description": "The test-tamper detector of Proof-of-Done (plan task pod-22, docs/PROOF-TAMPER.md): path conventions, the comment and string blanking, assertion, marker, tolerance and mask patterns, the name-status diff and rename pairing, the analysis and its read limits, the package.json scripts a criterion reaches, the attribution to criteria, the sides and the wording (lib/proof/tamper.mjs), judged by tests/verify-proof-tamper.mjs.",
+  "mutations": [
+    {
+      "name": "PT-test-folders-ignored",
+      "what": "a file in a test folder is not a test file",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "TEST_FOLDERS.has(part.toLowerCase()) || /\\.(?:unit",
+          "new": "false || /\\.(?:unit"
+        }
+      ]
+    },
+    {
+      "name": "PT-spec-name-ignored",
+      "what": "a *.spec.* name is not a test file",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/\\.(?:test|spec|e2e|cy)\\.[^/]+$/i",
+          "new": "/\\.(?:test|e2e|cy)\\.[^/]+$/i"
+        }
+      ]
+    },
+    {
+      "name": "PT-third-party-classified",
+      "what": "node_modules and vendor paths are classified like the project's own",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (parts.some((part) => THIRD_PARTY.has(part.toLowerCase()))) return null;",
+          "new": "if (false) return null;"
+        }
+      ]
+    },
+    {
+      "name": "PT-test-before-config",
+      "what": "test files take precedence over test configuration (tests/conftest.py becomes a test file)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "  if (TEST_CONFIG_NAMES.some((pattern) => pattern.test(lower))) return CATEGORY.testConfig;\n  if (isTestPath(relative)) return CATEGORY.testFile;",
+          "new": "  if (isTestPath(relative)) return CATEGORY.testFile;\n  if (TEST_CONFIG_NAMES.some((pattern) => pattern.test(lower))) return CATEGORY.testConfig;"
+        }
+      ]
+    },
+    {
+      "name": "PT-scripts-anywhere",
+      "what": "a scripts/ folder anywhere is a check-script folder",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (relative.startsWith('scripts/') ||",
+          "new": "if (relative.includes('scripts/') ||"
+        }
+      ]
+    },
+    {
+      "name": "PT-lockfile-case",
+      "what": "lockfile names are matched with their case (Cargo.lock, Gemfile.lock missed)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (LOCKFILES.has(lower))",
+          "new": "if (LOCKFILES.has(name))"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-line-comments",
+      "what": "// comments are code",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (family === 'c' && c === '/' && source[i + 1] === '/') {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-block-comments",
+      "what": "/* */ comments are code",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (family === 'c' && c === '/' && source[i + 1] === '*') {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "PT-strings-kept",
+      "what": "string contents are kept as code in every family",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "out.push(c, keepStrings ? inner : blank(inner), closed ? c : '');",
+          "new": "out.push(c, inner, closed ? c : '');"
+        }
+      ]
+    },
+    {
+      "name": "PT-hash-comments-ruby-only",
+      "what": "# starts a comment only in Ruby (Python and shell comments become code)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (c === '#' && family !== 'c' && (family !== 'shell' || i === 0 || /\\s/.test(source[i - 1]))) {",
+          "new": "if (c === '#' && family === 'ruby') {"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-triple-quotes",
+      "what": "Python triple-quoted strings are read as two empty strings",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (family === 'python' && (source.startsWith('\"\"\"', i) || source.startsWith(\"'''\", i))) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-verbatim",
+      "what": "a C# verbatim string is read with backslash escapes",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const verbatim = family === 'c' && c === '\"' && source[i - 1] === '@';",
+          "new": "const verbatim = false;"
+        }
+      ]
+    },
+    {
+      "name": "PT-backtick-not-string",
+      "what": "a JS template literal is code",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "(c === '`' && (family === 'c' || family === 'shell'))",
+          "new": "(false)"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-escapes",
+      "what": "a backslash does not escape a quote inside a string",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (ch === '\\\\' && !verbatim) { k += 2; continue; }",
+          "new": "if (false) { k += 2; continue; }"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-jest-skip",
+      "what": "it.skip / describe.skip are not markers",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "\\.(?:skip|only|todo)\\b/g, // it.skip",
+          "new": "\\.(?:only|todo)\\b/g, // it.skip"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-xit",
+      "what": "xit( is not a marker",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "x(?:it|test|describe|context|specify)\\b(?=\\s*[('\"])/g",
+          "new": "x(?:test|describe|context|specify)\\b(?=\\s*[('\"])/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-fit-anywhere",
+      "what": "fit( counts after a dot or inside a word (model.fit, benefit)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/(?<![.\\w$])f(?:it|describe)\\s*\\(/g",
+          "new": "/f(?:it|describe)\\s*\\(/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-pytest-mark-skip",
+      "what": "@pytest.mark.skip is not a marker",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/@pytest\\.mark\\.(?:skip|skipif|xfail)\\b/g",
+          "new": "/@pytest\\.mark\\.(?:skipif|xfail)\\b/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-go-skip",
+      "what": "t.Skip( is not a marker",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/\\bt\\.Skip(?:f|Now)?\\s*\\(/g, // Go",
+          "new": "/\\bt\\.SkipX\\s*\\(/g, // Go"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-xunit-skip",
+      "what": "[Fact(Skip = ...)] is not a marker",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/\\[\\s*(?:Fact|Theory)\\s*\\(\\s*Skip\\s*=/g",
+          "new": "/\\[\\s*(?:Theory)\\s*\\(\\s*Skip\\s*=/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-rust-ignore",
+      "what": "#[ignore] is not a marker",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/#\\[\\s*ignore\\b/g",
+          "new": "/#\\[\\s*ignored\\b/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-junit-disabled",
+      "what": "@Disabled is not a marker",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/@(?:Disabled|Ignore)\\b/g",
+          "new": "/@(?:Ignore)\\b/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-expect",
+      "what": "expect( is not an assertion",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/\\bexpect\\s*\\(/g, // Jest",
+          "new": "/\\bexpectX\\s*\\(/g, // Jest"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-assert-dot",
+      "what": "Assert.X( / assert.x( are not assertions",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/\\b[Aa]ssert\\.\\w+\\s*\\(/g",
+          "new": "/\\b[a]ssertX\\.\\w+\\s*\\(/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-assert-statement",
+      "what": "the Python assert statement is not an assertion",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/^[ \\t]*assert(?=[ \\t])(?![ \\t]*\\()/gm",
+          "new": "/^[ \\t]*assertX(?=[ \\t])(?![ \\t]*\\()/gm"
+        }
+      ]
+    },
+    {
+      "name": "PT-tolerance-direction",
+      "what": "a smaller-is-looser tolerance is compared the other way",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (row.values[index].smaller ? now < was : now > was)",
+          "new": "if (now > was)"
+        }
+      ]
+    },
+    {
+      "name": "PT-places-not-digits",
+      "what": "places= is read as a bigger-is-looser tolerance",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const DIGIT_WORDS = new Set(['places', 'decimal', 'digits', 'precision']);",
+          "new": "const DIGIT_WORDS = new Set(['decimal', 'digits', 'precision']);"
+        }
+      ]
+    },
+    {
+      "name": "PT-tobeclosetto-direction",
+      "what": "toBeCloseTo digits are read as bigger-is-looser",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "toBeCloseTo: { min: 2, index: 'last', smaller: true }",
+          "new": "toBeCloseTo: { min: 2, index: 'last', smaller: false }"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-indelta",
+      "what": "testify InDelta is not a tolerance call",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/^In(?:Delta|Epsilon)/.test(name)",
+          "new": "/^In(?:Epsilon)/.test(name)"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-tolerance-word",
+      "what": "a TOLERANCE constant is not a tolerance",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "'tol', 'tolerance', 'epsilon'",
+          "new": "'tol', 'epsilon'"
+        }
+      ]
+    },
+    {
+      "name": "PT-unbounded-call-scan",
+      "what": "the arguments of a tolerance call are scanned to the end of the line (quadratic on a line of unclosed calls)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const stop = Math.min(line.length, open + 500);",
+          "new": "const stop = line.length;"
+        }
+      ]
+    },
+    {
+      "name": "PT-mask-crosses-lines",
+      "what": "the mask pattern lets `s*` cross line breaks (quadratic on a script of blank lines)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "^[ \\t]*(?:true|:)[ \\t]*$/m;",
+          "new": "^\\s*(?:true|:)\\s*$/m;"
+        }
+      ]
+    },
+    {
+      "name": "PT-empty-files-paired",
+      "what": "empty files are paired as renames",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const pairable = (entry) => !EMPTY_BLOBS.has(entry.oid) && kindOf(entry.mode) !== 'gitlink';",
+          "new": "const pairable = (entry) => kindOf(entry.mode) !== 'gitlink';"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-copies",
+      "what": "an added copy of a kept file is an A, not a C",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const source = pair ?? (pairable(entry) ? sources.get(keyOf(entry)) : undefined);",
+          "new": "const source = pair;"
+        }
+      ]
+    },
+    {
+      "name": "PT-type-change-as-M",
+      "what": "a file that became a link is an M",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "status: kindOf(entry.mode) === kindOf(next.mode) ? 'M' : 'T'",
+          "new": "status: 'M'"
+        }
+      ]
+    },
+    {
+      "name": "PT-mode-ignored",
+      "what": "a change of the mode alone is no change",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (next.oid === entry.oid && next.mode === entry.mode) continue;",
+          "new": "if (next.oid === entry.oid) continue;"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-similarity-renames",
+      "what": "a rename with edits is a delete and an add",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (score >= 50) pairs.push({ gone, come, score });",
+          "new": "if (score >= 101) pairs.push({ gone, come, score });"
+        }
+      ]
+    },
+    {
+      "name": "PT-assertions-direction",
+      "what": "more assertions is flagged, fewer is not",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (assertions[1] < assertions[0]) add('assertions_removed'",
+          "new": "if (assertions[1] > assertions[0]) add('assertions_removed'"
+        }
+      ]
+    },
+    {
+      "name": "PT-skips-direction",
+      "what": "fewer skip markers is flagged, more is not",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (skips[1] > skips[0]) {",
+          "new": "if (skips[1] < skips[0]) {"
+        }
+      ]
+    },
+    {
+      "name": "PT-added-file-skips-ignored",
+      "what": "a new test file with a skip marker is not flagged",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (skips > 0) add('skip_marker_added'",
+          "new": "if (false) add('skip_marker_added'"
+        }
+      ]
+    },
+    {
+      "name": "PT-renamed-out-ignored",
+      "what": "a test file renamed out of the conventions is not flagged",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "else if (change.status === 'R' && !nowTest) add('test_file_renamed_out', true);",
+          "new": "else if (false) add('test_file_renamed_out', true);"
+        }
+      ]
+    },
+    {
+      "name": "PT-deleted-not-flagged",
+      "what": "a deleted test file is informational",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (change.status === 'D') add('test_file_deleted', true);",
+          "new": "if (change.status === 'D') add('test_file_deleted', false);"
+        }
+      ]
+    },
+    {
+      "name": "PT-eol-compared-further",
+      "what": "a line-ending-only change goes on to the content comparison",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "add('line_endings_only', false, { targets, via }); return true;",
+          "new": "add('line_endings_only', false, { targets, via }); return false;"
+        }
+      ]
+    },
+    {
+      "name": "PT-test-data-not-flagged",
+      "what": "a changed fixture or expected output is informational",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "add('test_data_changed', true, { detail: { binary } });",
+          "new": "add('test_data_changed', false, { detail: { binary } });"
+        }
+      ]
+    },
+    {
+      "name": "PT-not-analyzed-not-flagged",
+      "what": "a file that could not be compared counts as unchanged",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const notAnalyzed = (why, targets, via) => add('not_analyzed', true,",
+          "new": "const notAnalyzed = (why, targets, via) => add('not_analyzed', false,"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-read-budget",
+      "what": "the read budget is not applied",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "budget: budgeted ? Math.max(0, this.limits.maxReadBytes - this.used) : Infinity",
+          "new": "budget: Infinity"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-file-limit",
+      "what": "a file over maxFileBytes is read anyway",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (row.size > maxBytes) { result.set(row.path, { skipped: 'too_large', size: row.size }); continue; }",
+          "new": "if (false) { continue; }"
+        }
+      ]
+    },
+    {
+      "name": "PT-findings-by-path-only",
+      "what": "findings are not sorted flagged first",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const ordered = [...findings].sort((a, b) => Number(b.flagged) - Number(a.flagged) || byPathOrder(a, b));",
+          "new": "const ordered = [...findings].sort(byPathOrder);"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-pre-post",
+      "what": "pre<key> and post<key> are not reached",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (hooks) { reach(`pre${key}`, false); reach(`post${key}`, false); }",
+          "new": "if (false) { reach(`pre${key}`, false); reach(`post${key}`, false); }"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-script-closure",
+      "what": "scripts that a script runs are not reached",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "for (const call of scriptInvocations(simple)) if (!call.prefix) reach(call.key, true);",
+          "new": "for (const call of scriptInvocations(simple)) if (false) reach(call.key, true);"
+        }
+      ]
+    },
+    {
+      "name": "PT-script-mask-ignored",
+      "what": "`|| true` in a script value is not failure_masked",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (a !== undefined && masks(a) && !(b !== undefined && masks(b)))",
+          "new": "if (false && masks(a) && !(b !== undefined && masks(b)))"
+        }
+      ]
+    },
+    {
+      "name": "PT-script-to-everyone",
+      "what": "a changed script is attributed to every criterion",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const targets = only(idsFor(key));",
+          "new": "const targets = every;"
+        }
+      ]
+    },
+    {
+      "name": "PT-unreadable-package-ignored",
+      "what": "an unreadable package.json whose scripts a criterion runs is not flagged",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (keys.length) add('check_script_unreadable', true,",
+          "new": "if (false) add('check_script_unreadable', true,"
+        }
+      ]
+    },
+    {
+      "name": "PT-removed-as-changed",
+      "what": "a removed or added script is reported as changed",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "add(a === undefined ? 'check_script_removed' : b === undefined ? 'check_script_added' : 'check_script_changed', true,",
+          "new": "add('check_script_changed', true,"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-jest-key",
+      "what": "the \"jest\" key of package.json is not test configuration",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const TEST_CONFIG_KEYS = ['jest', 'mocha',",
+          "new": "const TEST_CONFIG_KEYS = ['mocha',"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-fallback-test",
+      "what": "without criteria, the `test` script does not stand for the checks",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "packages: new Map([['package.json', ['test']]])",
+          "new": "packages: new Map()"
+        }
+      ]
+    },
+    {
+      "name": "PT-make-ignored",
+      "what": "a Makefile that a criterion runs is not flagged",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (used) scriptChange(change, was, now, add, settled, only(users), 'make');",
+          "new": "if (false) scriptChange(change, was, now, add, settled, only(users), 'make');"
+        }
+      ]
+    },
+    {
+      "name": "PT-named-file-ignored",
+      "what": "a file a criterion names is not a check script",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (uses.some((use) => use.paths.has(file))) return CATEGORY.checkScript;",
+          "new": "if (false) return CATEGORY.checkScript;"
+        }
+      ]
+    },
+    {
+      "name": "PT-script-mask-in-comments",
+      "what": "a `|| true` in a comment of a script file is a mask",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const masked = addedLines(beforeText, codeOnly(normalized(now), change.path)).find((row) => masks(row.text));",
+          "new": "const masked = addedLines(beforeText, normalized(now)).find((row) => masks(row.text));"
+        }
+      ]
+    },
+    {
+      "name": "PT-criteria-from-final",
+      "what": "the criteria are read from the FINAL acceptance file",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const bytes = reader.get('baseline', ACCEPTANCE_FILE);",
+          "new": "const bytes = reader.get('final', ACCEPTANCE_FILE);"
+        }
+      ]
+    },
+    {
+      "name": "PT-acceptance-to-everyone",
+      "what": "an acceptance edit is attributed to every criterion",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "targets: all ? { kind: 'all' } : only([...edit.removed, ...edit.changed])",
+          "new": "targets: { kind: 'all' }"
+        }
+      ]
+    },
+    {
+      "name": "PT-protected-ignored",
+      "what": "a path the acceptance file protects is not flagged",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (category !== CATEGORY.acceptance && protectedGlobs.some(",
+          "new": "if (false && protectedGlobs.some("
+        }
+      ]
+    },
+    {
+      "name": "PT-ci-deleted-not-flagged",
+      "what": "a deleted CI workflow is informational",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "add('ci_workflow_deleted', true,",
+          "new": "add('ci_workflow_deleted', false,"
+        }
+      ]
+    },
+    {
+      "name": "PT-ci-to-everyone",
+      "what": "a CI mask is attributed to every criterion",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (masked) add('failure_masked', true, { line: masked.line, targets: nobody, via: 'ci' });",
+          "new": "if (masked) add('failure_masked', true, { line: masked.line, targets: every, via: 'ci' });"
+        }
+      ]
+    },
+    {
+      "name": "PT-manual-criteria-get-test-changes",
+      "what": "test changes are attributed to manual criteria too",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "(kind === 'every' && withChecks(use))",
+          "new": "(kind === 'every')"
+        }
+      ]
+    },
+    {
+      "name": "PT-lockfile-flagged",
+      "what": "a changed lockfile is flagged",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "add('lockfile_changed', false,",
+          "new": "add('lockfile_changed', true,"
+        }
+      ]
+    },
+    {
+      "name": "PT-unchanged-lockfile-unhashed",
+      "what": "an unchanged lockfile has no \"before\" hash",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "sha256Before: unchanged ? afterHash : has[0] ? hash('baseline') : null",
+          "new": "sha256Before: has[0] ? hash('baseline') : null"
+        }
+      ]
+    },
+    {
+      "name": "PT-option-revision",
+      "what": "a revision that starts with \"-\" is passed to Git",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "|| rev.startsWith('-') || rev.includes('..')) throw",
+          "new": "|| rev.includes('..')) throw"
+        }
+      ]
+    },
+    {
+      "name": "PT-git-side-protected-listed",
+      "what": "the Git side lists protected files",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "    if (exclusionOf(file)) continue;",
+          "new": "    if (false) continue;"
+        }
+      ]
+    },
+    {
+      "name": "PT-accusing-summary",
+      "what": "the summary accuses",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "? `Checks were modified during the task:",
+          "new": "? `Checks were tampered with during the task:"
+        }
+      ]
+    },
+    {
+      "name": "PT-no-limitations",
+      "what": "the report states no limitation",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "limitations: LIMITATION_CODES.map((code) => ({ code, text: LIMITATION_TEXT[code] })),",
+          "new": "limitations: [],"
+        }
+      ]
+    }
+  ]
+}

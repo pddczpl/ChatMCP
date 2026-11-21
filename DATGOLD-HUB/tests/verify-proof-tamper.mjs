@@ -162,7 +162,7 @@ const describe = (result) => JSON.stringify(result.findings.map((row) => ({ path
   ok(`scriptInvocations: ${invocations.length} commands (npm/pnpm/yarn/bun, --prefix/-C/--cwd, env prefixes, chains, run-s and npm-run-all, a quoted "npm test" is not one)`);
 
   const markerInComments = [
-    ['a.test.js', 'const s = "it.skip(";\nconst t = \'xit(\';\nconst u = `test.only(${x}) describe.skip(`;\n// it.skip(\n/* xit(\n it.only( */\n'],
+    ['a.test.js', 'const s = "it.skip(";\nconst t = \'xit(\';\nconst u = `test.only(${x}) describe.skip(`;\n// it.skip(\n/* xit(\n it.only( */\nconst e = "a \\" it.skip(";\nmodel.fit(data); benefit(2);\n'],
     ['a_test.py', 's = "@pytest.mark.skip"\n# @pytest.mark.skip\n"""\npytest.skip("x")\n"""\nr\'\'\'@unittest.skip\'\'\'\n'],
     ['a_test.go', 'var s = "t.Skip()"\n// t.Skip()\nvar r = `t.SkipNow()`\n'],
     ['ATests.cs', 'var s = "[Ignore]";\n// [Fact(Skip = "x")]\nvar v = @"[Ignore]";\n'],
@@ -178,13 +178,13 @@ const describe = (result) => JSON.stringify(result.findings.map((row) => ({ path
     ['a.test.js', "it.skip('x', () => {});\nxit('y', () => {});\ntest.only('z', () => {});\ndescribe.skip('w', () => {});\nfit('v', () => {});\n", 5],
     ['a_test.py', '@pytest.mark.skip(reason="x")\n@pytest.mark.xfail\n@unittest.skip("y")\ndef f():\n    pytest.skip("z")\n    self.skipTest("w")\n', 5],
     ['a_test.go', 'func TestA(t *testing.T) {\n\tt.Skip("x")\n\tt.Skipf("%d", 1)\n\tt.SkipNow()\n}\n', 3],
-    ['ATests.cs', '[Fact(Skip = "x")]\n[Test, Ignore("y")]\n[Ignore]\n', 3],
+    ['ATests.cs', '[Fact(Skip = "x")]\n[Test, Ignore("y")]\n[Ignore]\nvar p = @"C:\\dir\\"; [Ignore]\n', 4],
     ['ATest.java', '@Disabled\n@Ignore\n', 2],
     ['tests/a.rs', '#[test]\n#[ignore]\nfn a() {}\n', 1],
     ['a.test.js', "it('x', () => {}, { skip: true });\ntest('y', { todo: 'later' }, () => {});\n", 2],
   ];
   for (const [file, text, count] of markers) assert.equal(countSkipMarkers(codeOnly(text, file)), count, `${file}: ${text}`);
-  ok(`codeOnly blanks strings and comments in five language families (length and lines kept); ${markers.reduce((sum, row) => sum + row[2], 0)} real skip and focus markers counted in seven languages`);
+  ok(`codeOnly blanks strings (an escaped quote, a C# verbatim string ending in a backslash) and comments in five language families (length and lines kept), and model.fit( is no focus marker; ${markers.reduce((sum, row) => sum + row[2], 0)} real skip and focus markers counted in seven languages`);
 
   const assertions = [
     ['a.test.js', 'expect(a).toBe(1);\nassert.equal(a, 1);\nassert(a);\nassert.deepStrictEqual(a, b);\nt.is(a, 1);\n// expect(b).toBe(2)\n', 5],
@@ -242,7 +242,11 @@ const strategies = [];
   edit(dir, 'tests/legacy.test.js', (text) => text.replace("it('works'", "xit('works'"));
   edit(dir, 'tests/calc.rs', (text) => text.replace('#[test]\n', '#[test]\n#[ignore]\n'));
   edit(dir, 'src/test/java/CalcTest.java', (text) => text.replace('  @Test\n', '  @Test\n  @Disabled\n'));
+  write(dir, 'tests/later.test.js', "// a new file\nit.skip('later', () => {\n  expect(1).toBe(1);\n});\n");
   const result = await detect(dir);
+  const added = finding(result, 'tests/later.test.js');
+  assert.deepEqual([added.status, flaggedCodes(added)], ['A', ['skip_marker_added']], describe(result));
+  assert.equal(added.reasons.find((row) => row.code === 'skip_marker_added').line, 2, 'a new test file that is skipped from the start');
   for (const file of ['tests/math.test.js', 'tests/test_calc.py', 'calc/calc_test.go', 'Calc.Tests/CalcTests.cs', 'tests/legacy.test.js', 'tests/calc.rs', 'src/test/java/CalcTest.java']) {
     assert.deepEqual(flaggedCodes(finding(result, file)), ['skip_marker_added'], `${file}: ${describe(result)}`);
   }
@@ -267,11 +271,11 @@ const strategies = [];
 {
   // S4: the acceptance file edited (a check weakened)
   const dir = makeRepo('s4-acceptance');
-  edit(dir, '.chatmcp/acceptance.yml', (text) => text.replace('      - run: npm test\n', '      - run: "true"\n'));
+  edit(dir, '.chatmcp/acceptance.yml', (text) => `${text.replace('      - run: npm test\n', '      - run: "true"\n')}  - id: extra\n    text: Added by the task\n    checks:\n      - run: npm run lint\n`);
   const result = await detect(dir);
   const row = finding(result, '.chatmcp/acceptance.yml');
   assert.deepEqual(flaggedCodes(row), ['acceptance_edited'], describe(result));
-  assert.deepEqual(row.reasons[0].detail, { removed: [], added: [], changed: ['unit'], sections: [], deleted: false, unparseable: null });
+  assert.deepEqual(row.reasons[0].detail, { removed: [], added: ['extra'], changed: ['unit'], sections: [], deleted: false, unparseable: null });
   assert.deepEqual(flaggedCriteria(result), ['unit']);
   assert.equal(criterion(result, 'unit').reasons[0].via, 'acceptance');
   assert.deepEqual(result.criteria.map((row) => row.id), ['unit', 'lint', 'docs'], 'the criteria are the BASELINE\'s, in its order');
@@ -281,24 +285,26 @@ const strategies = [];
   // S5: a tolerance widened, five spellings
   const files = {
     ...BASE,
-    'tests/test_geo.py': 'import pytest\n\n\ndef test_area():\n    assert area(1) == pytest.approx(3.14159, rel=1e-6)\n\n\nclass T(unittest.TestCase):\n    def test_sum(self):\n        self.assertAlmostEqual(total, 0.3, places=7)\n',
+    'tests/test_geo.py': 'import pytest\n\n\ndef test_area():\n    assert area(1) == pytest.approx(3.14159, rel=1e-6)\n\n\ndef test_volume():\n    assert volume(1) == pytest.approx(4.18879, abs=1e-9)\n',
+    'tests/test_sum.py': 'class T(unittest.TestCase):\n    def test_sum(self):\n        self.assertAlmostEqual(total, 0.3, places=7)\n',
     'geo/geo_test.go': 'package geo\n\nfunc TestPi(t *testing.T) {\n\tassert.InDelta(t, 3.14, Pi(), 0.001)\n}\n',
     'tests/helpers.py': 'TOLERANCE = 1e-9\n',
   };
   const dir = makeRepo('s5-tolerance', files);
   edit(dir, 'tests/math.test.js', (text) => text.replace('toBeCloseTo(3.14159, 5)', 'toBeCloseTo(3.14159, 1)'));
-  edit(dir, 'tests/test_geo.py', (text) => text.replace('rel=1e-6', 'rel=0.5').replace('places=7', 'places=1'));
+  edit(dir, 'tests/test_geo.py', (text) => text.replace('rel=1e-6', 'rel=0.5').replace('abs=1e-9', 'abs=1e-3'));
+  edit(dir, 'tests/test_sum.py', (text) => text.replace('places=7', 'places=1'));
   edit(dir, 'geo/geo_test.go', (text) => text.replace('Pi(), 0.001)', 'Pi(), 0.5)'));
   edit(dir, 'tests/helpers.py', (text) => text.replace('1e-9', '1e-2'));
   const result = await detect(dir);
-  for (const file of ['tests/math.test.js', 'tests/test_geo.py', 'geo/geo_test.go', 'tests/helpers.py']) {
+  for (const file of ['tests/math.test.js', 'tests/test_geo.py', 'tests/test_sum.py', 'geo/geo_test.go', 'tests/helpers.py']) {
     assert.deepEqual(flaggedCodes(finding(result, file)), ['tolerance_loosened'], `${file}: ${describe(result)}`);
   }
   const js = finding(result, 'tests/math.test.js').reasons[0];
   assert.deepEqual(js.detail, { before: '5', after: '1' });
   assert.equal(js.line, 12);
   assert.equal(finding(result, 'tests/test_geo.py').reasons[0].detail.before, '1e-6', 'the first widened value of the file');
-  strategies.push(['loosen a tolerance (toBeCloseTo digits, pytest.approx rel, assertAlmostEqual places, InDelta, a TOLERANCE constant)', result]);
+  strategies.push(['loosen a tolerance (toBeCloseTo digits, pytest.approx rel and abs, assertAlmostEqual places, InDelta, a TOLERANCE constant)', result]);
 }
 for (const [name, result] of strategies) assert.equal(result.checks_modified, true, name);
 ok(`all ${strategies.length} synthetic strategies are flagged: ${strategies.map(([name]) => name.split(' (')[0]).join('; ')}`);
@@ -329,13 +335,13 @@ ok(`all ${strategies.length} synthetic strategies are flagged: ${strategies.map(
 {
   // the script a criterion runs reaches other scripts: npm run X inside it, pre/post scripts
   const dir = makeRepo('script-closure', { ...BASE, 'package.json': pkg({ test: 'npm run unit && npm run e2e', unit: 'jest', e2e: 'playwright test', pretest: 'tsc' }) });
-  write(dir, 'package.json', pkg({ test: 'npm run unit && npm run e2e', unit: 'jest --passWithNoTests', e2e: 'exit 0', pretest: 'tsc' }));
+  write(dir, 'package.json', pkg({ test: 'npm run unit && npm run e2e', unit: 'jest --passWithNoTests', e2e: 'exit 0', pretest: 'tsc --noEmit' }));
   const result = await detect(dir);
   const keys = finding(result, 'package.json').reasons.filter((reason) => reason.code === 'check_script_changed').map((reason) => reason.detail.key);
-  assert.deepEqual(keys, ['unit', 'e2e'], describe(result));
+  assert.deepEqual(keys, ['pretest', 'unit', 'e2e'], describe(result));
   assert.ok(flaggedCodes(finding(result, 'package.json')).includes('failure_masked'), '`exit 0` as a script');
   assert.deepEqual(flaggedCriteria(result), ['unit']);
-  ok('scripts reached from the one a criterion runs (`npm run unit && npm run e2e`) are compared too; `exit 0` is failure_masked');
+  ok('scripts reached from the one a criterion runs (pretest, `npm run unit && npm run e2e`) are compared too; `exit 0` is failure_masked');
 }
 {
   // test configuration: package.json "jest", pyproject [tool.pytest], a csproj with the test SDK, a new jest.config.js
@@ -539,8 +545,8 @@ protected:
   ok('a path with spaces and Vietnamese letters is read and reported exactly (flag and rename)');
 }
 {
-  // an empty diff
-  const dir = makeRepo('empty');
+  // an empty diff (with committed protected files: neither side lists them, so they are no change either)
+  const dir = makeRepo('empty', { ...BASE, '.env': 'TOKEN=x\n', 'config/secrets.json': '{"key": "x"}\n' });
   const result = await detect(dir);
   assert.equal(result.format, CHECK_CHANGES_FORMAT);
   assert.equal(result.checks_modified, false);
@@ -632,10 +638,28 @@ protected:
   ok(`a huge diff (2,801 changes, a 10 MB test file) in ${Math.round(ms)} ms: the large file is not_analyzed (flagged); capped findings keep flagged first; a read budget leaves files not analyzed, flagged`);
 }
 {
+  // text shaped to make a pattern slow (memory sides: the content is the point): a script of 200,000 line breaks took 14 s before the
+  // mask pattern was limited to horizontal space; a 600 KB line of unclosed tolerance calls scanned to its end once per call
+  const pkgOf = (script) => JSON.stringify({ scripts: { test: script } });
+  let started = performance.now();
+  let result = await detectCheckChanges({ baseline: memorySide({ 'package.json': pkgOf('jest') }), final: memorySide({ 'package.json': pkgOf(`${'\n'.repeat(200_000)}x`) }), acceptance: null });
+  const newlines = performance.now() - started;
+  assert.deepEqual(flaggedCodes(finding(result, 'package.json')), ['check_script_changed']);
+  const calls = `expect(v).${'toBeCloseTo('.repeat(50_000)}\n`;
+  started = performance.now();
+  result = await detectCheckChanges({ baseline: memorySide({ 'tests/a.test.js': calls }), final: memorySide({ 'tests/a.test.js': `${calls}// x\n` }), acceptance: null });
+  const unclosed = performance.now() - started;
+  assert.equal(result.checks_modified, false);
+  assert.ok(newlines < 3_000 && unclosed < 3_000, `${Math.round(newlines)} ms and ${Math.round(unclosed)} ms`);
+  ok(`a script of 200,000 line breaks (${Math.round(newlines)} ms) and a 600 KB line of unclosed calls (${Math.round(unclosed)} ms) stay linear`);
+}
+{
   // gitTreeSide refuses what is not a revision, and a revision that does not exist
   const dir = makeRepo('revisions');
-  await assert.rejects(gitTreeSide({ root: dir, rev: '--output=x', stateDir: fresh('state') }), /revision/);
-  await assert.rejects(gitTreeSide({ root: dir, rev: 'no-such-branch', stateDir: fresh('state') }), /revision/);
+  for (const rev of ['--output=x', '-p', 'HEAD..main', 'HEAD HEAD', '', 42]) {
+    await assert.rejects(gitTreeSide({ root: dir, rev, stateDir: fresh('state') }), { code: 'bad_revision', message: /^not a revision/ }, String(rev));
+  }
+  await assert.rejects(gitTreeSide({ root: dir, rev: 'no-such-branch', stateDir: fresh('state') }), { code: 'bad_revision', message: /no-such-branch cannot be read/ });
   const side = await gitTreeSide({ root: dir, rev: git(dir, ['rev-parse', 'HEAD^{tree}']).stdout.trim(), stateDir: fresh('state') });
   assert.equal(side.entries.length, Object.keys(BASE).length, 'a tree id works as well as a commit');
   const contents = await side.read(['README.md', 'missing.txt']);
