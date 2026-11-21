@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { addAndChooseWorkspace } from '@/lib/workspace-choice';
 import { useTranslation } from '@/lib/i18n';
 import { GitBranch, GitMerge, ChevronDown } from 'lucide-react';
 
 export function GitWorkspacePicker({workspace}:{workspace:string}) {
   const { t } = useTranslation();
   const [open,setOpen]=useState(false);
-  const {selectedBaseRef,setSelectedBaseRef,showToast,setSelectedWorkspacePath,setSelectedTaskId}=useAppStore();
+  const {selectedBaseRef,setSelectedBaseRef,showToast,setSelectedTaskId}=useAppStore();
   const queryClient=useQueryClient();
   const {data,error}=useQuery({queryKey:['gitRefs',workspace],queryFn:()=>api.getGitRefs(workspace),
     enabled:Boolean(workspace),refetchInterval:7000});
@@ -16,9 +17,7 @@ export function GitWorkspacePicker({workspace}:{workspace:string}) {
   const selectWorktree=async(path:string)=>{
     setOpen(false);
     try {
-      const selected=await api.addWorkspace(path);
-      await api.activateWorkspace(selected.workspace.path);
-      setSelectedWorkspacePath(selected.workspace.path);
+      await addAndChooseWorkspace(queryClient,path);
       setSelectedTaskId('');
       setSelectedBaseRef('');
       await queryClient.invalidateQueries({queryKey:['hubState']});

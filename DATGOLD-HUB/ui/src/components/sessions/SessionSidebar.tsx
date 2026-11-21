@@ -8,6 +8,7 @@ import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { useTranslation } from '@/lib/i18n';
 import { isTaskActive } from '@/lib/task-view';
 import { formatRelative } from '@/lib/format';
+import { addAndChooseWorkspace, chooseWorkspace } from '@/lib/workspace-choice';
 
 export function SessionSidebar() {
   const {
@@ -68,9 +69,7 @@ export function SessionSidebar() {
       // open while agents in any already selected workspace keep running.
       const result=await api.browseWorkspace(activeWorkspace||null);
       if(!result.path)return;
-      const added=await api.addWorkspace(result.path);
-      await api.activateWorkspace(added.workspace.path);
-      setSelectedWorkspacePath(added.workspace.path);
+      await addAndChooseWorkspace(queryClient,result.path);
       setSelectedTaskId('');
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(error){
@@ -82,31 +81,27 @@ export function SessionSidebar() {
     if(!manualFolder.trim()||choosing)return;
     setChoosing(true);
     try{
-      const added=await api.addWorkspace(manualFolder.trim());
-      await api.activateWorkspace(added.workspace.path);
-      setSelectedWorkspacePath(added.workspace.path);
+      const added=await addAndChooseWorkspace(queryClient,manualFolder.trim());
       setSelectedTaskId('');
       setManualFolder('');
       setManualFolderOpen(false);
       await queryClient.invalidateQueries({queryKey:['hubState']});
-      showToast(t('agents_side_picked',{path:added.workspace.path}),'success');
+      showToast(t('agents_side_picked',{path:added.path}),'success');
     }catch(e){showToast(e instanceof Error?e.message:t('agents_side_path_invalid'),'error');}
     finally{setChoosing(false);}
   };
   const selectWorkspace=async(folder:string)=>{
     try{
-      await api.activateWorkspace(folder);
-      setSelectedWorkspacePath(folder);
-      setSelectedTaskId('');
+      await chooseWorkspace(folder);
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(error){showToast(error instanceof Error?error.message:t('agents_bg_open_workspace_failed'),'error');}
   };
   const selectConversation=async(id:string,folder:string)=>{
-    if(folder!==activeWorkspace){
-      await api.activateWorkspace(folder).catch(()=>{});
-      setSelectedWorkspacePath(folder);
-    }
+    // Open at once and tell the Hub afterwards, as chooseWorkspace does (lib/workspace-choice.ts says why). A conversation stays open when the
+    // Hub does not activate its folder, as it always did.
+    if(folder!==activeWorkspace)setSelectedWorkspacePath(folder);
     setSelectedTaskId(latestSegment(id)?.id||id);
+    if(folder!==activeWorkspace)await api.activateWorkspace(folder).catch(()=>{});
   };
   const removeWorkspace=async(folder:string,name:string)=>{
     if(removingWorkspace)return;

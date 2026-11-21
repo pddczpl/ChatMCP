@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 import { agentErrorText } from '@/lib/agent-errors';
+import { chooseWorkspace } from '@/lib/workspace-choice';
 import { taskStateText } from '@/components/inspector/agentLabels';
 import type { BackgroundRun } from '@/types';
 import { WorkflowCard } from '@/components/conversation/WorkflowCard';
@@ -35,7 +36,7 @@ const runCount=(workspace:WorkspaceGroup)=>workspace.conversations.reduce((n,c)=
 export function BackgroundTasks() {
   const queryClient=useQueryClient();
   const {t}=useTranslation();
-  const {setSelectedTaskId,setSelectedWorkspacePath,selectedTaskId,selectedWorkspacePath,showToast}=useAppStore();
+  const {selectedTaskId,selectedWorkspacePath,showToast}=useAppStore();
   const {data}=useQuery({queryKey:['backgroundRuns'],queryFn:api.getBackgroundRuns,refetchInterval:2000});
   const {data:hub}=useQuery({queryKey:['hubState'],queryFn:api.getState,refetchInterval:3000});
   const [expanded,setExpanded]=useState<Record<string,boolean>>({});
@@ -103,27 +104,22 @@ export function BackgroundTasks() {
       showToast(agentErrorText(e,t,t('agents_bg_stop_workflow_failed')),'error');
     }finally{setCancellingWorkflow(null);}
   };
+  // Each row is the screen's at the click and the Hub is told afterwards (lib/workspace-choice.ts says why).
   const openChat=async(folder:string,conversationId:string)=>{
     try{
-      await api.activateWorkspace(folder);
-      setSelectedWorkspacePath(folder);
-      setSelectedTaskId(conversationId);
+      await chooseWorkspace(folder,conversationId);
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(e){showToast(agentErrorText(e,t,t('agents_bg_open_chat_failed')),'error');}
   };
   const openAgent=async(folder:string,taskId:string)=>{
     try{
-      await api.activateWorkspace(folder);
-      setSelectedWorkspacePath(folder);
-      setSelectedTaskId(taskId);
+      await chooseWorkspace(folder,taskId);
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(e){showToast(agentErrorText(e,t,t('agents_bg_open_agent_failed')),'error');}
   };
   const openWorkspace=async(folder:string)=>{
     try{
-      await api.activateWorkspace(folder);
-      setSelectedWorkspacePath(folder);
-      setSelectedTaskId('');
+      await chooseWorkspace(folder);
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(e){showToast(agentErrorText(e,t,t('agents_bg_open_workspace_failed')),'error');}
   };
