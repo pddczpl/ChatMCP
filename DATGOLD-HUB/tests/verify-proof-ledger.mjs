@@ -181,9 +181,12 @@ try {
     assert.equal(binary.stdout.sha256, sha(binaryBytes));
     assert.ok(binary.stdout.preview.includes(String.fromCodePoint(0xfffd)), 'the preview of bytes that are not UTF-8 is lossy, the hash is not');
     const big = checkReceipt({ command: 'node emit.cjs big', result: bigRun });
-    assert.deepEqual([big.stdout.bytes, big.stdout.truncated, big.stdout.previewTruncated], [50000, true, true]);
-    assert.ok(Buffer.byteLength(big.stdout.preview) <= PREVIEW_BYTES && big.stdout.preview.length > 1000, `preview ${big.stdout.preview.length}`);
-    assert.ok(bigBytes.toString('latin1').startsWith(big.stdout.preview), 'the preview is the head of the output');
+    assert.deepEqual([big.stdout.bytes, big.stdout.truncated, big.stdout.sha256], [50000, true, sha(bigBytes)], 'the capture dropped a middle');
+    assert.equal(big.stdout.preview, bigRun.stdout, 'a capture of 1,000 bytes fits the preview whole');
+    const headRun = await runner.run({ command: 'node emit.cjs big' });
+    const head = checkReceipt({ command: 'node emit.cjs big', result: headRun });
+    assert.deepEqual([head.stdout.bytes, head.stdout.truncated, head.stdout.previewTruncated, head.stdout.sha256], [50000, false, true, sha(bigBytes)]);
+    assert.equal(head.stdout.preview, bigBytes.subarray(0, PREVIEW_BYTES).toString('latin1'), 'the preview is the first 2 KiB of the output');
     const wide = checkReceipt({ command: 'node emit.cjs wide', result: wideRun });
     assert.equal(PREVIEW_BYTES, 2048);
     assert.equal(Buffer.byteLength(wide.stdout.preview), 2046, '682 whole characters of 3 bytes: cut on a character boundary');

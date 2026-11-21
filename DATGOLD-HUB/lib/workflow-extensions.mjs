@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { isProtectedPath } from './protected-paths.mjs';
+import { commandSha256 } from './proof/ledger.mjs';
 const O=(properties,required=[])=>({type:'object',properties,required,additionalProperties:false});
 const S=(description,extra={})=>({type:'string',description,...extra});
 const I=(description,extra={})=>({type:'integer',description,...extra});
@@ -59,7 +60,9 @@ export class WorkflowExtensions {
     const result=await this.shell.run({command:choice.command,cwd,timeoutMs:Math.min(600000,timeoutSeconds*1000),signal});
     return {isError:result.exitCode!==0||result.timedOut||result.cancelled,
       content:[{type:'text',text:JSON.stringify({runner,command:choice.command,exitCode:result.exitCode,timedOut:result.timedOut})+'\n'+result.stdout.slice(-65000)+'\n'+result.stderr.slice(-18000)}],
-      structuredContent:{runner,command:choice.command,exitCode:result.exitCode,timedOut:result.timedOut,cancelled:result.cancelled,durationMs:result.durationMs}};
+      structuredContent:{runner,command:choice.command,exitCode:result.exitCode,timedOut:result.timedOut,cancelled:result.cancelled,durationMs:result.durationMs,
+        // docs/PROOF-LEDGER.md: of the exact command and of every byte the build wrote, not of the slices in the text.
+        commandSha256:commandSha256(choice.command),outputSha256:result.outputSha256,outputBytes:result.outputBytes,truncated:result.truncated}};
   }
   async impact({changed_paths:changedPaths=[]},{signal}={}){
     const paths=changedPaths.length?changedPaths:(await this.git.text(['diff','--name-only','HEAD','--'],{signal})).stdout.split(/\r?\n/).filter(Boolean);
