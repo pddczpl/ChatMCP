@@ -206,7 +206,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? []);",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
      "new": "    const masked = copy;"
     }
    ]
@@ -217,8 +217,250 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? []);",
-     "new": "    const masked = maskDeep(copy, []);"
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "new": "    const masked = maskDeep(copy, [], type === 'check' ? CHECK_DIGESTS : null);"
+    }
+   ]
+  },
+  {
+   "name": "PL-digests-masked",
+   "what": "a short registered secret inside a digest of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "new": "    const masked = maskDeep(copy, this.secrets() ?? [], null);"
+    }
+   ]
+  },
+  {
+   "name": "PL-digests-kept-in-every-type",
+   "what": "the digest paths of a check record are left unmasked in records of every type",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "new": "    const masked = maskDeep(copy, this.secrets() ?? [], CHECK_DIGESTS);"
+    }
+   ]
+  },
+  {
+   "name": "PL-keep-ignored",
+   "what": "the strings at the kept paths are masked all the same",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "keep?.has(JSON.stringify(at)) ? value : maskSecrets(value, secrets)",
+     "new": "maskSecrets(value, secrets)"
+    }
+   ]
+  },
+  {
+   "name": "PL-keep-by-last-key",
+   "what": "a kept path is matched by its last key only",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "maskDeep(item, secrets, keep, [...at, key])",
+     "new": "maskDeep(item, secrets, keep, [key])"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-commandSha256",
+   "what": "commandSha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['commandSha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-argsSha256",
+   "what": "argsSha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['argsSha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-stdout-sha256",
+   "what": "stdout.sha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['stdout', 'sha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-stderr-sha256",
+   "what": "stderr.sha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['stderr', 'sha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeBefore-tree",
+   "what": "treeBefore.tree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeBefore', 'tree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeBefore-rawTree",
+   "what": "treeBefore.rawTree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeBefore', 'rawTree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeAfter-tree",
+   "what": "treeAfter.tree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeAfter', 'tree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeAfter-rawTree",
+   "what": "treeAfter.rawTree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeAfter', 'rawTree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-command-hash-any-type",
+   "what": "a command hash in an array passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "[record.commandSha256, record.argsSha256].some((hash) => typeof hash !== 'string' || !HEX64.test(hash))",
+     "new": "[record.commandSha256, record.argsSha256].some((hash) => !HEX64.test(hash))"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-unchecked",
+   "what": "a tree id of any kind passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    for (const id of ['tree', 'rawTree']) if (ref[id] !== null && (typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))) return `${name}.${id} is null or a Git object id in hex`;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-raw-tree-unchecked",
+   "what": "rawTree of any kind passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    for (const id of ['tree', 'rawTree']) if",
+     "new": "    for (const id of ['tree']) if"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-not-null",
+   "what": "a failed snapshot (no tree id) fails the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (ref[id] !== null && (typeof ref[id]",
+     "new": "if ((typeof ref[id]"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-any-type",
+   "what": "a tree id in an array passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "(typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))",
+     "new": "(!TREE_ID.test(ref[id]))"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-sha1-only",
+   "what": "a sha256 Git object id fails the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const TREE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;",
+     "new": "const TREE_ID = /^(?:[0-9a-f]{40})$/;"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-unanchored",
+   "what": "a tree id passes when it only holds 40 hex digits",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const TREE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;",
+     "new": "const TREE_ID = /(?:[0-9a-f]{40}|[0-9a-f]{64})/;"
+    }
+   ]
+  },
+  {
+   "name": "PL-command-not-recut",
+   "what": "a command made longer by masking is not cut again",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "        if (cut.cut) Object.assign(masked, { command: cut.text, commandTruncated: true });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-recut-flag",
+   "what": "a command cut again keeps commandTruncated false",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "Object.assign(masked, { command: cut.text, commandTruncated: true });",
+     "new": "Object.assign(masked, { command: cut.text });"
+    }
+   ]
+  },
+  {
+   "name": "PL-recut-any-command",
+   "what": "a command that is not text is cut as if it were",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "      if (typeof masked.command === 'string') {",
+     "new": "      if (true) {"
     }
    ]
   },

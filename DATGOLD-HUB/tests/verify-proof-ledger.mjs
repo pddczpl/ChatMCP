@@ -253,22 +253,27 @@ try {
     await digestLedger.append('check', plain);
     await digestLedger.append('check', checkReceipt({ command: 'node emit.cjs text', result: textRun, treeBefore: snapshot('sha1', 'before'),
       treeAfter: snapshot('sha256', 'after'), secrets: inside }));
-    await digestLedger.append('tree', { tree: plain.treeBefore.tree, takenAt: plain.treeBefore.takenAt });
+    await digestLedger.append('call', { tool: 'run_command', commandSha256: plain.commandSha256, stdout: { sha256: plain.stdout.sha256 } });
     const digestEntries = entriesOf(await fs.readFile(ledgerPath(hub, 'task_digests')));
     for (const entry of digestEntries.slice(0, 2)) {
       assert.deepEqual(digests(entry.record), digests(plain), 'the digests and tree ids are written as they are');
       assert.equal(entry.record.stdout.preview, 'hello [REDACTED]\n', 'the free text is still masked');
     }
-    assert.ok(digestEntries[2].record.tree.includes('[REDACTED]'), 'a record of another type is masked whole: it has no schema that holds a field to hex');
+    const other = digestEntries[2].record;
+    assert.ok(other.commandSha256.includes('[REDACTED]') && other.stdout.sha256.includes('[REDACTED]'),
+      'a record of another type is masked whole, at the same paths too: it has no schema that holds a field to hex');
     assert.equal(validateRecord('check', { ...plain, treeBefore: treeRef({ status: 'failed', engineReason: 'snapshot_failed' }) }), null, 'a failed snapshot has no tree id');
     for (const [label, bad] of [
       ['a tree id that is text', { ...plain, treeBefore: { ...plain.treeBefore, tree: REGISTERED } }],
       ['a raw tree id of 63 digits', { ...plain, treeAfter: { ...plain.treeAfter, rawTree: plain.treeAfter.rawTree.slice(1) } }],
       ['a tree id in capitals', { ...plain, treeAfter: { ...plain.treeAfter, tree: plain.treeAfter.tree.toUpperCase() } }],
       ['a raw tree id that is a number', { ...plain, treeBefore: { ...plain.treeBefore, rawTree: 7 } }],
+      ['a tree id in an array', { ...plain, treeBefore: { ...plain.treeBefore, tree: [plain.treeBefore.tree] } }],
+      ['a command hash in an array', { ...plain, commandSha256: [plain.commandSha256] }],
     ]) assert.notEqual(validateRecord('check', bad), null, label);
     assert.equal(await rejection(digestLedger.append('check', { ...plain, treeBefore: { ...plain.treeBefore, tree: REGISTERED } })), 'ledger_bad_record',
       'a field that is not masked must be hex');
+    assert.equal(await rejection(digestLedger.append('check', { ...plain, command: 5 })), 'ledger_bad_record', 'a command that is not text');
 
     // A secret the receipt's builder did not know makes the command longer once masked: the ledger cuts it again to 4,096 characters.
     const fits = `echo ${'c0de '.repeat(800)}`;
