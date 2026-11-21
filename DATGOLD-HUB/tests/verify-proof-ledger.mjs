@@ -208,8 +208,13 @@ try {
     const masked = checkReceipt({ command: secretCommand, result: secretRun, secrets: [REGISTERED] });
     assert.equal(masked.commandSha256, sha(Buffer.from(secretCommand)), 'the hash is of the exact command');
     assert.equal(masked.stdout.sha256, sha(Buffer.from(secretRun.stdout, 'utf8')));
+    for (const secret of [REGISTERED, PATTERN_KEY, 'sk-abcdefghijklmnopqrstuvwx']) {
+      assert.ok(!masked.command.includes(secret) && !masked.stdout.preview.includes(secret), `${secret} is in the receipt itself`);
+    }
     const ledger = ProofLedger.forTask(hub, 'task_secret', { secrets: () => [REGISTERED] });
     await ledger.append('check', masked);
+    // The ledger masks again: a receipt built without the registered secrets still does not carry them into the file.
+    await ledger.append('check', checkReceipt({ command: secretCommand, result: secretRun }));
     await ledger.append('call', { tool: 'run_command', args: { command: `curl -H "Authorization: Bearer abcdefghijklmnop1234" https://example.com ${REGISTERED}` } });
     const written = await fs.readFile(ledgerPath(hub, 'task_secret'), 'utf8');
     for (const secret of [REGISTERED, PATTERN_KEY, 'sk-abcdefghijklmnopqrstuvwx', 'abcdefghijklmnop1234']) assert.ok(!written.includes(secret), `${secret} reached the ledger`);
@@ -309,6 +314,11 @@ try {
     assert.equal(verifyChain(Buffer.concat([bytes, Buffer.from(`${badCheck}\n`)])).reason, 'bad_record');
     const badTime = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: 'yesterday', type: 'call', record: {} });
     assert.equal(verifyChain(Buffer.concat([bytes, Buffer.from(`${badTime}\n`)])).reason, 'bad_envelope');
+    const extraBody = JSON.stringify({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'call', record: {}, note: 'x' });
+    const extra = `${extraBody.slice(0, -1)},"hash":"${sha(Buffer.from(extraBody))}"}`;
+    assert.deepEqual([verifyChain(Buffer.concat([bytes, Buffer.from(`${extra}\n`)])).brokenAt, verifyChain(Buffer.concat([bytes, Buffer.from(`${extra}\n`)])).reason], [6, 'bad_envelope']);
+    const arrayRecord = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'call', record: [] });
+    assert.equal(verifyChain(Buffer.concat([bytes, Buffer.from(`${arrayRecord}\n`)])).reason, 'bad_record');
     const notUtf8 = Buffer.concat([bytes, Buffer.from('{"v":2,"seq":6,'), Buffer.from([0xc3, 0x28]), Buffer.from('}\n')]);
     assert.deepEqual([verifyChain(notUtf8).brokenAt, verifyChain(notUtf8).reason], [6, 'not_utf8']);
     const huge = verifyChain(Buffer.concat([bytes, Buffer.from(`${'x'.repeat(70_000)}\n`)]));
@@ -372,6 +382,10 @@ try {
     const broken = Buffer.from(await fs.readFile(file));
     broken[5] ^= 0x01;
     await fs.writeFile(file, broken);
+    // Same size: only the modification time tells the ledger that someone else wrote. Windows file times move in steps of about
+    // 15.6 ms, so an edit right after an append can keep it (docs/PROOF-LEDGER.md, limits); here the edit is a minute later.
+    const later = new Date(Date.now() + 60_000);
+    await fs.utimes(file, later, later);
     assert.equal(await rejection(ProofLedger.forTask(hub, 'task_refuse').append('call', { tool: 'grep' })), 'ledger_broken');
     assert.equal((await fs.readFile(file)).equals(broken), true, 'nothing is appended to a broken ledger');
     ok('an unknown type, a record that is not an object or not JSON, a record over 64 KiB are refused and write nothing; a broken ledger refuses every append');
@@ -396,7 +410,7 @@ try {
       git: { stdout: 'git version 2.55.0.windows.1\n' },
     };
     const exec = async (file, args, options) => {
-      calls.push({ file, args, cwd: options.cwd });
+      calls.push({ file, args, cwd: options.cwd, env: options.env });
       const output = outputs[path.basename(file, exe)];
       if (output.code) throw Object.assign(new Error('exit'), { code: output.code, stdout: output.stdout, stderr: output.stderr });
       return { stdout: output.stdout, stderr: '' };
@@ -404,7 +418,7 @@ try {
     const previous = process.cwd();
     process.chdir(tmp);
     try {
-      const probe = new ToolchainProbe({ env: { PATH: ['rel', '', fakeBin].join(path.delimiter) }, exec });
+      const probe = new ToolchainProbe({ env: { PATH: ['rel', '', fakeBin].join(path.delimiter), OPENAI_API_KEY: PATTERN_KEY }, exec });
       const first = await probe.versions(work);
       assert.deepEqual(first, { node: '24.11.1', python: null, dotnet: '10.0.100', git: '2.55.0.windows.1' });
       assert.equal(calls.length, 4);
@@ -412,6 +426,8 @@ try {
         assert.ok(path.isAbsolute(call.file) && path.dirname(call.file) === fakeBin, `${call.file} must come from an absolute PATH entry`);
         assert.deepEqual(call.args, ['--version']);
         assert.equal(call.cwd, work);
+        assert.equal(call.env.OPENAI_API_KEY, undefined, 'the probes get a scrubbed environment');
+        assert.equal(call.env.DOTNET_NOLOGO, '1');
       }
       assert.deepEqual(await probe.versions(work), first);
       assert.equal(calls.length, 4, 'cached per workspace');
