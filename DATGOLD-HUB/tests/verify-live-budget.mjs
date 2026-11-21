@@ -24,6 +24,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gitInit } from './e2e/fixtures.mjs';
 import { runScenario } from './e2e/harness.mjs';
 import { call, say, withUsage } from './e2e/scenarios.mjs';
 import {
@@ -91,14 +92,15 @@ const hubTask = ({ http = 0, priced = 0, unpriced = 0, unknown = 0, known = 0, s
 
 /** A Hub client whose answers are scripted: one snapshot per observe() (the last repeats), a cancel that is accepted, refused, throws or hangs. */
 function fakeClient({ snapshots, final = null, cancel = 'ok', others = [] }) {
-  const calls = { observe: 0, cancel: 0, cancelAt: [], deny: [], escalate: 0, final: 0 };
+  const calls = { observe: 0, cancel: 0, cancelAt: [], cancelIds: [], deny: [], escalate: 0, final: 0 };
   return {
     calls,
     async observe() { const shot = snapshots[Math.min(calls.observe, snapshots.length - 1)]; calls.observe += 1; return { pending: [], others, ...shot }; },
     async deny(id) { calls.deny.push(id); },
-    cancel() {
+    cancel(id) {
       calls.cancel += 1;
       calls.cancelAt.push(calls.observe);
+      calls.cancelIds.push(id);
       if (cancel === 'ok') return Promise.resolve({ ok: true, status: 200 });
       if (cancel === 'refuse') return Promise.resolve({ ok: false, status: 500 });
       if (cancel === 'throw') return Promise.reject(new Error('ECONNRESET'));
@@ -347,9 +349,39 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
   }
   {
     const clock = fakeTime();
-    const client = fakeClient({ snapshots: [{ settled: false, task: hubTask({ http: 1, priced: 0 }) }, { settled: true, task: hubTask({ http: 1, priced: 1, known: 0.001, state: 'cancelled' }) }], others: [{ ...hubTask({ http: 2, priced: 2, known: 0.035 }), id: 'subagent-1' }] });
+    const client = fakeClient({ snapshots: [{ settled: false, task: hubTask({ http: 1, priced: 0 }) }, { settled: true, task: hubTask({ http: 1, priced: 1, known: 0.001, state: 'cancelled' }) }], others: [{ ...hubTask({ http: 2, priced: 2, known: 0.035, state: 'completed' }), id: 'subagent-1', settled: true }] });
     const result = await governTask(client, { ...options, ...clock });
     t.equal(result.stoppedBy, 'budget_exhausted', 'spend of another task of the same Hub (a subagent) counts toward the cap');
+  }
+  // The spend of the other tasks is part of the run's figure, each Hub task counted once (audit of #144, F1), and the governor waits for them (Q2).
+  const subagent = (extra, settled) => ({ ...hubTask(extra), id: 'child-1', settled });
+  {
+    const clock = fakeTime();
+    const client = fakeClient({ snapshots: [
+      { settled: false, task: hubTask({ http: 1, priced: 0 }), others: [subagent({ http: 1, priced: 0 }, false)] },
+      { settled: true, task: hubTask({ http: 2, priced: 2, known: 0.004, state: 'completed', steps: 2 }), others: [subagent({ http: 2, priced: 1, known: 0.003 }, false)] },
+      { settled: true, task: hubTask({ http: 2, priced: 2, known: 0.004, state: 'completed', steps: 2 }), others: [subagent({ http: 2, priced: 2, known: 0.006, state: 'completed' }, true)] },
+    ] });
+    const result = await governTask(client, { ...options, ...clock, capUsd: 1 });
+    t.equal(client.calls.observe, 3, 'a task that settled before the subagent it started: the governor waits until the subagent has settled too');
+    t.check(near(result.totalUsd, 0.01) && near(result.spends.get('child-1')?.usd, 0.006) && near(result.spends.get('task-1')?.usd, 0.004), 'the figure of the run is the task plus its subagent, each at its last value', JSON.stringify([result.totalUsd, [...(result.spends ?? new Map())]]));
+    t.check(near(result.othersUsd, 0.006), 'and the subagent\'s part is reported apart', String(result.othersUsd));
+  }
+  {
+    const clock = fakeTime();
+    const earlierSpend = taskSpend({ ...hubTask({ http: 1, priced: 1, known: 0.01, state: 'completed' }), id: 'earlier-1' }, 0.01);
+    const client = fakeClient({ snapshots: [{ settled: true, task: hubTask({ http: 1, priced: 1, known: 0.002, state: 'completed' }), others: [{ ...hubTask({ http: 1, priced: 1, known: 0.01, state: 'completed' }), id: 'earlier-1', settled: true }] }] });
+    const result = await governTask(client, { ...options, ...clock, spentByTask: new Map([['earlier-1', earlierSpend]]) });
+    t.check(near(result.totalUsd, 0.012) && result.spends.size === 2, 'an earlier task of the run, listed again by the Hub, is counted once', JSON.stringify([result.totalUsd, result.spends?.size]));
+  }
+  {
+    const clock = fakeTime();
+    const client = fakeClient({ snapshots: [
+      { settled: false, task: hubTask({ http: 1, priced: 0 }), others: [subagent({ http: 3, priced: 2, known: 0.021 }, false)] },
+      { settled: true, task: hubTask({ http: 1, priced: 0, state: 'cancelled' }), others: [subagent({ http: 3, priced: 2, known: 0.021, state: 'cancelled' }, true)] },
+    ] });
+    const result = await governTask(client, { ...options, ...clock });
+    t.equal([result.stoppedBy, [...client.calls.cancelIds].sort()], ['budget_exhausted', ['child-1', 'task-1']], 'a budget stop cancels the subagent as well as the task');
   }
   {
     const clock = fakeTime();
@@ -399,8 +431,22 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
       // NaN is written as null in JSON: the response carries "prompt_tokens": null and no completion count, what a gateway without usage sends.
       'budget-no-usage': ({ turn }) => (turn === 0 ? withUsage({ input: Number.NaN, output: Number.NaN }, call('write_file', { path: 'a.txt', content: 'a' })) : withUsage({ input: Number.NaN, output: Number.NaN }, say('Done.'))),
       'budget-smoke': ({ turn }) => (turn === 0 ? call('write_file', { path: 'hello.txt', content: 'hello\n' }) : say('Done.')),
+      // A task that starts a background subagent (spawn_agent) and finishes before it: the subagent's model calls are the Hub's too, and the run pays them.
+      'budget-spawn': ({ users, turn, tools }) => {
+        const who = /(Parent|Child) S1:/.exec((users ?? []).filter((text) => !String(text).startsWith('UNTRUSTED SKILL')).join('\n'))?.[0] ?? 'unknown';
+        if (who.startsWith('Child')) {
+          const usage = { input: 40000, output: 1000 };
+          spawnBill.child += (usage.input * RATES.input + usage.output * RATES.output) / 1e6;
+          return withUsage(usage, turn === 0 ? call('write_file', { path: 'child-note.txt', content: 'from the child\n' }) : say('Child S1 done.'));
+        }
+        const usage = { input: 2000, output: 100 };
+        spawnBill.parent += (usage.input * RATES.input + usage.output * RATES.output) / 1e6;
+        if (turn === 0) spawnBill.parentTools = tools ?? [];
+        return withUsage(usage, turn === 0 ? call('spawn_agent', { goal: 'Child S1: write a short note in a file.' }) : say('Parent S1 started its helper.'));
+      },
     },
   });
+  const spawnBill = { parent: 0, child: 0, parentTools: [] };
   const project = t.dir('seeded-project');
   fs.writeFileSync(path.join(project, 'README.md'), '# scratch\n');
   const hub = await t.hub({ project });
@@ -547,6 +593,31 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
   t.check(near(c.ledger.monthSpentBeforeUsd, 0.01), 'the good line before them still counts');
   const after = readLedger(ledgerC);
   t.equal([after.corrupt, after.records.filter((record) => record.run === c.ledger.runId).map((record) => record.type)], [[2, 3], ['reserve', 'task', 'settle']], 'the runner\'s own lines parse after the truncated one');
+
+  // A task that starts a background subagent with spawn_agent (a Git project is needed for its worktree, so the scratch project is one before the
+  // runner writes the task's files into it) and finishes first. The subagent is a task of the same Hub: the governor waits for it, and its spend is in
+  // the report, the task line and the settlement, once (audit of #144, F1 and Q2).
+  mock.setScenario('budget-spawn');
+  const spawnScratch = path.join(work, 'run-spawn');
+  const spawnProject = path.join(spawnScratch, 'project');
+  fs.mkdirSync(spawnProject, { recursive: true });
+  fs.writeFileSync(path.join(spawnProject, 'README.md'), '# scratch\n');
+  gitInit(spawnProject, t.scratch);
+  const ledgerSpawn = ledgerFile('spawn');
+  const reportSpawn = path.join(work, 'report-spawn.json');
+  const spawnTasks = tasksFile([{ id: 'parent', prompt: 'Parent S1: start one helper agent for a note, then say you started it.', files: { 'README.md': '# scratch\n' }, maxSteps: 6, maxMinutes: 2 }]);
+  const spawned = await runRunner(['--providers', exaggerated, '--tasks', spawnTasks, '--provider', 'mock', '--budget-usd', '0.05', '--monthly-cap-usd', '1', '--poll-ms', '50', '--ledger', ledgerSpawn, '--scratch', spawnScratch, '--output', reportSpawn], gated);
+  t.must(spawned.code === EXIT.OK, 'a task that starts a subagent: exit 0', spawned.text.slice(-1500));
+  t.check(spawnBill.parentTools.includes('spawn_agent') && spawnBill.child > 0, 'the task was offered spawn_agent and its subagent called the model', JSON.stringify(spawnBill));
+  const s = JSON.parse(fs.readFileSync(reportSpawn, 'utf8'));
+  const bill = spawnBill.parent + spawnBill.child;
+  t.check(near(s.spentUsd, bill, 1e-7), 'the run\'s figure is the task plus its subagent (what the mock billed, every response priced)', JSON.stringify([s.spentUsd, spawnBill]));
+  t.check(Array.isArray(s.hubTasks) && s.hubTasks.length === 2 && s.hubTasks.some((item) => item.id !== s.tasks[0].hubTaskId && near(item.usd, spawnBill.child, 1e-7)), 'the report lists both Hub tasks, the subagent with its own figure', JSON.stringify(s.hubTasks));
+  t.check(near(s.tasks[0].othersUsd, spawnBill.child, 1e-7), 'the task\'s record names the part its subagent spent', String(s.tasks[0].othersUsd));
+  const spawnLines = readLedger(ledgerSpawn).records;
+  const spawnTaskLine = spawnLines.find((record) => record.type === 'task');
+  const spawnSettle = spawnLines.find((record) => record.type === 'settle');
+  t.check(near(spawnTaskLine?.usd, s.spentUsd) && near(spawnTaskLine?.othersUsd, spawnBill.child, 1e-7) && near(spawnSettle?.usd, s.spentUsd), 'the task line and the settlement in the ledger hold the subagent\'s spend too', JSON.stringify([spawnTaskLine, spawnSettle]));
 
   // ---- the cap lives in the runner, not the Hub ----------------------------------------------------------------------------------------------
   const offline = await new Promise((resolve) => {
