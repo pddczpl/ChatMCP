@@ -155,11 +155,16 @@ const describe = (result) => JSON.stringify(result.findings.map((row) => ({ path
     ['CI=1 npm test', ['npm:test']], ['cross-env CI=1 npm test', ['npm:test']], ['npm.cmd test', ['npm:test']], ['C:/tools/npm.exe run lint', ['npm:lint']],
     ['run-s lint test', ['npm-run-all:lint', 'npm-run-all:test']], ['npm-run-all -p "test:*"', ['npm-run-all:test:*']],
     ['npm test; npm run lint || true', ['npm:test', 'npm:lint']], ['echo "npm test"', []],
+    // npm reads its own options anywhere before a bare `--`, and an option's value is never the script name
+    ['npm run test --prefix sub', ['npm:test@sub']], ['npm test --prefix sub', ['npm:test@sub']], ['npm run --prefix sub test', ['npm:test@sub']],
+    ['npm run --silent lint', ['npm:lint']], ['npm run test -- --prefix sub', ['npm:test']], ['npm run lint --workspace a', []],
+    // pnpm, yarn and bun pass what follows the script name to the script
+    ['pnpm run test -C sub', ['pnpm:test']], ['yarn test --cwd sub', ['yarn:test']],
   ];
   const got = (command) => scriptInvocations(command).map((row) => `${row.runner}:${row.key}${row.prefix ? `@${row.prefix}` : ''}`);
   const differing = invocations.filter(([command, expected]) => JSON.stringify(got(command)) !== JSON.stringify(expected)).map(([command, expected]) => `${command} -> ${JSON.stringify(got(command))} (expected ${JSON.stringify(expected)})`);
   assert.deepEqual(differing, [], 'scriptInvocations');
-  ok(`scriptInvocations: ${invocations.length} commands (npm/pnpm/yarn/bun, --prefix/-C/--cwd, env prefixes, chains, run-s and npm-run-all, a quoted "npm test" is not one)`);
+  ok(`scriptInvocations: ${invocations.length} commands (npm/pnpm/yarn/bun, --prefix/-C/--cwd before or after the script name, env prefixes, chains, run-s and npm-run-all, a quoted "npm test" is not one)`);
 
   const markerInComments = [
     ['a.test.js', 'const s = "it.skip(";\nconst t = \'xit(\';\nconst u = `test.only(${x}) describe.skip(`;\n// it.skip(\n/* xit(\n it.only( */\nconst e = "a \\" it.skip(";\nmodel.fit(data); benefit(2);\n'],
@@ -177,6 +182,8 @@ const describe = (result) => JSON.stringify(result.findings.map((row) => ({ path
   const markers = [
     ['a.test.js', "it.skip('x', () => {});\nxit('y', () => {});\ntest.only('z', () => {});\ndescribe.skip('w', () => {});\nfit('v', () => {});\n", 5],
     ['a_test.py', '@pytest.mark.skip(reason="x")\n@pytest.mark.xfail\n@unittest.skip("y")\ndef f():\n    pytest.skip("z")\n    self.skipTest("w")\n', 5],
+    // the module-level forms and marks given as values: pytestmark, pytest.param(..., marks=...), unittest.skip(...)(f)
+    ['b_test.py', 'pytestmark = pytest.mark.skip(reason="x")\npytestmark = [pytest.mark.skipif(True, reason="y")]\nCASES = [pytest.param(1, marks=pytest.mark.xfail)]\ng = unittest.skip("z")(f)\n', 4],
     ['a_test.go', 'func TestA(t *testing.T) {\n\tt.Skip("x")\n\tt.Skipf("%d", 1)\n\tt.SkipNow()\n}\n', 3],
     ['ATests.cs', '[Fact(Skip = "x")]\n[Test, Ignore("y")]\n[Ignore]\nvar p = @"C:\\dir\\"; [Ignore]\n', 4],
     ['ATest.java', '@Disabled\n@Ignore\n', 2],
@@ -233,8 +240,13 @@ const strategies = [];
     'tests/legacy.test.js': "it('works', () => {\n  expect(1).toBe(1);\n});\n",
     'tests/calc.rs': '#[test]\nfn adds() {\n    assert_eq!(add(1, 2), 3);\n}\n',
     'src/test/java/CalcTest.java': 'class CalcTest {\n  @Test\n  void adds() { assertEquals(3, Calc.add(1, 2)); }\n}\n',
+    'tests/test_module.py': 'import pytest\n\n\ndef test_a():\n    assert add(1, 2) == 3\n',
+    'tests/test_listed.py': 'import pytest\n\n\ndef test_b():\n    assert add(2, 2) == 4\n',
   };
   const dir = makeRepo('s2-skip', files);
+  // pytest's documented way to skip a whole module, and the list form
+  edit(dir, 'tests/test_module.py', (text) => text.replace('\n\n\ndef test_a', '\n\npytestmark = pytest.mark.skip(reason="later")\n\n\ndef test_a'));
+  edit(dir, 'tests/test_listed.py', (text) => text.replace('\n\n\ndef test_b', '\n\npytestmark = [pytest.mark.xfail]\n\n\ndef test_b'));
   edit(dir, 'tests/math.test.js', (text) => text.replace("it('multiplies'", "it.skip('multiplies'"));
   edit(dir, 'tests/test_calc.py', (text) => text.replace('def test_add', '@pytest.mark.skip(reason="later")\ndef test_add'));
   edit(dir, 'calc/calc_test.go', (text) => text.replace('*testing.T) {\n', '*testing.T) {\n\tt.Skip("later")\n'));
@@ -247,14 +259,14 @@ const strategies = [];
   const added = finding(result, 'tests/later.test.js');
   assert.deepEqual([added.status, flaggedCodes(added)], ['A', ['skip_marker_added']], describe(result));
   assert.equal(added.reasons.find((row) => row.code === 'skip_marker_added').line, 2, 'a new test file that is skipped from the start');
-  for (const file of ['tests/math.test.js', 'tests/test_calc.py', 'calc/calc_test.go', 'Calc.Tests/CalcTests.cs', 'tests/legacy.test.js', 'tests/calc.rs', 'src/test/java/CalcTest.java']) {
+  for (const file of ['tests/math.test.js', 'tests/test_calc.py', 'calc/calc_test.go', 'Calc.Tests/CalcTests.cs', 'tests/legacy.test.js', 'tests/calc.rs', 'src/test/java/CalcTest.java', 'tests/test_module.py', 'tests/test_listed.py']) {
     assert.deepEqual(flaggedCodes(finding(result, file)), ['skip_marker_added'], `${file}: ${describe(result)}`);
   }
   const reason = finding(result, 'tests/math.test.js').reasons.find((row) => row.code === 'skip_marker_added');
   assert.equal(reason.line, 8, 'the line of the new marker in the final file');
   assert.deepEqual(reason.detail, { before: 0, after: 1 });
   assert.deepEqual(finding(result, 'Calc.Tests/CalcTests.cs').reasons.find((row) => row.code === 'skip_marker_added').detail, { before: 0, after: 2 });
-  strategies.push(['add a skip (JS it.skip and xit, pytest.mark.skip, t.Skip, [Fact(Skip)] and Ignore, #[ignore], @Disabled)', result]);
+  strategies.push(['add a skip (JS it.skip and xit, pytest.mark.skip, a module-level pytestmark, t.Skip, [Fact(Skip)] and Ignore, #[ignore], @Disabled)', result]);
 }
 {
   // S3: scripts.test changed to echo
@@ -267,6 +279,24 @@ const strategies = [];
   assert.deepEqual(flaggedCriteria(result), ['unit'], 'only the criterion that runs `npm test`');
   assert.equal(criterion(result, 'unit').reasons[0].via, 'script');
   strategies.push(['change scripts.test to echo', result]);
+
+  // the same in a sub-package, reached by every common spelling: --prefix before or after the script name, cd / pushd earlier in the line
+  const spellings = [
+    ['prefix-after-run', 'npm run test --prefix sub', true], ['prefix-after-test', 'npm test --prefix sub', true],
+    ['prefix-between', 'npm run --prefix sub test', true], ['prefix-first', 'npm --prefix sub test', true],
+    ['cd-sub', 'cd sub && npm test', true], ['pushd-sub', 'pushd sub && npm test && popd', true], ['cd-dot-sub', 'cd ./sub; npm test', true],
+    ['popd-back', 'pushd sub && popd && npm test', false], ['root', 'npm test', false], ['after-dashdash', 'npm run test -- --prefix sub', false],
+    ['cd-variable', 'cd "$PKG" && npm test', false],
+  ];
+  const subAcceptance = `version: 1\ncriteria:\n${spellings.map(([id, run]) => `  - id: ${id}\n    text: ${id}\n    checks:\n      - run: '${run}'\n`).join('')}  - id: cwd-sub\n    text: cwd-sub\n    checks:\n      - run: npm test\n        cwd: sub\n`;
+  const subPkg = (test) => `${JSON.stringify({ name: 'sub', scripts: { test } }, null, 2)}\n`;
+  const subDir = makeRepo('s3-sub', { ...BASE, '.chatmcp/acceptance.yml': subAcceptance, 'sub/package.json': subPkg('jest') });
+  write(subDir, 'sub/package.json', subPkg('echo ok'));
+  const subResult = await detect(subDir);
+  assert.deepEqual(flaggedCodes(finding(subResult, 'sub/package.json')), ['check_script_changed'], describe(subResult));
+  assert.deepEqual(flaggedCriteria(subResult), [...spellings.filter((row) => row[2]).map(([id]) => id), 'cwd-sub'],
+    'every spelling that runs the sub-package\'s test script is flagged; the root one, a --prefix after `--`, a popd back and a cd to a variable are not');
+  strategies.push(['change a sub-package\'s scripts.test to echo (--prefix anywhere before --, cd and pushd)', subResult]);
 }
 {
   // S4: the acceptance file edited (a check weakened)
@@ -652,6 +682,22 @@ protected:
   assert.equal(result.checks_modified, false);
   assert.ok(newlines < 3_000 && unclosed < 3_000, `${Math.round(newlines)} ms and ${Math.round(unclosed)} ms`);
   ok(`a script of 200,000 line breaks (${Math.round(newlines)} ms) and a 600 KB line of unclosed calls (${Math.round(unclosed)} ms) stay linear`);
+}
+{
+  // rename pairing does its text work once per file, not once per pair: 30 deleted x 30 added test files (each renamed, one line added)
+  // are 900 pairs, yet 60 texts are normalised and their lines indexed once; the analysis of the 30 renames reuses the same texts
+  const n = 30;
+  const body = (i) => `${Array.from({ length: 200 }, (_, k) => `  expect(f${i}(${k})).toBe(${k * 7});`).join('\n')}\n`;
+  const before = {};
+  const after = {};
+  for (let i = 0; i < n; i += 1) { before[`tests/old${i}.test.js`] = body(i); after[`tests/new${i}.test.js`] = `${body(i)}// moved\n`; }
+  const stats = {};
+  const result = await detectCheckChanges({ baseline: memorySide(before), final: memorySide(after), acceptance: null, stats });
+  assert.equal(result.findings.filter((row) => row.status === 'R').length, n, 'every file is paired with its own rename');
+  assert.ok(result.findings.every((row) => row.oldPath === row.path.replace('/new', '/old')), 'old<i> pairs with new<i>');
+  assert.equal(result.checks_modified, false);
+  assert.deepEqual(stats, { normalizations: 2 * n, linesIndexed: n * 200 + n * 201, pairsCompared: n * n });
+  ok(`rename pairing: ${n} x ${n} files, ${stats.pairsCompared} pairs compared, ${stats.normalizations} texts normalised and ${stats.linesIndexed} lines indexed (each file once)`);
 }
 {
   // gitTreeSide refuses what is not a revision, and a revision that does not exist
