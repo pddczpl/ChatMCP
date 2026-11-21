@@ -63,6 +63,33 @@ export async function upsertProfile(hub, id, entry, rates) {
 /** Full Access, because the tasks run the model's commands (tests and builds) without a person to approve them: why the runner demands a sandbox. */
 export const fullAccess = (hub) => hub.post('/api/studio/permissions/config', { mode: 'full-access', confirmation: 'FULL ACCESS' });
 
+/**
+ * The Hub as the spend governor sees it (tests/live/lib/budget.mjs governTask): the task through GET /api/tasks/:id (usage, modelCost, steps, state),
+ * whether the Hub has let go of it, its approval requests and the other tasks of the Hub through /api/state; every approval is denied (nobody is there to
+ * answer one); `escalate` stops the Hub itself, for a task that a refused or unanswered cancel could not stop.
+ */
+export function hubClient(hub) {
+  return {
+    async observe(id) {
+      const state = await hub.state();
+      const response = await hub.request('GET', `/api/tasks/${encodeURIComponent(id)}`);
+      return {
+        task: response.ok ? response.json : null,
+        settled: Boolean(settledTask(state, id)),
+        pending: state.studio.permissions.pending.filter((item) => item.taskId === id),
+        others: state.agent.tasks.filter((item) => item.id !== id),
+      };
+    },
+    deny: (requestId) => hub.post('/api/studio/permissions/decide', { id: requestId, approved: false }),
+    async cancel(id) {
+      const response = await hub.request('POST', '/api/tasks/cancel', { id });
+      return { ok: response.ok, status: response.status };
+    },
+    final: (id) => hub.task(id),
+    escalate: () => hub.killTree(),
+  };
+}
+
 /** Names (never values) of the provider key variables the Hub itself sees in its environment. */
 export async function providerKeyVariables(hub) {
   const presets = (await hub.get('/api/ai/presets')).json;
