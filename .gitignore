@@ -66,6 +66,8 @@ coverage/
 
 # --- Test output and temporary files ----------------------------------------
 test-results/
+# The spend ledger of the opt-in live runner (tests/live/lib/budget.mjs): this machine's record, not source.
+bench-results/
 playwright-report/
 .tmp/
 *.tmp

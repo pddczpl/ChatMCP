@@ -5,7 +5,7 @@
     "generatedAt": "2026-10-28",
     "upstream": "https://models.dev/api.json",
     "sha256": "345907ca184b38c0cf37dd74064e61748f74ce2440ee7b42abccf86d575191d0",
-    "note": "Model ids, context windows and USD-per-million-token prices are copied from the rows of that snapshot (catalog.provider / catalog.model name the row); tests/verify-live-runner.mjs compares every number with the snapshot. A value the snapshot lacks is null, with a note, and the runner refuses a provider whose input or output price is null. Prices are a dated public list, not a bill: check them before a paid run."
+    "note": "Model ids, context windows, maximum outputs and USD-per-million-token prices are copied from the rows of that snapshot (catalog.provider / catalog.model name the row); tests/verify-live-runner.mjs compares every number with the snapshot. A value the snapshot lacks is null, with a note, and the runner refuses a provider whose input or output price is null. Prices are a dated public list, not a bill: check them before a paid run."
   },
   "providers": {
     "deepseek-flash": {
@@ -14,6 +14,7 @@
       "apiBaseUrl": "https://api.deepseek.com",
       "model": "deepseek-flash",
       "contextWindow": 1048576,
+      "maxOutput": 393216,
       "keyEnv": "DEEPSEEK_API_KEY",
       "ratesUsdPerMillion": { "input": 0.15, "output": 0.6, "cacheRead": 0.003, "cacheWrite": null },
       "tiers": [],
@@ -26,6 +27,7 @@
       "apiBaseUrl": "https://api.anthropic.com",
       "model": "claude-haiku-5-5",
       "contextWindow": 1000000,
+      "maxOutput": 128000,
       "keyEnv": "ANTHROPIC_API_KEY",
       "ratesUsdPerMillion": { "input": 0.1, "output": 0.5, "cacheRead": 0.01, "cacheWrite": 0.125 },
       "tiers": [
@@ -40,6 +42,7 @@
       "apiBaseUrl": "https://openrouter.ai/api/v1",
       "model": "deepseek/deepseek-v4-flash",
       "contextWindow": 1048576,
+      "maxOutput": 943717,
       "keyEnv": "OPENROUTER_API_KEY",
       "ratesUsdPerMillion": { "input": 0.091, "output": 0.182, "cacheRead": 0.0182, "cacheWrite": null },
       "tiers": [],
@@ -52,6 +55,7 @@
       "apiBaseUrl": "http://localhost:11434/v1",
       "model": "qwen2.5-coder:7b",
       "contextWindow": null,
+      "maxOutput": null,
       "keyEnv": null,
       "local": true,
       "ratesUsdPerMillion": { "input": null, "output": null, "cacheRead": null, "cacheWrite": null },

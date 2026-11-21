@@ -91,13 +91,14 @@ const hubTask = ({ http = 0, priced = 0, unpriced = 0, unknown = 0, known = 0, s
 
 /** A Hub client whose answers are scripted: one snapshot per observe() (the last repeats), a cancel that is accepted, refused, throws or hangs. */
 function fakeClient({ snapshots, final = null, cancel = 'ok', others = [] }) {
-  const calls = { observe: 0, cancel: 0, deny: [], escalate: 0, final: 0 };
+  const calls = { observe: 0, cancel: 0, cancelAt: [], deny: [], escalate: 0, final: 0 };
   return {
     calls,
     async observe() { const shot = snapshots[Math.min(calls.observe, snapshots.length - 1)]; calls.observe += 1; return { pending: [], others, ...shot }; },
     async deny(id) { calls.deny.push(id); },
     cancel() {
       calls.cancel += 1;
+      calls.cancelAt.push(calls.observe);
       if (cancel === 'ok') return Promise.resolve({ ok: true, status: 200 });
       if (cancel === 'refuse') return Promise.resolve({ ok: false, status: 500 });
       if (cancel === 'throw') return Promise.reject(new Error('ECONNRESET'));
@@ -250,6 +251,20 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
     t.check(monthCommitted(readLedger(L4).records, '2026-11') <= 0.08 + 1e-9, `race ${round + 1}: the refused run released its reservation (the month holds only the winner)`, String(monthCommitted(readLedger(L4).records, '2026-11')));
   }
 
+  // The same race, made certain: run B reserves after A has read the ledger and before A reserves. A's second read finds B first in the file.
+  {
+    const L6 = ledgerFile('race-certain');
+    const lostRace = refusedBy(() => openRun(L6, {
+      runId: 'A', now: new Date('2026-11-15T00:00:00.000Z'), provider: 'mock', model: 'mock-coder', tasks: [{ id: 'a' }], ceilingUsd: 0.01, budgetUsd: 0.05, monthlyCapUsd: 0.08,
+      afterRead: () => appendLedger(L6, { v: 1, type: 'reserve', run: 'B', at: '2026-11-15T00:00:00.000Z', month: '2026-11', usd: 0.06 }),
+    }));
+    t.check(lostRace instanceof BudgetRefusal && /month/i.test(lostRace.message), 'a run that another reserved ahead of between its read and its reservation is refused', lostRace?.message);
+    const raced = readLedger(L6).records;
+    t.equal(raced.filter((record) => record.run === 'A').map((record) => [record.type, record.usd]), [['reserve', 0.06], ['settle', 0]], 'its reservation is released at once (a settlement of 0)');
+    t.check(near(monthCommitted(raced, '2026-11'), 0.06), 'and the month holds only the run that reserved first');
+    t.check(near(monthCommitted(raced, '2026-11', { beforeLine: 2 }), 0.06) && monthCommitted(raced, '2026-11', { beforeLine: 1 }) === 0, 'a run counts only the runs whose first line comes before its own');
+  }
+
   // ---- openRun / recordTask / closeRun: calibration and a crashed run ------------------------------------------------------------------------
   const L5 = ledgerFile('lifecycle');
   const now = new Date('2026-11-15T00:00:00.000Z');
@@ -308,10 +323,15 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
   }
   {
     const client = fakeClient({ snapshots: [{ settled: false, task: hubTask({ http: 3, priced: 2, known: 0.04 }) }], cancel: 'hang' });
-    const started = Date.now();
-    const result = await governTask(client, { ...options, pollMs: 20, cancelTimeoutMs: 60, cancelGraceMs: 400 });
-    t.check(result.cancel.timedOut >= 2 && result.cancel.escalated === true && client.calls.escalate === 1, 'a cancel that never answers times out, is retried, then the Hub is stopped', JSON.stringify(result.cancel));
-    t.check(Date.now() - started < 5000, 'and the governor did not wait on it for ever', String(Date.now() - started));
+    const result = await Promise.race([governTask(client, { ...options, pollMs: 20, cancelTimeoutMs: 60, cancelGraceMs: 400 }), sleep(5000).then(() => null)]);
+    t.check(result !== null, 'a cancel that never answers does not hold the governor (it returned within 5 s)');
+    t.check(result?.cancel.timedOut >= 2 && result?.cancel.escalated === true && client.calls.escalate === 1, 'it times out, is retried, then the Hub is stopped', JSON.stringify(result?.cancel));
+  }
+  {
+    const clock = fakeTime();
+    const client = fakeClient({ snapshots: [{ settled: false, task: hubTask({ http: 1, priced: 0 }) }, { settled: true, task: hubTask({ http: 1, priced: 1, known: 0.001, state: 'cancelled' }) }] });
+    const result = await governTask(client, { ...options, ...clock, spentBeforeUsd: 0.035 });
+    t.equal([result.stoppedBy, client.calls.cancelAt], ['budget_exhausted', [1]], 'what the earlier tasks of the run spent counts: 0.035 before + one request in flight + one ceiling passes 0.05 at the first poll');
   }
   {
     const clock = fakeTime();
@@ -333,16 +353,20 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
   }
   {
     const clock = fakeTime();
-    const client = fakeClient({ snapshots: [{ settled: false, task: hubTask({ http: 4, priced: 4, known: 0.001, steps: 4 }) }, { settled: true, task: hubTask({ http: 4, priced: 4, known: 0.001, steps: 4, state: 'cancelled' }) }] });
+    const client = fakeClient({ snapshots: [
+      { settled: false, task: hubTask({ http: 3, priced: 3, known: 0.001, steps: 3 }) },
+      { settled: false, task: hubTask({ http: 4, priced: 4, known: 0.001, steps: 4 }) },
+      { settled: true, task: hubTask({ http: 4, priced: 4, known: 0.001, steps: 4, state: 'cancelled' }) },
+    ] });
     const result = await governTask(client, { ...options, ...clock, maxSteps: 3 });
-    t.equal([result.stoppedBy, client.calls.cancel], ['max_steps', 1], 'past its step limit the task is cancelled (max_steps)');
+    t.equal([result.stoppedBy, result.limitReached, client.calls.cancelAt], ['max_steps', 'max_steps', [2]], 'at its step limit the task goes on; one step past it, it is cancelled (max_steps)');
   }
   {
     const clock = fakeTime();
     const running = { settled: false, task: hubTask({ http: 1, priced: 1, known: 0.001, steps: 1 }) };
     const client = fakeClient({ snapshots: [running, running, running, running, running, { settled: true, task: hubTask({ http: 1, priced: 1, known: 0.001, state: 'cancelled' }) }] });
     const result = await governTask(client, { ...options, ...clock, pollMs: 500, maxMinutes: 1 / 60 });
-    t.equal(result.stoppedBy, 'max_minutes', 'past its minutes the task is cancelled (max_minutes)');
+    t.equal([result.stoppedBy, client.calls.cancelAt], ['max_minutes', [4]], 'at its minute limit (1 s, the third poll) the task goes on; past it (the fourth) it is cancelled (max_minutes)');
   }
   for (const bad of [0, -1, MAX_POLL_MS + 1, Number.NaN]) {
     const error = await governTask(fakeClient({ snapshots: [{ settled: true, task: hubTask() }] }), { ...options, pollMs: bad }).then(() => null, (failure) => failure);
@@ -411,7 +435,8 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
     if (problems.length) failedSeeds.push(`seed ${seed}: ${problems.join('; ')} (requests ${billed.length}, known ${result.spend.knownUsd}, charged ${result.spend.chargedRequests})`);
   }
   t.check(failedSeeds.length === 0, '20 seeded runs at a $0.05 cap: every one ends with budget_exhausted, within cap + one ceiling, never below the mock\'s bill', failedSeeds.join(' | '));
-  t.check(Math.max(...requestCounts) >= 3 && Math.min(...requestCounts) >= 1, 'the runs were not trivial (requests per run)', JSON.stringify(requestCounts));
+  // Two responses cost at most 2 x 0.008448 USD, so the third request always fits (0.0169 + two ceilings <= 0.05): every run reaches the mock 3 times or more.
+  t.check(Math.min(...requestCounts) >= 3, 'every run sent at least the three requests the cap leaves room for (no run was stopped early by another run\'s spend)', JSON.stringify(requestCounts));
   t.note(`seeded runs: ceiling ${ceiling.toFixed(6)} USD, requests per run ${JSON.stringify(requestCounts)}`);
 
   // ---- the runner, as a process ----------------------------------------------------------------------------------------------------------------
@@ -473,6 +498,15 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
   t.check(near(spenderLedger[2].usd, stopped.spentUsd) && spenderLedger[1].stoppedBy === 'budget_exhausted', 'the settlement is the reported spend; the task line says what stopped it', JSON.stringify(spenderLedger));
   t.check(/connection check/i.test(spender.text), 'the output says the connection check is not counted');
 
+  // The monthly cap is enforced inside the run too: a month that leaves 0.025 USD (after one ceiling of overshoot) stops the spender long before 0.05.
+  const ledgerRoom = ledgerFile('room');
+  appendLedger(ledgerRoom, { v: 1, type: 'settle', run: 'earlier', at: new Date().toISOString(), month: monthOf(new Date()), usd: Number((0.1 - 0.025 - ceiling).toFixed(8)) });
+  const reportRoom = path.join(work, 'report-room.json');
+  const roomRun = await runRunner(['--providers', exaggerated, '--tasks', spenderTasks, '--provider', 'mock', '--budget-usd', '0.05', '--monthly-cap-usd', '0.1', '--poll-ms', '50', '--ledger', ledgerRoom, '--output', reportRoom], gated);
+  t.must(roomRun.code === EXIT.BUDGET_STOP, 'a month with 0.025 USD of room: exit 3', roomRun.text.slice(-1500));
+  const room = JSON.parse(fs.readFileSync(reportRoom, 'utf8'));
+  t.check(near(room.effectiveCapUsd, 0.025) && room.spentUsd <= 0.025 + ceiling + 1e-9, 'the effective cap is what the month leaves, and the run ended within it plus one ceiling', JSON.stringify([room.effectiveCapUsd, room.spentUsd]));
+
   // A provider that omits usage: the upper-bound path, then a second and a third invocation on the same ledger (one monthly cap).
   mock.setScenario('budget-no-usage');
   const ledgerM = ledgerFile('monthly');
@@ -524,7 +558,7 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
   let offlineReport = null;
   try { offlineReport = JSON.parse(offline.stdout); } catch { /* reported below */ }
   t.equal([offline.code, offlineReport?.results?.find((row) => row.id === 'no-local-token-cap')?.actual], [0, 'unlimited'], 'run-offline.mjs still reports no-local-token-cap as unlimited');
-  const requestBudget = fs.readFileSync(path.join(HUB, 'lib', 'request-budget.mjs'), 'utf8');
+  const requestBudget = fs.readFileSync(path.join(HUB, 'lib', 'request-budget.mjs'), 'utf8').replace(/\r\n/g, '\n');
   t.check(requestBudget.includes('No ChatMCP-imposed request, token,\n// monetary, session-duration or multi-worker quota: the user/provider controls\n// consumption.'), 'lib/request-budget.mjs still says the Hub imposes no quota');
   const importers = [];
   const walk = (dir) => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) { const full = path.join(dir, item.name); if (item.isDirectory()) walk(full); else if (/\.m?js$/.test(item.name) && /live[\\/]lib[\\/]budget\.mjs|tests[\\/]live/.test(fs.readFileSync(full, 'utf8'))) importers.push(path.relative(HUB, full)); } };
