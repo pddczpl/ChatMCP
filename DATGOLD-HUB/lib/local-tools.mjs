@@ -22,6 +22,7 @@ import { diffHunks } from './line-diff.mjs';
 import { FILE_CHANGE_TOOLS, buildApprovalGuard, buildChangePreview, guardMatches, hideKeyRow, keyLines } from './approval-preview.mjs';
 import { maskSecrets } from './permissions.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
+import { commandSha256 } from './proof/ledger.mjs';
 import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
 import { getTokenStats, restoreTokenOutput, setTokenProfile } from './token-optimization.mjs';
@@ -1589,6 +1590,8 @@ export class LocalTools {
       structuredContent: {
         exitCode: result.exitCode, signal: result.signal, timedOut: result.timedOut, cancelled: result.cancelled, durationMs: result.durationMs,
         shell: result.shell, cwd: result.cwd, kind: analysis.risk.kind, truncated: result.truncated, lingering: result.lingering,
+        // docs/PROOF-LEDGER.md: the hash of the exact command, and of every byte each stream wrote (also when the text above is cut).
+        commandSha256: commandSha256(command), outputSha256: result.outputSha256, outputBytes: result.outputBytes,
       },
     };
   }
@@ -1736,7 +1739,7 @@ export class LocalTools {
     });
 
     this.backgroundTasks.set(taskId, taskRecord);
-    return ok(`Đã khởi động tác vụ nền [${taskId}]: $ ${command}`, { taskId, status: 'running' });
+    return ok(`Đã khởi động tác vụ nền [${taskId}]: $ ${command}`, { taskId, status: 'running', commandSha256: commandSha256(command) });
   }
 
   async #tasksList() {
@@ -1761,14 +1764,19 @@ export class LocalTools {
     if (!task || (task.workspaceRoot && task.workspaceRoot !== root)) {
       throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId} trong workspace này.`, 404);
     }
-    const out = task.stdout.result().text;
-    const err = task.stderr.result().text;
-    const combined = [out, err ? `--- stderr ---\n${err}` : ''].filter(Boolean).join('\n');
+    const stdout = task.stdout.result();
+    const stderr = task.stderr.result();
+    const combined = [stdout.text, stderr.text ? `--- stderr ---\n${stderr.text}` : ''].filter(Boolean).join('\n');
     return ok(`Tác vụ ${taskId}: ${task.status} (exitCode: ${task.exitCode ?? 'running'})\n--- Đầu ra ---\n${combined || '(chưa có đầu ra)'}`, {
       taskId: task.id,
       status: task.status,
       exitCode: task.exitCode,
       error: task.error || null,
+      // While the task runs these cover the bytes so far.
+      commandSha256: commandSha256(task.command),
+      outputSha256: { stdout: stdout.sha256, stderr: stderr.sha256 },
+      outputBytes: { stdout: stdout.totalBytes, stderr: stderr.totalBytes },
+      truncated: { stdout: stdout.truncated, stderr: stderr.truncated },
     });
   }
 
