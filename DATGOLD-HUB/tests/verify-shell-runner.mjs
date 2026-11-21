@@ -61,7 +61,8 @@ setTimeout(() => { console.error('FAIL: the shell-runner suite exceeded its own 
   const small = new BoundedCapture(1000);
   small.push(Buffer.from('hello '));
   small.push(Buffer.from('world'));
-  assert.deepEqual(small.result(), { text: 'hello world', truncated: false, omitted: 0, totalBytes: 11 });
+  // sha256 of every byte pushed (docs/PROOF-LEDGER.md); this is the well-known sha256 of "hello world".
+  assert.deepEqual(small.result(), { text: 'hello world', truncated: false, omitted: 0, totalBytes: 11, sha256: 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9' });
   const big = new BoundedCapture(1000);
   for (let i = 0; i < 500; i += 1) big.push(Buffer.from(`line-${String(i).padStart(4, '0')}\n`));
   const result = big.result();

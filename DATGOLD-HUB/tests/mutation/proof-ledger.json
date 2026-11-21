@@ -1,0 +1,787 @@
+{
+ "suite": "verify-proof-ledger.mjs",
+ "description": "The proof ledger of Proof-of-Done (plan task pod-16, docs/PROOF-LEDGER.md): the chain and verifyChain, the torn-tail repair, appends in turn, masking, the check receipt and its schema, the toolchain probe and recordCheck (lib/proof/ledger.mjs), and the command and output hashes of ShellRunner, run_command, tasks_run/tasks_status, test_run and build_run, judged by tests/verify-proof-ledger.mjs.",
+ "mutations": [
+  {
+   "name": "PL-no-hash-check",
+   "what": "a line whose bytes are not what its hash was made of is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (hash !== suffix[1]) return bad('hash_mismatch', 'the line is not the text its hash was made of');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-no-prev-check",
+   "what": "prev is not compared with the hash of the line before",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (entry.prev !== prev) return bad('prev_mismatch', 'prev is not the hash of the line before');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-no-seq-check",
+   "what": "seq is not compared with the line number",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (entry.seq !== expectedSeq) return bad('seq_mismatch', `seq ${JSON.stringify(entry.seq)} where ${expectedSeq} was expected`);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-no-version-check",
+   "what": "a line of another version is read as this one",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (entry.v !== LEDGER_VERSION) return bad(",
+     "new": "  if (false) return bad("
+    }
+   ]
+  },
+  {
+   "name": "PL-loose-time",
+   "what": "ts may be any text",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (typeof entry.ts !== 'string' || !TIMESTAMP.test(entry.ts) || Number.isNaN(Date.parse(entry.ts))) return bad(",
+     "new": "if (typeof entry.ts !== 'string') return bad("
+    }
+   ]
+  },
+  {
+   "name": "PL-unknown-type-as-bad-record",
+   "what": "an unknown record type is not reported as such",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (!RECORD_TYPES.includes(entry.type)) return bad('unknown_type',",
+     "new": "  if (false) return bad('unknown_type',"
+    }
+   ]
+  },
+  {
+   "name": "PL-no-record-check",
+   "what": "verifyChain does not validate the record of a line",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (problem) return bad('bad_record', problem);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-envelope-any-fields",
+   "what": "a line with other or more fields than the envelope is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (!isPlainObject(entry) || Object.keys(entry).join(',') !== ENVELOPE) return bad(",
+     "new": "if (!isPlainObject(entry)) return bad("
+    }
+   ]
+  },
+  {
+   "name": "PL-lossy-utf8",
+   "what": "a line that is not UTF-8 is decoded with replacement characters",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });",
+     "new": "const UTF8 = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });"
+    }
+   ]
+  },
+  {
+   "name": "PL-no-line-limit-on-read",
+   "what": "an over-long line is read like any other",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (line.length > MAX_LINE_BYTES) return bad('line_too_long',",
+     "new": "  if (false) return bad('line_too_long',"
+    }
+   ]
+  },
+  {
+   "name": "PL-torn-tail-is-a-line",
+   "what": "bytes without a line end are read as a committed line",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const end = bytes.indexOf(0x0a, offset);",
+     "new": "    const end = bytes.indexOf(0x0a, offset) === -1 ? bytes.length : bytes.indexOf(0x0a, offset);"
+    }
+   ]
+  },
+  {
+   "name": "PL-broken-at-last-good",
+   "what": "brokenAt names the last good line instead of the first bad one",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "brokenAt: seq + 1, reason: null",
+     "new": "brokenAt: seq, reason: null"
+    }
+   ]
+  },
+  {
+   "name": "PL-torn-is-broken",
+   "what": "a torn tail makes the ledger refuse appends instead of being repaired",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    if (report.reason !== 'torn_tail') { state.broken = report; return; }",
+     "new": "    { state.broken = report; return; }"
+    }
+   ]
+  },
+  {
+   "name": "PL-torn-not-recorded",
+   "what": "the dropped torn bytes leave no uncertain record",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    await this.#appendLine(state, 'uncertain', { reason: 'torn_tail', bytes: report.torn.bytes, sha256: report.torn.sha256 });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-torn-not-dropped",
+   "what": "the next line is written after the torn bytes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    await fs.truncate(this.file, report.verifiedBytes);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-no-queue",
+   "what": "appends to one file do not wait for each other",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const run = state.tail.then(() => job(state));",
+     "new": "    const run = job(state);"
+    }
+   ]
+  },
+  {
+   "name": "PL-never-reload",
+   "what": "a file changed by someone else is never read again",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    if (state.loaded && size === state.size && mtimeMs === state.mtimeMs) return;",
+     "new": "    if (state.loaded) return;"
+    }
+   ]
+  },
+  {
+   "name": "PL-size-only-reload",
+   "what": "an edit that keeps the size goes unnoticed",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    if (state.loaded && size === state.size && mtimeMs === state.mtimeMs) return;",
+     "new": "    if (state.loaded && size === state.size) return;"
+    }
+   ]
+  },
+  {
+   "name": "PL-no-mask",
+   "what": "records are written without masking",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "new": "    const masked = copy;"
+    }
+   ]
+  },
+  {
+   "name": "PL-mask-without-registered",
+   "what": "the registered secrets are not masked in records",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "new": "    const masked = maskDeep(copy, [], type === 'check' ? CHECK_DIGESTS : null);"
+    }
+   ]
+  },
+  {
+   "name": "PL-digests-masked",
+   "what": "a short registered secret inside a digest of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "new": "    const masked = maskDeep(copy, this.secrets() ?? [], null);"
+    }
+   ]
+  },
+  {
+   "name": "PL-digests-kept-in-every-type",
+   "what": "the digest paths of a check record are left unmasked in records of every type",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "new": "    const masked = maskDeep(copy, this.secrets() ?? [], CHECK_DIGESTS);"
+    }
+   ]
+  },
+  {
+   "name": "PL-keep-ignored",
+   "what": "the strings at the kept paths are masked all the same",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "keep?.has(JSON.stringify(at)) ? value : maskSecrets(value, secrets)",
+     "new": "maskSecrets(value, secrets)"
+    }
+   ]
+  },
+  {
+   "name": "PL-keep-by-last-key",
+   "what": "a kept path is matched by its last key only",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "maskDeep(item, secrets, keep, [...at, key])",
+     "new": "maskDeep(item, secrets, keep, [key])"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-commandSha256",
+   "what": "commandSha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['commandSha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-argsSha256",
+   "what": "argsSha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['argsSha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-stdout-sha256",
+   "what": "stdout.sha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['stdout', 'sha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-stderr-sha256",
+   "what": "stderr.sha256 of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['stderr', 'sha256']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeBefore-tree",
+   "what": "treeBefore.tree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeBefore', 'tree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeBefore-rawTree",
+   "what": "treeBefore.rawTree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeBefore', 'rawTree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeAfter-tree",
+   "what": "treeAfter.tree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeAfter', 'tree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-digest-masked-treeAfter-rawTree",
+   "what": "treeAfter.rawTree of a check record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "['treeAfter', 'rawTree']",
+     "new": "['-']"
+    }
+   ]
+  },
+  {
+   "name": "PL-command-hash-any-type",
+   "what": "a command hash in an array passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "[record.commandSha256, record.argsSha256].some((hash) => typeof hash !== 'string' || !HEX64.test(hash))",
+     "new": "[record.commandSha256, record.argsSha256].some((hash) => !HEX64.test(hash))"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-unchecked",
+   "what": "a tree id of any kind passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    for (const id of ['tree', 'rawTree']) if (ref[id] !== null && (typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))) return `${name}.${id} is null or a Git object id in hex`;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-raw-tree-unchecked",
+   "what": "rawTree of any kind passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    for (const id of ['tree', 'rawTree']) if",
+     "new": "    for (const id of ['tree']) if"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-not-null",
+   "what": "a failed snapshot (no tree id) fails the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (ref[id] !== null && (typeof ref[id]",
+     "new": "if ((typeof ref[id]"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-any-type",
+   "what": "a tree id in an array passes the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "(typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))",
+     "new": "(!TREE_ID.test(ref[id]))"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-sha1-only",
+   "what": "a sha256 Git object id fails the schema",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const TREE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;",
+     "new": "const TREE_ID = /^(?:[0-9a-f]{40})$/;"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-id-unanchored",
+   "what": "a tree id passes when it only holds 40 hex digits",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const TREE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;",
+     "new": "const TREE_ID = /(?:[0-9a-f]{40}|[0-9a-f]{64})/;"
+    }
+   ]
+  },
+  {
+   "name": "PL-command-not-recut",
+   "what": "a command made longer by masking is not cut again",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "        if (cut.cut) Object.assign(masked, { command: cut.text, commandTruncated: true });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-recut-flag",
+   "what": "a command cut again keeps commandTruncated false",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "Object.assign(masked, { command: cut.text, commandTruncated: true });",
+     "new": "Object.assign(masked, { command: cut.text });"
+    }
+   ]
+  },
+  {
+   "name": "PL-recut-any-command",
+   "what": "a command that is not text is cut as if it were",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "      if (typeof masked.command === 'string') {",
+     "new": "      if (true) {"
+    }
+   ]
+  },
+  {
+   "name": "PL-no-json-check",
+   "what": "a record that is not JSON (a BigInt) is not refused as a bad record",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    try { copy = JSON.parse(JSON.stringify(record)); } catch (error) { throw fault('ledger_bad_record', `the record is not JSON: ${error.message}`); }",
+     "new": "    copy = record;"
+    }
+   ]
+  },
+  {
+   "name": "PL-no-size-limit",
+   "what": "a line over 64 KiB is written",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    if (line.length - 1 > MAX_LINE_BYTES) throw fault(",
+     "new": "    if (false) throw fault("
+    }
+   ]
+  },
+  {
+   "name": "PL-no-validate-on-append",
+   "what": "append does not validate the record",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    if (problem) throw fault('ledger_bad_record', problem);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-command-unmasked",
+   "what": "the receipt keeps the command as it ran",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  const shown = cutChars(maskSecrets(command, secrets), COMMAND_CHARS);",
+     "new": "  const shown = cutChars(command, COMMAND_CHARS);"
+    }
+   ]
+  },
+  {
+   "name": "PL-preview-unmasked",
+   "what": "the preview is not masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  const preview = cutUtf8(maskSecrets(String(result[name] ?? ''), secrets), PREVIEW_BYTES);",
+     "new": "  const preview = cutUtf8(String(result[name] ?? ''), PREVIEW_BYTES);"
+    }
+   ]
+  },
+  {
+   "name": "PL-preview-mid-character",
+   "what": "the preview is cut inside a character",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-preview-flag",
+   "what": "previewTruncated is always false",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "previewTruncated: preview.cut };",
+     "new": "previewTruncated: false };"
+    }
+   ]
+  },
+  {
+   "name": "PL-capture-flag",
+   "what": "truncated is always false",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "truncated: result.truncated?.[name] === true,",
+     "new": "truncated: false,"
+    }
+   ]
+  },
+  {
+   "name": "PL-command-flag",
+   "what": "commandTruncated is always false",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    commandTruncated: shown.cut,",
+     "new": "    commandTruncated: false,"
+    }
+   ]
+  },
+  {
+   "name": "PL-hash-of-redacted-command",
+   "what": "commandSha256 is of the masked command",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    commandSha256: commandSha256(command),",
+     "new": "    commandSha256: commandSha256(shown.text),"
+    }
+   ]
+  },
+  {
+   "name": "PL-args-key-order",
+   "what": "argsSha256 hashes the fields in another order than documented",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "JSON.stringify({ command: String(command), cwd: String(cwd), shell: String(shell) })",
+     "new": "JSON.stringify({ cwd: String(cwd), command: String(command), shell: String(shell) })"
+    }
+   ]
+  },
+  {
+   "name": "PL-extra-fields-allowed",
+   "what": "a check record may carry fields beyond the schema (output text)",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  return keys.length === fields.length && fields.every((field) => Object.hasOwn(value, field));",
+     "new": "  return fields.every((field) => Object.hasOwn(value, field));"
+    }
+   ]
+  },
+  {
+   "name": "PL-preview-size-unchecked",
+   "what": "a check record with a preview over 2 KiB is valid",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "|| Buffer.byteLength(stream.preview) > PREVIEW_BYTES) return",
+     "new": ") return"
+    }
+   ]
+  },
+  {
+   "name": "PL-stream-hash-unchecked",
+   "what": "a stream sha256 that is not 64 hex digits is valid",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (typeof stream.sha256 !== 'string' || !HEX64.test(stream.sha256)) return 'sha256 is 64 hex digits';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-relative-path-entry",
+   "what": "a relative PATH entry may supply a toolchain program",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    if (!folder || !path.isAbsolute(folder)) continue;",
+     "new": "    if (!folder) continue;"
+    }
+   ]
+  },
+  {
+   "name": "PL-no-toolchain-cache",
+   "what": "the toolchain is probed on every call",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "    if (!this.cache.has(key)) this.cache.set(key, this.#probe(folder));",
+     "new": "    this.cache.set(key, this.#probe(folder));"
+    }
+   ]
+  },
+  {
+   "name": "PL-probe-env-unscrubbed",
+   "what": "the version probes get the Hub environment with its secrets",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const env = { ...scrubEnv(this.env), DOTNET_NOLOGO",
+     "new": "const env = { ...this.env, DOTNET_NOLOGO"
+    }
+   ]
+  },
+  {
+   "name": "PL-device-task-id",
+   "what": "a task id that names a Windows device is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "|| DEVICE_NAME.test(taskId)) {",
+     "new": ") {"
+    }
+   ]
+  },
+  {
+   "name": "PL-loose-task-id",
+   "what": "any task id up to 128 characters is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;",
+     "new": "const TASK_ID = /^.{1,128}$/;"
+    }
+   ]
+  },
+  {
+   "name": "PL-whole-snapshot",
+   "what": "the receipt keeps the whole snapshot instead of the tree reference",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  return Object.fromEntries(TREE_FIELDS.map((field) => [field, snapshot[field] ?? null]));",
+     "new": "  return snapshot;"
+    }
+   ]
+  },
+  {
+   "name": "PL-no-tree-before",
+   "what": "recordCheck takes no snapshot before the command",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  const treeBefore = await tree();",
+     "new": "  const treeBefore = null;"
+    }
+   ]
+  },
+  {
+   "name": "SR-hash-nothing",
+   "what": "BoundedCapture hashes no byte",
+   "patches": [
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "    this.hash.update(chunk);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "SR-hash-once",
+   "what": "BoundedCapture can report its hash only once",
+   "patches": [
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "    const sha256 = this.hash.copy().digest('hex');",
+     "new": "    const sha256 = this.hash.digest('hex');"
+    }
+   ]
+  },
+  {
+   "name": "SR-stderr-hash",
+   "what": "run() reports the stdout hash for stderr",
+   "patches": [
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "      outputSha256: { stdout: out.sha256, stderr: err.sha256 },",
+     "new": "      outputSha256: { stdout: out.sha256, stderr: out.sha256 },"
+    }
+   ]
+  },
+  {
+   "name": "LT-run-command-no-hashes",
+   "what": "run_command reports no command or output hash",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "        commandSha256: commandSha256(command), outputSha256: result.outputSha256, outputBytes: result.outputBytes,",
+     "new": "        outputBytes: result.outputBytes,"
+    }
+   ]
+  },
+  {
+   "name": "LT-tasks-status-stderr-hash",
+   "what": "tasks_status reports the stdout hash for stderr",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "      outputSha256: { stdout: stdout.sha256, stderr: stderr.sha256 },",
+     "new": "      outputSha256: { stdout: stdout.sha256, stderr: stdout.sha256 },"
+    }
+   ]
+  },
+  {
+   "name": "LT-tasks-run-no-hash",
+   "what": "tasks_run reports no command hash",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "{ taskId, status: 'running', commandSha256: commandSha256(command) }",
+     "new": "{ taskId, status: 'running' }"
+    }
+   ]
+  },
+  {
+   "name": "AC-test-run-no-hash",
+   "what": "test_run reports no output hash",
+   "patches": [
+    {
+     "file": "lib/agent-capabilities.mjs",
+     "old": "outputSha256:result.outputSha256,outputBytes:result.outputBytes};",
+     "new": "outputSha256:null,outputBytes:result.outputBytes};"
+    }
+   ]
+  },
+  {
+   "name": "WE-build-run-wrong-command-hash",
+   "what": "build_run hashes the runner name instead of the command",
+   "patches": [
+    {
+     "file": "lib/workflow-extensions.mjs",
+     "old": "commandSha256:commandSha256(choice.command),",
+     "new": "commandSha256:commandSha256(runner),"
+    }
+   ]
+  }
+ ]
+}
