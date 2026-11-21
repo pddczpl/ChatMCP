@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Folder, FolderOpen, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { addAndChooseWorkspace } from '@/lib/workspace-choice';
 import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -12,7 +13,7 @@ import { AgentOptionsCard } from './AgentOptionsCard';
 
 /** The folder the agent works in. */
 export function WorkspaceSection() {
-  const { showToast, setOnboardingOpen, selectedWorkspacePath, setSelectedWorkspacePath, closeSettings } = useAppStore();
+  const { showToast, setOnboardingOpen, selectedWorkspacePath, closeSettings } = useAppStore();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
@@ -30,12 +31,10 @@ export function WorkspaceSection() {
     try {
       const res = await api.browseWorkspace(currentWs || null);
       if (res.path) {
-        const added = await api.addWorkspace(res.path);
-        await api.activateWorkspace(added.workspace.path);
-        setWsInput(added.workspace.path);
-        setSelectedWorkspacePath(added.workspace.path);
+        const added = await addAndChooseWorkspace(queryClient, res.path);
+        setWsInput(added.path);
         await queryClient.invalidateQueries({ queryKey: ['hubState'] });
-        showToast(`${t('workspace_changed_toast')}: ${added.workspace.path}`, 'success');
+        showToast(`${t('workspace_changed_toast')}: ${added.path}`, 'success');
       }
     } catch (err: any) {
       showToast(err.message || t('ws_browse_failed'), 'error');
@@ -46,12 +45,10 @@ export function WorkspaceSection() {
     if (!wsInput.trim()) return;
     setApplyingWs(true);
     try {
-      const added = await api.addWorkspace(wsInput.trim());
-      await api.activateWorkspace(added.workspace.path);
-      setWsInput(added.workspace.path);
-      setSelectedWorkspacePath(added.workspace.path);
+      const added = await addAndChooseWorkspace(queryClient, wsInput.trim());
+      setWsInput(added.path);
       await queryClient.invalidateQueries({ queryKey: ['hubState'] });
-      showToast(`${t('workspace_changed_toast')}: ${added.workspace.path}`, 'success');
+      showToast(`${t('workspace_changed_toast')}: ${added.path}`, 'success');
     } catch (err: any) {
       showToast(err.message || t('ws_change_failed'), 'error');
     } finally {

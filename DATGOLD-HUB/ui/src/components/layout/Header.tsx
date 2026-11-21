@@ -8,6 +8,7 @@ import { StatusDot } from '@/components/ui/StatusDot';
 import { useTranslation } from '@/lib/i18n';
 import { BrandMark } from './BrandMark';
 import { GitWorkspacePicker } from './GitWorkspacePicker';
+import { addAndChooseWorkspace } from '@/lib/workspace-choice';
 
 /**
  * The top bar holds only what a person uses all the time: panels, where they are (workspace and branch), search, theme and
@@ -28,7 +29,6 @@ export function Header() {
     openSettings,
     showToast,
     selectedWorkspacePath,
-    setSelectedWorkspacePath,
     setSelectedTaskId,
   } = useAppStore();
 
@@ -45,9 +45,7 @@ export function Header() {
     try {
       const res = await api.browseWorkspace(noWorkspace ? null : workspacePath);
       if (res.path) {
-        const added = await api.addWorkspace(res.path);
-        await api.activateWorkspace(added.workspace.path);
-        setSelectedWorkspacePath(added.workspace.path);
+        await addAndChooseWorkspace(queryClient, res.path);
         setSelectedTaskId('');
         await queryClient.invalidateQueries({ queryKey: ['hubState'] });
       }
