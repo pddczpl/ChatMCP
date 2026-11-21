@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BudgetRefusal, closeRun, DEFAULT_LEDGER, DEFAULT_POLL_MS, governTask, MAX_POLL_MS, openRun, recordTask, requestCeiling } from './live/lib/budget.mjs';
+import { BudgetRefusal, closeRun, DEFAULT_LEDGER, DEFAULT_POLL_MS, governTask, MAX_POLL_MS, openRun, recordTask, requestCeiling, runTotal } from './live/lib/budget.mjs';
 import { ALLOWED_KEY_ENVS, configureConnection, forwardedKey, fullAccess, hubClient, providerKeyVariables, startLiveHub, startTask, upsertProfile } from './live/lib/session.mjs';
 
 const TESTS = path.dirname(fileURLToPath(import.meta.url));
@@ -171,11 +171,11 @@ const git = (...args) => { const r = spawnSync('git', args, { cwd: REPO, encodin
  * (POST /api/tasks/start ignores maxSteps and maxMinutes), so the governor enforces both, with the cap: it cancels the task (the step that was running when
  * the limit was seen may finish). Every approval the Hub still asks for (Full Access asks about a few tools, such as a push) is denied.
  */
-async function runTask(hub, client, task, { capUsd, spentBeforeUsd, ceilingUsd, pollMs, earlierTaskIds }) {
+async function runTask(hub, client, task, { capUsd, spentByTask, ceilingUsd, pollMs }) {
   const started = Date.now();
   const created = await startTask(hub, task.prompt);
   const outcome = await governTask(client, {
-    taskId: created.id, ignoreTaskIds: earlierTaskIds, capUsd, spentBeforeUsd, ceilingUsd, maxSteps: task.maxSteps, maxMinutes: task.maxMinutes, pollMs,
+    taskId: created.id, spentByTask, capUsd, ceilingUsd, maxSteps: task.maxSteps, maxMinutes: task.maxMinutes, pollMs,
   });
   const full = outcome.final ?? {};
   return {
@@ -184,7 +184,7 @@ async function runTask(hub, client, task, { capUsd, spentBeforeUsd, ceilingUsd, 
       id: task.id, hubTaskId: created.id, state: full.state ?? null, errorCode: full.errorCode ?? null, steps: full.steps ?? null, toolCalls: full.toolCalls ?? null,
       maxSteps: task.maxSteps, maxMinutes: task.maxMinutes, limitReached: outcome.limitReached, deniedApprovals: outcome.denied,
       effectiveProfile: full.effectiveProfile?.id ?? null, usage: full.usage ?? null, modelCost: full.modelCost ?? null,
-      spend: outcome.spend, cancel: outcome.cancel, durationMs: Date.now() - started,
+      spend: outcome.spend, othersUsd: outcome.othersUsd, cancel: outcome.cancel, durationMs: Date.now() - started,
     },
   };
 }
@@ -214,7 +214,7 @@ export async function runLive(gates, { log = console.log, warn = console.error }
     startedAt: new Date().toISOString(), completedAt: null,
     provider: { id: options.provider, preset: entry.preset, protocol: entry.protocol, apiOrigin: new URL(entry.apiBaseUrl).origin, model: entry.model, contextWindow: entry.contextWindow ?? null, maxOutput: entry.maxOutput ?? null, ratesUsdPerMillion: rates, priceSource: gates.catalogue.source ?? null },
     budgetUsd: options.budgetUsd, monthlyCapUsd: options.monthlyCapUsd, effectiveCapUsd: null, ceiling, estimate: null, warnings: [],
-    spentUsd: 0, spentBasis: 'ledger', chargedRequests: 0,
+    spentUsd: 0, spentBasis: 'ledger', chargedRequests: 0, hubTasks: [],
     budgetNote: 'The spend governor (tests/live/lib/budget.mjs): a request without a priced response is counted at the ceiling of one request, so a figure with such requests is an upper bound; the run is cancelled when spent + one ceiling passes the cap, and ends within cap + one ceiling while no more than one response comes back between two polls. Provider-side retries and the Hub\'s connection check are not seen: the provider-side cap is the backstop.',
     uncounted: null, ledger: null, stoppedBy: null, hub: null, preflight: null, tasks: [], error: null,
   };
@@ -241,10 +241,16 @@ export async function runLive(gates, { log = console.log, warn = console.error }
   let code = EXIT.TASK_FAILED;
   // A task under way when the run fails has an unknown spend: the run then settles at its whole reservation.
   let taskUnderWay = false;
-  const add = (spend) => {
-    report.spentUsd = Number((report.spentUsd + spend.usd).toFixed(8));
-    report.chargedRequests += spend.chargedRequests;
-    if (spend.basis === 'upper_bound') report.spentBasis = 'upper_bound';
+  // Every Hub task of the run (the runner's tasks and the subagents they started), once, at its last value: the report, the task lines and the settlement
+  // all come from it.
+  let runSpends = new Map();
+  const account = (spends) => {
+    runSpends = spends;
+    const items = [...spends];
+    report.hubTasks = items.map(([id, spend]) => ({ id, usd: spend.usd, knownUsd: spend.knownUsd, chargedRequests: spend.chargedRequests, basis: spend.basis }));
+    report.spentUsd = runTotal(spends);
+    report.chargedRequests = items.reduce((sum, [, spend]) => sum + spend.chargedRequests, 0);
+    report.spentBasis = items.some(([, spend]) => spend.basis === 'upper_bound') ? 'upper_bound' : 'ledger';
   };
   try {
     await writeProject(project, tasks[0].files);
@@ -262,19 +268,23 @@ export async function runLive(gates, { log = console.log, warn = console.error }
     await upsertProfile(hub, `live-${options.provider}`.slice(0, 40), entry, rates);
     await fullAccess(hub);
     const client = hubClient(hub);
-    const earlierTaskIds = [];
     for (const [index, task] of tasks.entries()) {
       if (index > 0) await writeProject(project, task.files);
       log(`RUN ${task.id} (maxSteps ${task.maxSteps}, maxMinutes ${task.maxMinutes}; cap ${usdText(run.effectiveCapUsd)}, ${usdText(report.spentUsd)} spent)`);
       taskUnderWay = true;
-      const { outcome, record } = await runTask(hub, client, task, { capUsd: run.effectiveCapUsd, spentBeforeUsd: report.spentUsd, ceilingUsd: ceiling.usd, pollMs: options.pollMs, earlierTaskIds });
+      const spentBefore = report.spentUsd;
+      const earlierIds = new Set(runSpends.keys());
+      const { outcome, record } = await runTask(hub, client, task, { capUsd: run.effectiveCapUsd, spentByTask: runSpends, ceilingUsd: ceiling.usd, pollMs: options.pollMs });
       taskUnderWay = false;
-      earlierTaskIds.push(record.hubTaskId);
       report.tasks.push(record);
-      add(outcome.spend);
+      account(outcome.spends);
+      // The line of a task is what the run's figure grew by while it ran: its own spend and its subagents' (the Hub tasks that came up meanwhile).
+      const window = [...outcome.spends].filter(([id]) => !earlierIds.has(id)).map(([, spend]) => spend);
       recordTask(options.ledger, {
-        runId, month: run.month, provider: options.provider, model: entry.model, task: task.id, hubTaskId: record.hubTaskId, usd: outcome.spend.usd, knownUsd: outcome.spend.knownUsd,
-        basis: outcome.spend.basis, chargedRequests: outcome.spend.chargedRequests, httpRequests: outcome.spend.httpRequests, stoppedBy: outcome.stoppedBy, state: record.state,
+        runId, month: run.month, provider: options.provider, model: entry.model, task: task.id, hubTaskId: record.hubTaskId,
+        usd: Math.max(0, Number((report.spentUsd - spentBefore).toFixed(8))), ownUsd: outcome.spend.usd, othersUsd: outcome.othersUsd, knownUsd: outcome.spend.knownUsd,
+        basis: window.some((spend) => spend.basis === 'upper_bound') ? 'upper_bound' : 'ledger',
+        chargedRequests: window.reduce((sum, spend) => sum + spend.chargedRequests, 0), httpRequests: outcome.spend.httpRequests, stoppedBy: outcome.stoppedBy, state: record.state,
       });
       log(`${String(record.state ?? 'unknown').toUpperCase()} ${task.id} ${record.steps ?? '?'} steps, ${spendText(report)} so far`);
       if (outcome.cancel.escalated) {

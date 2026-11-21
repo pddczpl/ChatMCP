@@ -373,6 +373,7 @@ await runScenario({ name: 'live-budget', summary: 'spend governor: ceiling, uppe
     const client = fakeClient({ snapshots: [{ settled: true, task: hubTask({ http: 1, priced: 1, known: 0.002, state: 'completed' }), others: [{ ...hubTask({ http: 1, priced: 1, known: 0.01, state: 'completed' }), id: 'earlier-1', settled: true }] }] });
     const result = await governTask(client, { ...options, ...clock, spentByTask: new Map([['earlier-1', earlierSpend]]) });
     t.check(near(result.totalUsd, 0.012) && result.spends.size === 2, 'an earlier task of the run, listed again by the Hub, is counted once', JSON.stringify([result.totalUsd, result.spends?.size]));
+    t.equal(result.othersUsd, 0, 'and it is not reported as a subagent of this task');
   }
   {
     const clock = fakeTime();

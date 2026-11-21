@@ -9,6 +9,8 @@
 //   - SPEND of a task: the Hub's cost ledger (modelCost.knownSubtotalUsd) for the responses it priced, plus the ceiling for every request the Hub counted
 //     (usage.httpRequests) that has no priced response: in flight, failed, retried, without usage, or without a price. A figure with such requests in it is
 //     an UPPER BOUND and says so (basis 'upper_bound'); it is never presented as a bill.
+//   - the RUN's figure: every Hub task once, at its last value: the runner's tasks and the subagents they start (spawn_agent, spawn_workflow), which the
+//     Hub lists in /api/state with their own usage and cost ledger. The governor waits for those subagents before the next task and cancels them too.
 //   - the STOP rule: spent + one ceiling > cap -> cancel the task (POST /api/tasks/cancel) and end the run with 'budget_exhausted'. A request in flight is
 //     already in "spent" at the ceiling, so the rule leaves room for it and for the next one: the run ends within cap + one ceiling as long as no more than
 //     one response comes back between two polls (each poll is at most MAX_POLL_MS apart). It cannot see what the provider does on its side (its own
@@ -237,9 +239,12 @@ export function openRun(file, { runId, now = new Date(), provider, model, tasks,
   };
 }
 
-/** One line per task of a run: its figure, whether that is an upper bound, and what stopped it (the calibration reads these). */
-export function recordTask(file, { runId, month, now = new Date(), provider, model, task, hubTaskId = null, usd: spent, knownUsd = null, basis, chargedRequests = 0, httpRequests = null, stoppedBy = null, state = null }) {
-  appendLedger(file, { v: LEDGER_VERSION, type: 'task', run: runId, at: now.toISOString(), month, provider, model, task, hubTaskId, usd: spent, knownUsd, basis, chargedRequests, httpRequests, stoppedBy: stoppedBy ?? null, state });
+/**
+ * One line per task of a run: what the run's figure grew by while it ran (its own spend and its subagents', `ownUsd` and `othersUsd`), whether that is an
+ * upper bound, and what stopped it (the calibration reads these).
+ */
+export function recordTask(file, { runId, month, now = new Date(), provider, model, task, hubTaskId = null, usd: spent, ownUsd = null, othersUsd = null, knownUsd = null, basis, chargedRequests = 0, httpRequests = null, stoppedBy = null, state = null }) {
+  appendLedger(file, { v: LEDGER_VERSION, type: 'task', run: runId, at: now.toISOString(), month, provider, model, task, hubTaskId, usd: spent, ownUsd, othersUsd, knownUsd, basis, chargedRequests, httpRequests, stoppedBy: stoppedBy ?? null, state });
 }
 
 /** The settlement of a run: from then on the month counts this figure for it, not its reservation. */
@@ -260,69 +265,93 @@ async function within(work, ms) {
   } finally { clearTimeout(timer); }
 }
 
+const NO_SPEND = Object.freeze({ usd: 0, knownUsd: 0, httpRequests: 0, pricedResponses: 0, chargedRequests: 0, basis: 'ledger' });
+
+/** The figure of a run: every Hub task once, at its last value. */
+export const runTotal = (spends) => money([...spends.values()].reduce((sum, spend) => sum + spend.usd, 0));
+
 /**
- * Watches one task of the runner's Hub until it settles, through `client` (tests/live/lib/session.mjs hubClient, or a fake):
- *   observe(id) -> { task, settled, pending, others }   the task (GET /api/tasks/:id), whether the Hub let go of it, its approval requests, the other tasks
+ * Watches one task of the runner's Hub, and every other task of the Hub it starts (subagents of spawn_agent / spawn_workflow), until all have settled,
+ * through `client` (tests/live/lib/session.mjs hubClient, or a fake):
+ *   observe(id) -> { task, settled, pending, others }   the task (GET /api/tasks/:id), whether the Hub let go of it, the approval requests, the other
+ *                                                        tasks of the Hub (each with `settled`)
  *   deny(requestId), cancel(id) -> { ok, status }, final(id) -> task, escalate()   (escalate stops the Hub itself)
- * Every poll: deny the approvals the Hub still asks for (nobody is there to answer), add up the spend (this task, plus other tasks of the Hub that are not
- * in `ignoreTaskIds`, such as subagents), and cancel the task when the stop rule or its step or minute limit says so. A cancel the Hub refuses, or that
- * does not answer within `cancelTimeoutMs`, is tried again at the next poll; `cancelGraceMs` after the first attempt the Hub is stopped, and the figure
- * is then the last look plus one more request at the ceiling.
+ * The spend is kept per Hub task, at its last value: `spentByTask` holds the run's earlier tasks (and their subagents), so a task the Hub lists again is
+ * counted once; tasks in `ignoreTaskIds` are not the run's and are neither counted nor waited for. Every poll: deny the approvals the Hub still asks for
+ * (nobody is there to answer), add up the run (spentBeforeUsd + every task once), and once the stop rule or the task's step or minute limit says so,
+ * cancel the task and every other task of the run that is still running. A cancel the Hub refuses, or that does not answer within `cancelTimeoutMs`, is
+ * tried again at the next poll; `cancelGraceMs` after the first attempt the Hub is stopped, and every task that was still running is charged one more
+ * request at the ceiling (one may have started after the last look).
  */
 export async function governTask(client, {
-  taskId, capUsd, spentBeforeUsd = 0, ceilingUsd, maxSteps = Infinity, maxMinutes = Infinity, ignoreTaskIds = [],
+  taskId, capUsd, spentBeforeUsd = 0, ceilingUsd, maxSteps = Infinity, maxMinutes = Infinity, ignoreTaskIds = [], spentByTask = new Map(),
   pollMs = DEFAULT_POLL_MS, cancelTimeoutMs = CANCEL_TIMEOUT_MS, cancelGraceMs = CANCEL_GRACE_MS,
   now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), onPoll = null,
 }) {
   if (!Number.isFinite(pollMs) || pollMs < 1 || pollMs > MAX_POLL_MS) throw new RangeError(`the poll interval must be from 1 to ${MAX_POLL_MS} ms, not ${pollMs}`);
   checkCapUsd(capUsd, 'the cap');
   if (!price(ceilingUsd)) throw new RangeError(`the ceiling must be 0 USD or more, not ${String(ceilingUsd)}`);
-  const ignored = new Set([taskId, ...ignoreTaskIds]);
+  const ignored = new Set(ignoreTaskIds);
+  const spends = new Map(spentByTask);
+  const earlier = new Set(spentByTask.keys());
   const started = now();
   const cancel = { attempts: 0, refused: 0, timedOut: 0, accepted: false, escalated: false };
+  const accepted = new Set();
   let firstCancelAt = null;
   let budgetStop = null;
   let limit = null;
   let last = null;
   let denied = 0;
-  let othersUsd = 0;
-  const othersSpend = (others = []) => others
-    .filter((item) => item && !ignored.has(item.id) && Number.isSafeInteger(item.usage?.httpRequests))
-    .reduce((sum, item) => sum + taskSpend(item, ceilingUsd).usd, 0);
-  const result = (spend, final) => ({
-    stoppedBy: budgetStop ?? limit, limitReached: limit, spend, othersUsd: money(othersUsd), final, steps: final?.steps ?? null, state: final?.state ?? null, denied, cancel: { ...cancel },
+  const total = () => money(spentBeforeUsd + runTotal(spends));
+  // What the other tasks that came up while this one ran (its subagents) spent: the run's earlier tasks are not in it.
+  const othersUsd = () => runTotal(new Map([...spends].filter(([id]) => id !== taskId && !earlier.has(id))));
+  const result = (final) => ({
+    stoppedBy: budgetStop ?? limit, limitReached: limit, spend: spends.get(taskId) ?? NO_SPEND, spends: new Map(spends), totalUsd: total(), othersUsd: othersUsd(),
+    final, steps: final?.steps ?? null, state: final?.state ?? null, denied, cancel: { ...cancel, accepted: accepted.has(taskId) },
   });
   for (;;) {
     const seen = await client.observe(taskId);
     for (const request of seen.pending ?? []) { await client.deny(request.id); denied += 1; }
     if (seen.task) last = seen.task;
-    othersUsd = othersSpend(seen.others);
-    const spend = last ? taskSpend(last, ceilingUsd) : null;
-    onPoll?.({ task: last, spend, settled: Boolean(seen.settled), othersUsd });
-    if (seen.settled) {
-      const final = (await client.final(taskId)) ?? last;
-      const finalSpend = taskSpend(final, ceilingUsd);
-      // A task that settled between two polls may have taken the last of the cap: the next task must not start if one more request does not fit.
-      budgetStop ??= shouldStop({ spentUsd: spentBeforeUsd + othersUsd + finalSpend.usd, ceilingUsd, capUsd });
-      return result(finalSpend, final);
+    const running = [];
+    for (const other of seen.others ?? []) {
+      if (!other || other.id === taskId || ignored.has(other.id)) continue;
+      if (Number.isSafeInteger(other.usage?.httpRequests)) spends.set(other.id, taskSpend(other, ceilingUsd));
+      if (other.settled !== true) running.push(other.id);
     }
-    budgetStop ??= shouldStop({ spentUsd: spentBeforeUsd + othersUsd + (spend?.usd ?? 0), ceilingUsd, capUsd });
+    if (last) spends.set(taskId, taskSpend(last, ceilingUsd));
+    onPoll?.({ task: last, spend: spends.get(taskId) ?? null, settled: Boolean(seen.settled), othersUsd: othersUsd(), totalUsd: total() });
+    if (seen.settled && running.length === 0) {
+      const final = (await client.final(taskId)) ?? last;
+      if (final) spends.set(taskId, taskSpend(final, ceilingUsd));
+      // A task that settled between two polls may have taken the last of the cap: the next task must not start if one more request does not fit.
+      budgetStop = budgetStop ?? shouldStop({ spentUsd: total(), ceilingUsd, capUsd });
+      return result(final);
+    }
+    budgetStop ??= shouldStop({ spentUsd: total(), ceilingUsd, capUsd });
     if (!limit && (last?.steps ?? 0) > maxSteps) limit = 'max_steps';
     if (!limit && now() - started > maxMinutes * 60_000) limit = 'max_minutes';
-    if ((budgetStop || limit) && !cancel.accepted) {
+    const stillRunning = [...(seen.settled ? [] : [taskId]), ...running];
+    const targets = stillRunning.filter((id) => !accepted.has(id));
+    if ((budgetStop || limit) && targets.length) {
       if (firstCancelAt === null) firstCancelAt = now();
       else if (now() - firstCancelAt > cancelGraceMs) {
         client.escalate();
         cancel.escalated = true;
-        const lastSpend = last ? taskSpend(last, ceilingUsd) : { usd: 0, knownUsd: 0, httpRequests: 0, pricedResponses: 0, chargedRequests: 0 };
-        // Stopped by force: a request may have started after the last look.
-        return result({ ...lastSpend, usd: money(lastSpend.usd + ceilingUsd), chargedRequests: lastSpend.chargedRequests + 1, basis: 'upper_bound' }, last);
+        // Stopped by force: in every task still running, a request may have started after the last look.
+        for (const id of stillRunning) {
+          const spend = spends.get(id) ?? NO_SPEND;
+          spends.set(id, { ...spend, usd: money(spend.usd + ceilingUsd), chargedRequests: spend.chargedRequests + 1, basis: 'upper_bound' });
+        }
+        return result(last);
       }
-      cancel.attempts += 1;
-      const outcome = await within(() => client.cancel(taskId), cancelTimeoutMs);
-      if (outcome === TIMED_OUT) cancel.timedOut += 1;
-      else if (outcome.value?.ok === true) cancel.accepted = true;
-      else cancel.refused += 1;
+      for (const id of targets) {
+        cancel.attempts += 1;
+        const outcome = await within(() => client.cancel(id), cancelTimeoutMs);
+        if (outcome === TIMED_OUT) cancel.timedOut += 1;
+        else if (outcome.value?.ok === true) accepted.add(id);
+        else cancel.refused += 1;
+      }
     }
     await sleep(pollMs);
   }
