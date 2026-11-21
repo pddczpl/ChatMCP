@@ -74,12 +74,12 @@ const SUITES = {
 };
 for (const [name, source] of Object.entries(SUITES)) await fs.writeFile(path.join(suites, name), source, 'utf8');
 
-function run(args, extraEnv = {}) {
+function run(args, extraEnv = {}, directory = suites) {
   const id = Math.random().toString(16).slice(2);
   const json = path.join(root, `out-${id}.json`);
   // A fresh marker per run, so every scenario starts with "this suite has not run yet".
   const marker = path.join(root, `marker-${id}`);
-  const result = spawnSync(process.execPath, [RUNNER, '--tests-dir', suites, '--json', json, ...args], { encoding: 'utf8', timeout: 60_000, windowsHide: true, env: { ...process.env, RUNNER_FIXTURE_MARKER: marker, ...extraEnv } });
+  const result = spawnSync(process.execPath, [RUNNER, '--tests-dir', directory, '--json', json, ...args], { encoding: 'utf8', timeout: 60_000, windowsHide: true, env: { ...process.env, RUNNER_FIXTURE_MARKER: marker, ...extraEnv } });
   assert.equal(result.error, undefined, `the runner could not be started: ${result.error?.message}`);
   let report = null;
   try { report = JSON.parse(readFileSync(json, 'utf8')); } catch { /* usage errors write no report */ }
@@ -281,6 +281,124 @@ try {
     ok('--retry-failed-once and --bail: the retry happens before the run is stopped');
   }
 
+  // ---- --shard i/n: CI runs the suites of one OS and Node version in n jobs; together the jobs must run every suite exactly once -----------
+  const listOf = (args, directory = suites) => {
+    const result = spawnSync(process.execPath, [RUNNER, '--tests-dir', directory, '--list', ...args], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+    assert.equal(result.status, 0, `--list ${args.join(' ')} exited ${result.status}: ${result.stderr}`);
+    return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  };
+  /** The lists of shards 1..count, and the checks that hold for any split: nothing lost, nothing twice, the full list is the union. */
+  const shardsOf = (count, extra = [], directory = suites) => {
+    const full = listOf(extra, directory);
+    const shards = Array.from({ length: count }, (_, i) => listOf(['--shard', `${i + 1}/${count}`, ...extra], directory));
+    const flat = shards.flat();
+    assert.equal(new Set(flat).size, flat.length, `with ${count} shards a suite is in two of them: ${JSON.stringify(shards)}`);
+    assert.deepEqual([...flat].sort(), [...full].sort(), `with ${count} shards the union is not the full list`);
+    for (const shard of shards) assert.deepEqual(shard, [...shard].sort(), 'a shard runs its suites in name order, as the full run does');
+    return shards;
+  };
+  {
+    // No shard-weights.json in this folder: every suite weighs the same, so the shards differ by at most one suite.
+    for (const count of [1, 2, 3, 5, 12, 13]) {
+      const sizes = shardsOf(count).map((shard) => shard.length);
+      assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1, `${count} shards without weights: sizes ${sizes.join('/')}`);
+    }
+    assert.deepEqual(listOf(['--shard', '13/13']), [], 'more shards than suites: the last one is empty, which --list prints as nothing');
+    const withPython = shardsOf(2, ['--python']);
+    assert.equal(withPython.filter((shard) => shard.includes('verify-py-pass.py')).length, 1, 'a Python suite (--python) is in exactly one shard');
+    ok('--shard i/n (1 to 13 shards, with and without --python): every suite is in exactly one shard, the union is the full list, each shard runs in name order; without weights the sizes differ by at most one');
+  }
+  const weighted = path.join(root, 'weighted');
+  await fs.mkdir(weighted);
+  for (const name of ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'new-foxtrot', 'new-golf']) await fs.writeFile(path.join(weighted, `verify-sh-${name}.mjs`), `console.log('PASS: ${name}');\n`, 'utf8');
+  // Seconds per suite, as CI measured them. The two "new" suites are not listed: they weigh the mean of the listed suites that exist (30).
+  // verify-sh-gone.mjs no longer exists: its 500 s must neither be placed nor move the mean.
+  const WEIGHTS = { about: 'fixture of tests/verify-test-runner.mjs', seconds: { 'verify-sh-alpha.mjs': 50, 'verify-sh-bravo.mjs': 40, 'verify-sh-charlie.mjs': 30, 'verify-sh-delta.mjs': 20, 'verify-sh-echo.mjs': 10, 'verify-sh-gone.mjs': 500 } };
+  await fs.writeFile(path.join(weighted, 'shard-weights.json'), JSON.stringify(WEIGHTS), 'utf8');
+  const suite = (name) => `verify-sh-${name}.mjs`;
+  {
+    // The rule, worked by hand. Listed suites first, heaviest first (ties by name), each to the lightest shard (ties to the lower number):
+    //   2 shards: alpha 50 -> 1 (50); bravo 40 -> 2 (40); charlie 30 -> 2 (70); delta 20 -> 1 (70); echo 10 -> 1, the tie (80).
+    //   Then the unlisted suites in name order, 30 each: new-foxtrot -> 2 (100); new-golf -> 1 (110).
+    assert.deepEqual(shardsOf(2, [], weighted), [['alpha', 'delta', 'echo', 'new-golf'].map(suite), ['bravo', 'charlie', 'new-foxtrot'].map(suite)]);
+    //   3 shards: alpha -> 1 (50); bravo -> 2 (40); charlie -> 3 (30); delta -> 3 (50); echo -> 2 (50); new-foxtrot -> 1, all tied (80); new-golf -> 2 (80).
+    assert.deepEqual(shardsOf(3, [], weighted), [['alpha', 'new-foxtrot'].map(suite), ['bravo', 'echo', 'new-golf'].map(suite), ['charlie', 'delta'].map(suite)]);
+    assert.deepEqual(shardsOf(2, [], weighted), shardsOf(2, [], weighted), 'the same input gives the same split every time');
+    ok('--shard with tests/shard-weights.json: listed suites heaviest first to the lightest shard, then unlisted ones at the mean weight in name order; a listed suite that no longer exists is ignored; worked examples for 2 and 3 shards');
+  }
+  {
+    assert.deepEqual(listOf(['--shard', '1/2', '--filter', 'new'], weighted), [suite('new-golf')], '--filter picks from the shard; it does not split again');
+    assert.deepEqual(listOf(['--shard', '2/2', '--filter', 'NEW'], weighted), [suite('new-foxtrot')]);
+    const { status, report, stdout } = run(['--shard', '2/2'], {}, weighted);
+    assert.equal(status, 0, stdout);
+    assert.deepEqual(report.results.map((result) => result.name), ['bravo', 'charlie', 'new-foxtrot'].map(suite), 'a run of shard 2/2 runs exactly the suites --list --shard 2/2 prints');
+    assert.deepEqual(report.summary.shard, { index: 2, count: 2, suites: 3, of: 7 }, 'the JSON summary records the shard, its size and the size of the full list');
+    assert.match(stdout, /3 suite\(s\), shard 2\/2 of 7/);
+    const filtered = run(['--shard', '1/2', '--filter', 'echo'], {}, weighted);
+    assert.deepEqual([filtered.report.results.map((result) => result.name), filtered.report.summary.total, filtered.report.summary.shard], [[suite('echo')], 1, { index: 1, count: 2, suites: 4, of: 7 }], 'with --filter the summary still names the shard as split');
+    assert.equal(run(['--filter', 'echo'], {}, weighted).report.summary.shard, null, 'a run without --shard records shard: null');
+    ok('--shard with --filter (the filter applies after the split, so it cannot move a suite) and --json (summary.shard = {index, count, suites, of}, null without --shard)');
+  }
+  {
+    // --retry-failed-once and --no-skip work per suite, so they behave the same inside a shard.
+    const shards = shardsOf(2);
+    const holding = (name) => shards.findIndex((shard) => shard.includes(name)) + 1;
+    const flaky = run(['--shard', `${holding('verify-flaky-once.mjs')}/2`, '--filter', 'flaky-once', '--retry-failed-once']);
+    assert.equal(flaky.status, 0, flaky.stdout);
+    assert.deepEqual(flaky.report.results.map((result) => [result.name, result.status]), [['verify-flaky-once.mjs', 'FLAKY']]);
+    const elsewhere = run(['--shard', `${3 - holding('verify-flaky-once.mjs')}/2`, '--filter', 'flaky-once']);
+    assert.equal(elsewhere.status, 2, 'the other shard does not hold the suite: nothing matched');
+    const skip = run(['--shard', `${holding('verify-ok-skip.mjs')}/2`, '--filter', 'ok-skip', '--no-skip', 'all']);
+    assert.equal(skip.status, 1);
+    assert.deepEqual(skip.report.results.map((result) => [result.name, result.status]), [['verify-ok-skip.mjs', 'FAIL']]);
+    ok('--shard with --retry-failed-once (FLAKY inside its shard; the other shard does not run it) and --no-skip all (a skip in the shard is FAIL)');
+  }
+  {
+    for (const bad of ['0/2', '3/2', '1/0', 'x/2', '1/2/3', '1', '-1/2', '1/-2', '1.5/2', '']) {
+      const result = spawnSync(process.execPath, [RUNNER, '--tests-dir', suites, '--list', '--shard', bad], { encoding: 'utf8', windowsHide: true });
+      assert.equal(result.status, 2, `--shard "${bad}" is a usage error`);
+      assert.match(result.stderr, /--shard/, `the message for "${bad}" names the option`);
+    }
+    assert.equal(spawnSync(process.execPath, [RUNNER, '--tests-dir', suites, '--list', '--shard'], { encoding: 'utf8', windowsHide: true }).status, 2, '--shard without a value');
+    const broken = path.join(root, 'broken-weights');
+    await fs.mkdir(broken);
+    await fs.writeFile(path.join(broken, 'verify-one.mjs'), "console.log('PASS');\n", 'utf8');
+    for (const content of ['{ not json', JSON.stringify({ seconds: { 'verify-one.mjs': -1 } }), JSON.stringify({ seconds: { 'verify-one.mjs': 'ten' } }), JSON.stringify({ seconds: [] }), JSON.stringify([])]) {
+      await fs.writeFile(path.join(broken, 'shard-weights.json'), content, 'utf8');
+      const result = spawnSync(process.execPath, [RUNNER, '--tests-dir', broken, '--list', '--shard', '1/2'], { encoding: 'utf8', windowsHide: true });
+      assert.equal(result.status, 2, `a broken weights file (${content}) is an error, not a silent split by count`);
+      assert.match(result.stderr, /shard-weights\.json/, 'and the message names the file');
+    }
+    assert.deepEqual(listOf([], broken), ['verify-one.mjs'], 'without --shard the weights file is not read at all');
+    ok('--shard usage errors exit 2 (0/2, 3/2, 1/0, words, three parts, negatives, fractions, empty, no value); a broken shard-weights.json is an error when --shard reads it and is never read without --shard');
+  }
+  {
+    // The real suites of this folder and the committed weights: two shards cover the full list, and the heavier shard is within the bound
+    // that this greedy split always meets: total / n + (1 - 1/n) x the heaviest suite.
+    const real = (args) => {
+      const result = spawnSync(process.execPath, [RUNNER, '--list', ...args], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    };
+    const full = real([]);
+    const halves = [real(['--shard', '1/2']), real(['--shard', '2/2'])];
+    const flat = halves.flat();
+    assert.equal(new Set(flat).size, flat.length, 'no real suite is in both shards');
+    assert.deepEqual([...flat].sort(), [...full].sort(), 'the two shards of the real suites are the full list');
+    const file = path.join(path.dirname(RUNNER), 'shard-weights.json');
+    assert.ok(existsSync(file), 'tests/shard-weights.json is committed');
+    const seconds = JSON.parse(readFileSync(file, 'utf8')).seconds;
+    const listed = full.filter((name) => Object.hasOwn(seconds, name));
+    assert.ok(listed.length * 2 > full.length, `tests/shard-weights.json lists ${listed.length} of the ${full.length} suites; with fewer than half the split is close to a split by count (refresh it: docs/CI-HEALTH.md)`);
+    const mean = listed.reduce((sum, name) => sum + seconds[name], 0) / listed.length;
+    const weight = (name) => (Object.hasOwn(seconds, name) ? seconds[name] : mean);
+    const totals = halves.map((half) => half.reduce((sum, name) => sum + weight(name), 0));
+    const total = totals[0] + totals[1];
+    const bound = total / 2 + Math.max(...full.map(weight)) / 2;
+    assert.ok(Math.max(...totals) <= bound + 1e-9, `the heavier shard (${Math.max(...totals).toFixed(1)} s) is above the bound ${bound.toFixed(1)} s`);
+    ok(`the real suites: ${halves[0].length} + ${halves[1].length} = ${full.length} (${full.length - listed.length} not in tests/shard-weights.json); predicted ${totals[0].toFixed(0)} s / ${totals[1].toFixed(0)} s on the Windows runner (heavier shard ${(Math.max(...totals) / total * 100).toFixed(1)}% of ${total.toFixed(0)} s, bound ${(bound / total * 100).toFixed(1)}%)`);
+  }
+
   // ---- scripts/ci-flaky-gate.mjs: one flake is allowed, three runs of main in a row are not -------------------------------------
   if (existsSync(GATE)) {
     const gate = await import(pathToFileURL(GATE).href);
@@ -331,6 +449,12 @@ try {
     assert.match(failing.stdout, /^FAIL: FLAKY suites in 3 runs of main in a row/m);
     assert.equal(cli(['--limit', '4']).status, 1, 'a limit of 4 reads three earlier runs: this one and those three are four flaky runs');
     assert.equal(cli(['--limit', '5']).status, 0, 'only three earlier runs exist, so a streak of five cannot be shown');
+    // ci.yml runs the Hub suites in two shards per OS and Node version, so this run has one summary per shard; the job says how many it expects.
+    assert.equal(cli(['--expect-summaries', '2']).status, 1, 'both summaries of this run are there: the streak decides');
+    const short = cli(['--expect-summaries', '8']);
+    assert.equal(short.status, 2, 'fewer summaries than jobs is an error, not a verdict on part of the run');
+    assert.match(short.stderr, /2 summaries[^\n]*expected 8/);
+    for (const bad of ['0', 'two', '-1']) assert.equal(cli(['--expect-summaries', bad]).status, 2, `--expect-summaries ${bad}`);
     await write(path.join(prior, '202', 'hub-test-summary-ubuntu-latest-node22'), 'summary.json', summaryOf(0));
     assert.equal(cli([]).status, 0, 'a clean run in between');
     await fs.rm(path.join(prior, '202'), { recursive: true });
@@ -341,7 +465,7 @@ try {
     assert.deepEqual([json.fail, json.streak, json.limit], [false, 2, 3]);
     assert.equal(spawnSync(process.execPath, [GATE, '--current', path.join(runs, 'missing'), '--previous-dir', prior], { encoding: 'utf8', windowsHide: true }).status, 2, 'no summary for this run is a usage error, not a pass');
     assert.equal(spawnSync(process.execPath, [GATE, '--nonsense'], { encoding: 'utf8', windowsHide: true }).status, 2);
-    ok('gate: the command line exits 1 on a streak of three, 0 otherwise, 2 when this run has no summary or the usage is wrong');
+    ok('gate: the command line exits 1 on a streak of three, 0 otherwise, 2 when this run has no summary, fewer than --expect-summaries, or the usage is wrong');
 
     const asked = [];
     const ids = await gate.previousRunIds({ repo: 'o/r', workflow: 'CI', branch: 'main', exceptRunId: 500, count: 2, run: async (args) => { asked.push(args); return JSON.stringify([
@@ -375,4 +499,4 @@ try {
   await fs.rm(root, { recursive: true, force: true }).catch(() => {});
 }
 
-console.log(`PASS: ${checks} test-runner checks (classification, real exit codes, timeout, discovery, --no-skip, --retry-failed-once and FLAKY, the flaky-streak gate, usage errors)`);
+console.log(`PASS: ${checks} test-runner checks (classification, real exit codes, timeout, discovery, --no-skip, --retry-failed-once and FLAKY, --shard, the flaky-streak gate, usage errors)`);
