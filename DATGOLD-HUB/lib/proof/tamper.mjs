@@ -250,9 +250,9 @@ const SKIP_MARKERS = [
   /\b(?:this|t)\.(?:skip|todo)\s*\(/g, // Mocha this.skip(), node:test t.skip()
   /\b(?:skip|todo)\s*:\s*(?:true\b|['"`])/g, // node:test { skip: true }, { todo: '...' }
   /(?<![.\w$])(?:skip|pending)\s*(?:\(|['"])/g, // RSpec skip "...", pending "...", from pytest import skip; skip("...")
-  /@pytest\.mark\.(?:skip|skipif|xfail)\b/g,
+  /\bpytest\.mark\.(?:skip|skipif|xfail)\b/g, // @pytest.mark.skip, pytestmark = pytest.mark.skip(...), pytest.param(..., marks=pytest.mark.xfail)
   /\bpytest\.(?:skip|xfail)\s*\(/g,
-  /@unittest\.(?:skip|skipIf|skipUnless|expectedFailure)\b/g,
+  /\bunittest\.(?:skip|skipIf|skipUnless|expectedFailure)\b/g, // with or without @
   /@skip(?:If|Unless)\s*\(/g,
   /\bself\.skipTest\s*\(/g,
   /\braise\s+(?:unittest\.)?SkipTest\b/g,
@@ -425,11 +425,14 @@ const PNPM_YARN_BUILTINS = new Set(['install', 'i', 'add', 'remove', 'rm', 'unin
   'login', 'logout', 'set', 'plugin', 'dlx', 'fetch', 'deploy', 'recursive', 'r']);
 const VALUE_OPTIONS = new Set(['--prefix', '-C', '--dir', '--cwd', '--loglevel', '--filter', '-F', '-w', '--workspace', '--max-parallel', '--registry']);
 const SCOPE_OPTIONS = new Set(['--filter', '-F', '-w', '--workspace', '-r', '--recursive', '--workspaces', '-ws']);
+const PREFIX_OPTIONS = new Set(['--prefix', '-C', '--dir', '--cwd']);
 
 /**
  * The package.json scripts a command runs: [{runner: 'npm'|'pnpm'|'yarn'|'bun'|'npm-run-all', key, prefix}] where prefix is the folder
  * a --prefix / -C / --dir / --cwd option names (relative, as written) or null. `npm test`, `npm run x`, `pnpm x`, `yarn x`, `bun run x`,
- * `run-s a b`, `npm-run-all -p "a:*"` (a pattern key). A workspace-scoped call (-w, --filter, yarn workspace) is not followed.
+ * `run-s a b`, `npm-run-all -p "a:*"` (a pattern key). npm's options count anywhere before a bare `--` (`npm test --prefix sub`); for
+ * pnpm, yarn and bun only before the script name, as what follows it goes to the script. An option's value is never the script name.
+ * A workspace-scoped call (-w, --filter, yarn workspace) is not followed.
  */
 export function scriptInvocations(command) {
   const found = [];
@@ -447,21 +450,23 @@ export function scriptInvocations(command) {
     if (!['npm', 'pnpm', 'yarn', 'bun'].includes(program)) continue;
     let prefix = null;
     let scoped = false;
-    const rest = [];
+    const rest = []; // the words that are not options or option values: the subcommand, then the script name
     for (let i = 0; i < args.length; i += 1) {
       const arg = args[i];
-      if (rest.length === 0 && arg.startsWith('-')) {
+      if (arg === '--') break; // what follows a bare `--` goes to the script
+      // npm reads its own options anywhere before `--`; pnpm, yarn and bun pass what follows the script name to the script
+      if (program !== 'npm' && rest.length >= (rest[0] === 'run' ? 2 : 1)) break;
+      if (arg.startsWith('-') && arg.length > 1) {
         const [name, inline] = arg.split(/=(.*)/s);
         if (SCOPE_OPTIONS.has(name)) scoped = true;
         const value = inline ?? (VALUE_OPTIONS.has(name) ? args[++i] : undefined);
-        if (['--prefix', '-C', '--dir', '--cwd'].includes(name) && value) prefix = value.replaceAll('\\', '/');
+        if (PREFIX_OPTIONS.has(name) && value) prefix = value.replaceAll('\\', '/');
         continue;
       }
       rest.push(arg);
     }
     if (scoped || !rest.length) continue;
-    const [sub, ...more] = rest;
-    const named = more.find((arg) => !arg.startsWith('-'));
+    const [sub, named] = rest;
     let key = null;
     if (program === 'npm') {
       if (['test', 't', 'tst'].includes(sub)) key = 'test';
@@ -472,7 +477,7 @@ export function scriptInvocations(command) {
     } else if (sub === 'test' || sub === 't') key = 'test';
     else if (sub === 'run') key = named ?? null;
     else if (!PNPM_YARN_BUILTINS.has(sub)) key = sub;
-    if (key && key !== '--') found.push({ runner: program, key, prefix });
+    if (key) found.push({ runner: program, key, prefix });
   }
   return found;
 }
@@ -504,6 +509,34 @@ function makeFolder(parsed, cwd) {
     if (match) { const value = match[1] ?? parsed.args[i + 1]; if (value) folder = posix.normalize(posix.join(cwd === '.' ? '' : cwd, value.replaceAll('\\', '/'))) || '.'; }
   }
   return folder === '' ? '.' : folder.replace(/\/+$/, '');
+}
+
+const CD_PROGRAMS = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl']);
+
+/**
+ * Visits the simple commands of one command line with the folder each runs in. `cd dir` / `pushd dir` to a literal relative folder
+ * move the folder for the commands after it, `popd` moves back. After a change of folder that cannot be followed (a variable, `~`, `-`,
+ * an absolute path or a drive, `cd` alone, `popd` with nothing pushed) the rest of the line is not read.
+ * A subshell `( ... )` is not understood: its words are read as written.
+ */
+function eachCommand(command, cwd, visit) {
+  let folder = cwd;
+  const pushed = [];
+  for (const simple of simpleCommands(command)) {
+    const parsed = commandOf(simple);
+    if (!parsed) continue;
+    if (parsed.program === 'popd') {
+      if (!pushed.length) return;
+      folder = pushed.pop();
+      continue;
+    }
+    if (!CD_PROGRAMS.has(parsed.program)) { visit(simple, parsed, folder); continue; }
+    const target = parsed.args.find((arg) => !/^-[A-Za-z]$|^\/[A-Za-z]$/.test(arg))?.replaceAll('\\', '/');
+    if (!target || target === '-' || /^[/~$%`]|^[A-Za-z]:|[$%`]/.test(target)) return;
+    if (parsed.program === 'pushd') pushed.push(folder);
+    // a folder outside the workspace ("../..") holds no file of either side, so what runs there matches nothing
+    folder = posix.normalize(posix.join(folder === '.' ? '' : folder, target)).replace(/\/+$/, '') || '.';
+  }
 }
 
 const packageFile = (folder) => (folder === '.' ? 'package.json' : `${folder}/package.json`);
@@ -694,17 +727,54 @@ export function nameStatus(before, after) {
   return rows.sort(byPathOrder);
 }
 
-/** Line similarity of two texts in percent (Dice over the multisets of trimmed, non-empty lines). */
-function similarity(a, b) {
-  const lines = (text) => text.split('\n').map((line) => line.trim()).filter(Boolean);
-  const left = lines(a);
-  const right = lines(b);
-  if (!left.length && !right.length) return 100;
-  const counts = new Map();
-  for (const line of left) counts.set(line, (counts.get(line) ?? 0) + 1);
-  let common = 0;
-  for (const line of right) { const n = counts.get(line) ?? 0; if (n > 0) { common += 1; counts.set(line, n - 1); } }
-  return Math.floor((200 * common) / (left.length + right.length));
+/**
+ * Renames with edits among deleted and added texts: [{gone, come, score}] for every pair whose line similarity (Dice over the multisets
+ * of trimmed, non-empty lines, in percent) is at least 50. Each text is split and indexed once (`ids` interns lines across all of them);
+ * an inverted index from a line to the added texts that hold it sums the common lines of one deleted text against all added ones, so
+ * the work grows with the lines the texts share, not with deleted x added x lines. `work` counts linesIndexed and pairsCompared.
+ */
+function pairByLines(goneTexts, comeTexts, work) {
+  const ids = new Map();
+  const index = (text) => {
+    const counts = new Map();
+    let total = 0;
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      total += 1;
+      let id = ids.get(line);
+      if (id === undefined) { id = ids.size; ids.set(line, id); }
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    work.linesIndexed += total;
+    return { counts, total };
+  };
+  const gone = goneTexts.map(({ row, text }) => ({ row, ...index(text) }));
+  const come = comeTexts.map(({ row, text }) => ({ row, ...index(text) }));
+  const postings = new Map(); // line id -> [added index, count, added index, count, ...]
+  come.forEach((file, at) => {
+    for (const [id, count] of file.counts) {
+      let list = postings.get(id);
+      if (!list) { list = []; postings.set(id, list); }
+      list.push(at, count);
+    }
+  });
+  const common = new Float64Array(come.length);
+  const pairs = [];
+  for (const left of gone) {
+    common.fill(0);
+    for (const [id, count] of left.counts) {
+      const list = postings.get(id);
+      if (list) for (let k = 0; k < list.length; k += 2) common[list[k]] += Math.min(count, list[k + 1]);
+    }
+    come.forEach((right, at) => {
+      work.pairsCompared += 1;
+      // equal texts score 100; two texts without a non-blank line score NaN and are never paired, like empty blobs in nameStatus
+      const score = Math.floor((200 * common[at]) / (left.total + right.total));
+      if (score >= 50) pairs.push({ gone: left.row, come: right.row, score });
+    });
+  }
+  return pairs;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -774,15 +844,28 @@ const skippedWhy = (value) => (value && !isBytes(value) && value.skipped) || 'un
  * @param {object|null} [options.acceptance]  {criteria, protected} (parseAcceptance of the BASELINE file); when left out, the baseline's
  *                                   .chatmcp/acceptance.yml is read; null means no criteria
  * @param {Partial<typeof TAMPER_LIMITS>} [options.limits]
+ * @param {object} [options.stats]   an object that receives work counters {normalizations, linesIndexed, pairsCompared} (for tests)
  * @returns {Promise<object>} {format, checks_modified, summary, criteria: [{id, checks_modified, reasons}], findings, lockfiles, counts,
  *   limitations} - see docs/PROOF-TAMPER.md
  */
-export async function detectCheckChanges({ baseline, final, acceptance, limits = {} } = {}) {
+export async function detectCheckChanges({ baseline, final, acceptance, limits = {}, stats = null } = {}) {
   for (const [name, side] of [['baseline', baseline], ['final', final]]) {
     if (!side || !Array.isArray(side.entries) || typeof side.read !== 'function') throw new TypeError(`detectCheckChanges needs the ${name} side ({entries, read})`);
   }
   const L = { ...TAMPER_LIMITS, ...limits };
   const reader = new Reader({ baseline, final }, L);
+  const work = { normalizations: 0, linesIndexed: 0, pairsCompared: 0 };
+  // Every text is decoded and its line endings normalised once, whatever compares it (rename pairing, the analysis, the masks).
+  const texts = new Map();
+  const textOf = (side, file) => {
+    const key = `${side}:${file}`;
+    if (!texts.has(key)) {
+      const value = reader.get(side, file);
+      if (isBytes(value)) work.normalizations += 1;
+      texts.set(key, isBytes(value) ? normalized(value) : null);
+    }
+    return texts.get(key);
+  };
   const before = new Map(baseline.entries.map((entry) => [entry.path, entry]));
   const after = new Map(final.entries.map((entry) => [entry.path, entry]));
   const rows = nameStatus(baseline.entries, final.entries);
@@ -805,19 +888,15 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
   if (!criteria.length) uses.push({ id: null, checks: true, packages: new Map([['package.json', ['test']]]), make: new Set(['.']), paths: new Set(), fallback: true });
   const exists = (file) => before.has(file) || after.has(file);
   const addKey = (use, pkg, key) => { if (!use.packages.has(pkg)) use.packages.set(pkg, []); if (!use.packages.get(pkg).includes(key)) use.packages.get(pkg).push(key); };
-  const scan = (use, command, cwd) => {
-    for (const simple of simpleCommands(command)) {
-      const parsed = commandOf(simple);
-      if (!parsed) continue;
-      for (const call of scriptInvocations(simple)) {
-        const folder = posix.normalize(posix.join(cwd === '.' ? '' : cwd, call.prefix ?? '')).replace(/\/+$/, '') || '.';
-        addKey(use, packageFile(folder === '' ? '.' : folder), call.key);
-      }
-      const make = makeFolder(parsed, cwd);
-      if (make) use.make.add(make);
-      for (const file of namedPaths(parsed, cwd)) if (exists(file)) use.paths.add(file);
+  const scan = (use, command, cwd) => eachCommand(command, cwd, (simple, parsed, here) => {
+    for (const call of scriptInvocations(simple)) {
+      const folder = posix.normalize(posix.join(here === '.' ? '' : here, call.prefix ?? '')).replace(/\/+$/, '') || '.';
+      addKey(use, packageFile(folder), call.key);
     }
-  };
+    const make = makeFolder(parsed, here);
+    if (make) use.make.add(make);
+    for (const file of namedPaths(parsed, here)) if (exists(file)) use.paths.add(file);
+  });
   criteria.forEach((criterion, index) => { for (const check of criterion.checks) scan(uses[index], check.run, check.cwd); });
   const usedPackages = [...new Set(uses.flatMap((use) => [...use.packages.keys()]))];
   await reader.load('baseline', usedPackages, { budgeted: false });
@@ -845,14 +924,13 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
           reach(key, true);
           if (hooks) { reach(`pre${key}`, false); reach(`post${key}`, false); }
           for (const body of scripts[key] ?? []) {
-            for (const simple of simpleCommands(body)) {
-              const parsed = commandOf(simple);
-              if (!parsed) continue;
-              for (const call of scriptInvocations(simple)) if (!call.prefix) reach(call.key, true);
-              const make = makeFolder(parsed, folder);
+            // a script call after a cd to another folder, or with --prefix, runs another package.json: not followed
+            eachCommand(body, folder, (simple, parsed, here) => {
+              for (const call of scriptInvocations(simple)) if (!call.prefix && here === folder) reach(call.key, true);
+              const make = makeFolder(parsed, here);
               if (make) use.make.add(make);
-              for (const file of namedPaths(parsed, folder)) if (exists(file)) use.paths.add(file);
-            }
+              for (const file of namedPaths(parsed, here)) if (exists(file)) use.paths.add(file);
+            });
           }
         }
       }
@@ -893,18 +971,11 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
   const deletedRows = changes.filter((change) => change.status === 'D' && change.category);
   const addedRows = changes.filter((change) => change.status === 'A' && change.category);
   if (deletedRows.length && addedRows.length && deletedRows.length * addedRows.length <= L.maxSimilarityPairs) {
-    const text = (side, file) => { const value = reader.get(side, file); return isBytes(value) && value.length <= L.maxSimilarityBytes && !isBinary(value) ? normalized(value) : null; };
-    const pairs = [];
-    for (const gone of deletedRows) {
-      const was = text('baseline', gone.path);
-      if (was === null) continue;
-      for (const come of addedRows) {
-        const now = text('final', come.path);
-        if (now === null) continue;
-        const score = was === now ? 100 : similarity(was, now);
-        if (score >= 50) pairs.push({ gone, come, score });
-      }
-    }
+    const comparable = (side, row) => {
+      const value = reader.get(side, row.path);
+      return isBytes(value) && value.length <= L.maxSimilarityBytes && !isBinary(value) ? [{ row, text: textOf(side, row.path) }] : [];
+    };
+    const pairs = pairByLines(deletedRows.flatMap((row) => comparable('baseline', row)), addedRows.flatMap((row) => comparable('final', row)), work);
     pairs.sort((a, b) => b.score - a.score || byPathOrder(a.come, b.come) || byPathOrder(a.gone, b.gone));
     const taken = new Set();
     for (const { gone, come, score } of pairs) {
@@ -930,6 +1001,8 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
     const oldFile = change.oldPath ?? change.path;
     const was = change.status === 'A' ? undefined : reader.get('baseline', oldFile);
     const now = change.status === 'D' ? undefined : reader.get('final', change.path);
+    const wasText = () => (change.status === 'A' ? null : textOf('baseline', oldFile));
+    const nowText = () => (change.status === 'D' ? null : textOf('final', change.path));
     const sameBlob = change.oldOid !== null && change.oldOid === change.newOid;
     const modeOnly = change.status === 'M' && sameBlob;
     const unreadable = (value) => value !== undefined && !isBytes(value);
@@ -938,7 +1011,7 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
     const settled = (targets, via) => {
       if (modeOnly) { add('mode_changed', false, { targets, via }); return true; }
       if (unreadable(was) || unreadable(now)) { notAnalyzed(unreadable(was) ? skippedWhy(was) : skippedWhy(now), targets, via); return true; }
-      if (isBytes(was) && isBytes(now) && !isBinary(was) && !isBinary(now) && normalized(was) === normalized(now) && !sameBlob) {
+      if (isBytes(was) && isBytes(now) && !isBinary(was) && !isBinary(now) && wasText() === nowText() && !sameBlob) {
         add('line_endings_only', false, { targets, via }); return true;
       }
       return false;
@@ -970,8 +1043,8 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
     } else if (category === CATEGORY.ciWorkflow) {
       if (change.status === 'D' || (change.status === 'R' && change.category !== CATEGORY.ciWorkflow)) add('ci_workflow_deleted', true, { targets: nobody, via: 'ci' });
       else if (!settled(nobody, 'ci')) {
-        const beforeText = isBytes(was) ? codeOnly(normalized(was), oldFile) : '';
-        const afterText = codeOnly(normalized(now), change.path);
+        const beforeText = isBytes(was) ? codeOnly(wasText(), oldFile) : '';
+        const afterText = codeOnly(nowText(), change.path);
         const masked = addedLines(beforeText, afterText).find((row) => masks(row.text));
         if (masked) add('failure_masked', true, { line: masked.line, targets: nobody, via: 'ci' });
         else add(change.status === 'A' ? 'ci_workflow_added' : 'ci_workflow_changed', false, { targets: nobody, via: 'ci' });
@@ -979,16 +1052,17 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
     } else if (category === CATEGORY.testConfig) {
       const name = baseName(change.path).toLowerCase();
       const oldName = baseName(oldFile).toLowerCase();
-      const textOf = (value) => (isBytes(value) ? normalized(value) : '');
+      const before = wasText() ?? '';
+      const after = nowText() ?? '';
       let relevantPart = null;
       if (name === 'pyproject.toml' || oldName === 'pyproject.toml') relevantPart = PYPROJECT_SECTION;
       else if (name === 'setup.cfg' || oldName === 'setup.cfg') relevantPart = SETUP_CFG_SECTION;
       if (unreadable(was) || unreadable(now)) notAnalyzed(unreadable(was) ? skippedWhy(was) : skippedWhy(now), every, 'every_check');
       else if (relevantPart) {
-        if (sectionsText(textOf(was), relevantPart) !== sectionsText(textOf(now), relevantPart)) add('test_config_changed', true);
+        if (sectionsText(before, relevantPart) !== sectionsText(after, relevantPart)) add('test_config_changed', true);
       } else if (/\.(?:cs|fs|vb)proj$/.test(name)) {
-        if ((TEST_PROJECT.test(textOf(was)) || TEST_PROJECT.test(textOf(now))) && textOf(was) !== textOf(now)) add('test_config_changed', true);
-        else if (modeOnly && (TEST_PROJECT.test(textOf(now)))) add('mode_changed', false);
+        if ((TEST_PROJECT.test(before) || TEST_PROJECT.test(after)) && before !== after) add('test_config_changed', true);
+        else if (modeOnly && TEST_PROJECT.test(after)) add('mode_changed', false);
       } else if (!settled(every, 'every_check')) add('test_config_changed', true);
     } else if (category === CATEGORY.testFile) {
       const nowTest = change.status === 'D' ? false : change.category === CATEGORY.testFile;
@@ -1003,7 +1077,7 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
           else {
             add('test_file_added', false);
             if (isCode(change.path) && !isBinary(now)) {
-              const code = codeOnly(normalized(now), change.path);
+              const code = codeOnly(nowText(), change.path);
               const skips = countSkipMarkers(code);
               if (skips > 0) add('skip_marker_added', true, { detail: { before: 0, after: skips }, line: firstMarkerLine(code) });
             }
@@ -1014,8 +1088,8 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
             if (!isCode(change.path) || !isCode(oldFile)) add('test_data_changed', true, { detail: { binary } });
             else if (binary) notAnalyzed('binary');
             else {
-              const beforeCode = codeOnly(normalized(was), oldFile);
-              const afterCode = codeOnly(normalized(now), change.path);
+              const beforeCode = codeOnly(wasText(), oldFile);
+              const afterCode = codeOnly(nowText(), change.path);
               const flaggedBefore = reasons.length;
               const assertions = [countAssertions(beforeCode), countAssertions(afterCode)];
               if (assertions[1] < assertions[0]) add('assertions_removed', true, { detail: { before: assertions[0], after: assertions[1] } });
@@ -1038,12 +1112,12 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
       } else if (category === CATEGORY.checkScript && MAKEFILES.has(name)) {
         const users = usersOf((use) => use.make.has(folderOf(change.path)));
         const used = uses.some((use) => use.make.has(folderOf(change.path)));
-        if (used) scriptChange(change, was, now, add, settled, only(users), 'make');
+        if (used) scriptChange(change, { was, now, wasText, nowText }, add, settled, only(users), 'make');
       } else if (category === CATEGORY.checkScript) {
         const named = uses.filter((use) => use.paths.has(change.path) || use.paths.has(oldFile));
-        if (named.length) scriptChange(change, was, now, add, settled, only(named.map((use) => use.id).filter((id) => id !== null)), 'command_path');
+        if (named.length) scriptChange(change, { was, now, wasText, nowText }, add, settled, only(named.map((use) => use.id).filter((id) => id !== null)), 'command_path');
         else if (change.status === 'A') add('script_file_added', false);
-        else scriptChange(change, was, now, add, settled, every, 'every_check');
+        else scriptChange(change, { was, now, wasText, nowText }, add, settled, every, 'every_check');
       }
     }
     // a path the acceptance file protects: any change, whatever else it is (the acceptance file itself has its own reason)
@@ -1086,6 +1160,7 @@ export async function detectCheckChanges({ baseline, final, acceptance, limits =
   const ordered = [...findings].sort((a, b) => Number(b.flagged) - Number(a.flagged) || byPathOrder(a, b));
   const flaggedCount = findings.filter((row) => row.flagged).length;
   const checksModified = flaggedCount > 0;
+  if (stats && typeof stats === 'object') Object.assign(stats, work);
   return {
     format: CHECK_CHANGES_FORMAT,
     checks_modified: checksModified,
@@ -1114,13 +1189,13 @@ function firstMarkerLine(code) {
 }
 
 /** A changed script file (Makefile, scripts/, a file a criterion names): changed, plus failure_masked when an added line masks a failure. */
-function scriptChange(change, was, now, add, settled, targets, via) {
+function scriptChange(change, { was, now, wasText, nowText }, add, settled, targets, via) {
   if (change.status === 'D') { add('check_script_changed', true, { targets, via }); return; }
   if (settled(targets, via)) return;
   add('check_script_changed', true, { targets, via });
   if (!Buffer.isBuffer(now) || isBinary(now)) return;
-  const beforeText = Buffer.isBuffer(was) && !isBinary(was) ? codeOnly(normalized(was), change.oldPath ?? change.path) : '';
-  const masked = addedLines(beforeText, codeOnly(normalized(now), change.path)).find((row) => masks(row.text));
+  const beforeText = Buffer.isBuffer(was) && !isBinary(was) ? codeOnly(wasText(), change.oldPath ?? change.path) : '';
+  const masked = addedLines(beforeText, codeOnly(nowText(), change.path)).find((row) => masks(row.text));
   if (masked) add('failure_masked', true, { line: masked.line, targets, via });
 }
 

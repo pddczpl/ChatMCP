@@ -191,12 +191,34 @@
     },
     {
       "name": "PT-no-pytest-mark-skip",
-      "what": "@pytest.mark.skip is not a marker",
+      "what": "pytest.mark.skip is not a marker",
       "patches": [
         {
           "file": "lib/proof/tamper.mjs",
-          "old": "/@pytest\\.mark\\.(?:skip|skipif|xfail)\\b/g",
-          "new": "/@pytest\\.mark\\.(?:skipif|xfail)\\b/g"
+          "old": "/\\bpytest\\.mark\\.(?:skip|skipif|xfail)\\b/g",
+          "new": "/\\bpytest\\.mark\\.(?:skipif|xfail)\\b/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-pytest-mark-needs-at",
+      "what": "pytest.mark.* counts only as a decorator (pytestmark = ... and marks= are missed)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/\\bpytest\\.mark\\.(?:skip|skipif|xfail)\\b/g",
+          "new": "/@pytest\\.mark\\.(?:skip|skipif|xfail)\\b/g"
+        }
+      ]
+    },
+    {
+      "name": "PT-unittest-needs-at",
+      "what": "unittest.skip* counts only as a decorator",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "/\\bunittest\\.(?:skip|skipIf|skipUnless|expectedFailure)\\b/g",
+          "new": "/@unittest\\.(?:skip|skipIf|skipUnless|expectedFailure)\\b/g"
         }
       ]
     },
@@ -404,8 +426,85 @@
       "patches": [
         {
           "file": "lib/proof/tamper.mjs",
-          "old": "if (score >= 50) pairs.push({ gone, come, score });",
-          "new": "if (score >= 101) pairs.push({ gone, come, score });"
+          "old": "if (score >= 50) pairs.push(",
+          "new": "if (score >= 101) pairs.push("
+        }
+      ]
+    },
+    {
+      "name": "PT-threshold-strict",
+      "what": "a similarity of exactly 50 % is not a rename",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (score >= 50) pairs.push(",
+          "new": "if (score > 50) pairs.push("
+        }
+      ]
+    },
+    {
+      "name": "PT-text-cache-off",
+      "what": "every text is decoded and normalised again at each use",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (!texts.has(key)) {",
+          "new": "if (true) {"
+        }
+      ]
+    },
+    {
+      "name": "PT-reindex-per-pair",
+      "what": "the added text is split and indexed again for every pair",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "      work.pairsCompared += 1;\n",
+          "new": "      index(comeTexts[at].text);\n      work.pairsCompared += 1;\n"
+        }
+      ]
+    },
+    {
+      "name": "PT-pairs-not-counted",
+      "what": "the pairs compared are not counted",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "work.pairsCompared += 1;",
+          "new": "work.pairsCompared += 0;"
+        }
+      ]
+    },
+    {
+      "name": "PT-multiset-not-min",
+      "what": "a line repeated in one text counts as often as it appears there, whatever the other holds",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "common[list[k]] += Math.min(count, list[k + 1]);",
+          "new": "common[list[k]] += count;"
+        }
+      ]
+    },
+    {
+      "name": "PT-common-not-reset",
+      "what": "the common-line sums of one deleted file carry over to the next",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "    common.fill(0);\n",
+          "new": "\n"
+        }
+      ]
+    },
+    {
+      "name": "PT-stats-not-filled",
+      "what": "the work counters are not given back",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (stats && typeof stats === 'object') Object.assign(stats, work);",
+          "new": "if (false) Object.assign(stats, work);"
         }
       ]
     },
@@ -547,8 +646,151 @@
       "patches": [
         {
           "file": "lib/proof/tamper.mjs",
-          "old": "for (const call of scriptInvocations(simple)) if (!call.prefix) reach(call.key, true);",
-          "new": "for (const call of scriptInvocations(simple)) if (false) reach(call.key, true);"
+          "old": "if (!call.prefix && here === folder) reach(call.key, true);",
+          "new": "if (false) reach(call.key, true);"
+        }
+      ]
+    },
+    {
+      "name": "PT-closure-cd-ignored",
+      "what": "a script call after a cd inside a script is read as one of the same package.json",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (!call.prefix && here === folder) reach(call.key, true);",
+          "new": "if (!call.prefix) reach(call.key, true);"
+        }
+      ]
+    },
+    {
+      "name": "PT-closure-paths-from-package",
+      "what": "a file a script names after a cd is looked up from the package folder",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "              for (const file of namedPaths(parsed, here)) if (exists(file)) use.paths.add(file);",
+          "new": "              for (const file of namedPaths(parsed, folder)) if (exists(file)) use.paths.add(file);"
+        }
+      ]
+    },
+    {
+      "name": "PT-npm-options-only-before-name",
+      "what": "npm options after the script name are not read (npm test --prefix sub)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (program !== 'npm' && rest.length >= (rest[0] === 'run' ? 2 : 1)) break;",
+          "new": "if (rest.length >= (rest[0] === 'run' ? 2 : 1)) break;"
+        }
+      ]
+    },
+    {
+      "name": "PT-pnpm-options-after-name",
+      "what": "pnpm options after the script name are read as pnpm options",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (program !== 'npm' && rest.length >= (rest[0] === 'run' ? 2 : 1)) break;",
+          "new": "if (false) break;"
+        }
+      ]
+    },
+    {
+      "name": "PT-dashdash-ignored",
+      "what": "options after a bare -- are read as npm options",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (arg === '--') break;",
+          "new": "if (false) break;"
+        }
+      ]
+    },
+    {
+      "name": "PT-option-value-as-name",
+      "what": "the value of an option is taken as the script name (npm run --prefix sub test)",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "VALUE_OPTIONS.has(name) ? args[++i] : undefined",
+          "new": "VALUE_OPTIONS.has(name) ? args[i + 1] : undefined"
+        }
+      ]
+    },
+    {
+      "name": "PT-prefix-ignored",
+      "what": "--prefix / -C / --dir / --cwd do not move to another package.json",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (PREFIX_OPTIONS.has(name) && value) prefix =",
+          "new": "if (false && value) prefix ="
+        }
+      ]
+    },
+    {
+      "name": "PT-no-cd",
+      "what": "cd and pushd do not move the commands after them",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (!CD_PROGRAMS.has(parsed.program)) { visit(simple, parsed, folder); continue; }",
+          "new": "if (true) { visit(simple, parsed, folder); continue; }"
+        }
+      ]
+    },
+    {
+      "name": "PT-pushd-not-stacked",
+      "what": "pushd does not remember the folder popd goes back to",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (parsed.program === 'pushd') pushed.push(folder);",
+          "new": "if (false) pushed.push(folder);"
+        }
+      ]
+    },
+    {
+      "name": "PT-popd-no-restore",
+      "what": "popd does not move back",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "folder = pushed.pop();",
+          "new": "pushed.pop();"
+        }
+      ]
+    },
+    {
+      "name": "PT-popd-nothing-continues",
+      "what": "a popd with nothing pushed is ignored and the line read on",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "if (!pushed.length) return;",
+          "new": "if (!pushed.length) continue;"
+        }
+      ]
+    },
+    {
+      "name": "PT-unfollowable-cd-ignored",
+      "what": "a cd to a variable is ignored and the line read on in the old folder",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "|^[A-Za-z]:|[$%`]/.test(target)) return;",
+          "new": "|^[A-Za-z]:|[$%`]/.test(target)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "PT-cd-flag-as-folder",
+      "what": "cd /d sub and cd -P sub take the flag for the folder",
+      "patches": [
+        {
+          "file": "lib/proof/tamper.mjs",
+          "old": "const target = parsed.args.find((arg) => !/^-[A-Za-z]$|^\\/[A-Za-z]$/.test(arg))?.replaceAll('\\\\', '/');",
+          "new": "const target = parsed.args[0]?.replaceAll('\\\\', '/');"
         }
       ]
     },
@@ -624,8 +866,8 @@
       "patches": [
         {
           "file": "lib/proof/tamper.mjs",
-          "old": "if (used) scriptChange(change, was, now, add, settled, only(users), 'make');",
-          "new": "if (false) scriptChange(change, was, now, add, settled, only(users), 'make');"
+          "old": "if (used) scriptChange(",
+          "new": "if (false) scriptChange("
         }
       ]
     },
@@ -646,8 +888,8 @@
       "patches": [
         {
           "file": "lib/proof/tamper.mjs",
-          "old": "const masked = addedLines(beforeText, codeOnly(normalized(now), change.path)).find((row) => masks(row.text));",
-          "new": "const masked = addedLines(beforeText, normalized(now)).find((row) => masks(row.text));"
+          "old": "const masked = addedLines(beforeText, codeOnly(nowText(), change.path)).find((row) => masks(row.text));",
+          "new": "const masked = addedLines(beforeText, nowText()).find((row) => masks(row.text));"
         }
       ]
     },

@@ -285,10 +285,13 @@ const strategies = [];
     ['prefix-after-run', 'npm run test --prefix sub', true], ['prefix-after-test', 'npm test --prefix sub', true],
     ['prefix-between', 'npm run --prefix sub test', true], ['prefix-first', 'npm --prefix sub test', true],
     ['cd-sub', 'cd sub && npm test', true], ['pushd-sub', 'pushd sub && npm test && popd', true], ['cd-dot-sub', 'cd ./sub; npm test', true],
+    ['cd-cmd-flag', 'cd /d sub && npm test', true], ['popd-then-cd', 'pushd sub && popd && cd sub && npm test', true],
     ['popd-back', 'pushd sub && popd && npm test', false], ['root', 'npm test', false], ['after-dashdash', 'npm run test -- --prefix sub', false],
     ['cd-variable', 'cd "$PKG" && npm test', false],
+    // from the sub-package's own folder: a line is not read past a cd that cannot be followed, or a popd with nothing pushed
+    ['cd-variable-in-sub', 'cd "$PKG" && npm test', false, 'sub'], ['popd-nothing-in-sub', 'popd && npm test', false, 'sub'],
   ];
-  const subAcceptance = `version: 1\ncriteria:\n${spellings.map(([id, run]) => `  - id: ${id}\n    text: ${id}\n    checks:\n      - run: '${run}'\n`).join('')}  - id: cwd-sub\n    text: cwd-sub\n    checks:\n      - run: npm test\n        cwd: sub\n`;
+  const subAcceptance = `version: 1\ncriteria:\n${spellings.map(([id, run, , cwd]) => `  - id: ${id}\n    text: ${id}\n    checks:\n      - run: '${run}'\n${cwd ? `        cwd: ${cwd}\n` : ''}`).join('')}  - id: cwd-sub\n    text: cwd-sub\n    checks:\n      - run: npm test\n        cwd: sub\n`;
   const subPkg = (test) => `${JSON.stringify({ name: 'sub', scripts: { test } }, null, 2)}\n`;
   const subDir = makeRepo('s3-sub', { ...BASE, '.chatmcp/acceptance.yml': subAcceptance, 'sub/package.json': subPkg('jest') });
   write(subDir, 'sub/package.json', subPkg('echo ok'));
@@ -372,6 +375,18 @@ ok(`all ${strategies.length} synthetic strategies are flagged: ${strategies.map(
   assert.ok(flaggedCodes(finding(result, 'package.json')).includes('failure_masked'), '`exit 0` as a script');
   assert.deepEqual(flaggedCriteria(result), ['unit']);
   ok('scripts reached from the one a criterion runs (pretest, `npm run unit && npm run e2e`) are compared too; `exit 0` is failure_masked');
+}
+{
+  // a cd inside a script: a file it names is found from the new folder; a script call after it runs another package.json (not followed)
+  const scripts = (build, run) => JSON.stringify({ scripts: { test: 'cd tools && node run.js && npm run build', build } }) + run;
+  const result = await detectCheckChanges({
+    baseline: memorySide({ 'package.json': scripts('tsc', ''), 'tools/run.js': 'run();\n' }),
+    final: memorySide({ 'package.json': scripts('tsc || true', ''), 'tools/run.js': 'process.exit(0);\n' }),
+    acceptance: { criteria: [{ id: 'unit', checks: [{ run: 'npm test', cwd: '.' }] }] },
+  });
+  assert.deepEqual(flaggedCodes(finding(result, 'tools/run.js')), ['check_script_changed'], describe(result));
+  assert.equal(finding(result, 'package.json'), undefined, 'the root `build` script is not what `cd tools && npm run build` runs');
+  ok('a cd inside a package.json script: `node run.js` after it is tools/run.js; `npm run build` after it is not the root build script');
 }
 {
   // test configuration: package.json "jest", pyproject [tool.pytest], a csproj with the test SDK, a new jest.config.js
@@ -697,7 +712,17 @@ protected:
   assert.ok(result.findings.every((row) => row.oldPath === row.path.replace('/new', '/old')), 'old<i> pairs with new<i>');
   assert.equal(result.checks_modified, false);
   assert.deepEqual(stats, { normalizations: 2 * n, linesIndexed: n * 200 + n * 201, pairsCompared: n * n });
-  ok(`rename pairing: ${n} x ${n} files, ${stats.pairsCompared} pairs compared, ${stats.normalizations} texts normalised and ${stats.linesIndexed} lines indexed (each file once)`);
+  // the similarity is over line MULTISETS and is exactly the 50 % threshold here: 4 x expect(1) + expect(2) against expect(1..3) share two
+  // lines (2 x 2 / (5 + 3) = 50 %); a second deleted file, compared after it, starts from zero
+  const edge = await detectCheckChanges({
+    baseline: memorySide({ 'tests/p.test.js': `${'expect(1);\n'.repeat(4)}expect(2);\n`, 'tests/r.test.js': 'other();\n' }),
+    final: memorySide({ 'tests/q.test.js': 'expect(1);\nexpect(2);\nexpect(3);\n' }),
+    acceptance: null,
+  });
+  const q = finding(edge, 'tests/q.test.js');
+  assert.deepEqual([q.status, q.oldPath, q.similarity], ['R', 'tests/p.test.js', 50], describe(edge));
+  assert.deepEqual(flaggedCodes(finding(edge, 'tests/r.test.js')), ['test_file_deleted']);
+  ok(`rename pairing: ${n} x ${n} files, ${stats.pairsCompared} pairs compared, ${stats.normalizations} texts normalised and ${stats.linesIndexed} lines indexed (each file once); line multisets, a similarity of exactly 50 % pairs`);
 }
 {
   // gitTreeSide refuses what is not a revision, and a revision that does not exist

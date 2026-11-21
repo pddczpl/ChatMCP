@@ -22,6 +22,7 @@ const baseline = await gitTreeSide({ root, rev: 'HEAD', stateDir });   // a comm
 const final = await workTreeSide({ root, stateDir });                 // the workspace as it is now
 const report = await detectCheckChanges({ baseline, final });         // criteria from the BASELINE .chatmcp/acceptance.yml
 await detectCheckChanges({ baseline, final, acceptance });            // or criteria given by the caller ({criteria, protected})
+await detectCheckChanges({ baseline, final, stats });                 // `stats` receives {normalizations, linesIndexed, pairsCompared}
 ```
 
 A *side* is `{entries: [{path, mode, oid}], read(paths, {maxBytes, budget})}`; `read` answers a `Map` of bytes, `null` (absent or
@@ -46,10 +47,14 @@ The other exports are the parts, each tested on its own: `nameStatus(before, aft
 file became a link or a submodule), `R` (a deleted and an added entry with the same blob), `C` (an added entry with the blob of an
 entry the baseline has). A change of the executable bit alone is an `M` with the same blob. Empty files are never paired.
 
-`detectCheckChanges` then pairs a deleted and an added file of the classified kinds whose text is the same after line endings are
-normalised, or at least 50 % similar by lines (Dice over trimmed lines), as a rename with edits (`R`, with `similarity`). So
-`tests/a.test.js` renamed to `tests/b.test.js` with one assertion removed reads as a rename that removed an assertion, not as a deleted
-test. Line endings are compared normalised everywhere: a file whose only change is CRLF against LF is reported as `line_endings_only`.
+`detectCheckChanges` then pairs a deleted and an added file of the classified kinds that are at least 50 % similar by lines (Dice over
+the multisets of trimmed, non-blank lines, after line endings are normalised; equal texts score 100) as a rename with edits (`R`, with
+`similarity`), the best-scoring pairs first. So `tests/a.test.js` renamed to `tests/b.test.js` with one assertion removed reads as a
+rename that removed an assertion, not as a deleted test. Each text is decoded and normalised once per report and its lines indexed
+once; an inverted index from a line to the added files that hold it sums the common lines of one deleted file against all added
+ones, so the work grows with the lines the files share, not with deleted x added x lines (200 x 200 renamed test files of 100 KB:
+about 2 s on the development machine, most of it reading the 40 MB once). The `stats` option exposes the counters a test pins. Line
+endings are compared normalised everywhere: a file whose only change is CRLF against LF is reported as `line_endings_only`.
 
 ## What is classified
 
@@ -67,9 +72,18 @@ When no acceptance file exists (and no criteria are given), the checks are unkno
 of the root `package.json` (with what it reaches) and the root `Makefile`.
 
 **What a criterion reaches.** The commands of a criterion's checks are split at `&&`, `||`, `;`, `|` and line breaks. `npm test`,
-`npm run x`, `npm run-script x`, `pnpm x`, `yarn x`, `bun run x`, `run-s`, `run-p` and `npm-run-all` (with `*` patterns) name scripts;
-`--prefix`, `-C`, `--dir` and `--cwd` move to another `package.json`; a workspace-scoped call (`-w`, `--filter`, `yarn workspace`) is
-not followed. From each script, npm's `pre<name>` and `post<name>` and the scripts its own text runs are added, at most 500 per package.
+`npm run x`, `npm run-script x`, `pnpm x`, `yarn x`, `bun run x`, `run-s`, `run-p` and `npm-run-all` (with `*` patterns) name scripts.
+`--prefix`, `-C`, `--dir` and `--cwd` move to another `package.json`: npm reads its options anywhere before a bare `--`
+(`npm test --prefix sub`, `npm run --prefix sub test`), pnpm, yarn and bun only before the script name (what follows it goes to the
+script), and an option's value is never taken as the script name. `cd dir` and `pushd dir` (also `chdir`, `Set-Location`, cmd's
+`cd /d`) to a literal relative folder move the commands after them in the same check, and `popd` moves back: `cd sub && npm test` runs
+`sub/package.json`. A workspace-scoped call (`-w`, `--filter`, `yarn workspace`) is not followed. From each script, npm's `pre<name>`
+and `post<name>` and the scripts its own text runs in the same folder are added, at most 500 per package.
+
+Not followed, and so not attributed: a `cd` to a variable (`cd "$PKG"`, `cd %DIR%`), to `~`, `-` or an absolute path, a bare `cd`, and a
+`popd` with nothing pushed (the rest of that check's line is not read); a `cd` inside a subshell `( ... )` (its words are read as
+written); a script call made inside a package.json script after a `cd` or with `--prefix` (it runs another `package.json`); a command
+wrapped in another shell (`bash -c "npm test"`, `cmd /c npm test`).
 
 ## The reasons
 
@@ -81,7 +95,7 @@ Every finding lists its reasons; a reason is `flagged` (it counts as checks modi
 | `test_file_renamed_out` | yes | a test file was renamed to a name the conventions do not match (a runner may no longer collect it) |
 | `test_file_type_changed` | yes | a test file became a link or a submodule |
 | `assertions_removed` | yes | fewer assertions than before: `expect(`, `assert(`, `assertEqual(`, `assert_eq!(`, `assert.x(` / `Assert.X(`, testify `require.x(`, Go `t.Error`/`t.Fatal`, AVA/tap `t.is(`..., `.should` / `.Should()`, `pytest.raises(`, the Python `assert` statement |
-| `skip_marker_added` | yes | more skip or focus markers than before: `it.skip`, `test.only`, `describe.skip`, `test.todo`, `xit(`, `fit(`, `this.skip()`, `{ skip: true }`, `@pytest.mark.skip`/`skipif`/`xfail`, `pytest.skip(`, `@unittest.skip*`, `self.skipTest(`, `raise SkipTest`, `collect_ignore`, Go `t.Skip*(`, `[Fact(Skip = ...)]`, `[Ignore]`, `[Explicit]`, `Assert.Ignore(`, `@Disabled`, `@Ignore`, `#[ignore]`, `markTestSkipped(`, RSpec `skip`/`pending`/`xit` |
+| `skip_marker_added` | yes | more skip or focus markers than before: `it.skip`, `test.only`, `describe.skip`, `test.todo`, `xit(`, `fit(`, `this.skip()`, `{ skip: true }`, `pytest.mark.skip`/`skipif`/`xfail` with or without `@` (so also `pytestmark = pytest.mark.skip(...)`, which skips a whole module, and `pytest.param(..., marks=pytest.mark.xfail)`), `pytest.skip(`, `unittest.skip*` with or without `@`, `self.skipTest(`, `raise SkipTest`, `collect_ignore`, Go `t.Skip*(`, `[Fact(Skip = ...)]`, `[Ignore]`, `[Explicit]`, `Assert.Ignore(`, `@Disabled`, `@Ignore`, `#[ignore]`, `markTestSkipped(`, RSpec `skip`/`pending`/`xit` |
 | `tolerance_loosened` | yes | on a line that is otherwise unchanged, a numeric tolerance grew (`rel=`, `abs=`, `rtol=`, `atol=`, `delta=`, `epsilon=`, `tol`, a `TOLERANCE` constant, `closeTo(x, d)`, `InDelta(..., d)`, `Within(d)`) or a digit count shrank (`toBeCloseTo(x, digits)`, `places=`, `decimal=`, `precision`) |
 | `test_data_changed` | yes | a test file that is not code (a fixture, a snapshot, expected output, a binary file in a test folder) changed |
 | `test_config_changed` | yes | test configuration changed (added, deleted or edited) |
@@ -150,8 +164,8 @@ Further limits of the heuristics, not repeated in each report:
   widened on a line that changed in any other way, nor one in a call whose arguments run longer than 500 characters.
 - Rename pairing with edits compares at most `maxSimilarityPairs` (40,000) deleted x added pairs of files up to 1 MiB; beyond that a
   renamed test file is reported as deleted (flagged).
-- A script call wrapped in another shell (`bash -c "npm test"`, `cmd /c npm test`) is not followed: only the commands of a check and of
-  the scripts it reaches are read, word by word.
+- Commands are read word by word: what "What a criterion reaches" lists as not followed (a `cd` to a variable, a subshell, a command
+  wrapped in `bash -c`) is not attributed to a criterion.
 - `codeOnly` is a lexer, not a parser: a regular-expression literal or a Rust lifetime can blank the rest of its line.
 - On Windows the work tree has no executable bit, so a file committed as `100755` reads as a mode change (`mode_changed`, never flagged).
 - Without Git the work-tree side walks every file with no ignore rules, and a Git revision cannot be read at all.
@@ -175,16 +189,19 @@ Further limits of the heuristics, not repeated in each report:
 `workTreeSide`):
 
 - five synthetic strategies that make a check pass without fixing anything are all flagged: an assertion deleted; a skip added (JS
-  `it.skip` and `xit`, `pytest.mark.skip`, Go `t.Skip`, xUnit `Skip =` and NUnit `Ignore`, Rust `#[ignore]`, JUnit `@Disabled`);
-  `scripts.test` changed to `echo ok`; the acceptance file edited; a tolerance widened (five spellings). Also `|| true` appended to a
-  script, a deleted test file, scripts reached through `npm run`, test configuration, a Makefile, a scripts/ file, a named file, CI
+  `it.skip` and `xit`, `pytest.mark.skip`, a module-level `pytestmark`, Go `t.Skip`, xUnit `Skip =` and NUnit `Ignore`, Rust
+  `#[ignore]`, JUnit `@Disabled`); `scripts.test` changed to `echo ok`, in the root and in a sub-package reached by `--prefix` before or
+  after the script name, `cd`, `cd /d`, `pushd` and `cwd` (and not by a root `npm test`, a `--prefix` after `--`, a `popd` back or a `cd`
+  to a variable); the acceptance file edited; a tolerance widened (six spellings). Also `|| true` appended to a script, a deleted test
+  file, scripts reached through `npm run`, a `cd` inside a script, test configuration, a Makefile, a scripts/ file, a named file, CI
   workflows and protected paths;
 - ten ordinary diffs (a new test file, a new test case, a source-only refactor, a README edit with a CI cache step, a dependency with its
   lockfile, a script no criterion runs, a pyproject dependency, a test file renamed, markers only in strings and comments, and two
   assertions folded into a loop) give **exactly one** flag, the last one, a known false positive;
 - edge inputs: renames (exact, with an edit, out of the conventions), a copy, a mode change, binary files, CRLF, a path with spaces and
   Vietnamese letters, an empty diff, a deleted and an unreadable `package.json`, no acceptance file, an ignored path, a huge diff (2,801
-  changes, a 10 MB test file, small read limits), text shaped to make a pattern slow, and option-like revisions;
+  changes, a 10 MB test file, small read limits), text shaped to make a pattern slow, the work of rename pairing (30 x 30 files: 900
+  pairs, 60 normalisations, each file's lines indexed once; a similarity of exactly 50 %), and option-like revisions;
 - the wording of every text of every report: neutral, no accusation, the four limitations present.
 
 Mutation list: `DATGOLD-HUB/tests/mutation/proof-tamper.json` (`node tests/mutation/run-mutations.mjs tests/mutation/proof-tamper.json`
