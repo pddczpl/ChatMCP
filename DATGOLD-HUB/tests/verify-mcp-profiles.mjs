@@ -7,7 +7,10 @@
 //      receipt_get are reserved and served by no profile; tasks_run in verify takes only the fixed check commands of test_run (the ones
 //      test_discover finds); the check results carry an outputSchema. The table's own refusals: a read-only tool under write, a mutating
 //      tool under read, a tool in two profiles, an unknown target or profile, an annotations override that differs from the definition.
-//   2. Scope names: mixed case and spaces are normalised, unknown and empty scopes are refused; tool names stay exact.
+//   2. Scope names: mixed case and spaces are normalised, unknown and empty scopes are refused; tool names stay exact. The host's catalog
+//      (the Studio tools the local backend offers, no other) and its refusal of an annotations override; the provider with a fake host:
+//      the request's scope and the token's scope now both decide before the host is called, stillAllowed follows the token, a receipt
+//      only for a finished check and a step of its own for each.
 //   3. A check's receipt (lib/verification-receipt.mjs): verify:<step>:<sha256>, which objectiveReceiptId accepts; an exit code never
 //      makes a verified test outcome.
 //   4. The token's scope (lib/mcp/server-token.mjs): a new token has verify; setScope writes it, load reads it, rotate keeps it; an ext-17
@@ -278,8 +281,8 @@ try {
     const found = new Set([
       ...await discover({ 'package.json': JSON.stringify({ scripts: { test: 'node x' } }) }),
       ...await discover({ 'package.json': '{}' }),
-      ...await discover({ 'pyproject.toml': '' }),
-      ...await discover({ 'app.sln': '' }),
+      ...await discover({ 'pyproject.toml': '[project]\nname = "fixture"\n' }),
+      ...await discover({ 'app.sln': 'Microsoft Visual Studio Solution File\n' }),
     ]);
     assert.deepEqual(sorted(found), sorted(CHECK_COMMANDS));
   });
@@ -312,6 +315,67 @@ try {
     assert.throws(() => buildToolProfiles({ verify: base.verify, read: base.read }), /profile/, 'all three profiles are declared');
     assert.throws(() => buildToolProfiles({ ...base, write: [{ name: 'edit_file', target: 'local.edit_file', annotations: { readOnlyHint: true } }] }), /annotations/);
     assert.throws(() => buildToolProfiles({ ...base, read: [{ name: 'READ.FILE', target: 'local.read_file' }] }), /name/);
+    for (const name of [...RESERVED_VERIFY_TOOLS, 'hub_status']) {
+      assert.throws(() => buildToolProfiles({ ...base, verify: [{ name, target: 'local.git_status' }] }), /name/, `${name} cannot be a profile tool`);
+    }
+  });
+
+  await test('the host takes the Hub\'s own definitions: the Studio tools the local backend offers and no other, and an annotations override that differs is refused', () => {
+    const studio = [...hubToolCatalog().keys()].filter((name) => name.startsWith('studio.')).sort();
+    assert.deepEqual(studio, ['studio.checkpoint', 'studio.checkpoints', 'studio.checks', 'studio.definitions', 'studio.diff_check', 'studio.index_status', 'studio.references', 'studio.review', 'studio.skills', 'studio.symbols']);
+    const base = { bundleRoot: HUB_ROOT, directory: folder('host-refusals'), workspace: () => null, primaryState: () => ({ busy: false }), scope: 'profiles' };
+    assert.throws(() => new McpHost({ ...base, tools: [{ name: 'tree', target: 'studio.tree' }] }), /target/, 'studio.tree is in no session\'s catalog');
+    assert.throws(() => new McpHost({ ...base, tools: [{ name: 'edit_file', target: 'local.edit_file', annotations: { readOnlyHint: true, destructiveHint: false } }] }), /annotations/);
+    const same = new McpHost({ ...base, tools: [{ name: 'edit_file', target: 'local.edit_file', annotations: { readOnlyHint: false, destructiveHint: false } }] });
+    assert.equal(same.tools()[0].annotations.readOnlyHint, false);
+    const checks = new McpHost({ ...base, tools: [{ name: 'studio_checks', target: 'studio.checks', outputSchema: { type: 'object', properties: {} } }] });
+    assert.deepEqual(checks.tools()[0].outputSchema, { type: 'object', properties: {} }, 'the host carries an outputSchema to tools/list');
+  });
+
+  await test('the provider (a fake host): the scope of the request and the token\'s scope now both decide before the host is called; stillAllowed follows the live scope; receipts only for a finished check', async () => {
+    const calls = [];
+    let answer = { content: [], structuredContent: { taskId: 'bg_1', status: 'running', exitCode: null, error: null } };
+    const host = { tools: () => PROFILE_HOST_TOOLS.map((tool) => ({ name: tool.name, inputSchema: tool.inputSchema })), call: async (...args) => { calls.push(args); return answer; } };
+    const provider = mcpProfileProvider({ host, version: '0.0.1' });
+    assert.deepEqual(provider.tools({ authInfo: { scopes: ['read'] } }).map((tool) => tool.name), ['hub_status', ...PROFILE_TABLE.read.map((tool) => tool.name)]);
+    assert.deepEqual(provider.tools({}).map((tool) => tool.name), ['hub_status'], 'no authInfo: no profile');
+    assert.deepEqual(provider.scopeChallenge('edit_file', { scopes: ['verify'] }).scopes, ['write']);
+    assert.equal(provider.scopeChallenge('git_status', { scopes: ['verify'] }), undefined);
+    assert.equal(provider.scopeChallenge('EDIT_FILE', { scopes: ['verify'] }), undefined, 'no tool, no challenge: the SDK says it is unknown');
+    let live = ['verify'];
+    const refused = await provider.call('edit_file', WRITE_CALLS.edit_file, { scopes: ['verify'], liveScopes: () => live });
+    assert.equal(codeOf(refused), 'mcp_scope_refused');
+    assert.equal(refused.structuredContent.error.required, 'write');
+    const notNow = await provider.call('edit_file', WRITE_CALLS.edit_file, { scopes: ['verify', 'write'], liveScopes: () => live });
+    assert.equal(codeOf(notNow), 'mcp_scope_refused', 'the token lost write since the request began');
+    assert.equal(calls.length, 0, 'the host was never called');
+    assert.equal(codeOf(await provider.call('nope', {}, { scopes: ['verify'] })), 'unknown_tool');
+    live = ['verify', 'write'];
+    await provider.call('edit_file', WRITE_CALLS.edit_file, { scopes: ['verify', 'write'], liveScopes: () => live, client: { name: 'Fake Client' } });
+    assert.equal(calls.length, 1);
+    const [, , options] = calls[0];
+    assert.equal(options.stillAllowed(), true);
+    live = ['verify'];
+    assert.equal(options.stillAllowed(), false, 'asked again after the owner answers, it follows the token');
+    assert.equal((await provider.call('tasks_status', { taskId: 'bg_1' }, { scopes: ['verify'] })).structuredContent.receipt, undefined, 'a running task has no receipt');
+    const receipts = [];
+    for (const status of ['completed', 'failed', 'cancelled', 'timed_out']) {
+      answer = { content: [], structuredContent: { taskId: 'bg_1', status, exitCode: status === 'completed' ? 0 : 1, error: null } };
+      const result = await provider.call('tasks_status', { taskId: 'bg_1' }, { scopes: ['verify'], client: { name: 'Fake Client' } });
+      assert.match(result.structuredContent.receipt?.receiptId ?? '', /^verify:\d+:[a-f0-9]{64}$/, status);
+      assert.equal(result.structuredContent.receipt.client, 'fake-client');
+      receipts.push(result.structuredContent.receipt);
+    }
+    assert.ok(receipts.every((receipt, index) => index === 0 || receipt.step > receipts[index - 1].step), 'every receipt has a step of its own');
+    answer = { isError: true, content: [], structuredContent: { error: { code: 'permission_denied', message: 'no' }, executed: false } };
+    assert.equal((await provider.call('test_run', { framework: 'node' }, { scopes: ['verify'] })).structuredContent.receipt, undefined, 'a refusal is no observation');
+    answer = { isError: true, content: [], structuredContent: { framework: 'node', exitCode: 1, timedOut: false, cancelled: false } };
+    const failedRun = await provider.call('test_run', { framework: 'node' }, { scopes: ['verify'] });
+    assert.equal(failedRun.structuredContent.receipt.commandSucceeded, false, 'a failed run has a receipt that says so');
+    answer = { content: [], structuredContent: { path: 'x' } };
+    assert.equal((await provider.call('git_status', {}, { scopes: ['verify'] })).structuredContent.receipt, undefined, 'no receipt for a tool that is no check');
+    const status = JSON.parse(textOf(await provider.call('hub_status', {}, { scopes: ['read', 'verify'] })));
+    assert.deepEqual(status.scope, ['verify', 'read']);
   });
 
   // ---------------------------------------------------------------------------------------------------------------------------------
@@ -333,6 +397,8 @@ try {
     assert.equal(failed.commandSucceeded, false);
     assert.equal(mcpCheckReceipt({ tool: 'test_run', client: null, step: 4, observed: { exitCode: 0, timedOut: true }, at: 'x' }).commandSucceeded, false, 'a timeout is no success');
     assert.equal(mcpCheckReceipt({ tool: 'test_run', client: null, step: 4, observed: { exitCode: 0, cancelled: true }, at: 'x' }).commandSucceeded, false);
+    assert.equal(mcpCheckReceipt({ tool: 'tasks_status', client: null, step: 4, observed: { status: 'timed_out', exitCode: 0 }, at: 'x' }).commandSucceeded, false, 'only a completed task succeeded');
+    assert.equal(mcpCheckReceipt({ tool: 'tasks_status', client: null, step: 4, observed: { ...observed }, at: '2026-11-21T00:00:00.000Z' }).sha256, mcpCheckReceipt({ tool: 'tasks_status', client: null, step: 9, observed: { exitCode: 0, status: 'completed', taskId: 'bg_1' }, at: '2026-11-21T00:00:00.000Z' }).sha256, 'the digest does not depend on the order of the keys');
     assert.throws(() => mcpCheckReceipt({ tool: 'tasks_status', client: null, step: -1, observed, at: 'x' }), /step/);
     assert.throws(() => mcpCheckReceipt({ tool: 'tasks_status', client: null, step: 1, observed: null, at: 'x' }), /observed/);
   });
@@ -355,6 +421,10 @@ try {
     assert.ok(again.verify(token));
     assert.deepEqual(again.scope(), ['verify', 'read'], 'a new token keeps the owner\'s scope');
     assert.ok(Object.isFrozen(again.scope()));
+    const third = new McpServerTokenStore({ directory: dir, protector: fileProtector(dir) });
+    await third.load();
+    assert.deepEqual(third.scope(), ['verify', 'read'], 'and so does its file');
+    assert.ok(third.verify(token));
   });
 
   await test('an ext-17 token file (no scope) is the verify scope; an unknown or empty scope in the file is no scope at all, and says so', async () => {
@@ -589,6 +659,14 @@ try {
       assert.equal(drifted.structuredContent.executed, false);
       assert.equal(env.host.gate('drift').state().recent.length, historyBefore, 'the gate was not asked');
       assert.equal(env.host.pendingApprovals().length, 0);
+      // A tool offered as read-only whose call the gate does not see as a read is refused before anyone is asked.
+      const gate = env.host.gate('drift');
+      const assess = gate.assess.bind(gate);
+      gate.assess = async (...args) => ({ ...(await assess(...args)), category: 'workspace_edit' });
+      const odd = await client.callTool({ name: 'git_diff', arguments: {} });
+      assert.equal(codeOf(odd), 'mcp_profile_refused', textOf(odd));
+      assert.equal(odd.structuredContent.executed, false);
+      assert.equal(env.host.pendingApprovals().length, 0, 'nobody was asked');
     } finally { await env.close(); }
   });
 
@@ -620,6 +698,17 @@ try {
         assert.equal(status.mcpServer, 'ext-19 profiles');
         const diff = await client.callTool({ name: 'git_status', arguments: {} });
         assert.equal(codeOf(diff) === 'unknown_tool', false, textOf(diff));
+        // A check is the owner's to approve: the Hub's host asks in the dashboard (Review), and a denial there runs nothing.
+        const check = client.callTool({ name: 'tasks_run', arguments: { command: 'node --test' } });
+        check.catch(() => {});
+        let asked = null;
+        await waitFor(async () => {
+          asked = (await hub.get('/api/state')).json?.studio?.permissions?.pending?.find((item) => item.tag === 'mcp:verify-ext19') ?? null;
+          return asked;
+        }, { timeoutMs: 15_000, intervalMs: 50, label: 'the check\'s question in the dashboard' });
+        assert.equal(asked.toolName, 'local.tasks_run');
+        await hub.post('/api/studio/permissions/decide', { id: asked.id, approved: false });
+        assert.equal(codeOf(await check), 'permission_denied');
       } finally { await client.close(); }
       // The owner opts read in for this token (the connection kit of ext-20 will offer the switch): the store writes the file, and the Hub
       // reads it at its next start.

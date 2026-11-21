@@ -5,6 +5,34 @@ import { createHash } from 'node:crypto';
 import { fault, validateExecutionReceipt } from './execution-contract.mjs';
 import { NODE_TEST_SUMMARY_PREFIX } from './windows-sandbox-node-reporter.mjs';
 import { BLACKBOX_KIND, BLACKBOX_COMMAND } from './native-blackbox-contract.mjs';
+import { objectiveReceiptId } from './objective-acceptance.mjs';
+
+/** What a check run for an MCP client proves: the Hub saw the command run and end; it never proves that a test suite passed. */
+export const MCP_CHECK_EVIDENCE = 'execution_observed_tests_unverified';
+
+/** JSON with the keys of every object in code-unit order, so the same record always has the same digest. */
+const canonicalJson = (value) => JSON.stringify(value, (key, item) => (item !== null && typeof item === 'object' && !Array.isArray(item)
+  ? Object.fromEntries(Object.keys(item).sort().map((name) => [name, item[name]])) : item));
+
+/**
+ * The receipt of a check the Hub ran for an MCP client (docs/MCP-SERVER.md "Tool profiles", P6 ext-19): the Hub's own record of what it
+ * observed (`observed`: the structured result of test_run, or of tasks_status once the task has ended), digested with the tool, the
+ * client and the time. `receiptId` is `verify:<step>:<sha256>` (objectiveReceiptId of lib/objective-acceptance.mjs). The client's own text
+ * is never part of it, and like every receipt here an exit code alone never makes `testOutcomeVerified`. The receipt is returned with the
+ * result; keeping and serving receipts (receipt_get, evidence_pack) is the Proof-of-Done work of P4.
+ */
+export function mcpCheckReceipt({ tool, client = null, step, observed, at = new Date().toISOString() } = {}) {
+  if (typeof tool !== 'string' || !tool) throw fault('invalid_verification', 'A check receipt needs the name of the tool.');
+  if (!Number.isSafeInteger(step) || step < 0) throw fault('invalid_verification', 'A check receipt needs a step: a whole number, 0 or more.');
+  if (observed === null || typeof observed !== 'object' || Array.isArray(observed)) throw fault('invalid_verification', 'A check receipt needs what was observed (an object).');
+  const sha256 = createHash('sha256').update(canonicalJson({ schema: 1, kind: 'verify', tool, client, at, observed })).digest('hex');
+  const commandSucceeded = observed.exitCode === 0 && observed.timedOut !== true && observed.cancelled !== true
+    && (observed.status === undefined || observed.status === 'completed');
+  return Object.freeze({
+    schema: 1, kind: 'verify', receiptId: objectiveReceiptId({ kind: 'verify', step, sha256 }), step, tool, client, at, sha256,
+    commandSucceeded, testOutcomeVerified: false, evidenceClassification: MCP_CHECK_EVIDENCE,
+  });
+}
 
 export const hashCheck = (descriptor) => createHash('sha256').update(JSON.stringify({
   workerId: descriptor.workerId, sourceHash: descriptor.sourceHash,

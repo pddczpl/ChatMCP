@@ -10,8 +10,8 @@
 //      of refusals adds a bounded number of lines; a rotated token is refused at once.
 //   5. startHubMcpServer: off -> nothing listens; the SDK missing -> no throw, `mcp_runtime_missing`; on -> listens, close() frees the port.
 //   6. A real hub.mjs (the e2e helper): off by default (nothing on the configured port), the SDK missing (the Hub starts and logs
-//      mcp_runtime_missing), on (a client with the token lists hub_status and the host's read_file of ext-18; a shutdown closes the
-//      listener). What the host does with a call is tests/verify-mcp-server-approvals.mjs.
+//      mcp_runtime_missing), on (a client with a new token lists hub_status and the verify profile of ext-19; a shutdown closes the
+//      listener). What the host does with a call is tests/verify-mcp-server-approvals.mjs; the profiles are tests/verify-mcp-profiles.mjs.
 // Every listener here binds port 0 or a port freePort() just found: never 3007 (the owner's Hub) and never a fixed 3008.
 // The SDK is the one of scripts/mcp-runtime (tests/support/mcp-tools.mjs runtimeRoot, which also finds it from a mutation copy); without
 // it the suite says CHATMCP_TEST_SKIP, which `run-all --no-skip all` turns into a failure.
@@ -91,6 +91,8 @@ const post = async (url, body, headers = {}) => {
 };
 /** The JSON-RPC message of a JSON or a one-event SSE answer. */
 const messageOf = (text) => JSON.parse(text.startsWith('event:') || text.startsWith('data:') ? text.split('\n').find((line) => line.startsWith('data: ')).slice(6) : text);
+// The verify profile, the scope of a new token (lib/mcp/tool-profiles.mjs; the profiles themselves are tests/verify-mcp-profiles.mjs).
+const VERIFY_PROFILE = Object.freeze(['git_diff', 'git_status', 'studio_checks', 'studio_diff_check', 'studio_review', 'tasks_cancel', 'tasks_run', 'tasks_status', 'test_discover', 'test_results', 'test_run']);
 const INITIALIZE = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'raw', version: '1' } } };
 const ENVELOPE = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': { name: 'raw', version: '1' }, 'io.modelcontextprotocol/clientCapabilities': {} };
 const DISCOVER = { jsonrpc: '2.0', id: 2, method: 'server/discover', params: { _meta: ENVELOPE } };
@@ -551,7 +553,7 @@ try {
     } finally { await hub.stop(); }
   });
 
-  await test('hub.mjs: on, a client with the token lists hub_status and the host read_file, and a shutdown closes the listener', async () => {
+  await test('hub.mjs: on, a client with a new token lists hub_status and the verify profile, and a shutdown closes the listener', async () => {
     const port = await freePort();
     const scratchDir = folder('e2e-on');
     const hub = await startHub({ scratch: scratchDir, env: { [MCP_SERVER_VARIABLE]: 'on', [MCP_SERVER_PORT_VARIABLE]: String(port), CHATMCP_MCP_RUNTIME_DIR: runtime } });
@@ -564,11 +566,12 @@ try {
       const client = await connectClient(`http://127.0.0.1:${port}/mcp`, token);
       try {
         const { tools } = await client.listTools();
-        assert.deepEqual(tools.map((tool) => tool.name), ['hub_status', 'read_file'], 'ext-18 adds one read tool through the host (tests/verify-mcp-server-approvals.mjs)');
-        assert.equal(tools[0].annotations.readOnlyHint, true);
+        assert.deepEqual(tools.map((tool) => tool.name), ['hub_status', ...VERIFY_PROFILE].sort(), 'a new token has the verify profile of ext-19 (tests/verify-mcp-profiles.mjs)');
+        assert.equal(tools.find((tool) => tool.name === 'hub_status').annotations.readOnlyHint, true);
         const status = await client.callTool({ name: 'hub_status', arguments: {} });
         assert.match(status.content[0].text, /"product":"DatGold"/);
-        assert.equal(JSON.parse(status.content[0].text).workspaceTools.join(','), 'read_file');
+        assert.deepEqual(JSON.parse(status.content[0].text).workspaceTools, [...VERIFY_PROFILE].sort());
+        assert.deepEqual(JSON.parse(status.content[0].text).scope, ['verify']);
         assert.ok(!status.content[0].text.includes(scratchDir), 'it names no folder');
       } finally { await client.close(); }
       assert.equal((await post(`http://127.0.0.1:${port}/mcp`, INITIALIZE)).status, 401);
