@@ -4,9 +4,11 @@
 // same thing on three runs of main in a row is not an accident any more, so this gate fails the run.
 //
 //   node scripts/ci-flaky-gate.mjs --current <dir> [--repo owner/name] [--run-id N] [--workflow CI] [--branch main] [--limit 3] [--json]
-//                                  [--previous-dir <dir>]
+//                                  [--previous-dir <dir>] [--expect-summaries N]
 //
 // <dir> holds the summary.json files of the jobs of one run, in any folder layout (`gh run download` writes one folder per artifact).
+// --expect-summaries N: this run must have exactly N readable summaries (ci.yml: one per hub-tests job, 2 OS x 2 Node x 2 shards); any other
+// number is an error (exit 2), so a misnamed or missing shard artifact cannot make the gate judge part of the run as if it were all of it.
 // The previous runs come from GitHub (`gh run list`, then `gh run download` of their `hub-test-summary-*` artifacts), or, for tests, from
 // --previous-dir: one sub-folder per run, named by run id, newest = highest id. The script only READS GitHub (allow-list below); the
 // artifacts are written to a temporary folder here.
@@ -112,7 +114,7 @@ export async function previousRunIds({ repo, workflow, branch, exceptRunId, coun
 }
 
 function parseArguments(argv) {
-  const options = { current: null, repo: process.env.GITHUB_REPOSITORY ?? null, runId: process.env.GITHUB_RUN_ID ?? null, workflow: 'CI', branch: 'main', limit: DEFAULT_LIMIT, json: false, previousDir: null };
+  const options = { current: null, repo: process.env.GITHUB_REPOSITORY ?? null, runId: process.env.GITHUB_RUN_ID ?? null, workflow: 'CI', branch: 'main', limit: DEFAULT_LIMIT, json: false, previousDir: null, expectSummaries: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => { const next = argv[++i]; if (next === undefined) throw new Error(`${arg} requires a value`); return next; };
@@ -123,6 +125,7 @@ function parseArguments(argv) {
     else if (arg === '--branch') options.branch = value();
     else if (arg === '--limit') { options.limit = Number(value()); if (!Number.isInteger(options.limit) || options.limit < 1) throw new Error('--limit must be a positive whole number'); }
     else if (arg === '--previous-dir') options.previousDir = value();
+    else if (arg === '--expect-summaries') { options.expectSummaries = Number(value()); if (!Number.isInteger(options.expectSummaries) || options.expectSummaries < 1) throw new Error('--expect-summaries must be a positive whole number'); }
     else if (arg === '--json') options.json = true;
     else throw new Error(`Unknown option: ${arg}`);
   }
@@ -140,6 +143,10 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     const current = await readRunSummaries(options.current);
     if (current.files === 0) { console.error(`No summary.json found below ${options.current}`); return 2; }
+    if (options.expectSummaries !== null && current.files !== options.expectSummaries) {
+      console.error(`Found ${current.files} summaries below ${options.current}, expected ${options.expectSummaries} (one per hub-tests job): an artifact is missing or misnamed, so the gate cannot see the whole run`);
+      return 2;
+    }
     if (options.previousDir) {
       const folders = (await readdir(options.previousDir, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
         .sort((a, b) => Number(b) - Number(a) || b.localeCompare(a)).slice(0, needed);

@@ -296,4 +296,83 @@ const releaseRules = (text) => {
   ok(`${name}: schedule and hand only, one job that may write a branch and a draft pull request, official actions pinned to a commit, the hash of the content decides, no merge`);
 }
 
+// ---- 8. the Hub suites run in shards: every suite on every OS and Node version, each job within 30 minutes -----------------------------------
+// The Windows jobs of hub-tests reached 30 minutes with about 218 suites (docs/CI-HEALTH.md, "The Hub tests job and its time limit"). The matrix has
+// a shard axis and each job runs `tests/run-all.mjs --shard <i>/<n>`; verify-test-runner proves that the n shards of a list are the whole list.
+// What is checked here is that the workflow uses that correctly: n in the command equals the number of shards in the matrix, every OS x Node
+// cell runs every shard, each job uploads under a name of its own (two jobs uploading the same name fail the second upload), and the flaky gate
+// downloads all of them and knows how many to expect.
+export function hubTestsProblems(text) {
+  const problems = [];
+  const block = (header) => {
+    const start = text.indexOf(`\n  ${header}:\n`);
+    if (start < 0) return null;
+    const rest = text.slice(start + 1);
+    const end = rest.slice(1).search(/\n {2}[a-z][a-z0-9-]*:\n/);
+    return end < 0 ? rest : rest.slice(0, end + 1);
+  };
+  const job = block('hub-tests');
+  const gate = block('flaky-gate');
+  if (!job || !gate) return ['the hub-tests or the flaky-gate job is missing'];
+  const list = (key) => {
+    const match = job.match(new RegExp(`^ {8}${key}: \\[([^\\]]*)\\]$`, 'm'));
+    return match ? match[1].split(',').map((item) => item.trim().replace(/^'(.*)'$/, '$1')).filter(Boolean) : null;
+  };
+  const [os, node, shard] = [list('os'), list('node'), list('shard')];
+  if (!os || !['ubuntu-latest', 'windows-latest'].every((name) => os.includes(name))) problems.push(`hub-tests: the os axis is ${JSON.stringify(os)}; it must keep ubuntu-latest and windows-latest`);
+  if (!node || !['22', '24'].every((version) => node.includes(version))) problems.push(`hub-tests: the node axis is ${JSON.stringify(node)}; it must keep Node 22 and 24`);
+  const count = shard?.length ?? 0;
+  if (!shard || count < 2 || shard.join(',') !== Array.from({ length: count }, (_, i) => String(i + 1)).join(',')) problems.push(`hub-tests: the shard axis is ${JSON.stringify(shard)}; it must be [1, 2, ...] up to the number of shards`);
+  if (/^ {6,}(include|exclude):/m.test(job)) problems.push('hub-tests: an include or exclude in the matrix could drop a shard of one OS or Node version');
+  if (!/^ {6}fail-fast: false$/m.test(job)) problems.push('hub-tests: fail-fast must stay false (a red shard must not cancel the others)');
+  const name = job.match(/^ {4}name: Hub tests \(\$\{\{ matrix\.os \}\}, Node \$\{\{ matrix\.node \}\}, \$\{\{ matrix\.shard \}\}\/(\d+)\)$/m);
+  if (!name || Number(name[1]) !== count) problems.push(`hub-tests: the job name must be "Hub tests (\${{ matrix.os }}, Node \${{ matrix.node }}, \${{ matrix.shard }}/${count})"`);
+  const runs = [...job.matchAll(/^ +run: node tests\/run-all\.mjs ([^\n]*)$/gm)].map((match) => match[1]);
+  if (runs.length !== 1) problems.push(`hub-tests: expected one run of tests/run-all.mjs, found ${runs.length}`);
+  else {
+    const command = runs[0];
+    const shardArgument = command.match(/(?:^| )--shard \$\{\{ matrix\.shard \}\}\/(\d+)(?= |$)/);
+    if (!shardArgument || Number(shardArgument[1]) !== count) problems.push(`hub-tests: run-all must get --shard \${{ matrix.shard }}/${count}, it got: ${command}`);
+    if (!command.startsWith('--no-skip all ')) problems.push('hub-tests: run-all must start with --no-skip all (verify-release-workflow compares the installs before that command)');
+    if (!/(?:^| )--retry-failed-once(?= |$)/.test(command)) problems.push('hub-tests: run-all must keep --retry-failed-once');
+    if (/(?:^| )--filter(?= |$)/.test(command)) problems.push('hub-tests: a --filter would leave suites out of every shard');
+  }
+  if (!/^ {4}timeout-minutes: 30$/m.test(job)) problems.push('hub-tests: timeout-minutes must be 30 (split further instead of raising it: docs/CI-HEALTH.md)');
+  const artifacts = [...job.matchAll(/uses: actions\/upload-artifact@\S+[^\n]*\n {8}with:\n {10}name: ([^\n]+)/g)].map((match) => match[1].trim());
+  if (artifacts.length === 0) problems.push('hub-tests: no artifact upload was found');
+  for (const artifact of artifacts) {
+    for (const part of ['${{ matrix.os }}', '${{ matrix.node }}', '${{ matrix.shard }}']) if (!artifact.includes(part)) problems.push(`hub-tests: the artifact name ${artifact} lacks ${part}, so two jobs would upload the same name`);
+  }
+  if (!artifacts.some((artifact) => artifact.startsWith('hub-test-summary-'))) problems.push('hub-tests: the summary artifact must be named hub-test-summary-* (the flaky gate downloads that pattern)');
+  if (!gate.includes("--pattern 'hub-test-summary-*'")) problems.push("flaky-gate: it must download --pattern 'hub-test-summary-*'");
+  const expected = gate.match(/scripts\/ci-flaky-gate\.mjs [^\n]*--expect-summaries (\d+)(?= |$)/m);
+  const jobs = (os?.length ?? 0) * (node?.length ?? 0) * count;
+  if (!expected || Number(expected[1]) !== jobs) problems.push(`flaky-gate: ci-flaky-gate.mjs must get --expect-summaries ${jobs} (${os?.length} OS x ${node?.length} Node x ${count} shards)`);
+  return problems;
+}
+{
+  const text = source['ci.yml'];
+  assert.deepEqual(hubTestsProblems(text), []);
+  ok('hub-tests: the shard axis [1, 2] runs on every OS and Node version, run-all gets --shard ${{ matrix.shard }}/2, the job name and every artifact name carry the shard, the limit is 30 minutes, and the flaky gate expects one summary per job');
+  const mutations = [
+    ['the shard axis dropped', (t) => t.replace(/\n {8}shard: \[[^\]]*\]/, '')],
+    ['a third shard in the matrix only', (t) => t.replace(/( {8}shard: \[)1, 2\]/, '$11, 2, 3]')],
+    ['run-all told there are three shards', (t) => t.replace('--shard ${{ matrix.shard }}/2', '--shard ${{ matrix.shard }}/3')],
+    ['run-all without --shard', (t) => t.replace(' --shard ${{ matrix.shard }}/2', '')],
+    ['a shard excluded on Windows', (t) => t.replace(/( {8}shard: \[[^\]]*\]\n)/, '$1        exclude:\n          - os: windows-latest\n            shard: 2\n')],
+    ['the summary artifact without the shard', (t) => t.replace(/(name: hub-test-summary-\$\{\{ matrix\.os \}\}-node\$\{\{ matrix\.node \}\})-shard\$\{\{ matrix\.shard \}\}/, '$1')],
+    ['the summary artifact renamed away from the gate pattern', (t) => t.replace('name: hub-test-summary-', 'name: hub-summary-')],
+    ['the time limit raised again', (t) => t.replace(/(\n {2}hub-tests:\n[\s\S]*? {4}timeout-minutes: )30/, '$145')],
+    ['the gate expecting the old four summaries', (t) => t.replace(/--expect-summaries \d+/, '--expect-summaries 4')],
+    ['the job name without the shard', (t) => t.replace(/(name: Hub tests \(\$\{\{ matrix\.os \}\}, Node \$\{\{ matrix\.node \}\}), \$\{\{ matrix\.shard \}\}\/2\)/, '$1)')],
+    ['a filter in the shard run', (t) => t.replace('--shard ${{ matrix.shard }}/2', '--shard ${{ matrix.shard }}/2 --filter e2e')],
+  ];
+  for (const [label, change] of mutations) {
+    const after = change(text);
+    assert.notEqual(after, text, `the mutation "${label}" changed nothing`);
+    assert.notDeepEqual(hubTestsProblems(after), [], `the defect "${label}" was not detected`);
+  }
+  ok(`${mutations.length} defects put into an in-memory copy of ci.yml (no shard axis, a matrix or a command that disagrees on the number of shards, no --shard, an excluded shard, an artifact name without the shard or outside the gate pattern, 45 minutes, the old expected count, a name without the shard, a filter) are each detected`);
+}
+
 console.log(`PASS: ${checks} CI trigger checks over ${files.length} workflows (modelled GitHub rules; GitHub itself confirms on the first pull requests)`);

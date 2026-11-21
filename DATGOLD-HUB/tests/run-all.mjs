@@ -10,7 +10,7 @@
 //   node tests/run-all.mjs [--list] [--filter text] [--bail] [--verbose]
 //                          [--timeout seconds] [--python] [--json file]
 //                          [--no-skip all|name[,name...]] [--tests-dir dir]
-//                          [--retry-failed-once] [--fail-on-flaky]
+//                          [--retry-failed-once] [--fail-on-flaky] [--shard i/n]
 //
 // A suite that cannot run in the current environment may print a line that
 // starts with "CHATMCP_TEST_SKIP:" followed by the reason and exit with 0.
@@ -30,11 +30,20 @@
 // --fail-on-flaky makes any FLAKY suite fail this run (exit 1), for local use where nothing should need a retry.
 // On GitHub Actions each FLAKY suite is also a ::warning annotation and a line in the step summary.
 //
+// --shard i/n (1 <= i <= n) runs the i-th of n parts of the suite list, so that CI can spread one OS and Node version over n jobs
+// (docs/CI-HEALTH.md). The split depends only on the list of suites (with --python, the Python ones too) and on tests/shard-weights.json
+// in the tests folder, never on the machine, the filter or the order of the folder, so every job computes the same parts, and the n parts
+// together are the whole list, each suite in exactly one. The rule: the suites the weights file lists (its "seconds", measured on the
+// Windows runners), heaviest first and by name among equals, each go to the shard with the least weight so far (the lower number among
+// equals); then the suites it does not list, by name, the same way, each weighing the mean of the listed ones. Without the file every suite
+// weighs the same and the parts differ by at most one suite. A suite added later never moves a listed one. --filter picks from the shard after
+// the split; --list prints the shard; the --json summary records it as summary.shard = {index, count, suites, of}.
+//
 // Exit code: 0 when no suite failed or timed out, 1 otherwise, 2 for usage
 // errors.
 
 import { spawn } from 'node:child_process';
-import { appendFile, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -43,9 +52,19 @@ const hubRoot = path.resolve(ownDirectory, '..');
 // How much of the end of a suite's output is kept, and shown when the suite fails. The words that differ in a long assertion stand at the top of Node's report and of each value it
 // dumps, a few thousand characters above the end, so this is more than the report of the longest assertion the suites make.
 const TAIL_LIMIT = 12_000;
+// The measured seconds per suite that --shard balances by; it lives next to the suites it describes.
+const SHARD_WEIGHTS_FILE = 'shard-weights.json';
+const MAX_SHARDS = 100;
+
+/** "i/n" -> {index: i, count: n}; anything else is a usage error. */
+function parseShard(text) {
+  const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(text);
+  if (!match || Number(match[1]) > Number(match[2]) || Number(match[2]) > MAX_SHARDS) throw new Error(`--shard needs i/n with 1 <= i <= n <= ${MAX_SHARDS} (for example 1/2), not "${text}"`);
+  return { index: Number(match[1]), count: Number(match[2]) };
+}
 
 function parseOptions(argv) {
-  const options = { list: false, filter: '', bail: false, verbose: false, timeoutSeconds: 180, python: false, json: '', noSkip: null, testsDirectory: ownDirectory, retryFailedOnce: false, failOnFlaky: false };
+  const options = { list: false, filter: '', bail: false, verbose: false, timeoutSeconds: 180, python: false, json: '', noSkip: null, testsDirectory: ownDirectory, retryFailedOnce: false, failOnFlaky: false, shard: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -62,6 +81,7 @@ function parseOptions(argv) {
     else if (arg === '--filter') options.filter = value().toLowerCase();
     else if (arg === '--json') options.json = value();
     else if (arg === '--tests-dir') options.testsDirectory = path.resolve(value());
+    else if (arg === '--shard') options.shard = parseShard(value());
     else if (arg === '--no-skip') {
       const names = value().split(',').map((name) => name.trim().toLowerCase().replace(/\.(mjs|py)$/, '')).filter(Boolean);
       if (names.length === 0) throw new Error('--no-skip needs "all" or a comma-separated list of suite names');
@@ -81,9 +101,59 @@ function mustRun(options, name) {
   return options.noSkip === 'all' || options.noSkip.has(name.toLowerCase().replace(/\.(mjs|py)$/, ''));
 }
 
+/** Code-unit order: the same on every machine and locale. */
+const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The weights file as a Map of suite name -> whole milliseconds (whole numbers, so that every machine adds them up to the same totals and
+ * breaks the same ties). A missing file is an empty Map (every suite then weighs the same); a file that is there but wrong is an error.
+ */
+async function readShardWeights(file) {
+  let text;
+  try { text = await readFile(file, 'utf8'); } catch (error) {
+    if (error.code === 'ENOENT') return new Map();
+    throw new Error(`${file} could not be read: ${error.message}`);
+  }
+  let parsed;
+  try { parsed = JSON.parse(text); } catch (error) { throw new Error(`${file} is not JSON: ${error.message}`); }
+  const seconds = parsed?.seconds;
+  if (!seconds || typeof seconds !== 'object' || Array.isArray(seconds)) throw new Error(`${file} must hold {"seconds": {"verify-name.mjs": <seconds>, ...}}`);
+  const weights = new Map();
+  for (const [name, value] of Object.entries(seconds)) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error(`${file}: the seconds of ${name} must be a number >= 0, not ${JSON.stringify(value)}`);
+    weights.set(name, Math.round(value * 1000));
+  }
+  return weights;
+}
+
+/** Split `names` into `count` lists by the rule in the header of this file; each list in name order. */
+function splitIntoShards(names, weights, count) {
+  const listed = names.filter((name) => weights.has(name));
+  const unlisted = names.filter((name) => !weights.has(name));
+  const mean = listed.length === 0 ? 1 : Math.round(listed.reduce((sum, name) => sum + weights.get(name), 0) / listed.length);
+  const shards = Array.from({ length: count }, () => ({ weight: 0, names: [] }));
+  const place = (name, weight) => {
+    let lightest = 0;
+    for (let i = 1; i < count; i++) if (shards[i].weight < shards[lightest].weight) lightest = i;
+    shards[lightest].weight += weight;
+    shards[lightest].names.push(name);
+  };
+  for (const name of [...listed].sort((a, b) => weights.get(b) - weights.get(a) || byName(a, b))) place(name, weights.get(name));
+  for (const name of [...unlisted].sort(byName)) place(name, mean);
+  return shards.map((shard) => shard.names.sort(byName));
+}
+
+/** The suites this run takes (its shard, then the filter) and, with --shard, what the summary records about the shard. */
 async function discover(options) {
   const files = (await readdir(options.testsDirectory)).filter((name) => /^verify-.+\.mjs$/.test(name) || (options.python && /^verify-.+\.py$/.test(name))).sort();
-  return files.filter((name) => !options.filter || name.toLowerCase().includes(options.filter));
+  let chosen = files;
+  let shard = null;
+  if (options.shard) {
+    const weights = await readShardWeights(path.join(options.testsDirectory, SHARD_WEIGHTS_FILE));
+    chosen = splitIntoShards(files, weights, options.shard.count)[options.shard.index - 1];
+    shard = { index: options.shard.index, count: options.shard.count, suites: chosen.length, of: files.length };
+  }
+  return { suites: chosen.filter((name) => !options.filter || name.toLowerCase().includes(options.filter)), shard };
 }
 
 function killTree(child) {
@@ -177,11 +247,14 @@ function shownLines(tail) {
 async function main() {
   let options;
   try { options = parseOptions(process.argv.slice(2)); } catch (error) { console.error(error.message); process.exit(2); }
-  const suites = await discover(options);
+  let suites;
+  let shard;
+  try { ({ suites, shard } = await discover(options)); } catch (error) { console.error(error.message); return 2; }
   if (options.list) { for (const name of suites) console.log(name); return 0; }
-  if (suites.length === 0) { console.error('No test suites matched.'); return 2; }
+  const shardText = shard ? `shard ${shard.index}/${shard.count} of ${shard.of}` : '';
+  if (suites.length === 0) { console.error(`No test suites matched${shard ? ` in ${shardText} (it holds ${shard.suites})` : ''}.`); return 2; }
 
-  console.log(`ChatMCP Hub test runner - node ${process.version} on ${process.platform}/${process.arch} - ${suites.length} suite(s)`);
+  console.log(`ChatMCP Hub test runner - node ${process.version} on ${process.platform}/${process.arch} - ${suites.length} suite(s)${shard ? `, ${shardText}` : ''}`);
   const results = [];
   for (const name of suites) {
     const result = await runWithRetry(name, options);
@@ -195,8 +268,8 @@ async function main() {
   }
 
   const count = (status) => results.filter((r) => r.status === status).length;
-  const summary = { node: process.version, platform: process.platform, arch: process.arch, total: results.length, pass: count('PASS'), fail: count('FAIL'), timeout: count('TIMEOUT'), skip: count('SKIP'), flaky: count('FLAKY') };
-  console.log(`\nSUMMARY: ${summary.pass} pass, ${summary.fail} fail, ${summary.timeout} timeout, ${summary.skip} skip, ${summary.flaky} flaky (of ${summary.total} suites run)`);
+  const summary = { node: process.version, platform: process.platform, arch: process.arch, total: results.length, pass: count('PASS'), fail: count('FAIL'), timeout: count('TIMEOUT'), skip: count('SKIP'), flaky: count('FLAKY'), shard };
+  console.log(`\nSUMMARY: ${summary.pass} pass, ${summary.fail} fail, ${summary.timeout} timeout, ${summary.skip} skip, ${summary.flaky} flaky (of ${summary.total} suites run${shard ? `; ${shardText}` : ''})`);
   const flaky = results.filter((r) => r.status === 'FLAKY');
   if (flaky.length) {
     console.log(`\nFLAKY - passed only on the second attempt, so NOT counted as pass: ${flaky.map((r) => r.name).join(', ')}`);

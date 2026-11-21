@@ -224,7 +224,7 @@ No retry was added: the rules below are for the Node suites of `run-all.mjs` and
 
 A `FLAKY` entry in `summary.json` carries both attempts with their exit codes, notes and **the output of the attempt that failed**; the console prints that output under the table line, and GitHub Actions gets a `::warning title=FLAKY suite` annotation and a line in the step summary. One `FLAKY` suite does not make the run red (a retry exists for the rare accident); `--fail-on-flaky` makes it red where nothing should need a retry.
 
-The same suite passing only on retry in run after run is a defect, not an accident. `scripts/ci-flaky-gate.mjs` (job `flaky-gate` of `ci.yml`, on pushes to `main` only, after `hub-tests` succeeded) adds up the `FLAKY` counts of the `hub-test-summary-*` artifacts of this run and of the previous ones and **fails when this run and the two runs of `main` before it each had one**. Definitions: a *flaky run* has more than 0 `FLAKY` suites in its summaries (a summary from before the retry existed counts 0); a run with no readable summary is *unknown* and ends a streak, because the gate never fails on something it did not see; the history is the previous completed `push` runs of `CI` on `main` that ended in success or failure, newest first. The script only reads GitHub (`gh run list`, `gh run download`; the artifacts go to a temporary folder). `tests/verify-test-runner.mjs` tests the retry rules, the decision function and the command line against fixture folders; mutating any of them (FLAKY reported as PASS, a skip rescuing a failure, an off-by-one streak, unknown counted as flaky) fails it.
+The same suite passing only on retry in run after run is a defect, not an accident. `scripts/ci-flaky-gate.mjs` (job `flaky-gate` of `ci.yml`, on pushes to `main` only, after `hub-tests` succeeded) adds up the `FLAKY` counts of the `hub-test-summary-*` artifacts of this run and of the previous ones and **fails when this run and the two runs of `main` before it each had one**. Since the split into two shards (below) a run has eight such artifacts, one per job; the gate gets `--expect-summaries 8` and stops with an error (exit 2) when this run has another number, so a missing or misnamed shard cannot leave it judging half the suites. Definitions: a *flaky run* has more than 0 `FLAKY` suites in its summaries (a summary from before the retry existed counts 0); a run with no readable summary is *unknown* and ends a streak, because the gate never fails on something it did not see; the history is the previous completed `push` runs of `CI` on `main` that ended in success or failure, newest first. The script only reads GitHub (`gh run list`, `gh run download`; the artifacts go to a temporary folder). `tests/verify-test-runner.mjs` tests the retry rules, the decision function and the command line against fixture folders; mutating any of them (FLAKY reported as PASS, a skip rescuing a failure, an off-by-one streak, unknown counted as flaky) fails it.
 
 ## G1-8, and what it cannot be
 
@@ -240,7 +240,45 @@ Change: `timeout-minutes: 30` (1800 s), 48% above the slowest run seen (1214 s).
 
 **2026-11-21: 45 minutes, as a stopgap.** With 213-217 suites the Windows jobs reached the limit: on the stacked heads of the merge of seven approved PRs, `Hub tests (windows-latest, Node 22)` of PR #131 (run 44803028865) and `Hub tests (windows-latest, Node 24)` of PR #126 were cancelled at 30m13s and 30m15s with no failed suite (the last suites logged were `verify-update-apply` and its neighbours), and both Windows jobs of PR #134 (run of 82a122c3) at 30m13s; the jobs that finished took 24m22s-25m30s on Windows and 16-18 min on Ubuntu. A re-run passed once and failed the next time, so the limit, not a test, decided. `timeout-minutes: 45` unblocks the queue of merges; it does not answer the rule above. The fix is still the split into two jobs (a `--shard <i>/<n>` option of `tests/run-all.mjs` and a shard axis in the matrix, every suite still on every OS and Node version), after which the limit goes back to 30.
 
+### Two shards (2026-11-21)
+
+Measured before the change, on the last push to `main` (run 44837366424, commit `2dfcd9c1`, 218 suites, all PASS): `Hub tests (windows-latest, Node 22)` took **31.8 min** (30.1 of them in the suites), Node 24 28.8 min, Ubuntu 17.0 and 17.4 min. The suite times in the four Windows summaries of that run and of run 44832551238 (`00e945b2`) add up to 1631-1889 s. The 45-minute stopgap was holding a job that was already past 30.
+
+What changed:
+
+| | Before | After |
+|---|---|---|
+| Matrix of `hub-tests` | `os` x `node` = 4 jobs | `os` x `node` x `shard: [1, 2]` = **8 jobs**; every OS and Node version still runs every suite, in two halves |
+| Job names | `Hub tests (windows-latest, Node 22)` | `Hub tests (windows-latest, Node 22, 1/2)` and `Hub tests (windows-latest, Node 22, 2/2)`, the same for the other three |
+| Command | `run-all.mjs --no-skip all --retry-failed-once --json ...` | the same with `--shard ${{ matrix.shard }}/2` |
+| Artifacts | `hub-test-summary-<os>-node<n>`, `proof-tree-budget-<os>-node<n>` | the same names ending `-shard<i>` (two jobs of a run cannot upload one name); only the shard that holds `verify-proof-tree` uploads the budget |
+| `timeout-minutes` | 45 (stopgap) | **30** |
+| `flaky-gate` | reads `hub-test-summary-*` | the same pattern, which matches the eight artifacts, and `--expect-summaries 8` |
+
+Branch protection: `main` has none and no ruleset (read with `gh api` on 2026-11-21), so no required check waits for the old names. If required checks are added later, they need the eight new names.
+
+**The split.** `tests/run-all.mjs --shard i/n` takes the i-th of n parts of the suite list. The suites listed in `DATGOLD-HUB/tests/shard-weights.json` (seconds per suite) are placed heaviest first, by name among equals, each on the shard with the least weight so far (the lower number among equals); then the suites the file does not list, by name, each weighing the mean of the listed suites that exist. Every job computes the same parts from the same list and file (whole milliseconds, code-unit name order: nothing depends on the machine), the parts together are the whole list with each suite once, a new suite never moves a listed one, and `--filter` picks from a shard after the split. Without the file every suite weighs the same. With the committed file the shards are 109 + 109 suites. `tests/verify-test-runner.mjs` holds the rule with worked examples (2 and 3 shards, an unlisted suite, a stale entry), the coverage for 1 to 13 shards, `--filter`, `--retry-failed-once` and `--no-skip` inside a shard, `summary.shard` in the JSON, and the real list against the bound that this greedy split always meets (heavier shard at most total / n + (1 - 1/n) x the heaviest suite: 52.8% for two shards today); `tests/mutation/test-runner-shards.json` breaks the rule 13 ways and each is caught. `tests/verify-ci-triggers.mjs` holds the workflow to it: the shard axis on every cell, the same n in the command, the job and artifact names, 30 minutes, the expected count of the gate.
+
+Why weights and not a hash of the name: the same 218 suites and the same eight summaries, split two ways (share of the suite time in the heavier shard):
+
+| Split | Windows (4 jobs) | Ubuntu (4 jobs) |
+|---|---|---|
+| greedy by the mean Windows seconds (chosen) | 50.1-50.4% | 53.2-54.4% |
+| SHA-256 of the name, modulo 2 | 56.9-57.5% | 60.7-61.1% |
+
+The weights are the Windows times because Windows is the job that nears the limit; Ubuntu is less even with them and far from it.
+
+**Refreshing the weights.** When the Windows shards drift apart by more than a couple of minutes (many suites added since the measurement, or a suite that became much slower), rebuild the file from runs of `main`:
+
+```bash
+gh run download <run id> --repo pddczpl/ChatMCP --pattern 'hub-test-summary-windows-*' --dir weights-in   # one or more runs
+node scripts/ci-shard-weights.mjs --from weights-in --out DATGOLD-HUB/tests/shard-weights.json --note "runs <ids> on main"
+```
+
+It takes the mean of each suite's time over the Windows summaries in which it passed (a `FLAKY` time includes the failed attempt), and names the summaries it read in the file. A refresh moves suites between shards; that is expected. When a shard itself nears 25 minutes, add a third shard (the axis, the `/2` of the command and `--expect-summaries`, which `verify-ci-triggers` checks agree) rather than raise the limit.
+
 ## Not verified here, and open
 
+- The durations of the eight `hub-tests` shard jobs on GitHub. From the summaries above, a Windows shard should take about 15 minutes of suites plus about 2 minutes of setup, an Ubuntu shard about 9 minutes; the first run of the pull request that made the split is the measurement (it is reported there), not this estimate.
 - The first real run of `docs-gates.yml`, of the changed concurrency expressions, and of the claims job: nothing here can start a GitHub run. They are checked by the trigger model and by running the same commands locally (`verify-docs`, `verify-trust-labels`, `verify-notices`, `verify-threat-model`).
 - `publish-v*.yml`: these 24 release workflows (one per release up to v3.11.2) started on **every** push to `main` (18 files) or every completion of CI on `main` (6 files) and ended "skipped" unless the commit message named their release, so each merge to `main` cost 24 extra runs. They were replaced by the one hand-started `release.yml` ([RELEASING.md](RELEASING.md)); `tests/verify-ci-triggers.mjs` fails when a `publish-v*.yml` comes back or `release.yml` gets a `push` trigger. The run count per merge on `main` after the change is measured by `scripts/ci-health.mjs` on GitHub, not here.
