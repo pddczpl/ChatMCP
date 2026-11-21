@@ -921,16 +921,18 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   manager.log(`Local-only Hub: 127.0.0.1 · Data: ${manager.hubDirectory}`);
   // The MCP server for local clients (docs/MCP-SERVER.md): its own listener, off unless the owner turned it on (CHATMCP_MCP_SERVER or
   // <data>/mcp-server.json). It never throws here: a missing SDK, a bad or busy port is a status and one log line, and the Hub runs on.
-  // Its tools go through the host (lib/mcp/host.mjs): a manager and a task per client on the Hub's workspace, the Hub's permission gate in
-  // Read Only, approvals in /api/state and the decide route above; a write waits while the agent works. Nothing is made before a call.
+  // Its tools are the profiles of the token's scope (lib/mcp/tool-profiles.mjs: verify by default, read and write opt-in), served by the host
+  // (lib/mcp/host.mjs): a manager and a task per client on the Hub's workspace, the Hub's permission gate in Review (reads run, anything
+  // else asks the owner), approvals in /api/state and the decide route above; a write waits while the agent works. Nothing is made before a call.
   const { startHubMcpServer } = await import('./lib/mcp/server.mjs');
-  const { HUB_HOST_TOOLS, McpHost, mcpHostProvider } = await import('./lib/mcp/host.mjs');
+  const { McpHost } = await import('./lib/mcp/host.mjs');
+  const { PROFILE_HOST_TOOLS, mcpProfileProvider } = await import('./lib/mcp/tool-profiles.mjs');
   mcpHost = new McpHost({ bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'mcp-host'), workspace: () => manager.workspace,
     primaryState: hostPrimaryState(manager, agent),
-    hooks: manager.hooks, mcp: manager.mcp, pluginManager: manager.pluginManager, secrets: manager.secrets, scope: 'read', tools: HUB_HOST_TOOLS, log: (line) => manager.log(line) });
+    hooks: manager.hooks, mcp: manager.mcp, pluginManager: manager.pluginManager, secrets: manager.secrets, scope: 'profiles', tools: PROFILE_HOST_TOOLS, log: (line) => manager.log(line) });
   manager.mcpHost = mcpHost;
   mcpServer = await startHubMcpServer({ env, directory: manager.hubDirectory, protector: createProtector({ bundleRoot: BUNDLE_ROOT, directory: manager.hubDirectory, env }),
-    name: 'DatGold Hub', version: VERSION, dashboardPort: options.port, log: (line) => manager.log(line), registerSecret: (value) => manager.registerSecret(value), ...mcpHostProvider({ host: mcpHost, version: VERSION }) })
+    name: 'DatGold Hub', version: VERSION, dashboardPort: options.port, log: (line) => manager.log(line), registerSecret: (value) => manager.registerSecret(value), ...mcpProfileProvider({ host: mcpHost, version: VERSION }) })
     .catch((error) => { manager.log(`MCP server: not started (${error?.code ?? 'error'}).`); return null; });
   manager.mcpServer = mcpServer;
   if (options.open) await openDashboard(url, manager, dashboardUrl(url, server.issueBootstrapTicket()));

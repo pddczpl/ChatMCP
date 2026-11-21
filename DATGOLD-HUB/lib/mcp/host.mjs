@@ -16,25 +16,32 @@
 //     `workspace_busy` too (checked again before the call runs).
 //   - Its approvals are merged into the Hub's /api/state (pendingApprovals, tagged source 'mcp', client and tag mcp:<client>) and the
 //     dashboard's decide route reaches them (decide).
-// What a client can call is the host's tool list (each tool names its target, a local tool or an external one); ext-18's Hub exposes only
-// read_file (HUB_HOST_TOOLS). The verify/read/write profiles are ext-19.
+// What a client can call is the host's tool list (each tool names its target, a local tool, a Studio tool the local backend offers, or an
+// external one); ext-18's Hub exposed only read_file (HUB_HOST_TOOLS). Since ext-19 the Hub's host serves every tool of the profiles
+// (lib/mcp/tool-profiles.mjs) in the `profiles` scope (the gate in Review), and the token's scope decides which of them a client may call.
+// Whatever the scope, a call is refused before the gate when the live definition of its target no longer says what tools/list told the
+// client (readOnlyHint, destructiveHint: mcp_annotations_mismatch), when a tool that said it is read-only is not a read for the gate
+// (mcp_profile_refused), and, once the owner has answered, when the caller's scope no longer allows it (stillAllowed: mcp_scope_refused).
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { HubManager } from '../manager.mjs';
+import { HubManager, LOCAL_BACKEND_STUDIO_TOOLS } from '../manager.mjs';
 import { assembleStudio } from '../assemble.mjs';
 import { LocalTools } from '../local-tools.mjs';
+import { STUDIO_TOOLS } from '../studio-tools.mjs';
 import { externalToolName, maskSecrets } from '../permissions.mjs';
 import { WorkspaceLock } from '../workspace-lock.mjs';
 import { hubMcpProvider } from './server.mjs';
 
 export const DEFAULT_APPROVAL_TIMEOUT_MS = 90_000;
 export const MAX_CLIENTS = 8;
-export const MCP_HOST_SCOPES = Object.freeze(['verify', 'read', 'write']);
-/** What ext-18's Hub lets a client call through the host: one read tool, to prove the path (the profiles are ext-19). */
+export const MCP_HOST_SCOPES = Object.freeze(['verify', 'read', 'write', 'profiles']);
+/** What ext-18's Hub let a client call through the host: one read tool, to prove the path (the Hub serves the profiles of ext-19 now). */
 export const HUB_HOST_TOOLS = Object.freeze([Object.freeze({ name: 'read_file', target: 'local.read_file' })]);
-const MODES_OF_SCOPE = Object.freeze({ verify: Object.freeze(['readonly']), read: Object.freeze(['readonly']), write: Object.freeze(['readonly', 'review']) });
+const MODES_OF_SCOPE = Object.freeze({ profiles: Object.freeze(['readonly', 'review']), verify: Object.freeze(['readonly']), read: Object.freeze(['readonly']), write: Object.freeze(['readonly', 'review']) });
 const DEFAULT_MODE = Object.freeze({ verify: 'readonly', read: 'readonly', write: 'review' });
+// The profiles scope: the token's scope chooses the tools (lib/mcp/tool-profiles.mjs) and the gate asks the owner for anything but a read.
+const PROFILES_MODE = 'review';
 const POLICIES = Object.freeze(['host-review', 'sandbox-only']);
 // The categories of a call that cannot change the workspace: a read, the client's own plan or checkpoint (in the client's folder), and a
 // call the gate refuses whatever happens (a protected file).
@@ -79,7 +86,7 @@ function lockGate(gate, scope, timeout) {
   const refuse = (what) => {
     throw failure('mcp_host_mode_refused', `The permission gate of an MCP client in the ${scope} scope allows ${modes.join(' or ')} with host review only; ${what} is refused.`, 403);
   };
-  let mode = DEFAULT_MODE[scope];
+  let mode = scope === 'profiles' ? PROFILES_MODE : DEFAULT_MODE[scope];
   let policy = 'host-review';
   Object.defineProperty(gate, 'mode', {
     enumerable: true, configurable: false, get: () => mode,
@@ -105,14 +112,28 @@ function lockGate(gate, scope, timeout) {
   gate.backgroundAgent = false;
 }
 
-let localCatalog = null;
-/** The definitions of the Hub's local tools (name `local.<tool>`), read once from a LocalTools on no workspace: schemas, descriptions, annotations. */
-function localDefinitions() {
-  localCatalog ??= new Map(new LocalTools({ workspace: { resolve: async () => { throw failure('workspace_missing', 'No workspace.'); } } }).definitions().map((definition) => [definition.name, definition]));
-  return localCatalog;
+let hubCatalog = null;
+/**
+ * The definitions of the Hub's own tools a host may serve, by their catalog name: every local tool (`local.<tool>`, read once from a
+ * LocalTools on no workspace) and the Studio tools the local backend offers beside them (`studio.<tool>`, LOCAL_BACKEND_STUDIO_TOOLS of
+ * lib/manager.mjs). Schemas, descriptions and annotations, as the Hub's agents see them.
+ */
+export function hubToolCatalog() {
+  hubCatalog ??= new Map([
+    ...new LocalTools({ workspace: { resolve: async () => { throw failure('workspace_missing', 'No workspace.'); } } }).definitions().map((definition) => [definition.name, definition]),
+    ...STUDIO_TOOLS.filter((definition) => LOCAL_BACKEND_STUDIO_TOOLS.has(definition.originalName)).map((definition) => [definition.name, structuredClone(definition)]),
+  ]);
+  return hubCatalog;
 }
 
-/** The host's tools, checked: a unique name of the MCP rule, a target that is a local tool of the Hub or `<server>.<tool>` of an external server (with its own inputSchema). */
+/** Whether two annotations say the same about what a tool changes: readOnlyHint and destructiveHint (an absent hint is not the same as false). */
+export const sameChangeHints = (a, b) => a?.readOnlyHint === b?.readOnlyHint && a?.destructiveHint === b?.destructiveHint;
+
+/**
+ * The host's tools, checked: a unique name of the MCP rule, a target that is a local tool of the Hub, a Studio tool the local backend
+ * offers, or `<server>.<tool>` of an external server (with its own inputSchema). The annotations of the Hub's own tools are their
+ * definitions' (an override that says something else about what the tool changes is refused); an outputSchema is the spec's.
+ */
 function normalizeHostTools(tools) {
   if (!Array.isArray(tools)) throw new TypeError('The MCP host needs an array of tools.');
   const byName = new Map();
@@ -121,10 +142,13 @@ function normalizeHostTools(tools) {
     if (typeof name !== 'string' || !TOOL_NAME.test(name) || RESERVED_NAMES.has(name)) throw new TypeError(`Invalid MCP host tool name: ${JSON.stringify(name)}.`);
     if (byName.has(name)) throw new TypeError(`The MCP host tool ${name} is listed twice.`);
     const target = typeof spec.target === 'string' ? spec.target : '';
+    const own = target.startsWith('local.') || target.startsWith('studio.');
     let definition;
-    if (target.startsWith('local.')) {
-      const local = localDefinitions().get(target);
-      if (!local) throw new TypeError(`The MCP host tool ${name} names ${target}, which is no local tool of the Hub.`);
+    if (own) {
+      const local = hubToolCatalog().get(target);
+      if (!local) throw new TypeError(target.startsWith('local.') ? `The MCP host tool ${name} names ${target}, which is no local tool of the Hub.`
+        : `The MCP host tool ${name} needs a target that is a Studio tool the Hub offers beside its local tools, not ${JSON.stringify(target)}.`);
+      if (spec.annotations !== undefined && !sameChangeHints(spec.annotations, local.annotations)) throw new TypeError(`The annotations of the MCP host tool ${name} differ from the definition of ${target}: a client must be told what the tool changes.`);
       definition = { name, title: spec.title, description: spec.description ?? local.description, inputSchema: structuredClone(spec.inputSchema ?? local.inputSchema), annotations: structuredClone(spec.annotations ?? local.annotations) };
     } else {
       const external = target.startsWith('studio.') ? null : externalToolName(target);
@@ -132,7 +156,8 @@ function normalizeHostTools(tools) {
       if (spec.inputSchema === null || typeof spec.inputSchema !== 'object' || spec.inputSchema.type !== 'object') throw new TypeError(`The MCP host tool ${name} (external ${target}) needs its own inputSchema of type object.`);
       definition = { name, title: spec.title, description: spec.description, inputSchema: structuredClone(spec.inputSchema), annotations: spec.annotations === undefined ? undefined : structuredClone(spec.annotations) };
     }
-    byName.set(name, Object.freeze({ name, target, write: spec.write === true, external: !target.startsWith('local.'), definition: Object.freeze(definition) }));
+    if (spec.outputSchema !== undefined) definition.outputSchema = structuredClone(spec.outputSchema);
+    byName.set(name, Object.freeze({ name, target, write: spec.write === true, external: !own, definition: Object.freeze(definition) }));
   }
   return byName;
 }
@@ -182,22 +207,35 @@ export class McpHost {
   /** The MCP definitions of the host's tools (createMcpServerFactory checks and orders them). No manager is made for a list. */
   tools() { return [...this.#tools.values()].map((spec) => spec.definition); }
 
-  /** A client's call: `client` is the clientInfo of its request (lib/mcp/server.mjs clientInfoOf). Always a result; never throws. */
-  async call(name, args = {}, { signal, client = null } = {}) {
+  /**
+   * A client's call: `client` is the clientInfo of its request (lib/mcp/server.mjs clientInfoOf). `stillAllowed`, when given, is asked
+   * again once the owner has answered: a call the caller's scope no longer allows then does not run (mcp_scope_refused). Always a result;
+   * never throws.
+   */
+  async call(name, args = {}, { signal, client = null, stillAllowed = null } = {}) {
     if (this.#closed) return refusal('mcp_host_closed', 'The DatGold MCP host has closed.');
     const spec = this.#tools.get(name);
     if (!spec) return refusal('unknown_tool', `The DatGold MCP host has no tool ${String(name).slice(0, 128)}.`);
     let slot;
     try { slot = await this.#slotFor(clientIdOf(client)); }
     catch (error) { return refusal(/^[a-z0-9_]{1,64}$/.test(String(error?.code ?? '')) ? error.code : 'mcp_host_unavailable', this.#clean(error)); }
-    const record = { approvalId: null, expired: false };
+    const record = { approvalId: null, expired: false, stillAllowed: typeof stillAllowed === 'function' ? stillAllowed : null };
     return this.#calls.run(record, () => this.#run(slot, spec, args, signal, record));
   }
 
   async #run(slot, spec, args, signal, record) {
     const definition = slot.session.catalog.tools.find((tool) => tool.name === spec.target);
     if (!definition) return refusal('unknown_tool', `${spec.name} is not available in this workspace now (${spec.target} is not in the catalog).`);
+    // What tools/list told the client about what the tool changes must still be true of the definition that runs.
+    if (!spec.external && !sameChangeHints(spec.definition.annotations, definition.annotations)) {
+      return refusal('mcp_annotations_mismatch', `${spec.name} is refused: its definition in this workspace (${spec.target}) no longer matches the annotations the client was given. Nothing ran; list the tools again.`);
+    }
     const verdict = await slot.gate.assess(spec.target, args, definition, { taskId: slot.taskId });
+    // One of the Hub's own tools the client was told is read-only runs only as a read (a protected path stays the gate's refusal). A tool
+    // of an external server is always `external` for the gate, which applies the owner's policy to it; what its spec says is the owner's.
+    if (!spec.external && spec.definition.annotations?.readOnlyHint === true && verdict.category !== 'read' && verdict.category !== 'blocked') {
+      return refusal('mcp_profile_refused', `${spec.name} is refused: it was offered as read-only, and this call is not a read (${verdict.category}). Nothing ran.`);
+    }
     const write = spec.write || !NOT_WRITES.has(verdict.category);
     let release = () => {};
     if (write) {
@@ -213,7 +251,10 @@ export class McpHost {
         signal,
         // Checked again once the gate has decided (an approval can come long after the question): the primary agent may have started since.
         onDecision: async ({ allowed }) => {
-          if (!allowed || !write) return;
+          if (!allowed) return;
+          // The caller's scope may have changed while the owner was deciding: what it no longer allows does not run.
+          if (record.stillAllowed && record.stillAllowed() !== true) throw Object.assign(new Error('scope'), { code: 'mcp_scope_refused' });
+          if (!write) return;
           const busy = await this.#outsideBusy(slot);
           if (busy) throw Object.assign(new Error(busy.message), { code: 'workspace_busy', busy });
         },
@@ -224,6 +265,7 @@ export class McpHost {
       return result;
     } catch (error) {
       if (error?.code === 'workspace_busy' && error.busy) return this.#busyResult(error.busy);
+      if (error?.code === 'mcp_scope_refused') return refusal('mcp_scope_refused', `${spec.name} is refused: the scope of the client's token changed while the owner was deciding, and it no longer allows this tool. Nothing ran.`);
       if (signal?.aborted) return refusal('cancelled', 'The client cancelled the call.');
       if (this.#closed || slot.retired) return refusal('mcp_host_closed', 'The DatGold MCP host closed during the call.');
       return refusal('mcp_host_call_failed', this.#clean(error));
