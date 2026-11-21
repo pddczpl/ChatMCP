@@ -1,0 +1,149 @@
+{
+  "suite": "verify-test-runner.mjs",
+  "description": "The --shard option of tests/run-all.mjs (CI runs the Hub suites of each OS and Node version in two jobs): the split rule (listed suites heaviest first to the lightest shard, ties to the lower number, then unlisted suites by name at the mean of the listed suites that exist), the filter after the split, the shard a job takes, name order inside a shard, the weights file and its checks, the usage check, and summary.shard, judged by tests/verify-test-runner.mjs (worked examples for 2 and 3 shards, coverage for 1 to 13 shards, the real suites against the committed weights).",
+  "mutations": [
+    {
+      "name": "TRS-tie-to-higher-shard",
+      "what": "a tie between shards goes to the higher number",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "if (shards[i].weight < shards[lightest].weight) lightest = i;",
+          "new": "if (shards[i].weight <= shards[lightest].weight) lightest = i;"
+        }
+      ]
+    },
+    {
+      "name": "TRS-lightest-first",
+      "what": "the listed suites are placed lightest first",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "weights.get(b) - weights.get(a) || byName(a, b)",
+          "new": "weights.get(a) - weights.get(b) || byName(a, b)"
+        }
+      ]
+    },
+    {
+      "name": "TRS-unlisted-weigh-nothing",
+      "what": "a suite the weights file does not list weighs nothing",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "for (const name of [...unlisted].sort(byName)) place(name, mean);",
+          "new": "for (const name of [...unlisted].sort(byName)) place(name, 0);"
+        }
+      ]
+    },
+    {
+      "name": "TRS-mean-counts-stale-entries",
+      "what": "the mean also counts listed suites that no longer exist",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "Math.round(listed.reduce((sum, name) => sum + weights.get(name), 0) / listed.length)",
+          "new": "Math.round([...weights.values()].reduce((sum, value) => sum + value, 0) / weights.size)"
+        }
+      ]
+    },
+    {
+      "name": "TRS-unlisted-placed-first",
+      "what": "the unlisted suites are placed before the listed ones",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "  for (const name of [...listed].sort((a, b) => weights.get(b) - weights.get(a) || byName(a, b))) place(name, weights.get(name));\n  for (const name of [...unlisted].sort(byName)) place(name, mean);",
+          "new": "  for (const name of [...unlisted].sort(byName)) place(name, mean);\n  for (const name of [...listed].sort((a, b) => weights.get(b) - weights.get(a) || byName(a, b))) place(name, weights.get(name));"
+        }
+      ]
+    },
+    {
+      "name": "TRS-one-pass",
+      "what": "one pass over all suites by weight, the unlisted ones at the mean among the listed ones",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "  for (const name of [...listed].sort((a, b) => weights.get(b) - weights.get(a) || byName(a, b))) place(name, weights.get(name));\n  for (const name of [...unlisted].sort(byName)) place(name, mean);",
+          "new": "  const weightOf = (name) => (weights.has(name) ? weights.get(name) : mean);\n  for (const name of [...names].sort((a, b) => weightOf(b) - weightOf(a) || byName(a, b))) place(name, weightOf(name));"
+        }
+      ]
+    },
+    {
+      "name": "TRS-filter-before-split",
+      "what": "--filter is applied before the split, so the filter moves suites between shards",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "(options.python && /^verify-.+\\.py$/.test(name))).sort();",
+          "new": "(options.python && /^verify-.+\\.py$/.test(name))).sort().filter((name) => !options.filter || name.toLowerCase().includes(options.filter));"
+        }
+      ]
+    },
+    {
+      "name": "TRS-shards-counted-from-the-end",
+      "what": "--shard 1/n takes the last part",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "[options.shard.index - 1];",
+          "new": "[options.shard.count - options.shard.index];"
+        }
+      ]
+    },
+    {
+      "name": "TRS-shard-in-placement-order",
+      "what": "a shard runs its suites in the order they were placed, not by name",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "return shards.map((shard) => shard.names.sort(byName));",
+          "new": "return shards.map((shard) => shard.names);"
+        }
+      ]
+    },
+    {
+      "name": "TRS-weights-file-ignored",
+      "what": "the weights file is never read: every suite weighs the same",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "const weights = await readShardWeights(path.join(options.testsDirectory, SHARD_WEIGHTS_FILE));",
+          "new": "const weights = new Map();"
+        }
+      ]
+    },
+    {
+      "name": "TRS-negative-seconds-accepted",
+      "what": "a negative number of seconds in the weights file is accepted",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "!Number.isFinite(value) || value < 0)",
+          "new": "!Number.isFinite(value))"
+        }
+      ]
+    },
+    {
+      "name": "TRS-index-above-count-accepted",
+      "what": "--shard 3/2 is accepted",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "Number(match[1]) > Number(match[2]) ||",
+          "new": "Number(match[1]) > Number(match[2]) + 1 ||"
+        }
+      ]
+    },
+    {
+      "name": "TRS-summary-without-shard",
+      "what": "the JSON summary does not record the shard",
+      "patches": [
+        {
+          "file": "tests/run-all.mjs",
+          "old": "flaky: count('FLAKY'), shard };",
+          "new": "flaky: count('FLAKY') };"
+        }
+      ]
+    }
+  ]
+}

@@ -17,6 +17,7 @@ const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 
 const RUNNER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'run-all.mjs');
 const GATE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'ci-flaky-gate.mjs');
+const WEIGHTS_TOOL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'ci-shard-weights.mjs');
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-runner-'));
 const suites = path.join(root, 'suites');
 await fs.mkdir(suites);
@@ -340,6 +341,14 @@ try {
     ok('--shard with --filter (the filter applies after the split, so it cannot move a suite) and --json (summary.shard = {index, count, suites, of}, null without --shard)');
   }
   {
+    // The weight of an unlisted suite is the mean of the listed suites that EXIST: (100 + 10 + 10 + 10 + 10) / 5 = 28 s. alpha 100 -> 1; the
+    // four 10 s suites -> 2 (40); new-foxtrot -> 2 (68); new-golf -> 2 (96, still below 100). Counting the 500 s of verify-sh-gone.mjs in the
+    // mean (107 s) would send new-golf to shard 1.
+    await fs.writeFile(path.join(weighted, 'shard-weights.json'), JSON.stringify({ seconds: { 'verify-sh-alpha.mjs': 100, 'verify-sh-bravo.mjs': 10, 'verify-sh-charlie.mjs': 10, 'verify-sh-delta.mjs': 10, 'verify-sh-echo.mjs': 10, 'verify-sh-gone.mjs': 500 } }), 'utf8');
+    assert.deepEqual(shardsOf(2, [], weighted), [[suite('alpha')], ['bravo', 'charlie', 'delta', 'echo', 'new-foxtrot', 'new-golf'].map(suite)]);
+    ok('--shard: an unlisted suite weighs the mean of the listed suites that exist (a stale entry does not count), so new suites fill the lighter shard');
+  }
+  {
     // --retry-failed-once and --no-skip work per suite, so they behave the same inside a shard.
     const shards = shardsOf(2);
     const holding = (name) => shards.findIndex((shard) => shard.includes(name)) + 1;
@@ -385,6 +394,8 @@ try {
     const flat = halves.flat();
     assert.equal(new Set(flat).size, flat.length, 'no real suite is in both shards');
     assert.deepEqual([...flat].sort(), [...full].sort(), 'the two shards of the real suites are the full list');
+    // In the fixtures above the heavier suites also come first by name; here they do not, so this is where placement order would show.
+    for (const half of halves) assert.deepEqual(half, [...half].sort(), 'a shard of the real suites runs in name order, not in the order the split placed them');
     const file = path.join(path.dirname(RUNNER), 'shard-weights.json');
     assert.ok(existsSync(file), 'tests/shard-weights.json is committed');
     const seconds = JSON.parse(readFileSync(file, 'utf8')).seconds;
@@ -398,6 +409,38 @@ try {
     assert.ok(Math.max(...totals) <= bound + 1e-9, `the heavier shard (${Math.max(...totals).toFixed(1)} s) is above the bound ${bound.toFixed(1)} s`);
     ok(`the real suites: ${halves[0].length} + ${halves[1].length} = ${full.length} (${full.length - listed.length} not in tests/shard-weights.json); predicted ${totals[0].toFixed(0)} s / ${totals[1].toFixed(0)} s on the Windows runner (heavier shard ${(Math.max(...totals) / total * 100).toFixed(1)}% of ${total.toFixed(0)} s, bound ${(bound / total * 100).toFixed(1)}%)`);
   }
+
+  // ---- scripts/ci-shard-weights.mjs: the weights file is rebuilt from the Windows summaries CI uploads ----------------------------------
+  if (existsSync(WEIGHTS_TOOL)) {
+    const downloads = path.join(root, 'weight-downloads');
+    const summaryWith = (platform, results) => ({ summary: { platform, total: results.length }, results });
+    const put = async (folder, value) => { await fs.mkdir(path.join(downloads, folder), { recursive: true }); await fs.writeFile(path.join(downloads, folder, 'summary.json'), typeof value === 'string' ? value : JSON.stringify(value)); };
+    await put('run1/hub-test-summary-windows-latest-node22-shard1', summaryWith('win32', [{ name: 'verify-a.mjs', status: 'PASS', milliseconds: 1000 }, { name: 'verify-b.mjs', status: 'FLAKY', milliseconds: 90_000 }]));
+    await put('run1/hub-test-summary-windows-latest-node22-shard2', summaryWith('win32', [{ name: 'verify-c.mjs', status: 'FAIL', milliseconds: 70_000 }]));
+    await put('run2/hub-test-summary-windows-latest-node24', summaryWith('win32', [{ name: 'verify-a.mjs', status: 'PASS', milliseconds: 3050 }, { name: 'verify-b.mjs', status: 'PASS', milliseconds: 2000 }]));
+    await put('run2/hub-test-summary-ubuntu-latest-node24', summaryWith('linux', [{ name: 'verify-a.mjs', status: 'PASS', milliseconds: 500_000 }, { name: 'verify-d.mjs', status: 'PASS', milliseconds: 1000 }]));
+    await put('run2/broken', '{ not json');
+    const out = path.join(root, 'rebuilt-weights.json');
+    const tool = (args) => spawnSync(process.execPath, [WEIGHTS_TOOL, ...args], { encoding: 'utf8', windowsHide: true });
+    const built = tool(['--from', downloads, '--out', out, '--note', 'fixture', '--date', '2026-11-21']);
+    assert.equal(built.status, 0, built.stderr);
+    const rebuilt = JSON.parse(readFileSync(out, 'utf8'));
+    assert.deepEqual(rebuilt.seconds, { 'verify-a.mjs': 2, 'verify-b.mjs': 2 }, 'the mean of the Windows PASS times in seconds (1.0 and 3.05 -> 2.0); FLAKY, FAIL and Linux times are not used; a suite that never passed is left out');
+    assert.deepEqual(rebuilt.measured, { date: '2026-11-21', note: 'fixture', summaries: ['run1/hub-test-summary-windows-latest-node22-shard1/summary.json', 'run1/hub-test-summary-windows-latest-node22-shard2/summary.json', 'run2/hub-test-summary-windows-latest-node24/summary.json'] });
+    // What it writes is what the runner reads.
+    const folder = path.join(root, 'rebuilt-suites');
+    await fs.mkdir(folder);
+    for (const name of ['verify-a.mjs', 'verify-b.mjs', 'verify-c.mjs']) await fs.writeFile(path.join(folder, name), "console.log('PASS');\n", 'utf8');
+    await fs.copyFile(out, path.join(folder, 'shard-weights.json'));
+    assert.deepEqual(shardsOf(2, [], folder), [['verify-a.mjs', 'verify-c.mjs'], ['verify-b.mjs']], 'a 2 s and b 2 s, then c (unlisted) at their mean to shard 1, the tie');
+    const empty = path.join(root, 'no-windows');
+    await fs.mkdir(path.join(empty, 'x'), { recursive: true });
+    await fs.writeFile(path.join(empty, 'x', 'summary.json'), JSON.stringify(summaryWith('linux', [])));
+    assert.equal(tool(['--from', empty, '--out', path.join(root, 'never.json')]).status, 2, 'no Windows summary: an error, and nothing is written');
+    assert.ok(!existsSync(path.join(root, 'never.json')));
+    assert.equal(tool(['--from', downloads]).status, 2, '--out is required');
+    ok('scripts/ci-shard-weights.mjs: the mean Windows PASS time per suite (FLAKY, FAIL and other systems left out), the summaries it read named, in a file the runner reads; no Windows summary is an error');
+  } else console.log('  skip - scripts/ci-shard-weights.mjs was not found next to DATGOLD-HUB (that check needs the whole repository)');
 
   // ---- scripts/ci-flaky-gate.mjs: one flake is allowed, three runs of main in a row are not -------------------------------------
   if (existsSync(GATE)) {

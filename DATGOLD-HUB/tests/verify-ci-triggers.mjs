@@ -323,7 +323,7 @@ export function hubTestsProblems(text) {
   if (!node || !['22', '24'].every((version) => node.includes(version))) problems.push(`hub-tests: the node axis is ${JSON.stringify(node)}; it must keep Node 22 and 24`);
   const count = shard?.length ?? 0;
   if (!shard || count < 2 || shard.join(',') !== Array.from({ length: count }, (_, i) => String(i + 1)).join(',')) problems.push(`hub-tests: the shard axis is ${JSON.stringify(shard)}; it must be [1, 2, ...] up to the number of shards`);
-  if (/^ {6}(include|exclude):/m.test(job)) problems.push('hub-tests: an include or exclude in the matrix could drop a shard of one OS or Node version');
+  if (/^ {6,}(include|exclude):/m.test(job)) problems.push('hub-tests: an include or exclude in the matrix could drop a shard of one OS or Node version');
   if (!/^ {6}fail-fast: false$/m.test(job)) problems.push('hub-tests: fail-fast must stay false (a red shard must not cancel the others)');
   const name = job.match(/^ {4}name: Hub tests \(\$\{\{ matrix\.os \}\}, Node \$\{\{ matrix\.node \}\}, \$\{\{ matrix\.shard \}\}\/(\d+)\)$/m);
   if (!name || Number(name[1]) !== count) problems.push(`hub-tests: the job name must be "Hub tests (\${{ matrix.os }}, Node \${{ matrix.node }}, \${{ matrix.shard }}/${count})"`);
