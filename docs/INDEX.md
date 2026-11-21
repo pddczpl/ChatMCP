@@ -46,6 +46,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [MCP client hardening](MCP-HARDENING.md) — What reaches the model of an MCP server (names, descriptions, schemas, annotations), the fingerprint pins against a rug pull, the bounds on results and stderr, the hostile test server, and what is not wired yet
 - [Proof-of-Done: the proof ledger](PROOF-LEDGER.md) — Receipt v2 (P4, pod-16): the append-only hash-chained JSONL file per task, the check receipt (hashes and a 2 KiB masked preview, never the output), verifyChain and the torn last line, the command and output hashes run_command reports; not written by the agent yet
 - [Proof-of-Done: the acceptance file](PROOF-ACCEPTANCE.md) — Version 1 of `.chatmcp/acceptance.yml` (P4, pod-20): the schema, the strict YAML subset and its refusals with line numbers, criteria only from the baseline, checks runnable only when the owner trusted the file's sha256, the proposal; nothing runs the checks yet
+- [Proof-of-Done: which changes touched the checks](PROOF-TAMPER.md) — The test-tamper detector (P4, pod-22): the baseline-to-final diff classified (test files, test configuration, check scripts, CI, the acceptance file, lockfiles hashed), the heuristics (assertions removed, skip markers, widened tolerances, `|| true`), `checks_modified` per criterion in neutral words, and its limitations; not called by the agent yet
 
 ### Phase 0: Desktop Contract Reconnection
 - [Phase 0 Audit](PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment
