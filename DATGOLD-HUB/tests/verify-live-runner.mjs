@@ -154,6 +154,13 @@ await runScenario({ name: 'live-runner', summary: 'live runner gates, one forwar
   const smokeTasks = tasksFile([{ id: 'smoke', prompt: 'Create hello.txt with one line of greeting.', files: { 'README.md': '# scratch\n' }, maxSteps: 6, maxMinutes: 2 }]);
   const gated = { ...baseEnvironment(), ...DECOYS, DEEPSEEK_API_KEY: KEY, CHATMCP_LIVE_OK: '1', CHATMCP_LIVE_SANDBOX: '1' };
   const usual = ['--providers', cheap, '--tasks', smokeTasks, '--provider', 'mock', ...common, '--budget-usd', '1'];
+  // The gate function itself refuses (the spend governor's pre-flight would refuse these too, later: each layer must hold on its own).
+  const openGates = { CHATMCP_LIVE_OK: '1', CHATMCP_LIVE_SANDBOX: '1', DEEPSEEK_API_KEY: KEY };
+  const gateRefusal = (args) => { try { checkGates(args, openGates, () => false); return null; } catch (error) { return error.message; } };
+  t.check(/--budget-usd is required/.test(gateRefusal(['--providers', cheap, '--tasks', smokeTasks, '--provider', 'mock', ...common]) ?? ''), 'checkGates() refuses a run without --budget-usd');
+  t.check(/--budget-usd must be a positive amount/.test(gateRefusal([...usual.slice(0, -1), '0']) ?? ''), 'checkGates() refuses --budget-usd 0');
+  t.check(/price is unknown/.test(gateRefusal(['--providers', unpriced, '--tasks', smokeTasks, '--provider', 'mock', ...common, '--budget-usd', '1']) ?? ''), 'checkGates() refuses a provider without an output price, as an unknown price');
+  t.equal(gateRefusal(usual), null, 'and lets the usual arguments through');
   const outputs = [];
   const refusal = async (label, args, env, pattern) => {
     mock.setScenario('live-smoke');
