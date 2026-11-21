@@ -8,7 +8,8 @@
 //      four tools report the command hash and the output hashes;
 //   2. a check receipt never holds the output: only its hashes and a redacted preview of at most 2 KiB, and the ledger refuses a check
 //      record with any other field; a secret in the command line or in the output (by pattern or registered) does not reach the
-//      ledger file, while the command hash is of the exact text that ran;
+//      ledger file, while the command hash is of the exact text that ran; a short secret inside a digest or a tree id leaves it as
+//      it is, and those fields must be hex;
 //   3. verifyChain: a flip of ANY single byte of a ledger is reported at the seq of the line that holds it; a line rewritten with its
 //      own hash recomputed is reported at the next line; a deleted, a swapped and an unknown-type line; a crash that tore the last line
 //      is reported as torn_tail, and the next append repairs it with an `uncertain` record;
@@ -24,7 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   GENESIS, LEDGER_VERSION, PREVIEW_BYTES, ProofLedger, RECORD_TYPES, ToolchainProbe, argsSha256, checkReceipt, commandSha256,
-  ledgerPath, recordCheck, validateRecord, verifyChain,
+  ledgerPath, recordCheck, treeRef, validateRecord, verifyChain,
 } from '../lib/proof/ledger.mjs';
 import { BoundedCapture, ShellRunner } from '../lib/shell-runner.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
@@ -236,6 +237,51 @@ try {
     assert.equal(await rejection(strict.append('check', { ...receipt, stdoutText: 'hello ledger\n' })), 'ledger_bad_record');
     await assert.rejects(fs.stat(ledgerPath(hub, 'task_strict')), { code: 'ENOENT' }, 'a refused record writes nothing');
     ok('the ledger refuses a check record that carries anything but hashes, counts, flags and a 2 KiB preview');
+
+    // Digests and tree ids are hex the Hub computed, not text. A short registered secret occurs inside a random digest by chance (a
+    // 4-digit one in about one sha256 of a thousand); masking it there made the receipt fail its own schema and the append throw. Each
+    // secret below is cut out of one digest of the receipt, so every digest holds one.
+    const treeId = (format, text) => createHash(format).update(text).digest('hex');
+    const snapshot = (format, label) => ({ status: 'ok', treeAlgorithm: 'raw', objectFormat: format, tree: treeId(format, `${label} tree`),
+      rawTree: treeId(format, `${label} raw`), full: true, files: 1, bytes: 2, limitations: ['ignored-paths'], takenAt: '2026-11-21T10:00:00.000Z' });
+    const plain = checkReceipt({ command: 'node emit.cjs text', result: textRun, treeBefore: snapshot('sha1', 'before'), treeAfter: snapshot('sha256', 'after') });
+    const digests = (record) => [record.commandSha256, record.argsSha256, record.stdout.sha256, record.stderr.sha256,
+      record.treeBefore.tree, record.treeBefore.rawTree, record.treeAfter.tree, record.treeAfter.rawTree];
+    const inside = digests(plain).map((digest, index) => digest.slice(3 + index * 4, 7 + index * 4));
+    assert.equal(validateRecord('check', plain), null);
+    const digestLedger = ProofLedger.forTask(hub, 'task_digests', { secrets: () => [...inside, 'ledger'] });
+    await digestLedger.append('check', plain);
+    await digestLedger.append('check', checkReceipt({ command: 'node emit.cjs text', result: textRun, treeBefore: snapshot('sha1', 'before'),
+      treeAfter: snapshot('sha256', 'after'), secrets: inside }));
+    await digestLedger.append('tree', { tree: plain.treeBefore.tree, takenAt: plain.treeBefore.takenAt });
+    const digestEntries = entriesOf(await fs.readFile(ledgerPath(hub, 'task_digests')));
+    for (const entry of digestEntries.slice(0, 2)) {
+      assert.deepEqual(digests(entry.record), digests(plain), 'the digests and tree ids are written as they are');
+      assert.equal(entry.record.stdout.preview, 'hello [REDACTED]\n', 'the free text is still masked');
+    }
+    assert.ok(digestEntries[2].record.tree.includes('[REDACTED]'), 'a record of another type is masked whole: it has no schema that holds a field to hex');
+    assert.equal(validateRecord('check', { ...plain, treeBefore: treeRef({ status: 'failed', engineReason: 'snapshot_failed' }) }), null, 'a failed snapshot has no tree id');
+    for (const [label, bad] of [
+      ['a tree id that is text', { ...plain, treeBefore: { ...plain.treeBefore, tree: REGISTERED } }],
+      ['a raw tree id of 63 digits', { ...plain, treeAfter: { ...plain.treeAfter, rawTree: plain.treeAfter.rawTree.slice(1) } }],
+      ['a tree id in capitals', { ...plain, treeAfter: { ...plain.treeAfter, tree: plain.treeAfter.tree.toUpperCase() } }],
+      ['a raw tree id that is a number', { ...plain, treeBefore: { ...plain.treeBefore, rawTree: 7 } }],
+    ]) assert.notEqual(validateRecord('check', bad), null, label);
+    assert.equal(await rejection(digestLedger.append('check', { ...plain, treeBefore: { ...plain.treeBefore, tree: REGISTERED } })), 'ledger_bad_record',
+      'a field that is not masked must be hex');
+
+    // A secret the receipt's builder did not know makes the command longer once masked: the ledger cuts it again to 4,096 characters.
+    const fits = `echo ${'c0de '.repeat(800)}`;
+    const unknown = checkReceipt({ command: fits, result: emptyRun });
+    assert.deepEqual([unknown.command.length, unknown.commandTruncated], [fits.length, false]);
+    const recut = ProofLedger.forTask(hub, 'task_recut', { secrets: () => ['c0de'] });
+    await recut.append('check', unknown);
+    const [cut] = entriesOf(await fs.readFile(ledgerPath(hub, 'task_recut')));
+    assert.equal(cut.record.command.length, 4096);
+    assert.equal(cut.record.commandTruncated, true);
+    assert.ok(cut.record.command.startsWith('echo [REDACTED] [REDACTED] ') && !cut.record.command.includes('c0de'));
+    assert.equal(cut.record.commandSha256, sha(Buffer.from(fits)), 'the hash is still of the exact command');
+    ok('a short registered secret inside a digest or a tree id leaves it as it is (the free text is masked, a command made longer by masking is cut again), and a tree id is hex');
   }
 
   // ---------------------------------------------------------------- 3. the chain
