@@ -45,6 +45,25 @@ Before a record is written, every string in it is masked by `maskSecrets` of `li
 masked when it is built and again when it is appended, so a receipt built without the registered secrets still does not carry them into
 the file.
 
+Which fields are masked:
+
+| Record | Masked | Written as they are |
+|---|---|---|
+| `check` | `command`, `cwd`, `shell`, `stdout.preview`, `stderr.preview`, the `toolchain` versions, and every string of `treeBefore` and `treeAfter` but the two ids (`status`, `treeAlgorithm`, `objectFormat`, `engineReason`, `limitations`, `takenAt`, `unbounded`) | the digests `commandSha256`, `argsSha256`, `stdout.sha256`, `stderr.sha256`, and the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
+| the seven other types | every string, at any depth | nothing |
+
+The digests and ids are hex that the Hub computed, not text. A registered secret may be as short as 4 characters, and a short one
+occurs inside a random digest by chance (a 4-digit one in about one sha256 of a thousand): masked there, the digest would no longer be
+64 hex digits, the receipt would fail its own schema and the append would throw, losing the receipt of a command that already ran.
+A digest also leaks nothing of the text it was made of. The schema holds each of them to hex (64 digits; a tree id 40 or 64 digits, or
+null), so no text passes through them unmasked. The other types have no schema here, so a digest in one of them is masked like any
+string; a pod that needs one kept gives its type a schema first.
+
+Masking can make a field longer (`[REDACTED]` in place of a 4-character secret). When the ledger masks a secret the receipt's builder
+did not know, it cuts the command again to 4,096 characters (`commandTruncated` becomes true) and each preview to 2 KiB
+(`previewTruncated` becomes true). A short secret that occurs inside a time or a version by chance is masked there too: that value
+changes, the receipt is still written.
+
 ## The check receipt
 
 `checkReceipt({command, result, toolchain, treeBefore, treeAfter, secrets})` takes the result of `ShellRunner.run()` and returns exactly
@@ -159,11 +178,14 @@ toolchain of the workspace, builds the receipt and appends it as one `check` lin
 - `build_run` lives in `lib/workflow-extensions.mjs`, so that file got the three fields too.
 - A torn tail is repaired by the next append rather than refused: the dropped bytes were never a committed record, and the `uncertain`
   record keeps their size and hash.
+- The digests and Git object ids of a check record are not masked (audit finding F1 of PR #143: with the registered secret `2580`,
+  8 of 4,000 receipts with random output failed their own schema). They are left out by their paths in the closed `check` schema, not by their look: a rule that
+  spared any string of 64 hex digits would also spare a registered secret that is itself hex, wherever it stood.
 
 ## Tests
 
-`tests/verify-proof-ledger.mjs` (15 checks): real commands through `ShellRunner` (text, empty, binary and not UTF-8, 50,000 bytes over a
+`tests/verify-proof-ledger.mjs` (16 checks): real commands through `ShellRunner` (text, empty, binary and not UTF-8, 50,000 bytes over a
 1,000-byte capture, multibyte, a timeout) and the four tools; the receipt and its schema; secrets in the command line and the output;
-every-byte flips; rewritten, deleted, swapped, unknown-type and malformed lines; the torn tail and its repair; concurrent appends;
+short secrets inside every digest and tree id of a receipt; every-byte flips; rewritten, deleted, swapped, unknown-type and malformed lines; the torn tail and its repair; concurrent appends;
 refusals; the toolchain probe with a fake `PATH` and on the real machine; `recordCheck` with the pod-15 engine on a real repository.
 Mutation list: `tests/mutation/proof-ledger.json`.
