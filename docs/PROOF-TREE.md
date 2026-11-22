@@ -22,6 +22,7 @@ const snapshots = new TreeSnapshotter({
 });
 await snapshots.snapshot({ full: true });  // task start, final, pack: no cache, also computes rawTree
 await snapshots.snapshot();                // between those: reuses the stat information of the last snapshot
+await snapshots.snapshot({ full: true, entries: true }); // also `entries`: the rows the tree was built from (PROOF-BASELINE.md)
 await snapshotTree({ root, stateDir });    // one full snapshot
 ```
 
@@ -50,6 +51,8 @@ Other exports, for the later pods and the tests: `blobId`, `treeId`, `buildTree`
   limitations: ['untracked-ignored-paths-not-covered' | 'ignore-rules-not-applied', 'counts-from-last-full-snapshot'?],
   unbounded?: 'files' | 'bytes',
   takenAt: '<ISO time>', durationMs,
+  entries?: [{ path, mode, oid }] | null,  // only with snapshot({entries: true}): the rows of `tree` (git engine: of its index,
+                                           // converted blobs included; raw-v1: the raw rows); null without a tree
 }
 ```
 

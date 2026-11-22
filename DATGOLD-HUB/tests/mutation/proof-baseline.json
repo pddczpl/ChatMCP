@@ -1,0 +1,348 @@
+{
+  "suite": "verify-proof-baseline.mjs",
+  "description": "The baseline store of Proof-of-Done in observe mode (plan task pod-25, docs/PROOF-BASELINE.md): the rows a snapshot hands over (lib/proof/tree-snapshot.mjs), the workspace key and the id, the manifest and its refusals, the change list, the workspace lock and its stale rules, the private store (fast-import, alternates, the patch flags, the reproduction check), the record's hash, anchor and fields, the store check against forged objects, retention and leftovers, the acceptance file, the scripts, HEAD and the dirty summary (lib/proof/baseline.mjs), judged by tests/verify-proof-baseline.mjs.",
+  "mutations": [
+    {
+      "name": "PB-entries-never",
+      "what": "the snapshot never hands over its rows",
+      "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "if (withEntries) taken.entries = result.status === 'ok' ? this.lastEntries : null;", "new": "if (false) taken.entries = null;" }]
+    },
+    {
+      "name": "PB-entries-unbounded",
+      "what": "an unbounded snapshot hands over the rows of the snapshot before it",
+      "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "result.status === 'ok' ? this.lastEntries : null", "new": "this.lastEntries" }]
+    },
+    {
+      "name": "PB-entries-raw",
+      "what": "raw-v1 does not record its rows",
+      "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "    this.lastEntries = pass.files;\n    const result = this.describe(plan, { treeAlgorithm: TREE_ALGORITHM.raw, tree: pass.tree, rawTree: pass.tree, full, reason, pass });", "new": "    const result = this.describe(plan, { treeAlgorithm: TREE_ALGORITHM.raw, tree: pass.tree, rawTree: pass.tree, full, reason, pass });" }]
+    },
+    {
+      "name": "PB-entries-fallback",
+      "what": "a full snapshot that falls back to raw-v1 does not record the raw rows",
+      "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "      this.lastEntries = pass.files;\n      const result", "new": "      const result" }]
+    },
+    {
+      "name": "PB-entries-git",
+      "what": "the git engine does not record the rows of its index",
+      "patches": [{ "file": "lib/proof/tree-snapshot.mjs", "old": "    this.lastEntries = entries;\n", "new": "" }]
+    },
+    {
+      "name": "PB-key-case",
+      "what": "the workspace key keeps the case of a Windows path",
+      "platforms": ["win32"],
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "process.platform === 'win32' ? resolved.toLowerCase() : resolved", "new": "resolved" }]
+    },
+    {
+      "name": "PB-key-unresolved",
+      "what": "the workspace key is made of the path as given",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "const resolved = path.resolve(root);", "new": "const resolved = root;" }]
+    },
+    {
+      "name": "PB-id-dot",
+      "what": "the id keeps the dot of the milliseconds",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": ".replace(/[-:.]/g, '')", "new": ".replace(/[-:]/g, '')" }]
+    },
+    {
+      "name": "PB-id-unchecked",
+      "what": "any string is taken as an id",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (typeof id !== 'string' || !ID.test(id)) throw", "new": "if (typeof id !== 'string') throw" }]
+    },
+    {
+      "name": "PB-manifest-unsorted",
+      "what": "the manifest keeps the order of the snapshot",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "({ path: file, mode, oid })).sort(byPath);", "new": "({ path: file, mode, oid }));" }]
+    },
+    {
+      "name": "PB-manifest-sha",
+      "what": "the manifest's sha256 is not checked",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (sha256Hex(json) !== manifest.sha256) throw bad(", "new": "if (false) throw bad(" }]
+    },
+    {
+      "name": "PB-manifest-count",
+      "what": "the count of rows is not checked",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "rows.length !== manifest.entries", "new": "false" }]
+    },
+    {
+      "name": "PB-manifest-row-shape",
+      "what": "a row that is not three strings is read",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "row.some((cell) => typeof cell !== 'string')", "new": "false" }]
+    },
+    {
+      "name": "PB-manifest-climb",
+      "what": "a path with '..' is taken",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "part !== '.' && part !== '..'", "new": "part !== '.'" }]
+    },
+    {
+      "name": "PB-manifest-mode",
+      "what": "an unknown mode is taken",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (!MODES.has(mode)) throw bad(", "new": "if (false) throw bad(" }]
+    },
+    {
+      "name": "PB-manifest-oid",
+      "what": "an object id that is not hex is taken",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (!oid.test(id)) throw bad(", "new": "if (false) throw bad(" }]
+    },
+    {
+      "name": "PB-manifest-twice",
+      "what": "a path twice is taken",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "!(previous < file)", "new": "previous > file" }]
+    },
+    {
+      "name": "PB-changes-mode",
+      "what": "a change of mode alone is not a modification",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": " || old.mode !== row.mode", "new": "" }]
+    },
+    {
+      "name": "PB-changes-deleted",
+      "what": "every row of the baseline is reported deleted",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (!now.has(row.path)) deleted.push", "new": "deleted.push" }]
+    },
+    {
+      "name": "PB-lock-dead-pid",
+      "what": "the lock of a process that died here is not stale",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "return !pidAlive(holder.info.pid);", "new": "return false;" }]
+    },
+    {
+      "name": "PB-lock-old-heartbeat",
+      "what": "a heartbeat older than staleMs does not make a lock stale",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (age > rules.staleMs) return true;", "new": "" }]
+    },
+    {
+      "name": "PB-lock-other-host",
+      "what": "the process id of another host is looked up here",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (holder.info.host !== os.hostname()) return false;", "new": "" }]
+    },
+    {
+      "name": "PB-lock-own-leftover",
+      "what": "a lock of this process that it does not hold is taken for a live one",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (holder.info.pid === process.pid) return !ownTokens.has(holder.info.token);", "new": "" }]
+    },
+    {
+      "name": "PB-lock-own-held",
+      "what": "a lock this process holds is broken by its own next caller",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "return !ownTokens.has(holder.info.token);", "new": "return true;" }]
+    },
+    {
+      "name": "PB-lock-unreadable",
+      "what": "a lock being written (no content yet) is stale at once",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (!holder.info) return age > rules.breakGraceMs;", "new": "if (!holder.info) return true;" }]
+    },
+    {
+      "name": "PB-lock-no-break",
+      "what": "a stale lock is never broken",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (holder && isStale(holder, rules) && await breakStale(file, holder, rules)) continue;", "new": "" }]
+    },
+    {
+      "name": "PB-lock-breaker-leftover",
+      "what": "a breaker file left by a crash blocks for ever",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (stat && Date.now() - stat.mtimeMs > rules.breakGraceMs) await fs.rm(breaker, { force: true }).catch(() => {});", "new": "" }]
+    },
+    {
+      "name": "PB-lock-never-busy",
+      "what": "the wait never ends (the suite then hangs and is stopped)",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (left <= 0) {", "new": "if (false) {" }]
+    },
+    {
+      "name": "PB-lock-release-any",
+      "what": "a release removes a lock that is no longer this one",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (current?.info?.token === token) await fs.rm(file, { force: true });", "new": "await fs.rm(file, { force: true });" }]
+    },
+    {
+      "name": "PB-lock-no-heartbeat",
+      "what": "the heartbeat does not refresh the lock",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "current?.info?.token === token ? fs.utimes(file, new Date(), new Date()) : null", "new": "null" }]
+    },
+    {
+      "name": "PB-import-unverified",
+      "what": "bytes that are not the blob are imported",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (!Buffer.isBuffer(content) || blobId(content, objectFormat) !== row.oid) throw fault('workspace_changed'", "new": "if (!Buffer.isBuffer(content)) throw fault('workspace_changed'" }]
+    },
+    {
+      "name": "PB-import-known-ignored",
+      "what": "a blob the store already has is not named by its id",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (entry.mode === MODE.gitlink || known.has(entry.oid)) { lines.push(", "new": "if (entry.mode === MODE.gitlink) { lines.push(" }]
+    },
+    {
+      "name": "PB-import-no-done",
+      "what": "the stream does not end with done",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "yield Buffer.from('\\ndone\\n');", "new": "yield Buffer.from('\\n');" }]
+    },
+    {
+      "name": "PB-import-missing-code",
+      "what": "a blob the store lacks is a plain git failure",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (/not found/i.test(run.stderr)) throw fault('objects_missing'", "new": "if (false) throw fault('objects_missing'" }]
+    },
+    {
+      "name": "PB-import-unquoted",
+      "what": "a name that starts with a quote or holds a line end goes to fast-import as it is",
+      "platforms": ["linux", "darwin"],
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "const fastImportPath = (file) => (file.startsWith('\"') || file.includes('\\n')", "new": "const fastImportPath = (file) => (false" }]
+    },
+    {
+      "name": "PB-import-loose",
+      "what": "fast-import writes fewer than 100 objects as loose files",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "'-c', 'fastimport.unpackLimit=0', ", "new": "" }]
+    },
+    {
+      "name": "PB-loose-skipped",
+      "what": "a blob .gitattributes converted is read from the file on disk",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "const stored = await readLoose(looseDirectory, entry.oid);", "new": "const stored = null;" }]
+    },
+    {
+      "name": "PB-final-no-alternates",
+      "what": "the final store does not borrow the baseline's objects",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "alternates: [path.join(storeDir, 'objects')]", "new": "alternates: []" }]
+    },
+    {
+      "name": "PB-diff-renames",
+      "what": "the patch guesses renames",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "'--no-renames',", "new": "'--find-renames'," }]
+    },
+    {
+      "name": "PB-diff-not-binary",
+      "what": "the patch says only that a binary file differs",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "'--no-textconv', '--binary', '--full-index'", "new": "'--no-textconv', '--full-index'" }]
+    },
+    {
+      "name": "PB-patch-limit-code",
+      "what": "a patch over the limit is a plain output-limit failure",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (error?.code === 'git_output_limit') throw fault('patch_too_large'", "new": "if (false) throw fault('patch_too_large'" }]
+    },
+    {
+      "name": "PB-reproduce-any-tree",
+      "what": "a patch that applies is taken to reproduce whatever tree it gives",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "return written.code === 0 && written.stdout.toString('utf8').trim() === to;", "new": "return written.code === 0;" }]
+    },
+    {
+      "name": "PB-reproduce-empty",
+      "what": "an empty patch reproduces any tree",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (!patch.length) return from === to;", "new": "if (!patch.length) return true;" }]
+    },
+    {
+      "name": "PB-store-folder-unchecked",
+      "what": "a missing store folder is not noticed before Git runs in it",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (!(await fs.stat(path.join(storeDir, 'objects')).then((stat) => stat.isDirectory(), () => false))) return unavailable('baseline_objects_missing');", "new": "" }]
+    },
+    {
+      "name": "PB-store-rows",
+      "what": "the trees of the store are not compared with the manifest",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (rows.length !== expected.size || rows.some((row) => !expected.has(row))) return 'baseline_objects_mismatch';", "new": "" }]
+    },
+    {
+      "name": "PB-store-rehash",
+      "what": "the old blobs of the changed paths are not hashed again",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (blobId(batch.stdout.subarray(at, at + length), record.objectFormat) !== oid) return 'baseline_objects_mismatch';", "new": "" }]
+    },
+    {
+      "name": "PB-store-corrupt-as-missing",
+      "what": "a root tree Git refuses to read is reported missing",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "return present.code === 0 ? 'baseline_objects_mismatch' : 'baseline_objects_missing';", "new": "return 'baseline_objects_missing';" }]
+    },
+    {
+      "name": "PB-record-self-hash",
+      "what": "the record's own sha256 is not checked",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (sha256Hex(body) !== suffix[1]) throw edited(", "new": "if (false) throw edited(" }]
+    },
+    {
+      "name": "PB-record-anchor",
+      "what": "the anchor is not compared",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (anchor && sha256 !== anchor) throw fault('baseline_mismatch'", "new": "if (false) throw fault('baseline_mismatch'" }]
+    },
+    {
+      "name": "PB-record-anchor-shape",
+      "what": "an anchor that is not a sha256 is compared as it is",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "(typeof anchor !== 'string' || !HEX64.test(anchor))", "new": "false" }]
+    },
+    {
+      "name": "PB-record-format",
+      "what": "another format is read",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (record.format !== BASELINE_FORMAT) return", "new": "if (false) return" }]
+    },
+    {
+      "name": "PB-record-store-folder",
+      "what": "a record may name any store folder",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "record.store.directory !== `${id}.git` || ", "new": "" }]
+    },
+    {
+      "name": "PB-record-workspace",
+      "what": "a record of another workspace is read",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (record.workspace.key !== workspaceKey(root)) throw", "new": "if (false) throw" }]
+    },
+    {
+      "name": "PB-record-tree",
+      "what": "a manifest that does not build the record's tree is read",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (tree !== record.tree) throw fault('baseline_bad_record'", "new": "if (false) throw fault('baseline_bad_record'" }]
+    },
+    {
+      "name": "PB-prune-count",
+      "what": "one baseline more than N is kept",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "index >= retention.maxPerWorkspace", "new": "index > retention.maxPerWorkspace" }]
+    },
+    {
+      "name": "PB-prune-age",
+      "what": "age prunes nothing",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "now - idTime(id) > retention.maxAgeMs", "new": "false" }]
+    },
+    {
+      "name": "PB-prune-keep",
+      "what": "the baseline just written can be pruned by its own write",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "id !== keep && (", "new": "(" }]
+    },
+    {
+      "name": "PB-prune-orphan",
+      "what": "a store without its record stays",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "!records.has(name.slice(0, -4))", "new": "false" }]
+    },
+    {
+      "name": "PB-leftover-folder",
+      "what": "a temporary folder left by a crash stays",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (name.startsWith('tmp-') || name.includes('.json.tmp-'))", "new": "if (name.includes('.json.tmp-'))" }]
+    },
+    {
+      "name": "PB-sweep-off",
+      "what": "other workspaces are not pruned by age on write",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "    await sweepOtherWorkspaces(folder, createdAt.getTime(), rules);\n", "new": "" }]
+    },
+    {
+      "name": "PB-acceptance-always-inline",
+      "what": "an acceptance file over 64 KiB is kept whole",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "content: bytes.length <= BASELINE_LIMITS.acceptanceInlineBytes ? bytes.toString('base64') : null", "new": "content: bytes.toString('base64')" }]
+    },
+    {
+      "name": "PB-scripts-any-value",
+      "what": "a script that is not a string is kept",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": ".filter(([, value]) => typeof value === 'string')", "new": "" }]
+    },
+    {
+      "name": "PB-dirty-not-head",
+      "what": "the dirty summary ignores HEAD's tree",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "counts(manifestChanges(side.entries, entries))", "new": "counts(manifestChanges([], entries))" }]
+    },
+    {
+      "name": "PB-branch-full-ref",
+      "what": "the branch is the whole ref",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "/^ref:\\s*refs\\/heads\\/(.+?)\\s*$/m", "new": "/^ref:\\s*(.+?)\\s*$/m" }]
+    },
+    {
+      "name": "PB-toolchain-null-probes",
+      "what": "toolchain: null still runs the probe",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (option === null || option === false) return null;", "new": "" }]
+    },
+    {
+      "name": "PB-diff-no-store-reason",
+      "what": "a baseline without a store loses the reason it has none",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "unavailable(record.patch.reason ?? 'no_store')", "new": "unavailable('no_store')" }]
+    },
+    {
+      "name": "PB-diff-git-missing",
+      "what": "no Git at the diff is reported under another reason",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "unavailable('git_missing')", "new": "unavailable('no_git')" }]
+    },
+    {
+      "name": "PB-same-tree",
+      "what": "the diff always says the tree is the same",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "sameTree: snapshot.treeAlgorithm === record.treeAlgorithm && snapshot.tree === record.tree,", "new": "sameTree: true," }]
+    }
+  ]
+}

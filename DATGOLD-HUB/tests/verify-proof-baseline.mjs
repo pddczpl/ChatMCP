@@ -13,7 +13,7 @@
 //   6. retention by count and by age, leftovers; an edited, re-hashed, moved, missing or forged baseline is refused or reported;
 //   7. budgets on a 663-file and an 8,002-file repository, printed as PROOF_BASELINE_BUDGET {...}.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -202,6 +202,7 @@ criteria:
   assert.ok(patchText.includes('GIT binary patch'), 'the binary file is a binary patch');
   assert.ok(patchText.includes('+line 2\r\n'), 'CRLF lines keep their CR');
   assert.ok(patchText.includes('docs/hướng dẫn mới/ghi chú 1.txt'), 'non-ASCII paths are written as they are');
+  assert.ok(!patchText.includes('rename from') && patchText.includes('diff --git a/docs/tài liệu cũ.md b/docs/tài liệu cũ.md\ndeleted file mode 100644'), 'no rename is guessed: a deletion and an addition');
   if (POSIX) assert.ok(patchText.includes('old mode 100644\nnew mode 100755'), 'the mode change is in the patch');
   const checkout = checkoutBaseline(storeOf(hub, repo, record));
   assert.equal(git(checkout, ['rev-parse', 'HEAD^{tree}']).stdout.trim(), record.tree, 'the fresh checkout is the baseline');
@@ -242,6 +243,8 @@ criteria:
     'crlf.txt': { content: 'a\r\nB\r\nc\r\n' },
     'data.bin': { content: '\u0000\u0001\u0003binary!' },
     'empty.txt': { content: '' },
+    // names fast-import must have quoted; Git for Windows refuses both (core.protectNTFS), and NTFS cannot hold them anyway
+    ...(POSIX ? { '"quoted" name.txt': { content: 'a name that starts with a quote\n' }, 'line\nbreak.txt': { content: 'a name with a line end\n' } } : {}),
   });
   const a = await importTree({ git: GIT, gitDir: store, entries: strip(before), contentOf: contentOf(before), ref: 'refs/test/a' });
   assert.equal(a.tree, buildTree(strip(before)));
@@ -258,6 +261,8 @@ criteria:
   assert.ok(text.includes('deleted file mode 100644') && text.includes('a/tên có dấu/và khoảng trắng.txt'), 'a file with spaces and Vietnamese letters is deleted');
   assert.equal(await patchReproduces({ git: GIT, gitDir: store, from: a.tree, to: b.tree, patch: patch.bytes }), true);
   assert.equal(await patchReproduces({ git: GIT, gitDir: store, from: a.tree, to: a.tree, patch: patch.bytes }), false, 'a patch that leads elsewhere does not reproduce');
+  assert.equal(await patchReproduces({ git: GIT, gitDir: store, from: a.tree, to: b.tree, patch: Buffer.alloc(0) }), false, 'an empty patch between two trees does not');
+  if (POSIX) assert.ok(text.includes('"b/\\"quoted\\" name.txt"') && text.includes('"b/line\\nbreak.txt"'), 'Git quotes the names fast-import needed quoted');
   assert.deepEqual((await treePatch({ git: GIT, gitDir: store, from: a.tree, to: b.tree })).bytes, patch.bytes, 'the bytes are the same every time');
   const none = await treePatch({ git: GIT, gitDir: store, from: b.tree, to: b.tree });
   assert.deepEqual(none, { bytes: Buffer.alloc(0), sha256: EMPTY_SHA256 });
@@ -355,7 +360,7 @@ criteria:
     ['an object id that is not hex', [{ path: 'x', mode: '100644', oid: 'xyz' }]],
     ['a path out of order', [rows[0], rows[1]]],
     ['a path that climbs', [{ path: '../x', mode: '100644', oid: 'a'.repeat(40) }]],
-    ['a row that is not three strings', [{ path: 'x', mode: '100644', oid: 7 }]],
+    ['a row that is not three strings', [{ path: 7, mode: '100644', oid: 'a'.repeat(40) }]],
   ];
   for (const [label, list] of refused) assert.throws(() => decodeManifest(craftManifest(list)), { code: 'baseline_bad_record' }, label);
   const changes = manifestChanges(
@@ -419,7 +424,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   await quick.release();
 
   // another process holds it: refused after the wait, then waited for
-  const other = holder(hub, root, "process.stdin.once('data', async () => { await lock.release(); process.stdout.write('released\\n'); });");
+  const other = holder(hub, root, "process.stdin.once('data', async () => { await lock.release(); process.stdout.write('released\\n'); process.exit(0); });");
   await other.waitFor('held');
   const info = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
   assert.equal(info.pid, other.proc.pid);
@@ -452,11 +457,12 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const when = new Date(Date.now() - ageMs);
     fs.utimesSync(lockFile, when, when);
   };
+  const dead = crashed.proc.pid; // no process here has this id now: on another host it must still count as alive
   const cases = [
     ['live pid, fresh heartbeat', JSON.stringify({ pid: idle.proc.pid, host: os.hostname(), token: 't1' }), 0, 'busy'],
     ['live pid, heartbeat older than staleMs', JSON.stringify({ pid: idle.proc.pid, host: os.hostname(), token: 't2' }), LOCK_RULES.staleMs + 5_000, 'taken'],
-    ['another host, fresh', JSON.stringify({ pid: 1, host: 'another-machine.invalid', token: 't3' }), 0, 'busy'],
-    ['another host, old', JSON.stringify({ pid: 1, host: 'another-machine.invalid', token: 't4' }), LOCK_RULES.staleMs + 5_000, 'taken'],
+    ['another host, fresh', JSON.stringify({ pid: dead, host: 'another-machine.invalid', token: 't3' }), 0, 'busy'],
+    ['another host, old', JSON.stringify({ pid: dead, host: 'another-machine.invalid', token: 't4' }), LOCK_RULES.staleMs + 5_000, 'taken'],
     ['unreadable, being written', '', 0, 'busy'],
     ['unreadable, old', '{"pid":', LOCK_RULES.breakGraceMs + 5_000, 'taken'],
     ['this process, not held', JSON.stringify({ pid: process.pid, host: os.hostname(), token: 'leftover' }), 0, 'taken'],
@@ -530,6 +536,7 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   const hub = fresh('hub');
   const repo = newRepo('kept');
   write(repo, 'a.txt', 'a\n');
+  write(repo, 'sub/b.txt', 'b\n');
   commitAll(repo);
   const T = Date.parse('2026-11-22T12:00:00.000Z');
   const at = (ms) => () => new Date(ms);
@@ -540,19 +547,24 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   for (const gone of made.slice(0, 2)) {
     assert.ok(!fs.existsSync(path.join(folder, `${gone.id}.json`)) && !fs.existsSync(path.join(folder, `${gone.id}.git`)), 'record and store are removed');
   }
+  const backInTime = await snapshotBaseline({ hubDir: hub, root: repo, toolchain: null, now: at(T - 1000), retention: { maxPerWorkspace: 3 } });
+  assert.deepEqual((await listBaselines({ hubDir: hub, root: repo })).map((row) => row.id), [backInTime.id, ...made.slice(2).map((row) => row.id)],
+    'a baseline just taken is never pruned by its own write, even when the clock went back');
   const other = fresh('other-workspace');
   write(other, 'x.txt', 'x\n');
   const oldOther = await snapshotBaseline({ hubDir: hub, root: other, toolchain: null, now: at(T - 15 * DAY) });
   const youngOther = await snapshotBaseline({ hubDir: hub, root: other, toolchain: null, now: at(T - 13 * DAY) });
   fs.mkdirSync(path.join(folder, 'tmp-left-by-a-crash'), { recursive: true });
   fs.writeFileSync(path.join(folder, `${made[2].id}.json.tmp-1234`), 'half written');
+  fs.mkdirSync(path.join(folder, '20201122T120000000Z-deadbeef.git', 'objects'), { recursive: true });
   const latest = await snapshotBaseline({ hubDir: hub, root: repo, toolchain: null, now: at(T + 10_000) });
   assert.deepEqual((await listBaselines({ hubDir: hub, root: other })).map((row) => row.id), [youngOther.id], "another workspace's baseline older than 14 days is pruned on write");
   assert.ok(!fs.existsSync(path.join(baselineFolder(hub, other), `${oldOther.id}.json`)));
   assert.ok(!fs.existsSync(path.join(folder, 'tmp-left-by-a-crash')) && !fs.existsSync(path.join(folder, `${made[2].id}.json.tmp-1234`)), 'leftovers of a crash are removed');
-  assert.equal((await listBaselines({ hubDir: hub, root: repo })).length, 4, 'the default keeps up to ten');
+  assert.ok(!fs.existsSync(path.join(folder, '20201122T120000000Z-deadbeef.git')), 'a store without its record is removed');
+  assert.equal((await listBaselines({ hubDir: hub, root: repo })).length, 5, 'the default keeps up to ten');
   const pruned = await pruneBaselines({ hubDir: hub, root: repo, now: at(T + 15 * DAY), retention: { maxPerWorkspace: 10 } });
-  assert.deepEqual(pruned.removed.sort(), [...made.slice(2), latest].map((row) => row.id).sort(), 'older than 14 days: all removed');
+  assert.deepEqual(pruned.removed.sort(), [backInTime, ...made.slice(2), latest].map((row) => row.id).sort(), 'older than 14 days: all removed');
   assert.deepEqual(await listBaselines({ hubDir: hub, root: repo }), []);
   ok('retention: at most N per workspace (oldest first), 14 days for every workspace, leftovers of a crash, on write and on demand');
 
@@ -582,6 +594,8 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   await rejectsWith(loadBaseline({ hubDir: hub, root: repo, id: base.id }), 'baseline_bad_record', 'a manifest that does not rebuild the tree');
   rehash((body) => { body.format = 'chatmcp.proof-baseline/9'; });
   await rejectsWith(loadBaseline({ hubDir: hub, root: repo, id: base.id }), 'baseline_bad_record', 'another format');
+  rehash((body) => { body.store.directory = '../../elsewhere.git'; });
+  await rejectsWith(loadBaseline({ hubDir: hub, root: repo, id: base.id }), 'baseline_bad_record', 'a store folder that is not the baseline own');
   fs.writeFileSync(file, original);
   assert.equal((await loadBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256 })).verifiedAgainst, 'anchor');
   await rejectsWith(loadBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: 'nothex' }), 'baseline_bad_anchor', 'an anchor that is not a sha256');
@@ -603,9 +617,12 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   assert.deepEqual(noStore.patch, { status: 'unavailable', reason: 'baseline_objects_missing' });
   assert.deepEqual(paths(noStore.changes.modified), ['a.txt'], 'the verified manifest still gives the change list');
   fs.renameSync(aside, store);
-  const pack = fs.readdirSync(path.join(store, 'objects', 'pack')).find((name) => name.endsWith('.pack'));
-  const packBytes = fs.readFileSync(path.join(store, 'objects', 'pack', pack));
-  for (const name of fs.readdirSync(path.join(store, 'objects', 'pack'))) fs.rmSync(path.join(store, 'objects', 'pack', name), { force: true });
+  // the forger unpacks the store's pack into loose objects and writes other bytes under the id of the old a.txt
+  const packFolder = path.join(store, 'objects', 'pack');
+  const packs = fs.readdirSync(packFolder).filter((name) => name.endsWith('.pack'));
+  assert.equal(packs.length, 1, 'one pack per baseline');
+  const packBytes = fs.readFileSync(path.join(packFolder, packs[0]));
+  for (const name of fs.readdirSync(packFolder)) fs.rmSync(path.join(packFolder, name), { force: true });
   git(store, ['unpack-objects', '-q'], { env: { ...process.env, GIT_DIR: store }, input: packBytes });
   const oldBlob = blobId(Buffer.from('a\n'));
   const loose = path.join(store, 'objects', oldBlob.slice(0, 2), oldBlob.slice(2));
@@ -613,6 +630,25 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   fs.writeFileSync(loose, zlib.deflateSync(Buffer.from('blob 2\0b\n', 'latin1')));
   const forged = await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256 });
   assert.deepEqual(forged.patch, { status: 'unavailable', reason: 'baseline_objects_mismatch' });
+  // the blob put back, then a tree forged: other bytes under the id of the sub folder's tree, then under the root tree's id
+  fs.writeFileSync(loose, zlib.deflateSync(Buffer.from('blob 2\0a\n', 'latin1')));
+  assert.equal((await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256 })).patch.status, 'ok', 'the genuine blob is back');
+  const inStore = { ...process.env, GIT_DIR: store };
+  const forgeTree = (id) => {
+    const other = git(store, ['mktree', '--missing'], { env: inStore, input: `100644 blob ${blobId(Buffer.from('forged\n'))}\tb.txt\n` }).stdout.trim();
+    const raw = spawnSync('git', ['cat-file', 'tree', other], { env: inStore }).stdout; // bytes: a tree holds binary ids
+    assert.ok(raw.length > 0);
+    const file = path.join(store, 'objects', id.slice(0, 2), id.slice(2));
+    fs.chmodSync(file, 0o644);
+    fs.writeFileSync(file, zlib.deflateSync(Buffer.concat([Buffer.from(`tree ${raw.length}\0`, 'latin1'), raw])));
+  };
+  const subTree = git(store, ['rev-parse', `${base.record.tree}:sub`], { env: inStore }).stdout.trim();
+  forgeTree(subTree);
+  const forgedSub = await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256 });
+  assert.deepEqual(forgedSub.patch, { status: 'unavailable', reason: 'baseline_objects_mismatch' }, 'a forged tree below the root (Git does not check its hash)');
+  forgeTree(base.record.tree);
+  const forgedRoot = await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256 });
+  assert.deepEqual(forgedRoot.patch, { status: 'unavailable', reason: 'baseline_objects_mismatch' }, 'a forged root tree (Git refuses to read it)');
   fs.rmSync(file);
   await rejectsWith(diffBaseline({ hubDir: hub, root: repo, id: base.id }), 'baseline_missing', 'a deleted record');
   ok('an edited record is refused (byte flip; re-hashed against the anchor; manifest; format; wrong workspace; ids); a missing or forged store is reported');
@@ -641,9 +677,12 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   const rawCached = await new TreeSnapshotter({ root: repo, stateDir: fresh('state'), engine: TREE_ALGORITHM.raw });
   await rawCached.snapshot({ full: true });
   assert.equal(buildTree((await rawCached.snapshot({ entries: true })).entries), raw.tree);
-  const tight = await new TreeSnapshotter({ root: repo, stateDir: fresh('state'), limits: { maxFiles: 1 } }).snapshot({ full: true, entries: true });
-  assert.equal(tight.status, 'unbounded');
-  assert.equal(tight.entries, null, 'no rows without a tree');
+  const tight = new TreeSnapshotter({ root: repo, stateDir: fresh('state'), limits: { maxFiles: 4 } });
+  assert.equal((await tight.snapshot({ full: true, entries: true })).entries.length, 4);
+  write(repo, 'y/one-too-many.txt', 'over the limit\n');
+  const over = await tight.snapshot({ full: true, entries: true });
+  assert.equal(over.status, 'unbounded');
+  assert.equal(over.entries, null, 'no rows without a tree (not the rows of the snapshot before)');
   const forced = await new TreeSnapshotter({ root: repo, stateDir: fresh('state'), limits: { maxNewBlobs: 0 } }).snapshot({ full: true, entries: true });
   assert.match(forced.engineReason, /^too_many_new_blobs:/);
   assert.equal(buildTree(forced.entries), forced.tree, 'a full snapshot that fell back to raw-v1 hands over the raw rows');
