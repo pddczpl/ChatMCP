@@ -223,6 +223,41 @@ try {
     ok('the suite finds the folder the copy was made from in CHATMCP_MUTATION_SOURCE (a UI suite borrows a package from its node_modules)');
   }
 
+  // ---- a folder beside the Hub (the benchmark corpus at corpus/ is one) ------------------------------------------------------------------
+  {
+    // side/side.mjs imports the Hub by its folder name and the suite imports side/: both resolve in the copy only if the copy of the Hub
+    // keeps that name and side/ is copied next to it.
+    const side = path.join(root, 'side');
+    await fs.mkdir(side, { recursive: true });
+    await fs.writeFile(path.join(side, 'side.mjs'), "import { value } from '../fake-hub/lib/value.mjs';\nexport const doubled = value * 2;\n", 'utf8');
+    await fs.writeFile(path.join(fake, 'tests', 'verify-beside.mjs'), "import { doubled } from '../../side/side.mjs';\nif (doubled !== 2) { console.log('  not ok - doubled is 2'); process.exit(1); }\nconsole.log('PASS');\n", 'utf8');
+    const sideBefore = readFileSync(path.join(side, 'side.mjs'), 'utf8');
+    const listWith = async (beside, mutations) => {
+      const file = path.join(root, `list-${counter += 1}.json`);
+      await fs.writeFile(file, JSON.stringify({ suite: 'verify-beside.mjs', ...(beside === undefined ? {} : { beside }), mutations }), 'utf8');
+      return file;
+    };
+    const both = run(await listWith(['side'], [
+      { name: 'side', what: 'the code beside the Hub is broken', patches: [patch('../side/side.mjs', 'value * 2', 'value * 3')] },
+      { name: 'hub', what: 'the Hub code it imports is broken', patches: [patch('lib/value.mjs', 'value = 1', 'value = 2')] },
+    ]));
+    assert.equal(both.status, 0, both.stdout + both.stderr);
+    assert.equal(both.results.side.status, 'KILLED', 'a patch of a file in a folder the list names beside the Hub is applied in the copy');
+    assert.equal(both.results.hub.status, 'KILLED', 'the copy of that folder imports the copy of the Hub, not the real one');
+    assert.equal(readFileSync(path.join(side, 'side.mjs'), 'utf8'), sideBefore, 'the real folder beside the Hub is never touched');
+    const unnamed = run(await listWith(undefined, [{ name: 'x', what: 'x', patches: [patch('../side/side.mjs', 'value * 2', 'value * 3')] }]));
+    assert.equal(unnamed.status, 2, 'without "beside" the folder is outside the Hub');
+    assert.match(unnamed.stderr, /outside the Hub folder/);
+    const other = run(await listWith(['side'], [{ name: 'x', what: 'x', patches: [patch('../elsewhere/x.mjs', 'a', 'b')] }]));
+    assert.equal(other.status, 2, 'a folder the list does not name stays outside');
+    for (const beside of [['missing'], ['..'], ['a/b'], ['fake-hub'], 'side', [], ['side', 'side']]) {
+      const refused = run(await listWith(beside, [{ name: 'x', what: 'x', patches: [patch('lib/value.mjs', 'value = 1', 'value = 2')] }]));
+      assert.equal(refused.status, 2, `beside ${JSON.stringify(beside)}: ${refused.stdout}${refused.stderr}`);
+    }
+    await fs.rm(path.join(fake, 'tests', 'verify-beside.mjs'));
+    ok('a list may name folders beside the Hub ("beside"): they are copied next to a copy that keeps the Hub folder\'s name, their files can be mutated, the real ones never change; a missing, unsafe, repeated or unnamed folder is a usage error');
+  }
+
   // ---- the real files ---------------------------------------------------------------------------------------------------------------
   assert.equal(fingerprint(), before, 'the tree the tool was pointed at must be byte-for-byte what it was');
   ok('the tree under test is untouched: mutations only ever happen in the temporary copy');
