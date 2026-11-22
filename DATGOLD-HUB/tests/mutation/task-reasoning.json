@@ -55,7 +55,7 @@
       "name": "T8",
       "what": "a follow-up forgets the setting it is given",
       "patches": [
-        { "file": "lib/agent.mjs", "old": "return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles,reasoningEffort});", "new": "return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles});" }
+        { "file": "lib/agent.mjs", "old": "return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles,reasoningEffort,planMode});", "new": "return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles,planMode});" }
       ]
     },
     {

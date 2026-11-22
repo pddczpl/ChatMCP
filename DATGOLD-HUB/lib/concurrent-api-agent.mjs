@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { HubManager } from './manager.mjs';
-import { AgentRunner, taskReasoningEffort } from './agent.mjs';
+import { AgentRunner, taskPlanMode, taskReasoningEffort } from './agent.mjs';
 import { WorkflowOrchestrator } from './workflow-orchestrator.mjs';
 import { summarizeCostLedgers } from './model-cost.mjs';
 import { assembleStudio } from './assemble.mjs';
@@ -160,6 +160,7 @@ export class ConcurrentApiAgent {
       events: [], toolCalls: 0, steps: 0, prompts: [{ at: r.createdAt, text: r.prompt }],
       dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
       error: r.error || null, runCount: 0, transport: 'api',
+      planMode: r.planMode === true, planApproval: null, planOnly: r.planMode === true,
     };
   }
   #detail(record) {
@@ -577,7 +578,9 @@ export class ConcurrentApiAgent {
       const result = await child.runner.start({ prompt: taskPrompt, selectionPrompt: requests ? record.prompt : predecessors.length ? ownText : null, carriedPrompts: requests, initialId: record.id,
         attachments: record.attachments || [],
         effectiveProfile:record.effectiveProfile||null,roleProfiles:record.roleProfiles||{},
-        ...(record.reasoningEffort?{reasoningEffort:record.reasoningEffort}:{}) });
+        ...(record.reasoningEffort?{reasoningEffort:record.reasoningEffort}:{}),
+        // A conversation the owner started in plan mode runs in plan mode here too, on this child's own gate.
+        ...(record.planMode===true?{planMode:true}:{}) });
       record.status = result.status;
       record.updatedAt = now();
       delete record.attachments;
@@ -622,10 +625,12 @@ export class ConcurrentApiAgent {
   }
   async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null,
     workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '', handoffRequests = null,
-    profileId = null, roleProfiles = null, spawnReservation = null, reasoningEffort = null } = {}) {
+    profileId = null, roleProfiles = null, spawnReservation = null, reasoningEffort = null, planMode = null } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     // The thinking effort of this task (null: it names none and follows its connection). A word that is not a level is refused here, before a record or a worktree exists.
     const effort = taskReasoningEffort(reasoningEffort);
+    // Plan mode (P9 ac-9): only the owner's request names it; an agent another agent starts (spawnAgent, a workflow) never does.
+    const plan = taskPlanMode(planMode);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
       throw fail('invalid_dependencies', 'Dependencies must reference existing DatGold tasks.', 400);
@@ -664,7 +669,7 @@ export class ConcurrentApiAgent {
       {
         this.primary.provider=scoped.provider;
         return this.primary.start({prompt,attachments,effectiveProfile:scoped.effectiveProfile,
-          roleProfiles:selectedRoleProfiles,...(effort!==null?{reasoningEffort:effort}:{})});
+          roleProfiles:selectedRoleProfiles,...(effort!==null?{reasoningEffort:effort}:{}),...(plan===true?{planMode:true}:{})});
       }
     const id = randomUUID();
     const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
@@ -678,6 +683,7 @@ export class ConcurrentApiAgent {
       profileId:scoped.effectiveProfile?.id||null,
       effectiveProfile:scoped.effectiveProfile||null,roleProfiles:selectedRoleProfiles,
       ...(effort!==null?{reasoningEffort:effort}:{}),
+      ...(plan===true?{planMode:true}:{}),
       sourceRoot: root, createdAt: now(), updatedAt: now(),
       depth: parentTaskId ? this.#depthOf(parentTaskId) + 1 : 0,
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
@@ -720,10 +726,12 @@ export class ConcurrentApiAgent {
       await this.manager.workspaceRegistry.resolve(root);
     return this.workflows.create(parentTaskId,request);
   }
-  async continue({ id, prompt, attachments = [], reasoningEffort = null, ...limits } = {}) {
+  async continue({ id, prompt, attachments = [], reasoningEffort = null, planMode = null, ...limits } = {}) {
     // The thinking effort a follow-up names (a level, or auto); none named leaves the task as it was. Refused before anything else when it is not a level.
     const effort = taskReasoningEffort(reasoningEffort);
-    const named = effort !== null ? { reasoningEffort: effort } : {};
+    // The plan mode a follow-up names: the runner decides what it means for its task (it refuses to leave plan mode); a record that never ran, below.
+    const plan = taskPlanMode(planMode);
+    const named = { ...(effort !== null ? { reasoningEffort: effort } : {}), ...(plan !== null ? { planMode: plan } : {}) };
     const original=this.get(id);
     if(!original)throw fail('task_not_found','Conversation does not exist.',404);
     const root=original.workspacePath||original.workspace?.path;
@@ -737,7 +745,7 @@ export class ConcurrentApiAgent {
         // releases the owner workspace lock. A follow-up in this gap must
         // begin another run, not be enqueued onto a finished model loop.
         if (this.primary.get(id)?.status === 'running')
-          return this.primary.enqueueMessage({id,prompt,attachments});
+          return this.primary.enqueueMessage({id,prompt,attachments,planMode:plan});
         await this.primary.context?.done?.promise;
       }
       const scoped=await this.#scopedProvider(original.effectiveProfile?.id||'__global__',
@@ -751,7 +759,7 @@ export class ConcurrentApiAgent {
     const child = this.children.get(id);
     if (child?.runner.activeTaskId === id) {
       if (child.runner.get(id)?.status === 'running')
-        return child.runner.enqueueMessage({id,prompt,attachments});
+        return child.runner.enqueueMessage({id,prompt,attachments,planMode:plan});
       await child.runner.context?.done?.promise;
     }
     if (record.status === 'queued' || record.status === 'preparing')
@@ -760,7 +768,11 @@ export class ConcurrentApiAgent {
       if (record.status === 'blocked' || record.status === 'paused' || record.status === 'failed') {
         if (record.attachmentCount && !attachments.length)
           throw fail('attachments_required','The interrupted task had attachments. Reattach files/images before starting a new run.',409);
+        // A record that never ran has no approved plan: plan mode cannot be left by a follow-up, only entered.
+        if (plan === false && record.planMode === true)
+          throw fail('plan_mode_pending', 'This conversation is in plan mode: only the approval of its plan ends it. Approve the plan, or start a new conversation.', 409);
         record.prompt += '\n\nFOLLOW-UP: ' + String(prompt || '');
+        if (plan === true) record.planMode = true;
         record.attachments = attachments;
         record.attachmentCount = attachments.length;
         if (effort !== null) record.reasoningEffort = effort;
@@ -853,14 +865,15 @@ export class ConcurrentApiAgent {
     if (child?.runner.get(id)) return child.runner.setAutoResume(id, enabled);
     throw fail('task_not_found', 'Task does not exist.', 404);
   }
-  decidePermission(id, approved) {
+  // `extras` is the feedback and the edited plan of an answer (lib/permissions.mjs decisionExtras): the gate that holds the request checks them.
+  decidePermission(id, approved, extras = {}) {
     for (const child of this.children.values()) {
       if ((child.manager.permissions?.state().pending || []).some(x => x.id === id))
-        return child.manager.permissions.decide(id, approved);
+        return child.manager.permissions.decide(id, approved, extras);
     }
     for (const access of this.readyAccessManagers.values()) {
       if ((access.permissions?.state().pending || []).some(x => x.id === id))
-        return access.permissions.decide(id, approved);
+        return access.permissions.decide(id, approved, extras);
     }
     return null;
   }
