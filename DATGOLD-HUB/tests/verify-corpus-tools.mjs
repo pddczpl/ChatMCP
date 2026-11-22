@@ -124,6 +124,26 @@ function swap(text, old, replacement) {
 }
 const lineOf = (text, fragment) => text.slice(0, text.indexOf(fragment)).split('\n').length;
 
+/** Runs in a child process (its source is passed to node -e): times parseFinalMarker on messages with a million white-space characters. */
+async function markerTimingProbe() {
+  const { parseFinalMarker } = await import(process.env.MARKER_URL);
+  const space = ' ';
+  const tab = String.fromCharCode(9);
+  const lf = String.fromCharCode(10);
+  const inputs = [
+    ['spaces and tabs, then x', `${(space + tab).repeat(1_000_000)}x`, null],
+    ['line breaks, then x', `${lf.repeat(1_000_000)}x`, null],
+    ['x, then spaces', `x${space.repeat(1_000_000)}`, null],
+    ['DONE, then white space', `DONE${(space + tab + lf).repeat(300_000)}`, 'DONE'],
+  ];
+  const results = inputs.map(([name, text, expected]) => {
+    const started = performance.now();
+    const { marker } = parseFinalMarker(text);
+    return { name, length: text.length, marker, expected, ms: Math.round(performance.now() - started) };
+  });
+  console.log(JSON.stringify(results));
+}
+
 try {
   // ==== the marker contract ==============================================================================================================
   {
@@ -168,6 +188,20 @@ try {
     expectNone(problems, 'final-line markers read wrongly');
     assert.throws(() => marker.parseFinalMarker(null), TypeError);
     ok(`the marker contract is the exact pinned text, and ${cases.length} final messages read as DONE, BLOCKED with its reason, or no marker`);
+  }
+  {
+    // The final message is the agent's text: a long run of white space that is not at its end (a padded table) must not make the reading
+    // quadratic, or the scoring stalls. Measured in a child process, so a slow version is stopped at the timeout instead of hanging here.
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', `await (${markerTimingProbe.toString()})();`], {
+      env: { ...process.env, MARKER_URL: pathToFileURL(path.join(TOOLS, 'marker.mjs')).href }, encoding: 'utf8', timeout: 30_000, windowsHide: true,
+    });
+    assert.equal(run.status, 0, `the probe did not finish within 30 s (${run.error?.code ?? run.signal ?? `exit ${run.status}`}): parseFinalMarker is not linear\n${run.stderr}`);
+    const results = JSON.parse(run.stdout);
+    for (const result of results) {
+      assert.equal(result.marker, result.expected, `${result.name}: marker ${result.marker}, expected ${result.expected}`);
+      assert.ok(result.ms < 2000, `${result.name} (${result.length} characters) took ${result.ms} ms; the bound is 2000 ms`);
+    }
+    ok(`long white space is read in linear time: ${results.map((result) => `${result.name} ${result.ms} ms`).join(', ')}`);
   }
 
   // ==== the schema and its checker =======================================================================================================
