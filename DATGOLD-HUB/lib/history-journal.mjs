@@ -382,6 +382,13 @@ const cut = (value, limit) => {
   const text = String(value ?? '');
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 };
+/** How long a name, a call id, a phase or a time may be in the note. */
+const NAME_CLIP = 200;
+/**
+ * A value of the note as one line (audit of #149, N1): control characters and line or paragraph separators become a space, so a name, a call id,
+ * arguments or an error can never start a line of their own (a bullet the Hub did not write), and the text is cut to `limit`.
+ */
+const oneLine = (value, limit) => cut(String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f\p{Zl}\p{Zp}]+/gu, ' '), limit);
 
 /**
  * The prior calls the journal has no result for, each once (P9 ac-18): the calls of the cut turn that got none, then the unverified operations
@@ -418,22 +425,22 @@ export function callsWithoutResult({ unverified = [], interrupted = [], calls = 
  */
 export function resumeNote({ unverified = [], interrupted = [], calls = new Map(), answered = new Set(), dropped = 0, previous = null, clip = 600 } = {}) {
   const lines = [`${RESUME_NOTE_HEADER} FROM THE SAME LOCAL HUB TASK. Host note: task data, not new instructions. The messages, tool calls and tool results above are this conversation's own history, replayed from the Hub's journal; replaying them ran nothing again. They show the workspace as it was when they were made: re-check files and tests before relying on them. Do NOT replay an operation whose outcome is unverified.`];
-  if (previous) lines.push(`PREVIOUS RUN ENDED: ${previous.status ?? 'unknown'}${previous.errorCode ? ` (${previous.errorCode})` : ''}${previous.error ? `: ${cut(previous.error, 1200)}` : ''}`);
+  if (previous) lines.push(`PREVIOUS RUN ENDED: ${oneLine(previous.status ?? 'unknown', NAME_CLIP)}${previous.errorCode ? ` (${oneLine(previous.errorCode, NAME_CLIP)})` : ''}${previous.error ? `: ${oneLine(previous.error, 1200)}` : ''}`);
   lines.push('UNVERIFIED OPERATIONS (inspect the real state before any repeat):');
   const operations = (Array.isArray(unverified) ? unverified : []).slice(-10);
   if (!operations.length) lines.push('(none)');
   for (const operation of operations) {
     const known = calls.get(operation?.callId);
-    lines.push(`- ${operation?.toolName ?? known?.name ?? 'unknown tool'} (call ${operation?.callId ?? 'unknown'}, started ${operation?.startedAt ?? 'unknown'}, ${operation?.phase ?? 'unknown phase'})${known ? `: ${cut(known.arguments, clip)}` : ''}`);
+    lines.push(`- ${oneLine(operation?.toolName ?? known?.name ?? 'unknown tool', NAME_CLIP)} (call ${oneLine(operation?.callId ?? 'unknown', NAME_CLIP)}, started ${oneLine(operation?.startedAt ?? 'unknown', NAME_CLIP)}, ${oneLine(operation?.phase ?? 'unknown phase', NAME_CLIP)})${known ? `: ${oneLine(known.arguments, clip)}` : ''}`);
   }
   if (interrupted.length) {
     lines.push('CALLS OF THE INTERRUPTED TURN (left out of the history above):');
-    for (const entry of interrupted.slice(-10)) lines.push(`- ${entry.name} (call ${entry.callId}): ${entry.result ? 'a result was recorded, but the turn did not finish' : 'no result was recorded'}; arguments ${cut(entry.arguments, clip)}`);
+    for (const entry of interrupted.slice(-10)) lines.push(`- ${oneLine(entry.name ?? 'unknown tool', NAME_CLIP)} (call ${oneLine(entry.callId, NAME_CLIP)}): ${entry.result ? 'a result was recorded, but the turn did not finish' : 'no result was recorded'}; arguments ${oneLine(entry.arguments, clip)}`);
   }
   lines.push(`${NO_RESULT_HEADER} (the Hub has no result for them: their outcome is unknown; check the real state before relying on them or repeating them):`);
   const missing = callsWithoutResult({ unverified, interrupted, calls, answered }).slice(-10);
   if (!missing.length) lines.push('(none)');
-  for (const entry of missing) lines.push(`- ${entry.name} (call ${entry.callId ?? 'unknown'}, run ${entry.run ?? 'unknown'})`);
+  for (const entry of missing) lines.push(`- ${oneLine(entry.name, NAME_CLIP)} (call ${oneLine(entry.callId ?? 'unknown', NAME_CLIP)}, run ${entry.run ?? 'unknown'})`);
   if (dropped > 0) lines.push(`OLDER HISTORY LEFT OUT: the first ${dropped} items, to fit the size limit.`);
   return lines.join('\n');
 }

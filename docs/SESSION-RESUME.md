@@ -43,6 +43,8 @@ The new run's history is the replayed history, then its own skill index, then a 
 - the **prior calls with no recorded result** (`PRIOR CALLS WITH NO RECORDED RESULT`, ac-18), each once with its run: the calls of the cut turn that got none, and the unverified operations whose call id has no result in the journal (or that carry no call id). An unverified operation whose result the journal does hold (a record written by a Hub that died between the two writes) stays in the list of unverified operations but is not named here;
 - how many old items were left out for size, and how the previous run ended.
 
+Every value the note prints (a tool name, a call id, a time, a phase, arguments, the error of the previous run) is one line: control characters and line or paragraph separators become a space, so a value can never start a line of its own, and it is cut (names, ids, times and phases at 200 characters, arguments at 600, the error at 1,200). At most ten entries of each list are printed.
+
 A call id that the replayed history already holds is refused if a model hands it out again (`invalid_call_id`), and the call is not run.
 
 A task written before the journal existed (3.11.2 and earlier, v3.9.0 included) has no history records: it goes on from the checkpoint text, exactly as before, and the task gets a `resume_fallback` event that says why (`no_journal`, or the reason of a journal that could not be used). The run that fell back writes a journal of its own, which starts with that checkpoint text, so the run after it resumes from the journal.

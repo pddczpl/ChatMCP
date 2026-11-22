@@ -162,7 +162,7 @@
       "patches": [
         {
           "file": "lib/history-journal.mjs",
-          "old": "for (const entry of missing) lines.push(`- ${entry.name} (call ${entry.callId ?? 'unknown'}, run ${entry.run ?? 'unknown'})`);",
+          "old": "for (const entry of missing) lines.push(`- ${oneLine(entry.name, NAME_CLIP)} (call ${oneLine(entry.callId ?? 'unknown', NAME_CLIP)}, run ${entry.run ?? 'unknown'})`);",
           "new": ""
         }
       ]
@@ -197,6 +197,105 @@
           "file": "lib/history-journal.mjs",
           "old": "lines.push(`${NO_RESULT_HEADER} (the Hub has no result for them",
           "new": "lines.push(`(the Hub has no result for them"
+        }
+      ]
+    },
+    {
+      "name": "H19",
+      "what": "a value of the note keeps its line breaks (audit of #149, N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": ".replace(/[\\x00-\\x1f\\x7f-\\x9f\\p{Zl}\\p{Zp}]+/gu, ' ')",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H20",
+      "what": "a value of the note is not clipped (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "\\p{Zp}]+/gu, ' '), limit);",
+          "new": "\\p{Zp}]+/gu, ' '), Infinity);"
+        }
+      ]
+    },
+    {
+      "name": "H21",
+      "what": "the new section prints a name raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "for (const entry of missing) lines.push(`- ${oneLine(entry.name, NAME_CLIP)} ",
+          "new": "for (const entry of missing) lines.push(`- ${entry.name} "
+        }
+      ]
+    },
+    {
+      "name": "H22",
+      "what": "the new section prints a call id raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "(call ${oneLine(entry.callId ?? 'unknown', NAME_CLIP)}, run",
+          "new": "(call ${entry.callId ?? 'unknown'}, run"
+        }
+      ]
+    },
+    {
+      "name": "H23",
+      "what": "the unverified operations print a name raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "`- ${oneLine(operation?.toolName ?? known?.name ?? 'unknown tool', NAME_CLIP)} ",
+          "new": "`- ${operation?.toolName ?? known?.name ?? 'unknown tool'} "
+        }
+      ]
+    },
+    {
+      "name": "H24",
+      "what": "the unverified operations print a phase raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "${oneLine(operation?.phase ?? 'unknown phase', NAME_CLIP)})",
+          "new": "${operation?.phase ?? 'unknown phase'})"
+        }
+      ]
+    },
+    {
+      "name": "H25",
+      "what": "the cut calls print a name raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "- ${oneLine(entry.name ?? 'unknown tool', NAME_CLIP)} (call ${oneLine(entry.callId, NAME_CLIP)}):",
+          "new": "- ${entry.name} (call ${oneLine(entry.callId, NAME_CLIP)}):"
+        }
+      ]
+    },
+    {
+      "name": "H26",
+      "what": "the cut calls print their arguments with their line breaks (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "arguments ${oneLine(entry.arguments, clip)}",
+          "new": "arguments ${cut(entry.arguments, clip)}"
+        }
+      ]
+    },
+    {
+      "name": "H27",
+      "what": "the error of the previous run keeps its line breaks (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "`: ${oneLine(previous.error, 1200)}`",
+          "new": "`: ${cut(previous.error, 1200)}`"
         }
       ]
     },
