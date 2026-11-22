@@ -1,0 +1,11 @@
+# EXAMPLE: the public acceptance file of example-sum, in the format of docs/PROOF-ACCEPTANCE.md.
+version: 1
+criteria:
+  - id: unit-tests
+    text: The public unit tests pass
+    checks:
+      - run: node --test
+        timeout: 120
+protected:
+  - test/**
+  - .chatmcp/**
