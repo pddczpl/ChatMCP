@@ -384,12 +384,20 @@ criteria:
     text: the owner accepted the same tree id under another algorithm
     manual:
       note: look at it
+  - id: c-flaky-old
+    text: failed on the final tree, then passed there (the failing run is the older one)
+    checks:
+      - run: node flaky2.js
+  - id: c-stale-old
+    text: passed on another tree, then ran without a snapshot (the comparable run is the older one)
+    checks:
+      - run: node stale2.js
 `;
 const EXPECTED_STATUS = {
   'c-pass': 'evidenced', 'c-fail': 'failed', 'c-flaky': 'failed', 'c-stale': 'stale', 'c-tree-unknown': 'unverified', 'c-algorithm': 'unverified',
   'c-repeat': 'unverified', 'c-not-run': 'unverified', 'c-cwd': 'unverified', 'c-timeout': 'failed', 'c-exit': 'evidenced', 'c-flagged': 'checks_modified',
   'c-flagged-fail': 'failed', 'c-owner': 'owner_accepted', 'c-owner-old': 'stale', 'c-manual': 'unverified', 'c-owner-over-fail': 'owner_accepted', 'c-two': 'stale',
-  'c-format': 'unverified', 'c-stops': 'failed', 'c-subdir': 'evidenced', 'c-owner-algorithm': 'stale',
+  'c-format': 'unverified', 'c-stops': 'failed', 'c-subdir': 'evidenced', 'c-owner-algorithm': 'stale', 'c-flaky-old': 'failed', 'c-stale-old': 'stale',
 };
 const EXPECTED_REASONS = {
   'c-pass': [], 'c-fail': ['check_failed'], 'c-flaky': ['check_failed'], 'c-stale': ['check_stale'], 'c-tree-unknown': ['check_tree_unknown'],
@@ -397,7 +405,7 @@ const EXPECTED_REASONS = {
   'c-timeout': ['check_failed'], 'c-exit': [], 'c-flagged': ['checks_modified'], 'c-flagged-fail': ['check_failed', 'checks_modified'],
   'c-owner': ['owner_accepted'], 'c-owner-old': ['owner_accepted_other_tree'], 'c-manual': ['manual_not_accepted'],
   'c-owner-over-fail': ['owner_accepted', 'check_failed'], 'c-two': ['check_stale'], 'c-format': ['check_tree_unknown'], 'c-stops': ['check_failed', 'check_failed'],
-  'c-subdir': [], 'c-owner-algorithm': ['owner_accepted_other_tree'],
+  'c-subdir': [], 'c-owner-algorithm': ['owner_accepted_other_tree'], 'c-flaky-old': ['check_failed'], 'c-stale-old': ['check_stale'],
 };
 const FINAL = snapshot(TREE_A);
 const OTHER = snapshot(TREE_B);
@@ -447,6 +455,10 @@ await appendCheck('node cancel.js', runResult({ exitCode: 0, cancelled: true }))
 await appendCheck('node killed.js', runResult({ exitCode: 0, signal: 'SIGTERM' }));
 await appendCheck('node sub.js', runResult({ cwd: 'sub\\dir' }));
 await appendCheck('node sub2.js', runResult({ cwd: './sub/dir/' }));
+await appendCheck('node flaky2.js', runResult({ exitCode: 1 })); // 27: the failing run the reason names
+await appendCheck('node flaky2.js', runResult()); // 28
+await appendCheck('node stale2.js', runResult(), OTHER); // 29: the run on another tree the reason names
+await appendCheck('node stale2.js', runResult(), null, null); // 30
 const matrixBytes = fs.readFileSync(ledgerPath(matrixHub, 'matrix'));
 const OWNERS = [
   { criterionId: 'c-owner', treeAlgorithm: 'git-pinned-v1', tree: TREE_A, by: 'owner', at: AT },
@@ -507,7 +519,7 @@ const matrix = buildAgentChangeStatement(matrixInput());
   assert.equal(criterionOf(matrix, 'c-fail').reasons[0].check, 0);
   assert.equal(criterionOf(matrix, 'c-flagged').reasons[0].check, null);
   // the receipts: every check record of the ledger, digests as written, output never included
-  assert.equal(matrix.predicate.receipts.length, 20);
+  assert.equal(matrix.predicate.receipts.length, 24);
   const first = matrix.predicate.receipts[0];
   const line = JSON.parse(matrixBytes.toString('utf8').split('\n')[1]);
   assert.deepEqual(first, {
@@ -519,8 +531,8 @@ const matrix = buildAgentChangeStatement(matrixInput());
   });
   assert.equal(matrix.predicate.receipts.find((receipt) => receipt.command.startsWith('node unknown')).treeBefore, null);
   // the rest of the predicate
-  assert.deepEqual(matrix.predicate.ledger, { present: true, verified: true, records: 26, lastHash: JSON.parse(matrixBytes.toString('utf8').trim().split('\n').at(-1)).hash,
-    brokenAt: null, reason: null, checks: 20, omittedReceipts: 0, omittedUncertain: 0 });
+  assert.deepEqual(matrix.predicate.ledger, { present: true, verified: true, records: 30, lastHash: JSON.parse(matrixBytes.toString('utf8').trim().split('\n').at(-1)).hash,
+    brokenAt: null, reason: null, checks: 24, omittedReceipts: 0, omittedUncertain: 0 });
   assert.deepEqual(matrix.predicate.permissions, { records: 3, approved: 1, denied: 1, expired: 0, cancelled: 0, blocked: 0, policy: 0, other: 1 });
   assert.deepEqual(matrix.predicate.uncertain, [{ seq: 20, reason: 'torn_tail' }, { seq: 21, reason: 'unspecified' }]);
   assert.deepEqual(matrix.predicate.cost, { currency: 'USD', knownSubtotal: 0.125, complete: false });
@@ -631,9 +643,9 @@ const matrix = buildAgentChangeStatement(matrixInput());
   assert.equal(criterionOf(broken, 'c-fail').status, 'failed', 'a verified line before the break still counts');
   assert.equal(broken.predicate.permissions.records, 0, 'nothing after the break is read');
 
-  const torn = buildAgentChangeStatement(matrixInput({ ledger: Buffer.concat([matrixBytes, Buffer.from('{"v":2,"seq":27')]) }));
+  const torn = buildAgentChangeStatement(matrixInput({ ledger: Buffer.concat([matrixBytes, Buffer.from('{"v":2,"seq":31')]) }));
   valid(torn);
-  assert.deepEqual([torn.predicate.ledger.verified, torn.predicate.ledger.reason, torn.predicate.ledger.brokenAt], [false, 'torn_tail', 27]);
+  assert.deepEqual([torn.predicate.ledger.verified, torn.predicate.ledger.reason, torn.predicate.ledger.brokenAt], [false, 'torn_tail', 31]);
   assert.equal(criterionOf(torn, 'c-pass').status, 'unverified');
 
   const noAcceptance = buildAgentChangeStatement(matrixInput({ acceptance: null }));
@@ -659,9 +671,17 @@ const matrix = buildAgentChangeStatement(matrixInput());
   assert.deepEqual(statusesOf(small), EXPECTED_STATUS);
   assert.deepEqual(criterionOf(small, 'c-flaky').checks[0].receipts, [5], 'the latest one');
   assert.equal(criterionOf(small, 'c-flaky').checks[0].passes, 1);
-  // listed: the one receipt each check keeps, and the latest of the others (4, the older flaky run, is no longer listed by its check)
-  assert.deepEqual(small.predicate.receipts.map((receipt) => receipt.seq), [2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 22, 23, 24, 25, 26]);
-  assert.equal(small.predicate.ledger.omittedReceipts, 2);
+  // the run a reason names is listed whatever the cap: the older failing run of c-flaky-old, the older run on another tree of c-stale-old
+  assert.deepEqual(criterionOf(matrix, 'c-flaky-old').checks[0].receipts, [27, 28]);
+  assert.deepEqual(criterionOf(matrix, 'c-stale-old').checks[0].receipts, [29, 30]);
+  assert.deepEqual(criterionOf(small, 'c-flaky-old').checks[0].receipts, [27]);
+  assert.deepEqual(criterionOf(small, 'c-stale-old').checks[0].receipts, [29]);
+  const two = buildAgentChangeStatement(matrixInput({ limits: { maxReceiptsPerCheck: 2 } }));
+  valid(two);
+  assert.deepEqual(criterionOf(two, 'c-flaky-old').checks[0].receipts, [27, 28]);
+  // listed: the one receipt each check keeps, and the latest of the others (4, 28: runs no longer listed by their checks)
+  assert.deepEqual(small.predicate.receipts.map((receipt) => receipt.seq), [2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 22, 23, 24, 25, 26, 27, 29, 30]);
+  assert.equal(small.predicate.ledger.omittedReceipts, 4);
   assert.deepEqual([small.predicate.uncertain.length, small.predicate.ledger.omittedUncertain], [1, 1]);
   // a long command is cut after masking and says so
   const longHub = fresh('long-hub');
@@ -844,6 +864,7 @@ async function finish(repo, ledger, { ownerAcceptances = [], secrets = [SECRET],
 // =====================================================================================================================
 {
   const base = clone(matrix);
+  const rec = (s, seq) => s.predicate.receipts.find((receipt) => receipt.seq === seq);
   valid(base);
   const cases = [
     ['a missing _type', (s) => { delete s._type; }, '/_type', 'required'],
@@ -901,6 +922,32 @@ async function finish(repo, ledger, { ownerAcceptances = [], secrets = [SECRET],
     ['reasons left out that are not checks_modified', (s) => { s.predicate.criteria[1].omittedReasons = 3; }, '/predicate/criteria/1/omittedReasons', 'semantic:omitted_reasons'],
     ['evidenced while the acceptance is untrusted', (s) => { s.predicate.acceptance.trusted = false; }, '/predicate/criteria/0/reasons', 'semantic:missing_reason'],
     ['evidenced without a check-changes report', (s) => { s.predicate.checkChanges.reported = false; }, '/predicate/criteria/0/reasons', 'semantic:missing_reason'],
+    // a check's result against the receipts it lists (audit F1 of PR #147): c-pass lists 2, c-fail 3, c-stale 6, c-tree-unknown 7, c-repeat 9
+    ['a passed check whose receipt exited 1', (s) => { rec(s, 2).exit = 1; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a passed check whose receipt timed out', (s) => { rec(s, 2).timedOut = true; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a passed check whose receipt was cancelled', (s) => { rec(s, 2).cancelled = true; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a passed check whose receipt a signal ended', (s) => { rec(s, 2).signal = 'SIGTERM'; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a check listing a receipt of another command', (s) => { rec(s, 2).commandSha256 = sha256('node other.js'); }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:receipt_other_check'],
+    ['a check listing a receipt of another folder', (s) => { rec(s, 2).cwd = 'elsewhere'; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:receipt_other_check'],
+    ['a passed check whose receipt ran on the before tree', (s) => { rec(s, 2).treeBefore = { treeAlgorithm: 'git-pinned-v1', objectFormat: 'sha1', tree: TREE_B }; },
+      '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a passed check whose receipt ran on an unrelated tree', (s) => { rec(s, 2).treeBefore.tree = 'd'.repeat(40); }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a passed check whose receipt has no tree', (s) => { rec(s, 2).treeBefore = null; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a passed check whose receipt ran under another tree algorithm', (s) => { rec(s, 2).treeBefore.treeAlgorithm = 'raw-v1'; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a passed check listing more receipts than passing runs', (s) => { s.predicate.receipts.push({ ...clone(rec(s, 2)), seq: 31 }); s.predicate.criteria[0].checks[0].receipts = [2, 31]; },
+      '/predicate/criteria/0/checks/0/receipts', 'semantic:passed_receipt'],
+    ['repeats short with a failing receipt', (s) => { rec(s, 9).exit = 1; }, '/predicate/criteria/6/checks/0/receipts/0', 'semantic:passed_receipt'],
+    ['a failed check listing no failing receipt', (s) => { rec(s, 3).exit = 0; }, '/predicate/criteria/1/checks/0/receipts', 'semantic:failed_receipt'],
+    ['a failed check whose receipt ran on another tree', (s) => { rec(s, 3).treeBefore.tree = TREE_B; }, '/predicate/criteria/1/checks/0/receipts/0', 'semantic:failed_receipt'],
+    ['a stale check listing a run on the final tree', (s) => { rec(s, 6).treeBefore.tree = TREE_A; }, '/predicate/criteria/3/checks/0/receipts/0', 'semantic:stale_receipt'],
+    ['a stale check without a run on a comparable tree', (s) => { rec(s, 6).treeBefore = null; }, '/predicate/criteria/3/checks/0/receipts', 'semantic:stale_receipt'],
+    ['a tree_unknown check listing a run on a comparable tree', (s) => { rec(s, 7).treeBefore = { treeAlgorithm: 'git-pinned-v1', objectFormat: 'sha1', tree: TREE_B }; },
+      '/predicate/criteria/4/checks/0/receipts/0', 'semantic:stale_receipt'],
+    ['a check not run listing a receipt of its own command', (s) => {
+      s.predicate.receipts.push({ ...clone(rec(s, 2)), seq: 31, commandSha256: s.predicate.criteria[7].checks[0].commandSha256 });
+      s.predicate.criteria[7].checks[0].receipts = [31];
+    }, '/predicate/criteria/7/checks/0/receipts', 'semantic:not_run_receipt'],
+    ['a stale check listing no receipt', (s) => { s.predicate.criteria[3].checks[0].receipts = []; }, '/predicate/criteria/3/checks/0/receipts', 'semantic:no_receipt'],
   ];
   assert.ok(cases.length >= 15);
   for (const [name, mutate, at, keyword] of cases) {
