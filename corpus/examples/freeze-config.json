@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "agents": [
+    { "id": "claude-code", "cli": "claude -p", "version": "0.0.0-example", "notes": "EXAMPLE: write the version the CLI reports on the machine that runs the benchmark" },
+    { "id": "codex", "cli": "codex exec", "version": "0.0.0-example" },
+    { "id": "opencode", "cli": "opencode run", "version": "0.0.0-example" }
+  ]
+}
