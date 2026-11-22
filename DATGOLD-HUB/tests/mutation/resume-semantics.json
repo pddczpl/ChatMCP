@@ -1,0 +1,600 @@
+{
+  "suite": "verify-resume-semantics.mjs",
+  "description": "Resume semantics (P9 ac-18): the loader's cut tail and recorded results, callsWithoutResult and the resumed note's section of prior calls with no recorded result (lib/history-journal.mjs), the resumed_from_transcript event, task.resume / resumeMode and the report line (lib/agent.mjs), and a second chat's queued record (lib/concurrent-api-agent.mjs).",
+  "mutations": [
+    {
+      "name": "H1",
+      "what": "the loader records no call as answered",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "for (const entry of run.entries) if (entry.item.type === 'function_call_output') answered.add(entry.item.call_id);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H2",
+      "what": "a result recorded in the cut turn does not count as recorded",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "for (const entry of run.entries) if (entry.item.type === 'function_call_output')",
+          "new": "for (const entry of cutIncompleteTail(run.entries).kept) if (entry.item.type === 'function_call_output')"
+        }
+      ]
+    },
+    {
+      "name": "H3",
+      "what": "cutItems counts the cut calls instead of the cut items",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "cutItems = run.entries.length - kept.length;",
+          "new": "cutItems = cut.length;"
+        }
+      ]
+    },
+    {
+      "name": "H4",
+      "what": "cutItems adds up the cut tails of every run",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "cutItems = run.entries.length - kept.length;",
+          "new": "cutItems += run.entries.length - kept.length;"
+        }
+      ]
+    },
+    {
+      "name": "H5",
+      "what": "the loader returns no answered calls",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "interrupted, cutItems, calls, answered,",
+          "new": "interrupted, cutItems, calls, answered: new Set(),"
+        }
+      ]
+    },
+    {
+      "name": "H6",
+      "what": "the loader returns no cut items",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "interrupted, cutItems, calls, answered,",
+          "new": "interrupted, cutItems: 0, calls, answered,"
+        }
+      ]
+    },
+    {
+      "name": "H7",
+      "what": "the cut calls are never named as missing",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (entry.result || found.has(entry.callId)) continue;",
+          "new": "continue;"
+        }
+      ]
+    },
+    {
+      "name": "H8",
+      "what": "a cut call whose result was recorded is named as missing",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (entry.result || found.has(entry.callId)) continue;",
+          "new": "if (found.has(entry.callId)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "H9",
+      "what": "the run of a cut call is not looked up",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "name: String(entry.name ?? 'unknown tool'), run: calls.get(entry.callId)?.run ?? null };",
+          "new": "name: String(entry.name ?? 'unknown tool'), run: null };"
+        }
+      ]
+    },
+    {
+      "name": "H10",
+      "what": "an unverified operation whose result is recorded is named as missing",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (callId !== null && answered.has(callId)) continue;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H11",
+      "what": "an unverified operation without a call id is left out",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (callId !== null && answered.has(callId)) continue;",
+          "new": "if (callId === null || answered.has(callId)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "H12",
+      "what": "a call both cut and unverified is named twice",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (known) { if (typeof operation.toolName === 'string') known.name = operation.toolName; continue; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H13",
+      "what": "a call both cut and unverified keeps the model's name instead of the Hub's",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "known.name = operation.toolName;",
+          "new": "known.name = known.name;"
+        }
+      ]
+    },
+    {
+      "name": "H14",
+      "what": "the run of an unverified operation is not looked up",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "run: callId === null ? null : calls.get(callId)?.run ?? null };",
+          "new": "run: null };"
+        }
+      ]
+    },
+    {
+      "name": "H15",
+      "what": "the note lists no call with no recorded result",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "for (const entry of missing) lines.push(`- ${oneLine(entry.name, NAME_CLIP)} (call ${oneLine(entry.callId ?? 'unknown', NAME_CLIP)}, run ${entry.run ?? 'unknown'})`);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H16",
+      "what": "the note ignores which calls have a recorded result",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "const missing = callsWithoutResult({ unverified, interrupted, calls, answered }).slice(-10);",
+          "new": "const missing = callsWithoutResult({ unverified, interrupted, calls }).slice(-10);"
+        }
+      ]
+    },
+    {
+      "name": "H17",
+      "what": "an empty section says nothing",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "if (!missing.length) lines.push('(none)');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H18",
+      "what": "the section has no header",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "lines.push(`${NO_RESULT_HEADER} (the Hub has no result for them",
+          "new": "lines.push(`(the Hub has no result for them"
+        }
+      ]
+    },
+    {
+      "name": "H19",
+      "what": "a value of the note keeps its line breaks (audit of #149, N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": ".replace(/[\\x00-\\x1f\\x7f-\\x9f\\p{Zl}\\p{Zp}]+/gu, ' ')",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "H20",
+      "what": "a value of the note is not clipped (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "\\p{Zp}]+/gu, ' '), limit);",
+          "new": "\\p{Zp}]+/gu, ' '), Infinity);"
+        }
+      ]
+    },
+    {
+      "name": "H21",
+      "what": "the new section prints a name raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "for (const entry of missing) lines.push(`- ${oneLine(entry.name, NAME_CLIP)} ",
+          "new": "for (const entry of missing) lines.push(`- ${entry.name} "
+        }
+      ]
+    },
+    {
+      "name": "H22",
+      "what": "the new section prints a call id raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "(call ${oneLine(entry.callId ?? 'unknown', NAME_CLIP)}, run",
+          "new": "(call ${entry.callId ?? 'unknown'}, run"
+        }
+      ]
+    },
+    {
+      "name": "H23",
+      "what": "the unverified operations print a name raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "`- ${oneLine(operation?.toolName ?? known?.name ?? 'unknown tool', NAME_CLIP)} ",
+          "new": "`- ${operation?.toolName ?? known?.name ?? 'unknown tool'} "
+        }
+      ]
+    },
+    {
+      "name": "H24",
+      "what": "the unverified operations print a phase raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "${oneLine(operation?.phase ?? 'unknown phase', NAME_CLIP)})",
+          "new": "${operation?.phase ?? 'unknown phase'})"
+        }
+      ]
+    },
+    {
+      "name": "H25",
+      "what": "the cut calls print a name raw (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "- ${oneLine(entry.name ?? 'unknown tool', NAME_CLIP)} (call ${oneLine(entry.callId, NAME_CLIP)}):",
+          "new": "- ${entry.name} (call ${oneLine(entry.callId, NAME_CLIP)}):"
+        }
+      ]
+    },
+    {
+      "name": "H26",
+      "what": "the cut calls print their arguments with their line breaks (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "arguments ${oneLine(entry.arguments, clip)}",
+          "new": "arguments ${cut(entry.arguments, clip)}"
+        }
+      ]
+    },
+    {
+      "name": "H27",
+      "what": "the error of the previous run keeps its line breaks (N1)",
+      "patches": [
+        {
+          "file": "lib/history-journal.mjs",
+          "old": "`: ${oneLine(previous.error, 1200)}`",
+          "new": "`: ${cut(previous.error, 1200)}`"
+        }
+      ]
+    },
+    {
+      "name": "M1",
+      "what": "no resumed_from_transcript event",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "await this.#event(task, 'resumed_from_transcript',",
+          "new": "if (false) await this.#event(task, 'resumed_from_transcript',"
+        }
+      ]
+    },
+    {
+      "name": "M2",
+      "what": "the event carries no numbers",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "kiểm tra trước khi lặp lại.` : ''), stats);",
+          "new": "kiểm tra trước khi lặp lại.` : ''), {});"
+        }
+      ]
+    },
+    {
+      "name": "M3",
+      "what": "a transcript resume is not recorded on the task",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "task.resume = { mode: 'transcript', run: task.runs.length, at: now(), ...stats };",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "M4",
+      "what": "every resume says run 1",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "task.resume = { mode: 'transcript', run: task.runs.length,",
+          "new": "task.resume = { mode: 'transcript', run: 1,"
+        }
+      ]
+    },
+    {
+      "name": "M5",
+      "what": "the items are not the seed's",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "const stats = { items: loaded.items.length, bytes: loaded.bytes,",
+          "new": "const stats = { items: loaded.items.length + 1, bytes: loaded.bytes,"
+        }
+      ]
+    },
+    {
+      "name": "M6",
+      "what": "the bytes are not the seed's",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "bytes: loaded.bytes, droppedTailItems: loaded.cutItems,",
+          "new": "bytes: loaded.bytes + 1, droppedTailItems: loaded.cutItems,"
+        }
+      ]
+    },
+    {
+      "name": "M7",
+      "what": "the cut tail counts the cut calls",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "droppedTailItems: loaded.cutItems,",
+          "new": "droppedTailItems: loaded.interrupted.length,"
+        }
+      ]
+    },
+    {
+      "name": "M8",
+      "what": "the older items left out are not counted",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "droppedOldItems: loaded.dropped, summaryUsed: loaded.summaryApplied === true,",
+          "new": "droppedOldItems: 0, summaryUsed: loaded.summaryApplied === true,"
+        }
+      ]
+    },
+    {
+      "name": "M9",
+      "what": "a summary is never said to be used",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "summaryUsed: loaded.summaryApplied === true,",
+          "new": "summaryUsed: false,"
+        }
+      ]
+    },
+    {
+      "name": "M10",
+      "what": "the interrupted calls are not counted",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "interruptedCalls: loaded.interrupted.length, noResultCalls:",
+          "new": "interruptedCalls: 0, noResultCalls:"
+        }
+      ]
+    },
+    {
+      "name": "M11",
+      "what": "every interrupted call is counted as one with no result",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "noResultCalls: callsWithoutResult({ unverified, interrupted: loaded.interrupted, calls: loaded.calls, answered: loaded.answered }).length,",
+          "new": "noResultCalls: loaded.interrupted.length,"
+        }
+      ]
+    },
+    {
+      "name": "M12",
+      "what": "the count of calls with no result ignores the recorded results",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "calls: loaded.calls, answered: loaded.answered }).length,",
+          "new": "calls: loaded.calls }).length,"
+        }
+      ]
+    },
+    {
+      "name": "M13",
+      "what": "the unverified operations are not counted",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "unverified: unverified.length };",
+          "new": "unverified: 0 };"
+        }
+      ]
+    },
+    {
+      "name": "M14",
+      "what": "the note is not told which calls have a recorded result",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "calls: loaded.calls, answered: loaded.answered, dropped: loaded.dropped, previous: previousRun",
+          "new": "calls: loaded.calls, dropped: loaded.dropped, previous: previousRun"
+        }
+      ]
+    },
+    {
+      "name": "M15",
+      "what": "a checkpoint resume is not recorded on the task",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "task.resume = { mode: 'checkpoint',",
+          "new": "task.resume = null && { mode: 'checkpoint',"
+        }
+      ]
+    },
+    {
+      "name": "M16",
+      "what": "the reason of a checkpoint resume is lost",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "reason: loaded.reason, bytes: Buffer.byteLength(context.resumeEvidence ?? '')",
+          "new": "reason: 'unknown', bytes: Buffer.byteLength(context.resumeEvidence ?? '')"
+        }
+      ]
+    },
+    {
+      "name": "M17",
+      "what": "the size of the checkpoint text is counted in characters",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "bytes: Buffer.byteLength(context.resumeEvidence ?? '')",
+          "new": "bytes: (context.resumeEvidence ?? '').length"
+        }
+      ]
+    },
+    {
+      "name": "M18",
+      "what": "a checkpoint resume counts no unverified operation",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "bytes: Buffer.byteLength(context.resumeEvidence ?? ''), unverified: (task.unverifiedOperations ?? []).length };",
+          "new": "bytes: Buffer.byteLength(context.resumeEvidence ?? ''), unverified: 0 };"
+        }
+      ]
+    },
+    {
+      "name": "M19",
+      "what": "a run keeps the resume of the run before it",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "task.resume = null; // set below when this run continues an earlier one",
+          "new": "// (no reset)"
+        }
+      ]
+    },
+    {
+      "name": "M20",
+      "what": "a stored mode this Hub does not know is shown",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "const resumeOf = (task) => (RESUME_MODES.has(task.resume?.mode) ? task.resume : null);",
+          "new": "const resumeOf = (task) => task.resume ?? null;"
+        }
+      ]
+    },
+    {
+      "name": "M21",
+      "what": "the public task has no resumeMode",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "resumeMode:resumeOf(task)?.mode??null,",
+          "new": "resumeMode:null,"
+        }
+      ]
+    },
+    {
+      "name": "M22",
+      "what": "the public task has no resume numbers",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "resume:resumeOf(task),",
+          "new": "resume:null,"
+        }
+      ]
+    },
+    {
+      "name": "M23",
+      "what": "the report has no resume line",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "`Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`, resumeReportLine(resumeOf(task)),",
+          "new": "`Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,"
+        }
+      ]
+    },
+    {
+      "name": "M24",
+      "what": "the report never says a summary was used",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "summary used: ${resume.summaryUsed ? 'yes' : 'no'}",
+          "new": "summary used: no"
+        }
+      ]
+    },
+    {
+      "name": "M25",
+      "what": "the report writes a checkpoint resume as a transcript one",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "if (resume.mode === 'checkpoint') return",
+          "new": "if (false) return"
+        }
+      ]
+    },
+    {
+      "name": "M26",
+      "what": "the report gives the cut calls as the cut items",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "${resume.droppedTailItems} items of an interrupted turn left out",
+          "new": "${resume.interruptedCalls} items of an interrupted turn left out"
+        }
+      ]
+    },
+    {
+      "name": "C1",
+      "what": "a queued second chat has no resumeMode",
+      "patches": [
+        {
+          "file": "lib/concurrent-api-agent.mjs",
+          "old": "resumeMode: null, resume: null,",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}

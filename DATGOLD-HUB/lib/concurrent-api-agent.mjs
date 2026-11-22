@@ -161,6 +161,8 @@ export class ConcurrentApiAgent {
       dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
       error: r.error || null, runCount: 0, transport: 'api',
       planMode: r.planMode === true, planApproval: null, planOnly: r.planMode === true,
+      // A record that has not run has not resumed (P9 ac-18): its runner's task says resumeMode once it runs.
+      resumeMode: null, resume: null,
     };
   }
   #detail(record) {

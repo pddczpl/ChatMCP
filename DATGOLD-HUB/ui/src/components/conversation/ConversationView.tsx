@@ -17,6 +17,7 @@ import { ProjectInstructionsNote } from './ProjectInstructionsNote';
 import { SkillSelectionNote } from './SkillSelectionNote';
 import { ContextPolicyNotice } from './ContextPolicyNotice';
 import { ObjectiveAcceptancePanel } from './ObjectiveAcceptancePanel';
+import { ResumeChip } from './ResumeChip';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { ApprovalStack } from '@/components/approval/ApprovalStack';
 import { OutboundReviewCard, type ReviewAction } from '@/components/approval/OutboundReviewCard';
@@ -397,6 +398,8 @@ export function ConversationView() {
                   <span className="truncate">{task.effectiveProfile.name} · {task.effectiveProfile.model}</span>
                 </span>
               )}
+              {/* How the latest run started when it continued an earlier one (P9 ac-18): from the transcript or the checkpoint summary, the numbers on hover. */}
+              {!!selectedTaskId && !!task && <ResumeChip task={task} />}
             </>}
             dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
               .map(x=>({id:x.id,label:x.task || x.prompt || x.id,state:x.state || x.status})) : []}

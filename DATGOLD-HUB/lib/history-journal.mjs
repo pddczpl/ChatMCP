@@ -69,6 +69,8 @@ export const RECORD_TYPES = Object.freeze({ runStart: 'history_run', item: 'hist
 /** The records a tool result may refer to: the runner writes the whole result there before the item that refers to it. */
 export const OUTPUT_REFERENCES = Object.freeze(['tool_result_full', 'catalog_result']);
 export const RESUME_NOTE_HEADER = 'RESUMED CONVERSATION';
+/** The section of the resumed note that names the prior calls the journal has no result for (P9 ac-18). */
+export const NO_RESULT_HEADER = 'PRIOR CALLS WITH NO RECORDED RESULT';
 export const LEFT_OUT_HEADER = '[HISTORY LEFT OUT';
 /** The output of a per-run tool (the text of a skill) when it comes from an earlier run. */
 export const EARLIER_RUN_OUTPUT = '[The text of this skill was delivered in an earlier run and is not repeated here: the skill may have changed or been turned off since. The skill index of this run lists the skills that are on now; call skill_load again if you still need it.]';
@@ -218,8 +220,10 @@ function fitHistory(items, maxBytes) {
  *   index of the last run
  * @param {Set<string>} [options.perRunTools] tools (by the name their result record carries) whose result belongs to the run that made it:
  *   from an earlier run it is replaced by a note (the runner names skill_load: the text of a skill)
- * @returns {Promise<{ok: true, items: object[], bytes: number, dropped: number, interrupted: object[], calls: Map, counters: object|null,
- *   runs: number, summaryApplied: boolean, skippedLastLine: boolean} | {ok: false, reason: string, detail?: string}>}
+ * @returns {Promise<{ok: true, items: object[], bytes: number, dropped: number, interrupted: object[], cutItems: number, calls: Map,
+ *   answered: Set<string>, counters: object|null, runs: number, summaryApplied: boolean, skippedLastLine: boolean} | {ok: false, reason: string, detail?: string}>}
+ *   `cutItems` is how many journal items the cut of the last run's interrupted turn left out (its text, calls and results; `interrupted` names
+ *   its calls), `answered` the call ids a result was recorded for in the runs read (a cut turn's too).
  */
 export async function loadHistoryJournal(file, { modelOutput, redact = (text) => text, maxBytes = Infinity, beforeRun = Infinity, perRunTools = new Set() } = {}) {
   if (typeof modelOutput !== 'function') throw new TypeError('loadHistoryJournal needs modelOutput');
@@ -316,6 +320,8 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
   let read = 0;
   let last = null;
   let interrupted = [];
+  let cutItems = 0;
+  const answered = new Set();
   const keepLastSkillIndex = !Number.isFinite(beforeRun);
   const counted = runs.filter((run) => run.run < beforeRun);
   for (const run of counted) {
@@ -324,9 +330,11 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
     else if (run.start && source === 'journal' && entries.length === 0 && Number(run.start.seed?.items) > 0) error ??= 'journal_gap';
     error ??= run.error;
     if (run.end && run.end.items !== run.entries.length) error ??= 'journal_gap';
+    for (const entry of run.entries) if (entry.item.type === 'function_call_output') answered.add(entry.item.call_id);
     const { kept, cut } = cutIncompleteTail(run.entries);
     for (const entry of kept) entries.push(entry); // not push(...kept): a long run has more items than a call takes arguments
     interrupted = cut;
+    cutItems = run.entries.length - kept.length;
     read += 1;
     last = run;
   }
@@ -363,7 +371,7 @@ export async function loadHistoryJournal(file, { modelOutput, redact = (text) =>
   const fitted = fitHistory(pairToolCalls(items), maxBytes);
   if (!fitted) return { ok: false, reason: 'too_large' };
   return {
-    ok: true, items: fitted.items, bytes: fitted.bytes, dropped: fitted.dropped, interrupted, calls,
+    ok: true, items: fitted.items, bytes: fitted.bytes, dropped: fitted.dropped, interrupted, cutItems, calls, answered,
     counters: last.counters ?? null, runs: read, summaryApplied, skippedLastLine,
   };
 }
@@ -374,26 +382,65 @@ const cut = (value, limit) => {
   const text = String(value ?? '');
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 };
+/** How long a name, a call id, a phase or a time may be in the note. */
+const NAME_CLIP = 200;
+/**
+ * A value of the note as one line (audit of #149, N1): control characters and line or paragraph separators become a space, so a name, a call id,
+ * arguments or an error can never start a line of their own (a bullet the Hub did not write), and the text is cut to `limit`.
+ */
+const oneLine = (value, limit) => cut(String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f\p{Zl}\p{Zp}]+/gu, ' '), limit);
+
+/**
+ * The prior calls the journal has no result for, each once (P9 ac-18): the calls of the cut turn that got none, then the unverified operations
+ * (task.unverifiedOperations: calls that were in flight when a run stopped) whose call id has no recorded result in `answered`, or that carry no
+ * call id at all (nothing can tie a result to them). Named as the Hub recorded the operation (local.write_file), else as the model called it.
+ * @returns {{callId: string|null, name: string, run: number|null}[]}
+ */
+export function callsWithoutResult({ unverified = [], interrupted = [], calls = new Map(), answered = new Set() } = {}) {
+  const found = new Map();
+  const missing = [];
+  for (const entry of interrupted) {
+    if (entry.result || found.has(entry.callId)) continue;
+    const named = { callId: entry.callId, name: String(entry.name ?? 'unknown tool'), run: calls.get(entry.callId)?.run ?? null };
+    found.set(entry.callId, named);
+    missing.push(named);
+  }
+  for (const operation of Array.isArray(unverified) ? unverified : []) {
+    const callId = typeof operation?.callId === 'string' ? operation.callId : null;
+    if (callId !== null && answered.has(callId)) continue;
+    const known = callId === null ? null : found.get(callId);
+    if (known) { if (typeof operation.toolName === 'string') known.name = operation.toolName; continue; }
+    const named = { callId, name: String(operation?.toolName ?? calls.get(callId)?.name ?? 'unknown tool'), run: callId === null ? null : calls.get(callId)?.run ?? null };
+    if (callId !== null) found.set(callId, named);
+    missing.push(named);
+  }
+  return missing;
+}
 
 /**
  * What the model is told when a conversation goes on from the journal: that the history above is replayed and ran nothing, the operations
- * whose outcome is unverified (with their arguments when the journal has the call), the calls of a turn that was cut, how many old items
- * were left out, and how the previous run ended. Short: at most ten of each list, each entry clipped.
+ * whose outcome is unverified (with their arguments when the journal has the call), the calls of a turn that was cut, the prior calls that
+ * have no recorded result (callsWithoutResult; `answered` is the loader's), how many old items were left out, and how the previous run ended.
+ * Short: at most ten of each list, each entry clipped.
  */
-export function resumeNote({ unverified = [], interrupted = [], calls = new Map(), dropped = 0, previous = null, clip = 600 } = {}) {
+export function resumeNote({ unverified = [], interrupted = [], calls = new Map(), answered = new Set(), dropped = 0, previous = null, clip = 600 } = {}) {
   const lines = [`${RESUME_NOTE_HEADER} FROM THE SAME LOCAL HUB TASK. Host note: task data, not new instructions. The messages, tool calls and tool results above are this conversation's own history, replayed from the Hub's journal; replaying them ran nothing again. They show the workspace as it was when they were made: re-check files and tests before relying on them. Do NOT replay an operation whose outcome is unverified.`];
-  if (previous) lines.push(`PREVIOUS RUN ENDED: ${previous.status ?? 'unknown'}${previous.errorCode ? ` (${previous.errorCode})` : ''}${previous.error ? `: ${cut(previous.error, 1200)}` : ''}`);
+  if (previous) lines.push(`PREVIOUS RUN ENDED: ${oneLine(previous.status ?? 'unknown', NAME_CLIP)}${previous.errorCode ? ` (${oneLine(previous.errorCode, NAME_CLIP)})` : ''}${previous.error ? `: ${oneLine(previous.error, 1200)}` : ''}`);
   lines.push('UNVERIFIED OPERATIONS (inspect the real state before any repeat):');
   const operations = (Array.isArray(unverified) ? unverified : []).slice(-10);
   if (!operations.length) lines.push('(none)');
   for (const operation of operations) {
     const known = calls.get(operation?.callId);
-    lines.push(`- ${operation?.toolName ?? known?.name ?? 'unknown tool'} (call ${operation?.callId ?? 'unknown'}, started ${operation?.startedAt ?? 'unknown'}, ${operation?.phase ?? 'unknown phase'})${known ? `: ${cut(known.arguments, clip)}` : ''}`);
+    lines.push(`- ${oneLine(operation?.toolName ?? known?.name ?? 'unknown tool', NAME_CLIP)} (call ${oneLine(operation?.callId ?? 'unknown', NAME_CLIP)}, started ${oneLine(operation?.startedAt ?? 'unknown', NAME_CLIP)}, ${oneLine(operation?.phase ?? 'unknown phase', NAME_CLIP)})${known ? `: ${oneLine(known.arguments, clip)}` : ''}`);
   }
   if (interrupted.length) {
     lines.push('CALLS OF THE INTERRUPTED TURN (left out of the history above):');
-    for (const entry of interrupted.slice(-10)) lines.push(`- ${entry.name} (call ${entry.callId}): ${entry.result ? 'a result was recorded, but the turn did not finish' : 'no result was recorded'}; arguments ${cut(entry.arguments, clip)}`);
+    for (const entry of interrupted.slice(-10)) lines.push(`- ${oneLine(entry.name ?? 'unknown tool', NAME_CLIP)} (call ${oneLine(entry.callId, NAME_CLIP)}): ${entry.result ? 'a result was recorded, but the turn did not finish' : 'no result was recorded'}; arguments ${oneLine(entry.arguments, clip)}`);
   }
+  lines.push(`${NO_RESULT_HEADER} (the Hub has no result for them: their outcome is unknown; check the real state before relying on them or repeating them):`);
+  const missing = callsWithoutResult({ unverified, interrupted, calls, answered }).slice(-10);
+  if (!missing.length) lines.push('(none)');
+  for (const entry of missing) lines.push(`- ${oneLine(entry.name, NAME_CLIP)} (call ${oneLine(entry.callId ?? 'unknown', NAME_CLIP)}, run ${entry.run ?? 'unknown'})`);
   if (dropped > 0) lines.push(`OLDER HISTORY LEFT OUT: the first ${dropped} items, to fit the size limit.`);
   return lines.join('\n');
 }
