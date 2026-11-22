@@ -48,6 +48,8 @@ export const BASELINE_LIMITS = Object.freeze({
   maxPatchBytes: 128 * 1024 * 1024,
   acceptanceInlineBytes: ACCEPTANCE_MAX_BYTES,
   maxManifestBytes: 256 * 1024 * 1024,
+  /** The most a Git command whose output is kept in memory may print (runGit's own default). */
+  gitOutputBytes: 256 * 1024 * 1024,
   gitTimeoutMs: 600_000,
 });
 /** The flags of the patch: nothing of the person's or the repository's configuration is read, renames are not guessed. */
@@ -725,10 +727,10 @@ const unavailable = (reason) => ({ patch: { status: 'unavailable', reason }, pat
  * parses it (a forged root fails `ls-tree`), but not of the trees below it nor of blobs read by `cat-file --batch`: those are compared
  * here.
  */
-async function storeProblem({ exe, env, storeDir, record, before, changes, signal }) {
-  const listed = await storeGit(exe, storeDir, env, ['ls-tree', '-r', '-z', '--full-tree', record.tree], { signal });
+async function storeProblem({ exe, env, storeDir, record, before, changes, maxOutputBytes, signal }) {
+  const listed = await storeGit(exe, storeDir, env, ['ls-tree', '-r', '-z', '--full-tree', record.tree], { maxBytes: maxOutputBytes, signal });
   if (listed.code !== 0) {
-    const present = await storeGit(exe, storeDir, env, ['cat-file', '-e', record.tree], { signal });
+    const present = await storeGit(exe, storeDir, env, ['cat-file', '-e', record.tree], { maxBytes: maxOutputBytes, signal });
     return present.code === 0 ? 'baseline_objects_mismatch' : 'baseline_objects_missing';
   }
   const expected = new Set(before.map((row) => `${row.mode} ${row.oid}\t${row.path}`));
@@ -741,7 +743,7 @@ async function storeProblem({ exe, env, storeDir, record, before, changes, signa
   const wanted = [...new Set([...changes.modified.filter((row) => row.oldMode !== MODE.gitlink).map((row) => row.oldOid),
     ...changes.deleted.filter((row) => row.mode !== MODE.gitlink).map((row) => row.oid)])];
   if (!wanted.length) return null;
-  const batch = await storeGit(exe, storeDir, env, ['cat-file', '--batch'], { input: `${wanted.join('\n')}\n`, signal });
+  const batch = await storeGit(exe, storeDir, env, ['cat-file', '--batch'], { input: `${wanted.join('\n')}\n`, maxBytes: maxOutputBytes, signal });
   if (batch.code !== 0) return 'baseline_objects_unreadable';
   let at = 0;
   for (const oid of wanted) {
@@ -758,11 +760,11 @@ async function storeProblem({ exe, env, storeDir, record, before, changes, signa
   return null;
 }
 
-async function buildPatch({ exe, env, folder, record, before, snapshot, changes, work, root, signal }) {
+async function buildPatch({ exe, env, folder, record, before, snapshot, changes, work, root, bounds, signal }) {
   const storeDir = path.join(folder, record.store.directory);
   if (!(await fs.stat(path.join(storeDir, 'objects')).then((stat) => stat.isDirectory(), () => false))) return unavailable('baseline_objects_missing');
   if (snapshot.objectFormat !== record.objectFormat) return unavailable('object_format_changed');
-  const problem = await storeProblem({ exe, env, storeDir, record, before, changes, signal });
+  const problem = await storeProblem({ exe, env, storeDir, record, before, changes, maxOutputBytes: bounds.gitOutputBytes, signal });
   if (problem) return unavailable(problem);
   // The final tree goes into a temporary store that borrows the baseline's objects; the baseline's store is only read.
   const finalDir = path.join(work, 'final.git');
@@ -780,7 +782,7 @@ async function buildPatch({ exe, env, folder, record, before, snapshot, changes,
   if (imported.tree !== snapshot.tree) throw fault('baseline_store_mismatch', `the final store holds tree ${imported.tree}, the snapshot was ${snapshot.tree}`);
   let made;
   try {
-    made = await treePatch({ git: exe, env, gitDir: finalDir, from: record.tree, to: snapshot.tree, signal });
+    made = await treePatch({ git: exe, env, gitDir: finalDir, from: record.tree, to: snapshot.tree, maxBytes: bounds.maxPatchBytes, signal });
   } catch (error) {
     if (error?.code === 'patch_too_large') return unavailable('patch_too_large');
     throw error;
@@ -793,10 +795,15 @@ async function buildPatch({ exe, env, folder, record, before, snapshot, changes,
  * Compares the workspace now with a baseline: a full snapshot, the change list of the two manifests, and for a Git workspace the
  * patch between the two trees (its sha256 is the subject of a proof pack). Under the workspace lock. Throws what loadBaseline throws
  * and `workspace_changed` / `workspace_too_large`; a patch that cannot be made is `patch: {status: 'unavailable', reason}`.
+ * `limits` may lower `maxPatchBytes` and `gitOutputBytes` (BASELINE_LIMITS) for this diff.
  */
-export async function diffBaseline({ hubDir, root, id, expectSha256 = null, git, env = process.env, lock = {}, signal = null } = {}) {
+export async function diffBaseline({ hubDir, root, id, expectSha256 = null, git, env = process.env, lock = {}, limits = {}, signal = null } = {}) {
   const folder = baselineFolder(hubDir, root);
   checkId(id);
+  const bounds = {
+    maxPatchBytes: Math.min(limits.maxPatchBytes ?? Infinity, BASELINE_LIMITS.maxPatchBytes),
+    gitOutputBytes: Math.min(limits.gitOutputBytes ?? Infinity, BASELINE_LIMITS.gitOutputBytes),
+  };
   const held = await lockFolder(folder, lock, 'diff');
   const work = path.join(folder, `tmp-${randomUUID()}`);
   try {
@@ -810,7 +817,7 @@ export async function diffBaseline({ hubDir, root, id, expectSha256 = null, git,
     if (!record.store) made = unavailable(record.patch.reason ?? 'no_store');
     else {
       const exe = await snapshotter.usableGit();
-      made = exe ? await buildPatch({ exe, env, folder, record, before, snapshot, changes, work, root: path.resolve(root), signal }) : unavailable('git_missing');
+      made = exe ? await buildPatch({ exe, env, folder, record, before, snapshot, changes, work, root: path.resolve(root), bounds, signal }) : unavailable('git_missing');
     }
     return {
       format: BASELINE_DIFF_FORMAT,
