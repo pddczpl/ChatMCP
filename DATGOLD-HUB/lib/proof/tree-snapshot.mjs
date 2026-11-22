@@ -190,19 +190,22 @@ export class TreeSnapshotter {
     this.gitIndexReady = false;
     this.unresolvedGitlinks = [];
     this.lastFull = null;
+    this.lastEntries = null; // the rows the last tree was built from, for snapshot({entries: true})
   }
 
   /**
-   * @param {{full?: boolean, signal?: AbortSignal}} [options] full: bypass every cache and compute rawTree too
+   * @param {{full?: boolean, signal?: AbortSignal, entries?: boolean}} [options] full: bypass every cache and compute rawTree too;
+   *   entries: also return `entries`, the rows {path, mode, oid} the tree was built from (null without a tree; the baseline store of
+   *   lib/proof/baseline.mjs needs them). Left out, the snapshot has no `entries` field at all.
    * @returns {Promise<object>} see docs/PROOF-TREE.md ("The snapshot")
    */
-  snapshot({ full = false, signal = null } = {}) {
-    const run = this.queue.then(() => this.take(Boolean(full), signal));
+  snapshot({ full = false, signal = null, entries = false } = {}) {
+    const run = this.queue.then(() => this.take(Boolean(full), signal, Boolean(entries)));
     this.queue = run.catch(() => {});
     return run;
   }
 
-  async take(full, signal) {
+  async take(full, signal, withEntries = false) {
     signal?.throwIfAborted();
     const started = Date.now();
     const rootStat = await fs.stat(this.root).catch(() => null);
@@ -216,7 +219,9 @@ export class TreeSnapshotter {
         return this.fullSnapshot(plan, signal); // a failed cached call starts over from scratch
       });
     } else result = await this.rawSnapshot(plan, signal, { full: false, reason: plan.engine === TREE_ALGORITHM.raw ? plan.reason : this.lastFull.engineReason });
-    return { ...result, takenAt: new Date(started).toISOString(), durationMs: Date.now() - started };
+    const taken = { ...result, takenAt: new Date(started).toISOString(), durationMs: Date.now() - started };
+    if (withEntries) taken.entries = result.status === 'ok' ? this.lastEntries : null;
+    return taken;
   }
 
   /** Which engine may run, and why not Git. Reads the repository's own configuration every time: it can change between calls. */
@@ -440,6 +445,7 @@ export class TreeSnapshotter {
   async rawSnapshot(plan, signal, { full, reason }) {
     const pass = await this.rawPass(plan, signal, { full });
     if (pass.unbounded) return this.describe(plan, { status: 'unbounded', full, reason, pass: { ...pass, files: null } });
+    this.lastEntries = pass.files;
     const result = this.describe(plan, { treeAlgorithm: TREE_ALGORITHM.raw, tree: pass.tree, rawTree: pass.tree, full, reason, pass });
     if (full) { this.lastFull = result; this.gitIndexReady = false; }
     return result;
@@ -454,6 +460,7 @@ export class TreeSnapshotter {
       return result;
     }
     const asRaw = (reason) => {
+      this.lastEntries = pass.files;
       const result = this.describe(plan, { treeAlgorithm: TREE_ALGORITHM.raw, tree: pass.tree, rawTree: pass.tree, full: true, reason, pass });
       this.lastFull = result;
       this.gitIndexReady = false;
@@ -542,6 +549,7 @@ export class TreeSnapshotter {
       const kept = new Set(entries.map((entry) => entry.oid));
       for (const { oid } of leaked) if (!kept.has(oid)) await fs.rm(path.join(objectDirectory, oid.slice(0, 2), oid.slice(2)), { force: true });
     }
+    this.lastEntries = entries;
     return buildTree(entries, plan.objectFormat);
   }
 }
