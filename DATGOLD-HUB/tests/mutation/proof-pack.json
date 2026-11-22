@@ -679,8 +679,8 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": " && !receipt.cancelled && receipt.signal === null;",
-     "new": " && !receipt.cancelled;"
+     "old": "receipt.exit === expectExit && !receipt.timedOut && !receipt.cancelled && receipt.signal === null;",
+     "new": "receipt.exit === expectExit && !receipt.timedOut && !receipt.cancelled;"
     }
    ]
   },
@@ -888,8 +888,8 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": ".slice(-context.limits.maxReceiptsPerCheck).map((receipt) => receipt.seq);",
-     "new": ".map((receipt) => receipt.seq);"
+     "old": "let kept = pool.slice(-max);",
+     "new": "let kept = pool;"
     }
    ]
   },
@@ -1284,8 +1284,283 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": "if (['passed', 'failed'].includes(check.result) && !check.receipts.length) add(",
+     "old": "if (check.result !== 'not_run' && !check.receipts.length) add(",
      "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-no-receipt-scope",
+   "what": "only passed and failed checks must list a receipt (a stale one may list none)",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (check.result !== 'not_run' && !check.receipts.length)",
+     "new": "if (['passed', 'failed'].includes(check.result) && !check.receipts.length)"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-other-check",
+   "what": "a check may list receipts of another command or folder",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (receipt.commandSha256 !== check.commandSha256 || receipt.cwd !== check.cwd) add(path",
+     "new": "if (false) add(path"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-other-cwd",
+   "what": "a check may list receipts of another folder",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "receipt.commandSha256 !== check.commandSha256 || receipt.cwd !== check.cwd)",
+     "new": "receipt.commandSha256 !== check.commandSha256)"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-other-command",
+   "what": "a check may list receipts of another command",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "receipt.commandSha256 !== check.commandSha256 || receipt.cwd !== check.cwd)",
+     "new": "receipt.cwd !== check.cwd)"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-passed-off",
+   "what": "a passed check may list runs that did not pass or not on the final tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!onFinal(receipt) || !ranOk(receipt)) add(path, 'passed_receipt'",
+     "new": "if (false) add(path, 'passed_receipt'"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-passed-tree",
+   "what": "a passed check may list runs on another tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!onFinal(receipt) || !ranOk(receipt))",
+     "new": "if (!ranOk(receipt))"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-passed-run",
+   "what": "a passed check may list runs that did not pass",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!onFinal(receipt) || !ranOk(receipt))",
+     "new": "if (!onFinal(receipt))"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-passed-count",
+   "what": "a passed check may list more receipts than passing runs",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (check.receipts.length > check.passes) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-ran-exit",
+   "what": "a run with another exit code counts as passed for the rules",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const ranOk = (receipt) => receipt.exit === check.expectExit && ",
+     "new": "const ranOk = (receipt) => "
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-ran-timeout",
+   "what": "a run that timed out counts as passed for the rules",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "check.expectExit && !receipt.timedOut && !receipt.cancelled && receipt.signal === null;",
+     "new": "check.expectExit && !receipt.cancelled && receipt.signal === null;"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-ran-cancelled",
+   "what": "a cancelled run counts as passed for the rules",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "check.expectExit && !receipt.timedOut && !receipt.cancelled && receipt.signal === null;",
+     "new": "check.expectExit && !receipt.timedOut && receipt.signal === null;"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-ran-signal",
+   "what": "a run a signal ended counts as passed for the rules",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "check.expectExit && !receipt.timedOut && !receipt.cancelled && receipt.signal === null;",
+     "new": "check.expectExit && !receipt.timedOut && !receipt.cancelled;"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-comparable-algorithm",
+   "what": "a run under another tree algorithm counts as comparable for the rules",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "&& receipt.treeBefore.treeAlgorithm === after.treeAlgorithm && receipt.treeBefore.objectFormat === after.objectFormat;",
+     "new": "&& receipt.treeBefore.objectFormat === after.objectFormat;"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-comparable-format",
+   "what": "a run under another object format counts as comparable for the rules",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "&& receipt.treeBefore.treeAlgorithm === after.treeAlgorithm && receipt.treeBefore.objectFormat === after.objectFormat;",
+     "new": "&& receipt.treeBefore.treeAlgorithm === after.treeAlgorithm;"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-final-id",
+   "what": "any comparable run counts as a run on the final tree for the rules",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const onFinal = (receipt) => comparable(receipt) && receipt.treeBefore.tree === finalTree;",
+     "new": "const onFinal = (receipt) => comparable(receipt);"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-failed-tree",
+   "what": "a failed check may list runs on another tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!onFinal(receipt)) add(path, 'failed_receipt'",
+     "new": "if (false) add(path, 'failed_receipt'"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-failed-none",
+   "what": "a failed check may list only passing runs",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!receipts.some((receipt) => !ranOk(receipt))) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-stale-final",
+   "what": "a stale check may list a run on the final tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (onFinal(receipt)) add(path, 'stale_receipt'",
+     "new": "if (false) add(path, 'stale_receipt'"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-unknown-comparable",
+   "what": "a tree_unknown check may list a run on a comparable tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "else if (check.result === 'tree_unknown' && comparable(receipt)) add(",
+     "new": "else if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-stale-comparable",
+   "what": "a stale check may list no run on a comparable tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (check.result === 'stale' && !receipts.some(comparable)) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-not-run",
+   "what": "a check not run may list receipts",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (check.receipts.length) add(`${where}/receipts`, 'not_run_receipt'",
+     "new": "if (false) add(`${where}/receipts`, 'not_run_receipt'"
+    }
+   ]
+  },
+  {
+   "name": "PP-named-dropped",
+   "what": "the run a reason names can be left out by the limit",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (named && !kept.includes(named)) kept = [named,",
+     "new": "if (false) kept = [named,"
+    }
+   ]
+  },
+  {
+   "name": "PP-named-failed-latest",
+   "what": "a failed check names its latest run on the final tree, not its latest failing one",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "named = current.findLast((receipt) => !passed(receipt, expectExit));",
+     "new": "named = current.at(-1);"
+    }
+   ]
+  },
+  {
+   "name": "PP-named-stale-latest",
+   "what": "a stale check names its latest run, not its latest run on a comparable tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "named = matching.findLast((receipt) => sameTree(receipt.treeBefore, context.after));",
+     "new": "named = matching.at(-1);"
+    }
+   ]
+  },
+  {
+   "name": "PP-named-cap-one",
+   "what": "with a limit of one the named run is listed with every other run",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "(max > 1 ? pool.slice(-(max - 1)) : [])",
+     "new": "pool.slice(-(max - 1))"
     }
    ]
   },

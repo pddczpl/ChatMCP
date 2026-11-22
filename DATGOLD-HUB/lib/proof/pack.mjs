@@ -301,17 +301,26 @@ function evaluateCheck(check, index, context) {
   const passes = current.filter((receipt) => passed(receipt, expectExit)).length;
   let result;
   let reason = null;
+  let named = null; // the run the reason names: listed whatever the cap, so the pack holds the receipt its result rests on
   if (current.length > passes) {
     result = 'failed';
-    reason = { code: 'check_failed', detail: failure(current.findLast((receipt) => !passed(receipt, expectExit)), expectExit) };
+    named = current.findLast((receipt) => !passed(receipt, expectExit));
+    reason = { code: 'check_failed', detail: failure(named, expectExit) };
   } else if (passes >= repeat) result = 'passed';
   else if (passes > 0) { result = 'repeats_short'; reason = { code: 'check_repeats_short', detail: `${passes} of ${repeat} runs passed on the final tree` }; }
   else if (matching.some((receipt) => sameTree(receipt.treeBefore, context.after))) {
     result = 'stale';
-    reason = { code: 'check_stale', detail: `ran on tree ${matching.findLast((receipt) => sameTree(receipt.treeBefore, context.after)).treeBefore.tree}, not the final tree` };
+    named = matching.findLast((receipt) => sameTree(receipt.treeBefore, context.after));
+    reason = { code: 'check_stale', detail: `ran on tree ${named.treeBefore.tree}, not the final tree` };
   } else if (matching.length) { result = 'tree_unknown'; reason = { code: 'check_tree_unknown', detail: 'ran on a tree that cannot be compared with the final tree' }; }
   else { result = 'not_run'; reason = { code: 'check_not_run', detail: null }; }
-  const listed = (current.length ? current : matching).slice(-context.limits.maxReceiptsPerCheck).map((receipt) => receipt.seq);
+  // The latest runs on the final tree (or, without any, the latest runs at all), the named run in place of the oldest of them when the
+  // cap left it out; it is older than all of them, so the list stays in ledger order.
+  const max = context.limits.maxReceiptsPerCheck;
+  const pool = current.length ? current : matching;
+  let kept = pool.slice(-max);
+  if (named && !kept.includes(named)) kept = [named, ...(max > 1 ? pool.slice(-(max - 1)) : [])];
+  const listed = kept.map((receipt) => receipt.seq);
   return {
     check: { index, run: context.text(run, TEXT.command).text, cwd: context.text(cwd, TEXT.cwd).text, commandSha256: hash, expectExit, repeat, result, passes, receipts: listed },
     reason: reason && { code: reason.code, check: index, detail: reason.detail === null ? null : context.text(reason.detail, TEXT.detail).text },
@@ -605,6 +614,43 @@ export function buildAgentChangeStatement(input = {}) {
 const compiled = compileSchema(AGENT_CHANGE_SCHEMA);
 const DIGEST_OF = Object.freeze({ [SUBJECT_NAMES.before]: 'gitTree', [SUBJECT_NAMES.after]: 'gitTree', [SUBJECT_NAMES.diff]: 'sha256', [SUBJECT_NAMES.commit]: 'gitCommit' });
 
+/**
+ * A check's result against the receipts it lists (audit F1 of PR #147): every listed receipt is of the check's command and folder; a
+ * passed or repeats_short check lists only runs on the final tree that passed, no more than its passes; a failed check lists only runs on
+ * the final tree, one of them not passing; a stale or tree_unknown check lists no run on the final tree, a stale one at least one run on a
+ * tree of the final tree's algorithm and object format, a tree_unknown one none; a check not run lists nothing.
+ */
+function receiptRules(check, where, add, { bySeq, finalTree, after }) {
+  const comparable = (receipt) => receipt.treeBefore !== null && receipt.treeBefore.tree !== null
+    && receipt.treeBefore.treeAlgorithm === after.treeAlgorithm && receipt.treeBefore.objectFormat === after.objectFormat;
+  const onFinal = (receipt) => comparable(receipt) && receipt.treeBefore.tree === finalTree;
+  const ranOk = (receipt) => receipt.exit === check.expectExit && !receipt.timedOut && !receipt.cancelled && receipt.signal === null;
+  const rows = check.receipts.map((seq, item) => ({ path: `${where}/receipts/${item}`, receipt: bySeq.get(seq) })).filter((row) => row.receipt);
+  for (const { path, receipt } of rows) {
+    if (receipt.commandSha256 !== check.commandSha256 || receipt.cwd !== check.cwd) add(path, 'receipt_other_check', `receipt ${receipt.seq} is of another command or folder`);
+  }
+  const receipts = rows.map((row) => row.receipt);
+  switch (check.result) {
+    case 'passed': case 'repeats_short':
+      for (const { path, receipt } of rows) if (!onFinal(receipt) || !ranOk(receipt)) add(path, 'passed_receipt', `receipt ${receipt.seq} is not a passing run on the final tree`);
+      if (check.receipts.length > check.passes) add(`${where}/receipts`, 'passed_receipt', `${check.receipts.length} receipts listed for ${check.passes} passing runs`);
+      break;
+    case 'failed':
+      for (const { path, receipt } of rows) if (!onFinal(receipt)) add(path, 'failed_receipt', `receipt ${receipt.seq} did not run on the final tree`);
+      if (!receipts.some((receipt) => !ranOk(receipt))) add(`${where}/receipts`, 'failed_receipt', 'a failed check lists the run that did not pass');
+      break;
+    case 'stale': case 'tree_unknown':
+      for (const { path, receipt } of rows) {
+        if (onFinal(receipt)) add(path, 'stale_receipt', `receipt ${receipt.seq} ran on the final tree`);
+        else if (check.result === 'tree_unknown' && comparable(receipt)) add(path, 'stale_receipt', `receipt ${receipt.seq} ran on a tree that can be compared with the final tree`);
+      }
+      if (check.result === 'stale' && !receipts.some(comparable)) add(`${where}/receipts`, 'stale_receipt', 'a stale check lists its run on another tree of the same algorithm');
+      break;
+    default: // not_run
+      if (check.receipts.length) add(`${where}/receipts`, 'not_run_receipt', 'a check not run lists no receipt');
+  }
+}
+
 function semanticErrors(statement) {
   const errors = [];
   const add = (path, keyword, message) => errors.push({ path, keyword: `semantic:${keyword}`, message });
@@ -628,6 +674,8 @@ function semanticErrors(statement) {
     if (index > 0 && receipt.seq <= predicate.receipts[index - 1].seq) add(`/predicate/receipts/${index}/seq`, 'receipt_order', 'receipts are listed in ledger order, each once');
   });
   const listed = new Set(predicate.receipts.map((receipt) => receipt.seq));
+  const bySeq = new Map(predicate.receipts.map((receipt) => [receipt.seq, receipt]));
+  const finalTree = statement.subject.find((subject) => subject.name === SUBJECT_NAMES.after)?.digest.gitTree ?? null;
   // criteria: ids once, checks consistent, the reasons the predicate-level facts call for, and the status that follows from all of it
   const ids = new Set();
   predicate.criteria.forEach((criterion, index) => {
@@ -640,11 +688,12 @@ function semanticErrors(statement) {
       const where = `${at}/checks/${position}`;
       if (check.index !== position) add(`${where}/index`, 'check_index', `the check at ${position} has index ${position}`);
       check.receipts.forEach((seq, item) => { if (!listed.has(seq)) add(`${where}/receipts/${item}`, 'unknown_receipt', `no receipt ${seq} in the pack`); });
-      if (['passed', 'failed'].includes(check.result) && !check.receipts.length) add(`${where}/receipts`, 'no_receipt', `a ${check.result} check lists its receipts`);
+      if (check.result !== 'not_run' && !check.receipts.length) add(`${where}/receipts`, 'no_receipt', `a ${check.result} check lists its receipts`);
       const passesFit = check.result === 'passed' ? check.passes >= check.repeat
         : check.result === 'repeats_short' ? check.passes > 0 && check.passes < check.repeat
           : check.result === 'failed' ? true : check.passes === 0;
       if (!passesFit) add(`${where}/passes`, 'check_result', `${check.passes} passes of ${check.repeat} do not give ${check.result}`);
+      receiptRules(check, where, add, { bySeq, finalTree, after: predicate.trees.after });
     });
     criterion.reasons.forEach((reason, item) => {
       if (reason.check !== null && reason.check >= criterion.checks.length) add(`${at}/reasons/${item}/check`, 'reason_check', `the criterion has no check ${reason.check}`);

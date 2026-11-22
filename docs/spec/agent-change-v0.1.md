@@ -140,7 +140,10 @@ The `result` of a check, first match wins:
 | `tree_unknown` | runs that cannot be compared with the final tree (no snapshot, another algorithm or object format) | `check_tree_unknown` |
 | `not_run` | no matching receipt | `check_not_run` |
 
-A check lists the seqs of its latest runs on the final tree, or, when it has none, of its latest matching runs (at most 10).
+A check lists the seqs of its latest runs on the final tree, or, when it has none, of its latest matching runs (at most 10). The run its
+reason names is always listed, whatever the limit: the latest failing run of a `failed` check, the latest run on another tree of a
+`stale` check; when the limit left it out, it takes the place of the oldest run listed. So the pack always holds the receipt a result
+rests on, and the rules below can check it.
 
 ### The status of a criterion
 
@@ -231,13 +234,26 @@ Reported with the keyword `semantic:<rule>`:
 | `manual_checks`, `no_checks` | a manual criterion with checks, a criterion of kind `checks` without |
 | `check_index` | a check's `index` is not its position |
 | `unknown_receipt` | a check lists a seq no receipt of the pack has |
-| `no_receipt` | a `passed` or `failed` check lists no receipt |
+| `no_receipt` | a check whose result is not `not_run` lists no receipt |
 | `check_result` | `passes` and `repeat` do not give the `result` |
+| `receipt_other_check` | a check lists a receipt of another command (`commandSha256`) or folder (`cwd`) |
+| `passed_receipt` | a `passed` or `repeats_short` check lists a receipt that did not run on the final tree or did not pass, or more receipts than `passes` |
+| `failed_receipt` | a `failed` check lists a receipt that did not run on the final tree, or no receipt that failed |
+| `stale_receipt` | a `stale` or `tree_unknown` check lists a run on the final tree; a `stale` one lists no run on a tree of the final tree's algorithm and object format; a `tree_unknown` one lists such a run |
+| `not_run_receipt` | a `not_run` check lists a receipt |
 | `reason_check` | a reason names a check the criterion does not have |
 | `omitted_reasons` | reasons were left out but the last one listed is not `checks_modified` |
 | `missing_reason` | the acceptance is untrusted, the report missing or the ledger unverified, and a criterion of kind `checks` does not say so |
 | `status` | the status is not the one the listed facts give (the table above) |
 | `too_large` | the canonical JSON is over 32 MiB |
+
+**A check's result against its receipts.** A result is itself a listed fact, and the receipts a check lists must not contradict it: they
+are of the check's command and folder, a run "on the final tree" has a `treeBefore` of the final tree's algorithm and object format whose
+id is the `workspace-tree-after` subject, and a run "passed" when `exit` is the check's `expectExit` and it neither timed out, nor was
+cancelled, nor ended by a signal (the same tests the builder uses). Two things are not checked, because a statement the builder makes
+can break them: that a check lists all of its passing runs (a caller may lower the limit, and the pack does not record the limit it
+used), so only "no more receipts than `passes`" is required; and that `run` hashes to `commandSha256` (`run` is masked and cut, the hash
+is of the exact command).
 
 ## Masking
 
@@ -276,5 +292,5 @@ A caller may lower the first four (`limits`), never raise them.
 `DATGOLD-HUB/tests/verify-proof-pack.mjs`: canonical JSON on the RFC 8785 examples; the validator keyword by keyword and its refusals;
 this schema file equal to the code's schema byte for byte; every status and reason from real pod-16, pod-20 and pod-22 outputs; the
 full chain on real Git repositories (snapshots, real commands through `recordCheck`, the pod-22 detector, `git diff`); a registered
-secret absent from the pack; 55 malformed statements each refused at its own path. Mutation list:
+secret absent from the pack; 74 malformed statements each refused at its own path. Mutation list:
 `DATGOLD-HUB/tests/mutation/proof-pack.json`.
