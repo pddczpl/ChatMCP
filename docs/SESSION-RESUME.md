@@ -1,6 +1,6 @@
 # Session resume: the history journal
 
-When you continue a conversation (Tiếp tục, or the Hub's own auto-resume after a restart), the next run starts from the conversation the model really had: the messages, the tool calls and the tool results of the earlier runs, under their own call ids. Until this change a continued run started from a "conversation checkpoint", a text of at most 48,000 characters that summarised the earlier prompts and events; the model lost the real tool results. This page describes how the history is kept and read back (phase P9, task ac-17). The resume events and the chip on the page are ac-18; the test that kills a real Hub process is ac-19.
+When you continue a conversation (Tiếp tục, or the Hub's own auto-resume after a restart), the next run starts from the conversation the model really had: the messages, the tool calls and the tool results of the earlier runs, under their own call ids. Until this change a continued run started from a "conversation checkpoint", a text of at most 48,000 characters that summarised the earlier prompts and events; the model lost the real tool results. This page describes how the history is kept and read back (phase P9, task ac-17) and what a continued run shows about the way it started: the `resumed_from_transcript` event, `resumeMode` and the chip on the page (task ac-18, [below](#what-a-continued-run-shows)). The test that kills a real Hub process is ac-19.
 
 ## What is written
 
@@ -15,7 +15,7 @@ Every item that enters the model history of a run (the `HistoryLedger`, `DATGOLD
 
 A tool result is written once. The Hub already writes the whole result of a call as a `tool_result_full` record (a router answer such as `mcp_catalog` as a `catalog_result` record) before the history item; the history item is then only a reference, `{"type":"function_call_output","call_id":"…","output_ref":"tool_result_full"}`, and the output the model saw is made again from that record when the journal is read. An error the runner answers itself (bad arguments, an unknown tool name) has no such record and is written as it is.
 
-`counters` holds the counters a later resume must restore: `hookBlocks` (the Stop / SubagentStop / TaskCompleted budget of the run: `limit`, `used`, `byEvent`), `noticeTurns` (final answers held back for the notice of a background agent) and `doneGate`, which is always `null`: the Hub has no done-gate yet and the field is reserved. A history record carries them only where they changed, so the feedback of a hook and the count it raised are on the same line. ac-17 writes and reads them; restoring them in a resumed run is ac-18.
+`counters` holds the counters a later resume must restore: `hookBlocks` (the Stop / SubagentStop / TaskCompleted budget of the run: `limit`, `used`, `byEvent`), `noticeTurns` (final answers held back for the notice of a background agent) and `doneGate`, which is always `null`: the Hub has no done-gate yet and the field is reserved. A history record carries them only where they changed, so the feedback of a hook and the count it raised are on the same line. ac-17 writes and reads them. Restoring them in a resumed run is not done: a resumed run starts counters of its own (ac-18 built the event and the chip, not this; it is open).
 
 ## What is read back
 
@@ -40,11 +40,35 @@ The new run's history is the replayed history, then its own skill index, then a 
 
 - the **unverified operations**: a call that was running when the Hub stopped and could have changed something (with its tool name, call id and arguments);
 - the calls of the **interrupted turn** that were cut, and whether a result had been recorded for each;
+- the **prior calls with no recorded result** (`PRIOR CALLS WITH NO RECORDED RESULT`, ac-18), each once with its run: the calls of the cut turn that got none, and the unverified operations whose call id has no result in the journal (or that carry no call id). An unverified operation whose result the journal does hold (a record written by a Hub that died between the two writes) stays in the list of unverified operations but is not named here;
 - how many old items were left out for size, and how the previous run ended.
 
 A call id that the replayed history already holds is refused if a model hands it out again (`invalid_call_id`), and the call is not run.
 
 A task written before the journal existed (3.11.2 and earlier, v3.9.0 included) has no history records: it goes on from the checkpoint text, exactly as before, and the task gets a `resume_fallback` event that says why (`no_journal`, or the reason of a journal that could not be used). The run that fell back writes a journal of its own, which starts with that checkpoint text, so the run after it resumes from the journal.
+
+## What a continued run shows
+
+(P9 ac-18.) Every run that continues a conversation records how it started, with the loader's own numbers; nothing is estimated.
+
+**The event.** When the journal serves the run, the task gets a `resumed_from_transcript` event before the run's `continuation` event (in its events, in `transcript.jsonl` and on the event stream, for the first chat and for a second chat that runs in its own worktree alike). Its fields:
+
+| field | what it counts |
+|---|---|
+| `items`, `bytes` | the items of the replayed history and their size as JSON (what `HistoryLedger.byteLength` counts); the same as `seed.items` and `seed.bytes` of the run's `history_run` record |
+| `droppedTailItems` | the journal items of the last run's interrupted turn that were cut: its text, its calls and the results it had (`interruptedCalls` is how many of them were calls) |
+| `droppedOldItems` | the oldest items left out to fit the size limit (the number the `[HISTORY LEFT OUT` note names) |
+| `summaryUsed` | whether a `context_summary` record replaced the items before it (nothing writes one yet, so this is `false` until ac-7) |
+| `noResultCalls` | the prior calls with no recorded result, the ones the note names |
+| `unverified` | the unverified operations the task carries (`task.unverifiedOperations`, which the note lists) |
+
+**The task.** `task.resume` holds the same numbers with `mode: 'transcript'`, the run (1-based) and the time; the public task and the payload of `/api/tasks/continue` carry `resume` and `resumeMode`. When the journal could not be used the run starts from the checkpoint text as before, the `resume_fallback` event says why, and `task.resume` is `{mode: 'checkpoint', run, at, reason, bytes, unverified}`, where `bytes` is the size of the checkpoint text in UTF-8; no `resumed_from_transcript` is emitted. A run that is not a continuation, or one that fails before it reads the history, has `resumeMode: null`. A stored mode this Hub does not know is shown as `null`. `task.resume` is saved in `task.json`, so a Hub that loads the task again shows how its last run resumed.
+
+**The report.** The task report (`report.txt`, `/api/tasks/:id/report`) has a line `Resume (latest run): …`: `none`, `transcript` with every number above, or `checkpoint` with the reason, the size of the text and the unverified operations.
+
+**The page.** Beside the model profile under the composer, a chip says `Tiếp tục từ lịch sử đã lưu · 12 mục` / `Resumed from the transcript · 12 items` (and `· 1 call without a result` when there is one), or `Resumed from the checkpoint summary`; every number and the reason are on hover (`DATGOLD-HUB/ui/src/lib/resume-chip.ts`, `components/conversation/ResumeChip.tsx`). It is drawn in the warning tone when a prior call has no recorded result or an operation is unverified, and not at all for a conversation that did not resume.
+
+**Plan mode.** A plan-mode task (docs/PLAN-MODE.md) is resumed like any other and stays read-only: its policy is held on the gate from the start of the run (and by a Hub that loads it, from the moment it loads it), so a write of the resumed run is refused whether it continues after a stop, after a clean reload or after a Hub that died while the plan waited. The `exit_plan_mode` call that waited for an answer is in the cut turn and named as a call with no recorded result. `lib/permissions.mjs` needed no change for this.
 
 ## Privacy and what is on disk
 
@@ -55,5 +79,7 @@ A task written before the journal existed (3.11.2 and earlier, v3.9.0 included) 
 ## What is not verified here
 
 - The test of a real Hub process killed with `kill -9` and restarted (ac-19). `tests/verify-session-resume.mjs` copies the files of a running task while a call that writes is hanging and resumes from the copy in a new runner, which is what a dead Hub leaves; it does not kill a process.
-- Restoring the hook budget and the notice turns from the counters (ac-18), and the resume events and the chip on the page (ac-18).
+- Restoring the hook budget and the notice turns from the counters: not done (open).
+- The chip in a real browser: `ui/tests/resume-chip.test.mjs` renders the real component and its words in both languages and checks that the conversation screen draws it; no end-to-end test of the page clicks through a continued conversation.
+- The rewind to step N (truncating the journal and linking the matching code checkpoint) is not built.
 - Real providers: the suite runs against the strict mock server (`tests/e2e/mock-model-server.mjs`) on Chat Completions, Responses, Anthropic and Gemini. Whether a real Anthropic model accepts a continued conversation whose last tool-use turn has no thinking block when thinking is on was not tried.

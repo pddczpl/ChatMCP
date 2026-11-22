@@ -78,8 +78,11 @@ const outputText = (item) => (typeof item.output === 'string' ? item.output : JS
 const outputsOf = (input) => new Map(input.filter((item) => item?.type === 'function_call_output').map((item) => [item.call_id, outputText(item)]));
 const textOf = (item) => (Array.isArray(item?.content) ? item.content.map((part) => String(part?.text ?? '')).join('') : String(item?.content ?? ''));
 const userTexts = (input) => input.filter((item) => item?.role === 'user').map(textOf);
-/** Where the replayed history ends in a request: at the first item the new run adds (its skill index, else the resumed note). */
-const noteIndex = (input) => input.findIndex((item) => item?.role === 'user' && (textOf(item).startsWith(RESUME_NOTE_HEADER) || textOf(item).startsWith(SKILL_REFERENCES_HEADER)));
+const isUserText = (item, header) => item?.role === 'user' && textOf(item).startsWith(header);
+/** The note of the run being sent: the newest one (the replayed history holds the notes of earlier resumed runs). */
+const lastNote = (input) => { const index = input.findLastIndex((item) => isUserText(item, RESUME_NOTE_HEADER)); return index < 0 ? null : textOf(input[index]); };
+/** Where the replayed history ends in a request: at the first item the new run adds, its skill index (a seed carries none) or else its note. */
+const noteIndex = (input) => { const index = input.findLastIndex((item) => isUserText(item, RESUME_NOTE_HEADER)); return index > 0 && isUserText(input[index - 1], SKILL_REFERENCES_HEADER) ? index - 1 : index; };
 const records = async (file) => (await fs.readFile(file, 'utf8')).split('\n').filter(Boolean).map((text) => JSON.parse(text));
 /** The lines of one section of the note: from its header to the next line that is not an entry. */
 const section = (note, header) => {
@@ -182,6 +185,7 @@ try {
       { callId: null, name: 'local.run_command', run: null },
     ], 'c3 once (cut without a result and unverified, named as the Hub recorded it), the operation with no call id, and neither c2 (its result was recorded) nor c1 (unverified, but the journal has its result)');
     assert.deepEqual(callsWithoutResult({ interrupted: cut.interrupted, calls, answered: cut.answered }), [{ callId: 'c3', name: 'write_file', run: 1 }], 'a cut call alone is named by the model\'s name for it');
+    assert.deepEqual(callsWithoutResult({ unverified: [unverified[0]], calls, answered: cut.answered }), [{ callId: 'c3', name: 'local.write_file', run: 1 }], 'an unverified operation alone: its run is the journal\'s');
     assert.deepEqual(callsWithoutResult(), [], 'nothing to name');
 
     const note = resumeNote({ unverified, interrupted: cut.interrupted, calls, answered: cut.answered, dropped: 0, previous: { status: 'cancelled', errorCode: 'user_cancelled', error: 'stopped' } });
@@ -250,9 +254,35 @@ try {
     const reloaded = again.get(started.id);
     assert.equal(reloaded.resumeMode, 'transcript', 'a Hub that loads the task again shows how its last run resumed');
     assert.equal(reloaded.resume.run, 3);
+    // a run that fails before it reads the history did not resume: the chip of the run before is not shown for it
+    model.ready = () => false;
+    await assert.rejects(again.continue({ id: started.id, prompt: 'Fails before it starts.' }), { code: 'provider_not_ready' });
+    assert.equal(again.get(started.id).resumeMode, null, 'the latest run did not resume');
+    assert.equal(reportLine(await again.report(started.id)), 'Resume (latest run): none (this run did not continue an earlier one)');
+    delete model.ready;
     await again.shutdown();
+
+    // A record that says a call was in flight although the journal has its result (written by a Hub that died between the two): the call is still
+    // injected as unverified, but it is not named as a call with no recorded result.
+    const copy = path.join(root, 'tasks-stale');
+    await fs.cp(path.join(tasks, started.id), path.join(copy, started.id), { recursive: true });
+    const readCall = (await records(path.join(copy, started.id, 'transcript.jsonl'))).find((record) => record.type === 'history' && record.item.type === 'function_call').item;
+    const saved = JSON.parse(await fs.readFile(path.join(copy, started.id, 'task.json'), 'utf8'));
+    saved.status = 'paused';
+    saved.pendingCall = { callId: readCall.call_id, toolName: 'local.read_file', startedAt: AT, outcome: 'pending_or_unknown', phase: 'executing' };
+    await fs.writeFile(path.join(copy, started.id, 'task.json'), JSON.stringify(saved));
+    let staleNote = null;
+    model.push((request) => { staleNote = lastNote(request.input); return final('Checked.'); });
+    const stale = new AgentRunner({ manager, provider: model, taskDirectory: copy, toolSelectionMode: 'full' });
+    await stale.load();
+    const staleRun = await stale.continue({ id: started.id, prompt: 'Go on after the stale record.' });
+    await settle(stale, 'b1 stale');
+    assert.deepEqual(pick(staleRun.resume, ['interruptedCalls', 'noResultCalls', 'unverified']), { interruptedCalls: 0, noResultCalls: 0, unverified: 1 });
+    assert.ok(staleNote.split('\n').some((text) => text.startsWith(`- local.read_file (call ${readCall.call_id}, started `)), 'still injected as unverified');
+    assert.deepEqual(section(staleNote, NO_RESULT_HEADER), ['(none)'], 'but the journal has its result: not named as missing');
+    await stale.shutdown();
   }
-  ok('a continued run that replays the journal: resumed_from_transcript with the real numbers (the items before the note, their JSON size) in the events, the transcript and the listeners; resumeMode transcript in the payload of continue, the task list and after a reload; the report line');
+  ok('a continued run that replays the journal: resumed_from_transcript with the real numbers (the items before the note, their JSON size) in the events, the transcript and the listeners; resumeMode transcript in the payload of continue, the task list and after a reload; the report line; a run that fails before reading the history did not resume; a stale in-flight record whose result the journal has is unverified but not missing');
 
   // B2 a write in flight when the run was stopped
   {
@@ -261,13 +291,14 @@ try {
     const manager = makeManager(root, { hang: (name) => name === 'local.write_file' });
     const writeCall = call('write_file', { path: 'calc.js' });
     const readCall = call('read_file', { path: 'a.txt' });
-    const model = new Script(turn(readCall), turn(commentary('Now the write.'), writeCall));
+    const secondRead = call('read_file', { path: 'b.txt' });
+    const model = new Script(turn(readCall), turn(commentary('One more read, then the write.'), secondRead, writeCall));
     const tasks = path.join(root, 'tasks');
     const runner = new AgentRunner({ manager, provider: model, taskDirectory: tasks, toolSelectionMode: 'full' });
     await runner.load();
-    const started = await runner.start({ prompt: 'Read a, then fix calc.js.' });
+    const started = await runner.start({ prompt: 'Read a and b, then fix calc.js.' });
     await until(() => runner.get(started.id)?.pendingCall?.toolName === 'local.write_file', 'the write to start');
-    await runner.writes.get(started.id);
+    await until(async () => { await runner.writes.get(started.id); return (await records(path.join(tasks, started.id, 'transcript.jsonl'))).some((record) => record.type === 'history' && record.item.type === 'function_call_output' && record.item.call_id === secondRead.call_id); }, 'the result of the second read in the journal');
     const stopped = await runner.cancel(started.id);
     assert.equal(stopped.status, 'cancelled');
     assert.equal(stopped.pendingCall?.callId, writeCall.call_id, '(premise) the write is still in flight on the record');
@@ -275,16 +306,17 @@ try {
     const writeRecord = run1.find((record) => record.item.call_id === writeCall.call_id && record.item.type === 'function_call');
     const begin = Math.min(...run1.filter((record) => record.role === 'model' && record.batch === writeRecord.batch).map((record) => record.seq));
     const tail = run1.filter((record) => record.seq >= begin).length;
-    assert.ok(tail >= 2, `(premise) the cut turn has its text and its call: ${tail} records`);
+    assert.ok(tail >= 4, `(premise) the cut turn has its text, two calls and the read's result: ${tail} records`);
 
     let note = null;
     let firstRequest = null;
-    model.push((request) => { firstRequest = request; note = userTexts(request.input).find((text) => text.startsWith(RESUME_NOTE_HEADER)); return final('I will look at calc.js before anything else.'); });
+    model.push((request) => { firstRequest = request; note = lastNote(request.input); return final('I will look at calc.js before anything else.'); });
     const continued = await runner.continue({ id: started.id, prompt: 'Continue.' });
     const done = await settle(runner, 'b2 run 2');
     assert.equal(done.status, 'completed', done.error ?? '');
     const seedItems = noteIndex(firstRequest.input);
-    assert.deepEqual(pick(continued.resume, STATS), { items: seedItems, bytes: historyBytes(firstRequest.input.slice(0, seedItems)), droppedTailItems: tail, droppedOldItems: 0, summaryUsed: false, interruptedCalls: 1, noResultCalls: 1, unverified: 1 }, 'the cut tail is the journal records of the interrupted turn');
+    assert.deepEqual(pick(continued.resume, STATS), { items: seedItems, bytes: historyBytes(firstRequest.input.slice(0, seedItems)), droppedTailItems: tail, droppedOldItems: 0, summaryUsed: false, interruptedCalls: 2, noResultCalls: 1, unverified: 1 }, 'the cut tail is the journal records of the interrupted turn; of its two calls only the write has no recorded result');
+    assert.match(note, new RegExp(`CALLS OF THE INTERRUPTED TURN[^\\n]*\\n- read_file \\(call ${secondRead.call_id}\\): a result was recorded`), 'the second read is named in the cut turn, with its result recorded');
     assert.deepEqual(pick(done.events.find((event) => event.type === 'resumed_from_transcript'), STATS), pick(continued.resume, STATS));
     assert.equal(done.unverifiedOperations.at(-1)?.callId, writeCall.call_id, 'the write in flight is kept as an unverified operation');
     assert.ok(note.split('\n').some((text) => text.startsWith(`- local.write_file (call ${writeCall.call_id}, started `) && text.endsWith('executing): {"path":"calc.js"}')), 'and injected as one, with its arguments');
@@ -331,11 +363,12 @@ try {
     const at = '2026-01-01T00:00:00.000Z';
     const pendingCall = { callId: 'old-write-1', toolName: 'local.write_file', startedAt: at, outcome: 'pending_or_unknown', phase: 'executing' };
     await fs.writeFile(path.join(tasks, id, 'task.json'), JSON.stringify({
-      formatVersion: 1, id, prompt: 'Old request about calc.js', status: 'paused', workspace: { path: root, generation: 1, instanceId: 'resume-semantics' },
+      formatVersion: 1, id, prompt: 'Sửa lỗi cộng trong calc.js', status: 'paused', workspace: { path: root, generation: 1, instanceId: 'resume-semantics' },
       model: 'resume-fixture', provider: 'fixture', createdAt: at, startedAt: at, updatedAt: at, finishedAt: at, finalText: '', error: 'Hub restarted.', errorCode: 'process_interrupted',
       steps: 2, toolCalls: 1, maxSteps: null, maxMinutes: null, usage: { inputTokens: 1, outputTokens: 1, httpRequests: 2 },
       events: [{ at, type: 'tool_start', message: 'writing calc.js', toolName: 'local.write_file', status: 'running' }], eventCount: 1, pendingCall,
-      prompts: [{ at, text: 'Old request about calc.js' }], runs: [{ startedAt: at, finishedAt: at, status: 'paused', startStep: 0 }], dialogue: [],
+      prompts: [{ at, text: 'Sửa lỗi cộng trong calc.js' }], runs: [{ startedAt: at, finishedAt: at, status: 'paused', startStep: 0 }], dialogue: [],
+      resume: { mode: 'rewind', items: 3 },
     }));
     await fs.writeFile(path.join(tasks, id, 'transcript.jsonl'), JSON.stringify({ at, type: 'started', message: 'started' }) + '\n');
     const manager = makeManager(root);
@@ -343,12 +376,15 @@ try {
     const model = new Script((request) => { firstRequest = request; return final('Continued from the checkpoint.'); });
     const runner = new AgentRunner({ manager, provider: model, taskDirectory: tasks, toolSelectionMode: 'full' });
     await runner.load();
+    assert.equal(runner.get(id).resumeMode, null, 'a stored mode this Hub does not know is not shown');
+    assert.equal(runner.get(id).resume, null);
     const continued = await runner.continue({ id, prompt: 'And now?' });
     const done = await settle(runner, 'b4');
     assert.equal(done.status, 'completed', done.error ?? '');
     assert.equal(continued.resumeMode, 'checkpoint', 'the payload says the run resumed from the checkpoint text');
     const checkpoint = userTexts(firstRequest.input).find((text) => text.startsWith('CONVERSATION CHECKPOINT'));
     assert.ok(checkpoint, '(premise) the model got the checkpoint text');
+    assert.notEqual(Buffer.byteLength(checkpoint), checkpoint.length, '(premise) the text has letters of more than one byte');
     assert.deepEqual(pick(continued.resume, ['mode', 'run', 'reason', 'bytes', 'unverified']), { mode: 'checkpoint', run: 2, reason: 'no_journal', bytes: Buffer.byteLength(checkpoint), unverified: 1 }, 'with the reason and the size of the checkpoint text');
     assert.match(checkpoint, /UNVERIFIED MCP OPERATIONS \(inspect before any repeat\):\n[^\n]*"callId":"old-write-1"/, 'the call that was in flight is still injected');
     assert.ok(done.events.some((event) => event.type === 'resume_fallback'), 'the fallback event says why');
