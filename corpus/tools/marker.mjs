@@ -10,8 +10,11 @@ export const MARKER_CONTRACT = [
   'BLOCKED: <reason>',
   'Write DONE only if the task is complete. Write BLOCKED: followed by a one-line reason if you could not complete it. Write nothing after that line.',
 ].join('\n');
+/** The longest reason, in UTF-16 code units (String length). */
 export const BLOCKED_REASON_MAX = 500;
 const BLOCKED = /^BLOCKED: (?!\s)(\P{Cc}+)$/u;
+// What is dropped at the very end of a message: space, tab and LF (CRLF is LF by then; a lone CR is kept, so `DONE\r` is no marker).
+const TRAILING = new Set([0x20, 0x09, 0x0a]);
 
 /**
  * Reads the marker of an agent's final message (its text, as the agent wrote it):
@@ -19,15 +22,21 @@ const BLOCKED = /^BLOCKED: (?!\s)(\P{Cc}+)$/u;
  *   2. Spaces, tabs and line breaks at the very end of the message are dropped.
  *   3. The marker line is what follows the last LF (or the whole message when it has none).
  *   4. The line `DONE`, exactly (upper case, nothing before or after it), is the marker DONE.
- *   5. The line `BLOCKED: ` (one space) followed by a reason is the marker BLOCKED: the reason is 1 to 500 characters, starts with a
- *      character that is not white space and holds no control character.
+ *   5. The line `BLOCKED: ` (one space) followed by a reason is the marker BLOCKED: the reason is 1 to 500 UTF-16 code units (a
+ *      character outside the Basic Multilingual Plane counts 2), starts with a character that is not white space and holds no control
+ *      character.
  *   6. Anything else - `done`, `**DONE**`, `DONE.`, ` DONE`, `Status: DONE`, `BLOCKED:` alone, a marker followed by more text - is no
  *      marker: the agent made no claim, which is scored as not claimed_done (never as DONE).
  * Returns {marker: 'DONE' | 'BLOCKED' | null, reason: string | null}.
  */
 export function parseFinalMarker(text) {
   if (typeof text !== 'string') throw new TypeError('parseFinalMarker needs the text of the final message.');
-  const trimmed = text.replace(/\r\n/g, '\n').replace(/[ \t\n]+$/, '');
+  const normalized = text.replace(/\r\n/g, '\n');
+  // The end is trimmed by walking back, not by a regular expression anchored at the end: that one rescans a long run of white space
+  // from every position where it starts, which is quadratic in the agent's text (a padded table of a million spaces took minutes).
+  let end = normalized.length;
+  while (end > 0 && TRAILING.has(normalized.charCodeAt(end - 1))) end -= 1;
+  const trimmed = normalized.slice(0, end);
   const line = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
   if (line === 'DONE') return { marker: 'DONE', reason: null };
   const blocked = BLOCKED.exec(line);

@@ -108,8 +108,11 @@ export async function loadTask(dir, { prefix = '' } = {}) {
   if (DEVICE.test(task.id)) fail('bad_id', `\`id\` ${task.id} is a Windows device name, which cannot be a folder`, TASK_FILE, lineOf('id'));
   if (task.id !== folder) fail('id_folder_mismatch', `\`id\` is ${task.id} but the folder is ${folder}: the id is the name of the task's folder`, TASK_FILE, lineOf('id'));
 
-  // The prompt ends with the marker contract, word for word, on lines of its own.
-  const prompt = task.prompt.replace(/\n+$/, '');
+  // The prompt ends with the marker contract, word for word, on lines of its own. Its final line breaks are dropped by walking back:
+  // /\n+$/ rescans every run of line breaks from each of its positions, which is quadratic (a second for 64,000 of them).
+  let promptEnd = task.prompt.length;
+  while (promptEnd > 0 && task.prompt.charCodeAt(promptEnd - 1) === 0x0a) promptEnd -= 1;
+  const prompt = task.prompt.slice(0, promptEnd);
   const at = prompt.lastIndexOf(MARKER_CONTRACT);
   if (at < 0 || (at > 0 && prompt[at - 1] !== '\n')) fail('marker_contract_missing', '`prompt` does not end with the marker contract; copy it word for word from corpus/README.md', TASK_FILE, lineOf('prompt'));
   if (at + MARKER_CONTRACT.length !== prompt.length) fail('marker_contract_not_last', '`prompt` goes on after the marker contract; the contract must be the end of the prompt', TASK_FILE, lineOf('prompt'));

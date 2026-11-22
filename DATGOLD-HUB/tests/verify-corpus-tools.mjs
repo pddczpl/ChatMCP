@@ -177,6 +177,7 @@ try {
       ['BLOCKED: a\tb', null, null],
       ['blocked: lower case', null, null],
       ['DONE\rBLOCKED: a lone CR is not a line break', null, null],
+      ['DONE\r', null, null],
       ['', null, null],
       ['\n \n', null, null],
     ];
