@@ -29,6 +29,10 @@ DATGOLD-HUB/tests/fixtures/skills/** -text
 DATGOLD-HUB/lib/acp/schema/** -text
 DATGOLD-HUB/lib/acp/schema/schema.json linguist-generated
 
+# The benchmark corpus (corpus/README.md) is pre-registered by the sha256 of its exact bytes (task files, the schema, the tools that
+# score it): no checkout may convert its line ends, or a Windows checkout would hash differently from every other one.
+corpus/** -text
+
 # Binary files
 *.png   binary
 *.ico   binary

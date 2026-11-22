@@ -133,6 +133,7 @@ try {
       ['All done.\nDONE', 'DONE', null],
       ['DONE', 'DONE', null],
       ['Summary of the work\nDONE\n', 'DONE', null],
+      ['First line\nsecond line\nDONE', 'DONE', null],
       ['Summary\r\nDONE\r\n', 'DONE', null],
       ['Summary\nDONE   \n\n\t\n', 'DONE', null],
       ['Tried twice.\nBLOCKED: the API key is missing', 'BLOCKED', 'the API key is missing'],
@@ -215,9 +216,11 @@ try {
     assert.equal(loaded.sha256, sha256(manifest), 'the task hash is the sha256 of "<sha256>  <name>\\n" lines in name order');
 
     const tarDir = path.join(CASES_ROOT, 'valid-tarball', 'tar-task');
-    await writeTask(tarDir, taskFiles('tar-task', { source: 'tarball' }));
+    const tarFiles = taskFiles('tar-task', { source: 'tarball' });
+    await writeTask(tarDir, { ...tarFiles, 'task.yml': swap(tarFiles['task.yml'], 'setup:\n  - npm ci\n', '') });
     const tar = await load.loadTask(tarDir);
     assert.deepEqual(tar.task.repo, { tarball: { file: 'repo.tar', sha256: sha256(tarBytes('tar-task')) } });
+    assert.deepEqual(tar.task.setup, [], 'a task without setup has an empty list');
     assert.deepEqual(tar.files.map((file) => file.name), ['acceptance.yml', 'oracle.patch', 'repo.tar', 'task.yml']);
 
     // The oracle patch is kept byte for byte: a patch of a CRLF file holds CR, and a README beside the task is allowed.
@@ -238,6 +241,7 @@ try {
       ['marker-missing', yml((t) => swap(t, indent(CONTRACT, 2), '  Say when you are done.')), 'marker_contract_missing', 'prompt'],
       ['marker-altered', yml((t) => swap(t, '  BLOCKED: <reason>', '  BLOCKED <reason>')), 'marker_contract_missing', 'prompt'],
       ['marker-not-last', yml((t) => swap(t, indent(CONTRACT, 2), `${indent(CONTRACT, 2)}\n  Thank you.`)), 'marker_contract_not_last', 'prompt'],
+      ['marker-glued', yml((t) => swap(t, 'numbers.\n\n  When you are finished', 'numbers.\n  Then: When you are finished')), 'marker_contract_missing', 'prompt'],
       ['sha256-upper-case', yml((t) => swap(t, sha256(hiddenBytes('base-task')), sha256(hiddenBytes('base-task')).toUpperCase())), 'bad_sha256', 'hidden_tests.sha256', lineOf(base, '  sha256:')],
       ['sha256-short', yml((t) => swap(t, sha256(hiddenBytes('base-task')), sha256(hiddenBytes('base-task')).slice(1))), 'bad_sha256', 'hidden_tests.sha256'],
       ['sha256-number', yml((t) => swap(t, `  sha256: ${sha256(hiddenBytes('base-task'))}`, '  sha256: 1234')), 'bad_sha256', 'hidden_tests.sha256'],
@@ -287,6 +291,7 @@ try {
       ['version-2', yml((t) => swap(t, 'version: 1', 'version: 2')), 'unsupported_version', '`version`'],
       ['version-quoted', yml((t) => swap(t, 'version: 1', 'version: "1"')), 'unsupported_version', '`version`'],
       ['title-too-long', yml((t) => swap(t, 'title: Add a sum function', `title: ${'t'.repeat(201)}`)), 'bad_length', '`title`'],
+      ['title-empty', yml((t) => swap(t, 'title: Add a sum function', 'title: ""')), 'bad_length', '`title`'],
       ['title-bidi', yml((t) => swap(t, 'title: Add a sum function', 'title: "Add a \\u202Esum function"')), 'hidden_character', 'U+202E'],
       ['prompt-zero-width', yml((t) => swap(t, 'returns the sum', 'returns the\u200b sum')), 'hidden_character', 'U+200B'],
       ['title-quoted-line-break', yml((t) => swap(t, 'title: Add a sum function', 'title: "Add a\\nsum function"')), 'hidden_character', 'line break'],
@@ -302,14 +307,18 @@ try {
       ['oracle-bad-name', yml((t) => swap(t, 'oracle: oracle.patch', 'oracle: ../oracle.patch')), 'bad_file_name', '`oracle`'],
       ['oracle-device-name', yml((t) => swap(t, 'oracle: oracle.patch', 'oracle: nul.patch')), 'bad_file_name', 'Windows device'],
       ['oracle-is-task-file', yml((t) => swap(t, 'oracle: oracle.patch', 'oracle: task.yml')), 'file_name_clash', 'task.yml'],
+      ['oracle-is-task-file-by-case', yml((t) => swap(t, 'oracle: oracle.patch', 'oracle: TASK.yml')), 'file_name_clash', 'TASK.yml'],
+      ['oracle-too-large', (files) => ({ ...files, 'oracle.patch': `${ORACLE}+${'x'.repeat(1024 * 1024)}\n` }), 'too_large', 'oracle.patch'],
       ['acceptance-file-missing', without('acceptance.yml'), 'acceptance_missing', 'acceptance.yml'],
       ['acceptance-crlf', (files) => ({ ...files, 'acceptance.yml': ACCEPTANCE.replace(/\n/g, '\r\n') }), 'crlf', 'acceptance.yml'],
       ['acceptance-bom', (files) => ({ ...files, 'acceptance.yml': `\uFEFF${ACCEPTANCE}` }), 'bom', 'acceptance.yml'],
       ['task-file-missing', without('task.yml'), 'task_file_missing', 'task.yml'],
       ['hidden-archive-committed', (files) => ({ ...files, 'hidden.tar.gz': hiddenBytes('base-task') }), 'hidden_archive_committed', 'hidden.tar.gz'],
       ['hidden-archive-renamed', (files) => ({ ...files, 'README.md': hiddenBytes('base-task') }), 'hidden_archive_committed', 'README.md'],
+      ['hidden-archive-by-case', (files) => ({ ...files, 'HIDDEN.tar.gz': Buffer.from('another copy\n') }), 'hidden_archive_committed', 'hidden.tar.gz'],
       ['unexpected-file', (files) => ({ ...files, 'notes.txt': 'scratch\n' }), 'unexpected_file', 'notes.txt'],
       ['unexpected-folder', (files) => ({ ...files, 'extra/solution.mjs': 'export {};\n' }), 'unexpected_file', 'extra'],
+      ['folder-named-like-a-file', (files) => ({ ...files, 'README.md/notes.txt': 'a folder, not the notes file\n' }), 'unexpected_file', 'README.md/'],
       ['tarball-mismatch', (files) => ({ ...files, 'repo.tar': Buffer.from('another tarball\n'), 'task.yml': swap(files['task.yml'], 'repo:\n  git:\n    url: https://example.invalid/corpus/sum.git\n    commit: 0123456789abcdef0123456789abcdef01234567\n', `repo:\n  tarball:\n    file: repo.tar\n    sha256: ${sha256(tarBytes('base-task'))}\n`) }), 'tarball_mismatch', 'repo.tar'],
       ['tarball-missing', yml((t) => swap(t, 'repo:\n  git:\n    url: https://example.invalid/corpus/sum.git\n    commit: 0123456789abcdef0123456789abcdef01234567\n', `repo:\n  tarball:\n    file: repo.tar\n    sha256: ${sha256(tarBytes('base-task'))}\n`)), 'tarball_missing', 'repo.tar'],
     ];

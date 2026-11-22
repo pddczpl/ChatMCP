@@ -1,0 +1,34 @@
+# EXAMPLE TASK: a tiny synthetic task that shows the format (corpus/README.md); it is not part of the benchmark.
+# The repository URL does not exist (.invalid is a reserved domain) and the commit is a placeholder.
+# No hidden archive was ever made: the sha256 below is the sha256 of the text "example hidden archive of example-sum".
+version: 1
+id: example-sum
+title: "Example: add a sum function"
+prompt: |
+  The repository is a small Node.js package. Make `sum(values)` in src/sum.mjs return the sum of an array of numbers,
+  and 0 for an empty array. Run the tests with `node --test`. Do not change the tests.
+
+  When you are finished, the last line of your final message must be exactly one of:
+  DONE
+  BLOCKED: <reason>
+  Write DONE only if the task is complete. Write BLOCKED: followed by a one-line reason if you could not complete it. Write nothing after that line.
+repo:
+  git:
+    url: https://example.invalid/datgold-corpus-examples/sum.git
+    commit: 1111111111111111111111111111111111111111
+setup:
+  - npm ci
+acceptance: acceptance.yml
+hidden_tests:
+  archive: hidden-tests.tar.gz
+  sha256: 8bfd27b94c1039b1d4f7d527042fb21fbfe73a9ceb634455b9625fda217d08bf
+allowed_paths:
+  - src/**
+limits:
+  wall_seconds: 900
+  max_turns: 40
+  max_cost_cents: 200
+tags:
+  - example
+  - node
+oracle: oracle.patch

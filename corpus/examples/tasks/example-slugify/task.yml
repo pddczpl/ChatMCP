@@ -1,0 +1,34 @@
+# EXAMPLE TASK: a tiny synthetic task that shows the format (corpus/README.md); it is not part of the benchmark.
+# The repository is the tarball repo.tar beside this file (package.json, src/slugify.mjs, test/slugify.test.mjs).
+# No hidden archive was ever made: the sha256 below is the sha256 of the text "example hidden archive of example-slugify".
+version: 1
+id: example-slugify
+title: "Example: turn a title into a URL slug"
+prompt: |
+  The repository is a small Node.js package. Implement `slugify(text)` in src/slugify.mjs: it returns the text in lower case,
+  with every run of characters other than a-z and 0-9 replaced by one hyphen, and no hyphen at the start or the end.
+  Run the tests with `node --test`. Do not change the tests.
+
+  When you are finished, the last line of your final message must be exactly one of:
+  DONE
+  BLOCKED: <reason>
+  Write DONE only if the task is complete. Write BLOCKED: followed by a one-line reason if you could not complete it. Write nothing after that line.
+repo:
+  tarball:
+    file: repo.tar
+    sha256: 5cd97c9cff440e0e2ee8512046c75203471b43a6af58f2856db30d4e5abd371c
+setup:
+  - npm ci
+acceptance: acceptance.yml
+hidden_tests:
+  archive: hidden-tests.tar.gz
+  sha256: d7f02e0c9b61a21e4a02da5a319c0346cf0b39b2587fc17180cd9f6533471ff1
+allowed_paths:
+  - src/**
+limits:
+  wall_seconds: 900
+  max_turns: 40
+tags:
+  - example
+  - node
+oracle: oracle.patch
