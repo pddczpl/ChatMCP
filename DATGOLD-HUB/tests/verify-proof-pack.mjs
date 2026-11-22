@@ -117,7 +117,9 @@ function statementV1Problems(statement) {
   // RFC 8785 section 3.2.3: property order is UTF-16 code units, so the emoji (U+D83D...) sorts before U+FB33.
   const sorted = canonicalJson({ '€': 'Euro Sign', '\r': 'Carriage Return', 'דּ': 'Hebrew Letter Dalet With Dagesh', 1: 'One',
     '😀': 'Emoji: Grinning Face', '\u0080': 'Control', 'ö': 'Latin Small Letter O With Diaeresis' });
-  assert.deepEqual(Object.keys(JSON.parse(sorted)), ['\r', '1', '\u0080', 'ö', '€', '😀', 'דּ']);
+  // (compared as text: Object.keys would put the integer-like key "1" first whatever the text says)
+  assert.equal(sorted, '{"\\r":"Carriage Return","1":"One","\u0080":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign",'
+    + '"😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}');
   // no white space, nested objects sorted too, -0 is 0, integers and fractions as ECMAScript prints them, no normalisation of text
   assert.equal(canonicalJson({ b: [1, { z: 1, a: -0 }], a: 'x y', c: 1e21, d: 1e-7, e: 0.1 + 0.2 }), '{"a":"x y","b":[1,{"a":0,"z":1}],"c":1e+21,"d":1e-7,"e":0.30000000000000004}');
   assert.notEqual(canonicalJson({ s: 'é' }), canonicalJson({ s: 'é' }), 'no Unicode normalisation: two spellings of é stay two');
@@ -244,9 +246,14 @@ function statementV1Problems(statement) {
   let deepValue = [];
   for (let i = 0; i < 80; i += 1) deepValue = [deepValue];
   assert.ok(errorsOf(deepSchema, deepValue).some((line) => line.endsWith(' maxDepth')));
-  // errors are bounded
+  // a value of the wrong type is reported once, not again by the keywords of the type it has
+  assert.deepEqual(errorsOf({ type: 'string', minimum: 5 }, 3), [' type']);
+  assert.deepEqual(errorsOf({ type: 'array', required: ['a'] }, {}), [' type']);
+  // errors are bounded, across values and within one object
   const many = compileSchema({ type: 'array', items: { type: 'string' } }, { maxErrors: 5 }).validate(Array.from({ length: 50 }, () => 1));
   assert.equal(many.errors.length, 5);
+  const wide = compileSchema({ type: 'object', additionalProperties: false }, { maxErrors: 3 }).validate({ a: 1, b: 2, c: 3, d: 4, e: 5 });
+  assert.deepEqual(wide.errors.map((error) => error.path), ['/a', '/b', '/c']);
   ok(`schema validator: the ${SUPPORTED_KEYWORDS.length} keywords the schema uses and no other, each refused value with its path; unknown keywords, bad keyword values, missing references and reference loops refused when the schema is compiled`);
 }
 
@@ -356,18 +363,40 @@ criteria:
     checks:
       - run: node pass.js
       - run: node stale.js
+  - id: c-format
+    text: ran on a tree of another object format
+    checks:
+      - run: node format.js
+  - id: c-stops
+    text: exited with 0 but was cancelled, exited with 0 but a signal ended it
+    checks:
+      - run: node cancel.js
+      - run: node killed.js
+  - id: c-subdir
+    text: ran in sub/dir, written two other ways by the runner
+    checks:
+      - run: node sub.js
+        cwd: sub/dir
+      - run: node sub2.js
+        cwd: ./sub/dir/
+  - id: c-owner-algorithm
+    text: the owner accepted the same tree id under another algorithm
+    manual:
+      note: look at it
 `;
 const EXPECTED_STATUS = {
   'c-pass': 'evidenced', 'c-fail': 'failed', 'c-flaky': 'failed', 'c-stale': 'stale', 'c-tree-unknown': 'unverified', 'c-algorithm': 'unverified',
   'c-repeat': 'unverified', 'c-not-run': 'unverified', 'c-cwd': 'unverified', 'c-timeout': 'failed', 'c-exit': 'evidenced', 'c-flagged': 'checks_modified',
   'c-flagged-fail': 'failed', 'c-owner': 'owner_accepted', 'c-owner-old': 'stale', 'c-manual': 'unverified', 'c-owner-over-fail': 'owner_accepted', 'c-two': 'stale',
+  'c-format': 'unverified', 'c-stops': 'failed', 'c-subdir': 'evidenced', 'c-owner-algorithm': 'stale',
 };
 const EXPECTED_REASONS = {
   'c-pass': [], 'c-fail': ['check_failed'], 'c-flaky': ['check_failed'], 'c-stale': ['check_stale'], 'c-tree-unknown': ['check_tree_unknown'],
   'c-algorithm': ['check_tree_unknown'], 'c-repeat': ['check_repeats_short'], 'c-not-run': ['check_not_run'], 'c-cwd': ['check_not_run'],
   'c-timeout': ['check_failed'], 'c-exit': [], 'c-flagged': ['checks_modified'], 'c-flagged-fail': ['check_failed', 'checks_modified'],
   'c-owner': ['owner_accepted'], 'c-owner-old': ['owner_accepted_other_tree'], 'c-manual': ['manual_not_accepted'],
-  'c-owner-over-fail': ['owner_accepted', 'check_failed'], 'c-two': ['check_stale'],
+  'c-owner-over-fail': ['owner_accepted', 'check_failed'], 'c-two': ['check_stale'], 'c-format': ['check_tree_unknown'], 'c-stops': ['check_failed', 'check_failed'],
+  'c-subdir': [], 'c-owner-algorithm': ['owner_accepted_other_tree'],
 };
 const FINAL = snapshot(TREE_A);
 const OTHER = snapshot(TREE_B);
@@ -401,7 +430,7 @@ await appendCheck('node unknown.js', runResult(), null, null);
 await appendCheck('node algorithm.js', runResult(), snapshot(TREE_A, { treeAlgorithm: 'raw-v1' }));
 await appendCheck('node repeat.js', runResult());
 await appendCheck('node pass.js', runResult({ cwd: 'other' }));
-await appendCheck('node slow.js', runResult({ exitCode: null, timedOut: true }));
+await appendCheck('node slow.js', runResult({ exitCode: 0, timedOut: true })); // the exit code alone would pass
 await appendCheck('node three.js', runResult({ exitCode: 3 }));
 await appendCheck('node tools/flag.js', runResult());
 await appendCheck('node tools/flagfail.js', runResult({ exitCode: 1 }));
@@ -412,14 +441,22 @@ await matrixLedger.append('permission', { decision: 'denied', toolName: 'write_f
 await matrixLedger.append('permission', { decision: 'weird' });
 await matrixLedger.append('uncertain', { reason: 'torn_tail', bytes: 3, sha256: sha256('abc') });
 await matrixLedger.append('uncertain', { reason: 'Not A Code!' });
+await appendCheck('node format.js', runResult(), snapshot(TREE_A, { objectFormat: 'sha256' }));
+await appendCheck('node cancel.js', runResult({ exitCode: 0, cancelled: true }));
+await appendCheck('node killed.js', runResult({ exitCode: 0, signal: 'SIGTERM' }));
+await appendCheck('node sub.js', runResult({ cwd: 'sub\\dir' }));
+await appendCheck('node sub2.js', runResult({ cwd: './sub/dir/' }));
 const matrixBytes = fs.readFileSync(ledgerPath(matrixHub, 'matrix'));
 const OWNERS = [
   { criterionId: 'c-owner', treeAlgorithm: 'git-pinned-v1', tree: TREE_A, by: 'owner', at: AT },
+  { criterionId: 'c-owner-old', treeAlgorithm: 'git-pinned-v1', tree: TREE_A, by: 'owner', at: AT }, // replaced by the next one: the last counts
   { criterionId: 'c-owner-old', treeAlgorithm: 'git-pinned-v1', tree: TREE_B, by: 'owner', at: AT },
   { criterionId: 'c-owner-over-fail', treeAlgorithm: 'git-pinned-v1', tree: TREE_A, by: 'owner', at: AT },
+  { criterionId: 'c-owner-algorithm', treeAlgorithm: 'raw-v1', tree: TREE_A, by: 'owner', at: AT },
 ];
+const MATRIX_DIFF = 'diff --git a/src/app.js b/src/app.js\n+// Đạt đã sửa\n';
 const matrixInput = (overrides = {}) => ({
-  agent: AGENT, model: MODEL, baseCommit: 'c'.repeat(40), commit: null, trees: { before: OTHER, after: FINAL }, diff: 'diff --git a/src/app.js b/src/app.js\n',
+  agent: AGENT, model: MODEL, baseCommit: 'c'.repeat(40), commit: null, trees: { before: OTHER, after: FINAL }, diff: MATRIX_DIFF,
   acceptance: trustedAcceptance, checkChanges: matrixChanges, ledger: matrixBytes, ownerAcceptances: OWNERS, cost: { currency: 'USD', knownSubtotal: 0.125, complete: false },
   secrets: [SECRET], ...overrides,
 });
@@ -459,13 +496,17 @@ const matrix = buildAgentChangeStatement(matrixInput());
   const detail = (id, code) => criterionOf(matrix, id).reasons.find((reason) => reason.code === code).detail;
   assert.equal(detail('c-fail', 'check_failed'), 'exit 1, expected 0');
   assert.equal(detail('c-timeout', 'check_failed'), 'timed out');
+  assert.deepEqual(criterionOf(matrix, 'c-stops').reasons.map((reason) => `${reason.check}: ${reason.detail}`), ['0: cancelled', '1: ended by signal SIGTERM']);
+  assert.deepEqual(criterionOf(matrix, 'c-subdir').checks.map((check) => `${check.cwd} ${check.result}`), ['sub/dir passed', 'sub/dir passed']);
+  assert.deepEqual(matrix.predicate.receipts.filter((receipt) => receipt.command.startsWith('node sub')).map((receipt) => receipt.cwd), ['sub/dir', 'sub/dir'],
+    'a receipt\'s folder is written one way');
   assert.equal(detail('c-repeat', 'check_repeats_short'), '1 of 2 runs passed on the final tree');
   assert.match(detail('c-flagged', 'checks_modified'), /^check_script_changed tools\/flag\.js$/);
   assert.equal(detail('c-owner', 'owner_accepted'), `by owner at ${AT}`);
   assert.equal(criterionOf(matrix, 'c-fail').reasons[0].check, 0);
   assert.equal(criterionOf(matrix, 'c-flagged').reasons[0].check, null);
   // the receipts: every check record of the ledger, digests as written, output never included
-  assert.equal(matrix.predicate.receipts.length, 15);
+  assert.equal(matrix.predicate.receipts.length, 20);
   const first = matrix.predicate.receipts[0];
   const line = JSON.parse(matrixBytes.toString('utf8').split('\n')[1]);
   assert.deepEqual(first, {
@@ -477,8 +518,8 @@ const matrix = buildAgentChangeStatement(matrixInput());
   });
   assert.equal(matrix.predicate.receipts.find((receipt) => receipt.command.startsWith('node unknown')).treeBefore, null);
   // the rest of the predicate
-  assert.deepEqual(matrix.predicate.ledger, { present: true, verified: true, records: 21, lastHash: JSON.parse(matrixBytes.toString('utf8').trim().split('\n').at(-1)).hash,
-    brokenAt: null, reason: null, checks: 15, omittedReceipts: 0, omittedUncertain: 0 });
+  assert.deepEqual(matrix.predicate.ledger, { present: true, verified: true, records: 26, lastHash: JSON.parse(matrixBytes.toString('utf8').trim().split('\n').at(-1)).hash,
+    brokenAt: null, reason: null, checks: 20, omittedReceipts: 0, omittedUncertain: 0 });
   assert.deepEqual(matrix.predicate.permissions, { records: 3, approved: 1, denied: 1, expired: 0, cancelled: 0, blocked: 0, policy: 0, other: 1 });
   assert.deepEqual(matrix.predicate.uncertain, [{ seq: 20, reason: 'torn_tail' }, { seq: 21, reason: 'unspecified' }]);
   assert.deepEqual(matrix.predicate.cost, { currency: 'USD', knownSubtotal: 0.125, complete: false });
@@ -497,9 +538,13 @@ const matrix = buildAgentChangeStatement(matrixInput());
   assert.deepEqual(matrix.subject, [
     { name: 'workspace-tree-before', digest: { gitTree: TREE_B } },
     { name: 'workspace-tree-after', digest: { gitTree: TREE_A } },
-    { name: 'change.diff', digest: { sha256: sha256('diff --git a/src/app.js b/src/app.js\n') } },
+    { name: 'change.diff', digest: { sha256: createHash('sha256').update(Buffer.from(MATRIX_DIFF, 'utf8')).digest('hex') } },
   ]);
   assert.deepEqual(statementV1Problems(matrix), []);
+  // an acceptance file edited during the task: said so, the criteria stay the baseline's
+  const edited = buildAgentChangeStatement(matrixInput({ acceptance: await resolveAcceptance({ baseline: MATRIX, current: `${MATRIX}# a note\n`, trustStore }) }));
+  assert.deepEqual(edited.predicate.acceptance, { baselineSha256: acceptanceSha256(MATRIX), trusted: true, edited: true });
+  assert.deepEqual(statusesOf(edited), EXPECTED_STATUS);
   // the secret of the ledger (and of the builder) is nowhere in the pack, its hash is
   const text = canonicalJson(matrix);
   assert.ok(!text.includes(SECRET), 'the registered secret is in the pack');
@@ -585,9 +630,9 @@ const matrix = buildAgentChangeStatement(matrixInput());
   assert.equal(criterionOf(broken, 'c-fail').status, 'failed', 'a verified line before the break still counts');
   assert.equal(broken.predicate.permissions.records, 0, 'nothing after the break is read');
 
-  const torn = buildAgentChangeStatement(matrixInput({ ledger: Buffer.concat([matrixBytes, Buffer.from('{"v":2,"seq":22')]) }));
+  const torn = buildAgentChangeStatement(matrixInput({ ledger: Buffer.concat([matrixBytes, Buffer.from('{"v":2,"seq":27')]) }));
   valid(torn);
-  assert.deepEqual([torn.predicate.ledger.verified, torn.predicate.ledger.reason, torn.predicate.ledger.brokenAt], [false, 'torn_tail', 22]);
+  assert.deepEqual([torn.predicate.ledger.verified, torn.predicate.ledger.reason, torn.predicate.ledger.brokenAt], [false, 'torn_tail', 27]);
   assert.equal(criterionOf(torn, 'c-pass').status, 'unverified');
 
   const noAcceptance = buildAgentChangeStatement(matrixInput({ acceptance: null }));
@@ -613,19 +658,25 @@ const matrix = buildAgentChangeStatement(matrixInput());
   assert.deepEqual(statusesOf(small), EXPECTED_STATUS);
   assert.deepEqual(criterionOf(small, 'c-flaky').checks[0].receipts, [5], 'the latest one');
   assert.equal(criterionOf(small, 'c-flaky').checks[0].passes, 1);
-  assert.deepEqual(small.predicate.receipts.map((receipt) => receipt.seq).filter((seq) => [10, 16].includes(seq)), [16], 'the latest unreferenced receipt');
-  assert.equal(small.predicate.ledger.omittedReceipts, 1);
+  // listed: the one receipt each check keeps, and the latest of the others (4, the older flaky run, is no longer listed by its check)
+  assert.deepEqual(small.predicate.receipts.map((receipt) => receipt.seq), [2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 22, 23, 24, 25, 26]);
+  assert.equal(small.predicate.ledger.omittedReceipts, 2);
   assert.deepEqual([small.predicate.uncertain.length, small.predicate.ledger.omittedUncertain], [1, 1]);
   // a long command is cut after masking and says so
   const longHub = fresh('long-hub');
   const longLedger = ProofLedger.forTask(longHub, 'long', { now: () => new Date(AT) });
   const shortSecret = 'abcd';
-  await longLedger.append('check', checkReceipt({ command: `node pass.js ${shortSecret.repeat(1000)}`, result: runResult(), treeBefore: FINAL }));
+  // 4,094 characters in the ledger; masked, 8,983: the cut at 8,192 falls between the two halves of an emoji, which is not split
+  const longCommand = `node pass.js ${shortSecret.repeat(817)}${'😀'.repeat(400)}`;
+  assert.ok(longCommand.length <= 4096);
+  await longLedger.append('check', checkReceipt({ command: longCommand, result: runResult(), treeBefore: FINAL }));
   const long = buildAgentChangeStatement(matrixInput({ ledger: fs.readFileSync(ledgerPath(longHub, 'long')), secrets: [shortSecret] }));
   valid(long);
   assert.equal(long.predicate.receipts[0].commandTruncated, true);
-  assert.ok(long.predicate.receipts[0].command.length <= 8192);
+  assert.equal(long.predicate.receipts[0].command.length, 8191);
+  assert.ok(long.predicate.receipts[0].command.isWellFormed());
   assert.ok(!long.predicate.receipts[0].command.includes(shortSecret));
+  assert.equal(long.predicate.receipts[0].commandSha256, sha256(longCommand), 'the hash is of the command as it ran');
   ok('limits: receipts per check and unreferenced receipts bounded and counted, uncertain events bounded, statuses from all receipts; a command masked longer is cut and marked');
 }
 
@@ -841,11 +892,20 @@ async function finish(repo, ledger, { ownerAcceptances = [], secrets = [SECRET],
     ['a check index out of order', (s) => { s.predicate.criteria[0].checks[0].index = 1; }, '/predicate/criteria/0/checks/0/index', 'semantic:check_index'],
     ['a reason naming a check the criterion does not have', (s) => { s.predicate.criteria[1].reasons[0].check = 5; }, '/predicate/criteria/1/reasons/0/check', 'semantic:reason_check'],
     ['a manual criterion with checks', (s) => { s.predicate.criteria[13].checks = clone(s.predicate.criteria[0].checks); }, '/predicate/criteria/13/checks', 'semantic:manual_checks'],
+    ['a criterion of kind checks without checks', (s) => { s.predicate.criteria[0].checks = []; }, '/predicate/criteria/0/checks', 'semantic:no_checks'],
+    ['a receipt listed twice', (s) => { s.predicate.receipts[1] = clone(s.predicate.receipts[0]); }, '/predicate/receipts/1/seq', 'semantic:receipt_order'],
+    ['a passed check without receipts', (s) => { s.predicate.criteria[0].checks[0].receipts = []; }, '/predicate/criteria/0/checks/0/receipts', 'semantic:no_receipt'],
+    ['repeats short with enough passes', (s) => { s.predicate.criteria[6].checks[0].passes = 2; }, '/predicate/criteria/6/checks/0/passes', 'semantic:check_result'],
+    ['not run with a pass', (s) => { s.predicate.criteria[7].checks[0].passes = 1; }, '/predicate/criteria/7/checks/0/passes', 'semantic:check_result'],
+    ['reasons left out that are not checks_modified', (s) => { s.predicate.criteria[1].omittedReasons = 3; }, '/predicate/criteria/1/omittedReasons', 'semantic:omitted_reasons'],
+    ['evidenced while the acceptance is untrusted', (s) => { s.predicate.acceptance.trusted = false; }, '/predicate/criteria/0/reasons', 'semantic:missing_reason'],
+    ['evidenced without a check-changes report', (s) => { s.predicate.checkChanges.reported = false; }, '/predicate/criteria/0/reasons', 'semantic:missing_reason'],
   ];
   assert.ok(cases.length >= 15);
   for (const [name, mutate, at, keyword] of cases) {
     const statement = clone(base);
-    const changed = mutate(statement) ?? statement;
+    const returned = mutate(statement);
+    const changed = returned === undefined ? statement : returned; // a case that changes the statement in place returns nothing
     const result = validateStatement(changed);
     assert.equal(result.valid, false, `${name}: accepted`);
     assert.deepEqual({ path: result.errors[0]?.path, keyword: result.errors[0]?.keyword }, { path: at, keyword }, `${name}: ${JSON.stringify(result.errors.slice(0, 3))}`);
@@ -864,6 +924,7 @@ async function finish(repo, ledger, { ownerAcceptances = [], secrets = [SECRET],
   refused({ agent: null }, 'no agent');
   refused({ trees: { before: OTHER } }, 'no after tree');
   refused({ trees: { before: OTHER, after: { ...FINAL, status: 'unbounded', tree: null } } }, 'an unbounded tree has no id');
+  refused({ trees: { before: { ...OTHER, status: 'unbounded' }, after: FINAL } }, 'the id of a snapshot that is not ok is not read');
   refused({ trees: { before: OTHER, after: { ...FINAL, tree: 'a'.repeat(64) } } }, 'a sha1 tree of 64 digits');
   refused({ trees: { before: OTHER, after: { ...FINAL, treeAlgorithm: 'git-v2' } } }, 'an unknown tree algorithm');
   refused({ diff: undefined }, 'no diff');
@@ -883,6 +944,12 @@ async function finish(repo, ledger, { ownerAcceptances = [], secrets = [SECRET],
   refused({ secrets: 'one' }, 'secrets that are not a list');
   refused({ limits: { maxReceiptsPerCheck: 0 } }, 'a limit below one');
   refused({ limits: { maxOtherReceipts: 10 ** 9 } }, 'a limit above what the schema allows');
+  // what the input checks let through but the statement cannot hold: the builder validates what it built and refuses to return it
+  const handMade = (criteria) => ({ criteria, trusted: true, baselineSha256: null, edit: null });
+  const check = { run: 'node pass.js', cwd: '.', timeout: 600, expect: { exit: 0 }, repeat: 1 };
+  for (const [criteria, label] of [[[{ id: 'Not An Id', checks: [check] }], 'an id the schema refuses'], [[{ id: 'twin', checks: [check] }, { id: 'twin', checks: [check] }], 'a duplicate id']]) {
+    assert.throws(() => buildAgentChangeStatement(matrixInput({ acceptance: handMade(criteria) })), (error) => error.code === 'pack_invalid' && Array.isArray(error.errors) && error.errors.length > 0, label);
+  }
   // an acceptance result is read, never written to
   const frozen = structuredClone(trustedAcceptance);
   deepFreeze(frozen);

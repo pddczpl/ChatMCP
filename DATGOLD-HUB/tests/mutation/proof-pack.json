@@ -1,0 +1,1403 @@
+{
+ "suite": "verify-proof-pack.mjs",
+ "description": "The proof pack of Proof-of-Done (plan task pod-29, docs/spec/agent-change-v0.1.md): the JSON-Schema validator (lib/proof/schema-validate.mjs), canonical JSON and the digest, the criterion status mapping from pod-16, pod-20 and pod-22 outputs, the reading of the inputs, masking and limits, and the rules beyond the schema (lib/proof/pack.mjs), judged by tests/verify-proof-pack.mjs.",
+ "mutations": [
+  {
+   "name": "PV-unknown-keyword-read",
+   "what": "a schema keyword this file does not know is ignored instead of refused",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "default: throw new SchemaError(join(at, keyword), 'unknown_keyword'",
+     "new": "default: void new SchemaError(join(at, keyword), 'unknown_keyword'"
+    }
+   ]
+  },
+  {
+   "name": "PV-any-dialect",
+   "what": "$schema may name another dialect",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (!isRoot || value !== DIALECT) throw bad(keyword",
+     "new": "if (!isRoot) throw bad(keyword"
+    }
+   ]
+  },
+  {
+   "name": "PV-defs-anywhere",
+   "what": "$defs is accepted below the root, where references never look",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (!isRoot || !isPlainObject(value)) throw bad(keyword, '$defs",
+     "new": "if (!isPlainObject(value)) throw bad(keyword, '$defs"
+    }
+   ]
+  },
+  {
+   "name": "PV-unknown-reference",
+   "what": "a reference to a definition that does not exist is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (!isPlainObject(root.$defs) || !Object.hasOwn(root.$defs, match[1])) throw new SchemaError",
+     "new": "if (false) throw new SchemaError"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-loop-check",
+   "what": "a loop of plain references is not detected when compiling",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "for (let target = value; typeof target === 'string';) {",
+     "new": "for (let target = null; typeof target === 'string';) {"
+    }
+   ]
+  },
+  {
+   "name": "PV-type-repeats",
+   "what": "a type list with a repeated type is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": " || new Set(list).size !== list.length) throw bad(keyword, `type is one of",
+     "new": ") throw bad(keyword, `type is one of"
+    }
+   ]
+  },
+  {
+   "name": "PV-additional-schema",
+   "what": "additionalProperties given as a schema is accepted (and then read as true)",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (value !== false) throw bad(keyword, 'only additionalProperties: false is supported');",
+     "new": "if (value === true) throw bad(keyword, 'only additionalProperties: false is supported');"
+    }
+   ]
+  },
+  {
+   "name": "PV-pattern-no-u",
+   "what": "patterns are compiled without the u flag (\\p{...} and code points read differently)",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "patterns.set(value, new RegExp(value, 'u'));",
+     "new": "patterns.set(value, new RegExp(value));"
+    }
+   ]
+  },
+  {
+   "name": "PV-proto-property",
+   "what": "a property named __proto__ is accepted in a schema",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (FORBIDDEN_KEYS.has(name)) throw new SchemaError(join(join(at, keyword), name), 'bad_keyword_value'",
+     "new": "if (false) throw new SchemaError(join(join(at, keyword), name), 'bad_keyword_value'"
+    }
+   ]
+  },
+  {
+   "name": "PV-negative-count",
+   "what": "a negative count keyword (maxLength: -1) is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (!isCount(value)) throw bad(keyword, `${keyword} is a non-negative integer`);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PV-lone-surrogate",
+   "what": "a string with a lone surrogate is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (typeof value === 'string' && !value.isWellFormed()) { add(at, 'wellFormed'",
+     "new": "if (false) { add(at, 'wellFormed'"
+    }
+   ]
+  },
+  {
+   "name": "PV-forbidden-keys",
+   "what": "__proto__, constructor and prototype keys are not refused",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (forbidden.length) {",
+     "new": "if (false) {"
+    }
+   ]
+  },
+  {
+   "name": "PV-type-cascade",
+   "what": "a value of the wrong type is also judged by the keywords of the type it has",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "{ add(at, 'type', `expected ${types.join(' or ')}, found ${describe(value)}`); return; }",
+     "new": "{ add(at, 'type', `expected ${types.join(' or ')}, found ${describe(value)}`); }"
+    }
+   ]
+  },
+  {
+   "name": "PV-integer-unsafe",
+   "what": "an integer beyond 2^53 - 1 is an integer",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "case 'integer': return Number.isSafeInteger(value);",
+     "new": "case 'integer': return Number.isInteger(value);"
+    }
+   ]
+  },
+  {
+   "name": "PV-number-nan",
+   "what": "NaN and Infinity are numbers",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "case 'number': return typeof value === 'number' && Number.isFinite(value);",
+     "new": "case 'number': return typeof value === 'number';"
+    }
+   ]
+  },
+  {
+   "name": "PV-object-any",
+   "what": "any non-array object (a Date) is an object",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "case 'object': return isPlainObject(value);",
+     "new": "case 'object': return typeof value === 'object' && value !== null && !Array.isArray(value);"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-enum",
+   "what": "enum is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.enum !== undefined && !node.enum.some(",
+     "new": "if (false && !node.enum.some("
+    }
+   ]
+  },
+  {
+   "name": "PV-no-const",
+   "what": "const is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.const !== undefined && !jsonEqual(node.const, value)) { add(at, 'const'",
+     "new": "if (false) { add(at, 'const'"
+    }
+   ]
+  },
+  {
+   "name": "PV-equal-key-order",
+   "what": "JSON equality of objects depends on key order",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && jsonEqual(a[key], b[key]));",
+     "new": "return JSON.stringify(a) === JSON.stringify(b);"
+    }
+   ]
+  },
+  {
+   "name": "PV-equal-arrays",
+   "what": "two lists of the same length are equal whatever they hold",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "a.length === b.length && a.every((item, index) => jsonEqual(item, b[index]));",
+     "new": "a.length === b.length;"
+    }
+   ]
+  },
+  {
+   "name": "PV-min-length-off",
+   "what": "minLength refuses a text of exactly that length",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "compareLength(value, node.minLength) < 0",
+     "new": "compareLength(value, node.minLength) <= 0"
+    }
+   ]
+  },
+  {
+   "name": "PV-length-units",
+   "what": "lengths are counted in UTF-16 units, not code points",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (text.length > 2 * limit) return 1; // code points >= UTF-16 units / 2",
+     "new": "if (text.length > limit) return 1;"
+    }
+   ]
+  },
+  {
+   "name": "PV-length-equal",
+   "what": "a text of exactly the limit counts as shorter",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "return count === limit ? 0 : -1;",
+     "new": "return -1;"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-max-length",
+   "what": "maxLength is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.maxLength !== undefined && compareLength(value, node.maxLength) > 0) add(at, 'maxLength'",
+     "new": "if (false) add(at, 'maxLength'"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-pattern",
+   "what": "pattern is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.pattern !== undefined && !patterns.get(node.pattern).test(value)) add(at, 'pattern'",
+     "new": "if (false) add(at, 'pattern'"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-minimum",
+   "what": "minimum is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.minimum !== undefined && value < node.minimum) add(at, 'minimum'",
+     "new": "if (false) add(at, 'minimum'"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-maximum",
+   "what": "maximum is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.maximum !== undefined && value > node.maximum) add(at, 'maximum'",
+     "new": "if (false) add(at, 'maximum'"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-required",
+   "what": "required is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "for (const name of node.required ?? []) if (!Object.hasOwn(value, name)) add(",
+     "new": "for (const name of node.required ?? []) if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PV-required-at-object",
+   "what": "a missing field is reported at the object, not at its own path",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "add(join(at, name), 'required'",
+     "new": "add(at, 'required'"
+    }
+   ]
+  },
+  {
+   "name": "PV-open-objects",
+   "what": "additionalProperties: false is not enforced",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.additionalProperties === false) {",
+     "new": "if (false) {"
+    }
+   ]
+  },
+  {
+   "name": "PV-extra-unsorted",
+   "what": "extra fields are reported in their own order, not sorted",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": ".filter((key) => !Object.hasOwn(properties, key)).sort()) add(",
+     "new": ".filter((key) => !Object.hasOwn(properties, key))) add("
+    }
+   ]
+  },
+  {
+   "name": "PV-no-min-properties",
+   "what": "minProperties is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.minProperties !== undefined && keys.length < node.minProperties) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PV-no-max-properties",
+   "what": "maxProperties is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.maxProperties !== undefined && keys.length > node.maxProperties) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PV-no-min-items",
+   "what": "minItems is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.minItems !== undefined && value.length < node.minItems) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PV-no-max-items",
+   "what": "maxItems is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.maxItems !== undefined && value.length > node.maxItems) {",
+     "new": "if (false) {"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-items",
+   "what": "list items are not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.items !== undefined) value.forEach(",
+     "new": "if (false) value.forEach("
+    }
+   ]
+  },
+  {
+   "name": "PV-no-unique",
+   "what": "uniqueItems is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (node.uniqueItems === true && value.every(",
+     "new": "if (false && value.every("
+    }
+   ]
+  },
+  {
+   "name": "PV-unique-key-order",
+   "what": "uniqueItems compares objects by key order",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "const text = sortedText(item);",
+     "new": "const text = JSON.stringify(item);"
+    }
+   ]
+  },
+  {
+   "name": "PV-one-of-many",
+   "what": "a value matching two oneOf branches passes",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (passing > 1) add(at, 'oneOf'",
+     "new": "if (false) add(at, 'oneOf'"
+    }
+   ]
+  },
+  {
+   "name": "PV-one-of-first-branch",
+   "what": "a failing oneOf always reports its first branch, not the one that got furthest",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (depthOf(found[0].path) > depthOf(best[0].path)) best = found;",
+     "new": "if (false) best = found;"
+    }
+   ]
+  },
+  {
+   "name": "PV-no-depth-limit",
+   "what": "a value nested deeper than maxDepth is followed",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "if (depthOf(at) > maxDepth) {",
+     "new": "if (false) {"
+    }
+   ]
+  },
+  {
+   "name": "PV-errors-unbounded",
+   "what": "the errors of one object are not bounded by maxErrors",
+   "patches": [
+    {
+     "file": "lib/proof/schema-validate.mjs",
+     "old": "const add = (path, keyword, message) => { if (errors.length < maxErrors) errors.push({ path, keyword, message }); };",
+     "new": "const add = (path, keyword, message) => { errors.push({ path, keyword, message }); };"
+    }
+   ]
+  },
+  {
+   "name": "PP-keys-unsorted",
+   "what": "canonical JSON keeps the insertion order of keys",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const keys = Object.keys(value).sort();",
+     "new": "const keys = Object.keys(value);"
+    }
+   ]
+  },
+  {
+   "name": "PP-non-finite",
+   "what": "canonical JSON writes NaN and Infinity (as null)",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!Number.isFinite(value)) throw fault('canonical_bad_value', `${value} is not a JSON number`);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-lone-surrogate-text",
+   "what": "canonical JSON writes a lone surrogate (escaped)",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!value.isWellFormed()) throw fault('canonical_bad_value', 'a text with a lone surrogate has no UTF-8 form');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-lone-surrogate-key",
+   "what": "canonical JSON writes a key with a lone surrogate",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!key.isWellFormed()) throw fault('canonical_bad_value', 'a key with a lone surrogate has no UTF-8 form');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-non-plain",
+   "what": "canonical JSON writes a Date or a Map as {}",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!isPlainObject(value)) throw fault('canonical_bad_value', `a ${value.constructor?.name ?? 'non-plain'} object is not JSON`);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-no-depth",
+   "what": "canonical JSON follows values of any depth",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (depth > PACK_LIMITS.maxDepth) throw fault(",
+     "new": "if (false) throw fault("
+    }
+   ]
+  },
+  {
+   "name": "PP-depth-off",
+   "what": "canonical JSON refuses a value exactly as deep as the limit",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (depth > PACK_LIMITS.maxDepth) throw fault(",
+     "new": "if (depth >= PACK_LIMITS.maxDepth) throw fault("
+    }
+   ]
+  },
+  {
+   "name": "PP-digest-not-canonical",
+   "what": "the digest is taken of JSON.stringify, not of the canonical form",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "export const statementDigest = (statement) => sha256Hex(canonicalJson(statement));",
+     "new": "export const statementDigest = (statement) => sha256Hex(JSON.stringify(statement));"
+    }
+   ]
+  },
+  {
+   "name": "PP-no-owner-first",
+   "what": "an owner acceptance on the final tree does not decide the status",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "  if (codes.has('owner_accepted')) return 'owner_accepted';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-no-failed",
+   "what": "a failed check does not make the criterion failed",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "  if (results.includes('failed')) return 'failed';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-no-checks-modified",
+   "what": "modified checks do not change the status",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "  if (codes.has('checks_modified')) return 'checks_modified';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-blocking-ignored",
+   "what": "a missing input does not keep a criterion from evidenced",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": " && !BLOCKING.some((code) => codes.has(code))) return 'evidenced';",
+     "new": ") return 'evidenced';"
+    }
+   ]
+  },
+  {
+   "name": "PP-manual-evidenced",
+   "what": "a manual criterion (no checks) can be evidenced",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (kind === 'checks' && results.length > 0 && results.every(",
+     "new": "if (results.every("
+    }
+   ]
+  },
+  {
+   "name": "PP-owner-other-tree-not-stale",
+   "what": "an owner acceptance of another tree is not stale",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (results.includes('stale') || codes.has('owner_accepted_other_tree')) return 'stale';",
+     "new": "if (results.includes('stale')) return 'stale';"
+    }
+   ]
+  },
+  {
+   "name": "PP-tree-algorithm-ignored",
+   "what": "a receipt of another tree algorithm with the same id counts as the final tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "ref.treeAlgorithm === tree.treeAlgorithm && ref.objectFormat === tree.objectFormat;",
+     "new": "ref.objectFormat === tree.objectFormat;"
+    }
+   ]
+  },
+  {
+   "name": "PP-object-format-ignored",
+   "what": "a receipt of another object format with the same id counts as the final tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "ref.treeAlgorithm === tree.treeAlgorithm && ref.objectFormat === tree.objectFormat;",
+     "new": "ref.treeAlgorithm === tree.treeAlgorithm;"
+    }
+   ]
+  },
+  {
+   "name": "PP-tree-id-ignored",
+   "what": "a receipt of any tree of the same algorithm counts as the final tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": " && receipt.treeBefore.tree === context.after.tree);",
+     "new": ");"
+    }
+   ]
+  },
+  {
+   "name": "PP-timeout-passes",
+   "what": "a run that timed out passes when its exit code does",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "receipt.exit === expectExit && !receipt.timedOut && !receipt.cancelled",
+     "new": "receipt.exit === expectExit && !receipt.cancelled"
+    }
+   ]
+  },
+  {
+   "name": "PP-cancel-passes",
+   "what": "a cancelled run passes when its exit code does",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "receipt.exit === expectExit && !receipt.timedOut && !receipt.cancelled",
+     "new": "receipt.exit === expectExit && !receipt.timedOut"
+    }
+   ]
+  },
+  {
+   "name": "PP-signal-passes",
+   "what": "a run a signal ended passes when its exit code does",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": " && !receipt.cancelled && receipt.signal === null;",
+     "new": " && !receipt.cancelled;"
+    }
+   ]
+  },
+  {
+   "name": "PP-expect-exit-ignored",
+   "what": "the expected exit code of a check is read as 0",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const expectExit = Number.isSafeInteger(check.expect?.exit) ? check.expect.exit : 0;",
+     "new": "const expectExit = 0;"
+    }
+   ]
+  },
+  {
+   "name": "PP-one-repeat",
+   "what": "one passing run is enough whatever repeat says",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "} else if (passes >= repeat) result = 'passed';",
+     "new": "} else if (passes >= 1) result = 'passed';"
+    }
+   ]
+  },
+  {
+   "name": "PP-flaky-passes",
+   "what": "a check that passed once and failed once on the final tree is not failed",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (current.length > passes) {",
+     "new": "if (passes === 0 && current.length > 0) {"
+    }
+   ]
+  },
+  {
+   "name": "PP-unknown-is-stale",
+   "what": "a run that cannot be compared with the final tree counts as stale",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "else if (matching.some((receipt) => sameTree(receipt.treeBefore, context.after))) {",
+     "new": "else if (matching.length) {"
+    }
+   ]
+  },
+  {
+   "name": "PP-cwd-ignored",
+   "what": "a run in another folder matches the check",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": ".filter((receipt) => receipt.cwd === cwd);",
+     "new": ".filter(() => true);"
+    }
+   ]
+  },
+  {
+   "name": "PP-cwd-backslash",
+   "what": "a folder written with backslashes is another folder",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "String(cwd ?? '').replaceAll('\\\\', '/')",
+     "new": "String(cwd ?? '')"
+    }
+   ]
+  },
+  {
+   "name": "PP-cwd-dot-slash",
+   "what": "a folder written with a leading ./ is another folder",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": ".replace(/^(?:\\.\\/)+/, '')",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-cwd-trailing-slash",
+   "what": "a folder written with a trailing / is another folder",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": ".replace(/\\/+$/, '') || '.'",
+     "new": " || '.'"
+    }
+   ]
+  },
+  {
+   "name": "PP-owner-algorithm-ignored",
+   "what": "an owner acceptance of the same tree id under another algorithm counts as the final tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "owner !== null && owner.treeAlgorithm === context.after.treeAlgorithm && owner.tree === context.after.tree;",
+     "new": "owner !== null && owner.tree === context.after.tree;"
+    }
+   ]
+  },
+  {
+   "name": "PP-first-owner-counts",
+   "what": "the first owner acceptance of a criterion counts, not the last",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "owners.set(row.criterionId, row); // the last one given for a criterion counts",
+     "new": "if (!owners.has(row.criterionId)) owners.set(row.criterionId, row);"
+    }
+   ]
+  },
+  {
+   "name": "PP-no-untrusted-reason",
+   "what": "an untrusted acceptance file adds no reason",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!context.trusted) reasons.push({ code: 'acceptance_untrusted', check: null, detail: null });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-no-changes-reason",
+   "what": "a missing check-changes report adds no reason",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!row) reasons.push({ code: 'check_changes_unknown', check: null, detail: null });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-no-ledger-reason",
+   "what": "an unverified ledger adds no reason",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!context.ledger.verified) reasons.push({ code: 'ledger_not_verified', check: null, detail: null });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-no-manual-reason",
+   "what": "a manual criterion nobody accepted adds no reason",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "} else if (!owner) reasons.push({ code: 'manual_not_accepted', check: null, detail: null });",
+     "new": "}"
+    }
+   ]
+  },
+  {
+   "name": "PP-checks-modified-detail",
+   "what": "a checks_modified reason loses the code and path of the finding",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const detail = item.code ? `${item.code} ${item.path ?? ''}`.trim() : null;",
+     "new": "const detail = null;"
+    }
+   ]
+  },
+  {
+   "name": "PP-trusted-loose",
+   "what": "any acceptance result counts as trusted",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "trusted: acceptance?.trusted === true,",
+     "new": "trusted: Boolean(acceptance),"
+    }
+   ]
+  },
+  {
+   "name": "PP-ledger-verified-loose",
+   "what": "a ledger with any verified record counts as verified",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "verified: report.ok, records: report.records,",
+     "new": "verified: report.records > 0, records: report.records,"
+    }
+   ]
+  },
+  {
+   "name": "PP-ledger-whole-file",
+   "what": "records after the break of a ledger are read too",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "bytes.subarray(0, report.verifiedBytes).toString",
+     "new": "bytes.toString"
+    }
+   ]
+  },
+  {
+   "name": "PP-refs-unbounded",
+   "what": "a check lists every receipt it has",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": ".slice(-context.limits.maxReceiptsPerCheck).map((receipt) => receipt.seq);",
+     "new": ".map((receipt) => receipt.seq);"
+    }
+   ]
+  },
+  {
+   "name": "PP-others-oldest",
+   "what": "the oldest unreferenced receipts are kept instead of the latest",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "others.slice(-L.maxOtherReceipts)",
+     "new": "others.slice(0, L.maxOtherReceipts)"
+    }
+   ]
+  },
+  {
+   "name": "PP-permissions-other",
+   "what": "every permission record is counted as other",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "permissions[PERMISSION_DECISIONS.includes(decision) ? decision : 'other'] += 1;",
+     "new": "permissions.other += 1;"
+    }
+   ]
+  },
+  {
+   "name": "PP-uncertain-any-reason",
+   "what": "an uncertain reason that is not a code is copied as it is",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "/^[a-z0-9_]{1,64}$/.test(entry.record.reason) ? entry.record.reason : 'unspecified',",
+     "new": "entry.record.reason !== undefined ? entry.record.reason : 'unspecified',"
+    }
+   ]
+  },
+  {
+   "name": "PP-uncertain-unbounded",
+   "what": "uncertain events are not bounded",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const uncertain = uncertainEntries.slice(0, L.maxUncertain).map(",
+     "new": "const uncertain = uncertainEntries.map("
+    }
+   ]
+  },
+  {
+   "name": "PP-limitations-always",
+   "what": "the four pod-22 limitations are listed without a pod-22 report",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "limitations: [...PACK_LIMITATIONS, ...(checkChanges ? LIMITATION_CODES : [])],",
+     "new": "limitations: [...PACK_LIMITATIONS, ...LIMITATION_CODES],"
+    }
+   ]
+  },
+  {
+   "name": "PP-commit-inverted",
+   "what": "the git-commit subject is added when no commit is given",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "...(commit !== null ? [{ name: SUBJECT_NAMES.commit",
+     "new": "...(commit === null ? [{ name: SUBJECT_NAMES.commit"
+    }
+   ]
+  },
+  {
+   "name": "PP-diff-latin1",
+   "what": "a diff given as text is hashed as Latin-1, not UTF-8",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "sha256Hex(diff instanceof Uint8Array ? diff : Buffer.from(diff, 'utf8'))",
+     "new": "sha256Hex(diff instanceof Uint8Array ? diff : Buffer.from(diff, 'latin1'))"
+    }
+   ]
+  },
+  {
+   "name": "PP-tree-length",
+   "what": "a tree id of the wrong length for its object format is accepted as input",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": " || snapshot.tree.length !== idLength(snapshot.objectFormat)) throw bad(",
+     "new": ") throw bad("
+    }
+   ]
+  },
+  {
+   "name": "PP-tree-status",
+   "what": "a snapshot that is not ok is read as a tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (snapshot.status !== 'ok') throw bad(",
+     "new": "if (false) throw bad("
+    }
+   ]
+  },
+  {
+   "name": "PP-cost-nan",
+   "what": "a NaN or Infinity subtotal is accepted as input",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": " || !Number.isFinite(knownSubtotal) || knownSubtotal < 0",
+     "new": " || knownSubtotal < 0"
+    }
+   ]
+  },
+  {
+   "name": "PP-cost-text",
+   "what": "a cost given as text is accepted as input",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!isPlainObject(cost)) throw fault('pack_bad_input', 'cost is null (unknown) or {currency, knownSubtotal, complete}');",
+     "new": "if (!isPlainObject(cost)) return 'unknown';"
+    }
+   ]
+  },
+  {
+   "name": "PP-owner-at",
+   "what": "an owner acceptance time that is not ISO is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (typeof row.at !== 'string' || !TIMESTAMP_RE.test(row.at)) throw bad(",
+     "new": "if (false) throw bad("
+    }
+   ]
+  },
+  {
+   "name": "PP-owner-algorithm-input",
+   "what": "an owner acceptance without a tree algorithm is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!TREE_ALGORITHMS.includes(row.treeAlgorithm)) throw bad(",
+     "new": "if (false) throw bad("
+    }
+   ]
+  },
+  {
+   "name": "PP-limits-raise",
+   "what": "a limit can be raised above the bounds the schema is made of",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": " || value < 1 || value > PACK_LIMITS[name]) {",
+     "new": " || value < 1) {"
+    }
+   ]
+  },
+  {
+   "name": "PP-report-format",
+   "what": "a report of another format is read as a pod-22 report",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": " || checkChanges.format !== CHECK_CHANGES_FORMAT || ",
+     "new": " || "
+    }
+   ]
+  },
+  {
+   "name": "PP-no-mask",
+   "what": "the texts of the pack are not masked",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const maskText = (value, max) => cut(maskSecrets(String(value), secretList), max);",
+     "new": "const maskText = (value, max) => cut(String(value), max);"
+    }
+   ]
+  },
+  {
+   "name": "PP-cut-splits-pair",
+   "what": "a text cut at its limit can end in half an emoji",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "  if (last >= 0xd800 && last <= 0xdbff) end -= 1;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PP-truncation-flag",
+   "what": "a command cut by the pack is not marked as truncated",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "commandTruncated: record.commandTruncated === true || command.cut,",
+     "new": "commandTruncated: record.commandTruncated === true,"
+    }
+   ]
+  },
+  {
+   "name": "PP-receipt-cwd-raw",
+   "what": "a receipt keeps its folder as the runner wrote it",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "cwd: context.text(normalCwd(record.cwd), TEXT.cwd).text,",
+     "new": "cwd: context.text(record.cwd, TEXT.cwd).text,"
+    }
+   ]
+  },
+  {
+   "name": "PP-edited-lost",
+   "what": "an acceptance file edited during the task is not said so",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "edited: Boolean(acceptance?.edit),",
+     "new": "edited: false,"
+    }
+   ]
+  },
+  {
+   "name": "PP-baseline-sha-lost",
+   "what": "the sha256 of the baseline acceptance file is dropped",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "HEX64_RE.test(acceptance.baselineSha256) ? acceptance.baselineSha256 : null,",
+     "new": "false ? acceptance.baselineSha256 : null,"
+    }
+   ]
+  },
+  {
+   "name": "PP-checks-modified-lost",
+   "what": "the top-level checks_modified of the report is dropped",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "checksModified: checkChanges?.checks_modified === true",
+     "new": "checksModified: false"
+    }
+   ]
+  },
+  {
+   "name": "PP-lockfile-status",
+   "what": "every lockfile is reported as modified",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "status: LOCKFILE_STATUS.includes(row.status) ? row.status : 'modified',",
+     "new": "status: 'modified',"
+    }
+   ]
+  },
+  {
+   "name": "PP-excluded-lost",
+   "what": "the count of protected files left out is dropped",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "protected: count(excluded.protected),",
+     "new": "protected: 0,"
+    }
+   ]
+  },
+  {
+   "name": "PP-no-self-check",
+   "what": "the builder returns a statement without validating it",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "  if (!result.valid) throw new PackError('pack_invalid'",
+     "new": "  if (false) throw new PackError('pack_invalid'"
+    }
+   ]
+  },
+  {
+   "name": "PP-dup-subject",
+   "what": "a duplicate subject name is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (names.has(subject.name)) add(`${at}/name`, 'duplicate_subject'",
+     "new": "if (false) add(`${at}/name`, 'duplicate_subject'"
+    }
+   ]
+  },
+  {
+   "name": "PP-digest-algorithm",
+   "what": "a subject digest of the wrong algorithm is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (algorithm !== DIGEST_OF[subject.name]) { add(",
+     "new": "if (false) { add("
+    }
+   ]
+  },
+  {
+   "name": "PP-digest-length",
+   "what": "a tree id of the wrong length is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (side && subject.digest.gitTree.length !== idLength(",
+     "new": "if (false && subject.digest.gitTree.length !== idLength("
+    }
+   ]
+  },
+  {
+   "name": "PP-missing-subject",
+   "what": "a missing required subject is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!names.has(name)) add('/subject', 'missing_subject'",
+     "new": "if (false) add('/subject', 'missing_subject'"
+    }
+   ]
+  },
+  {
+   "name": "PP-receipt-order-loose",
+   "what": "a receipt listed twice passes the order rule",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "receipt.seq <= predicate.receipts[index - 1].seq",
+     "new": "receipt.seq < predicate.receipts[index - 1].seq"
+    }
+   ]
+  },
+  {
+   "name": "PP-dup-criterion",
+   "what": "a duplicate criterion id is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (ids.has(criterion.id)) add(`${at}/id`, 'duplicate_criterion'",
+     "new": "if (false) add(`${at}/id`, 'duplicate_criterion'"
+    }
+   ]
+  },
+  {
+   "name": "PP-manual-checks",
+   "what": "a manual criterion with checks is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (criterion.kind === 'manual' && criterion.checks.length) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-no-checks",
+   "what": "a criterion of kind checks without checks is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (criterion.kind === 'checks' && !criterion.checks.length) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-check-index",
+   "what": "a check index out of place is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (check.index !== position) add(`${where}/index`",
+     "new": "if (false) add(`${where}/index`"
+    }
+   ]
+  },
+  {
+   "name": "PP-unknown-receipt",
+   "what": "a check naming a receipt the pack does not hold is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!listed.has(seq)) add(`${where}/receipts/${item}`",
+     "new": "if (false) add(`${where}/receipts/${item}`"
+    }
+   ]
+  },
+  {
+   "name": "PP-no-receipt",
+   "what": "a passed check without receipts is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (['passed', 'failed'].includes(check.result) && !check.receipts.length) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-passes-passed",
+   "what": "passed with fewer passes than repeat is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "check.result === 'passed' ? check.passes >= check.repeat",
+     "new": "check.result === 'passed' ? true"
+    }
+   ]
+  },
+  {
+   "name": "PP-passes-short",
+   "what": "repeats_short with enough passes is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "check.result === 'repeats_short' ? check.passes > 0 && check.passes < check.repeat",
+     "new": "check.result === 'repeats_short' ? true"
+    }
+   ]
+  },
+  {
+   "name": "PP-passes-none",
+   "what": "a check that did not pass may count passes",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": ": check.result === 'failed' ? true : check.passes === 0;",
+     "new": ": true;"
+    }
+   ]
+  },
+  {
+   "name": "PP-reason-check",
+   "what": "a reason naming a check the criterion does not have is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (reason.check !== null && reason.check >= criterion.checks.length) add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-omitted-reasons",
+   "what": "reasons other than checks_modified may be left out",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (criterion.omittedReasons > 0 && criterion.reasons.at(-1)?.code !== 'checks_modified') add(",
+     "new": "if (false) add("
+    }
+   ]
+  },
+  {
+   "name": "PP-missing-untrusted",
+   "what": "evidenced passes while the acceptance file is untrusted",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "[!predicate.acceptance.trusted, 'acceptance_untrusted']",
+     "new": "[false, 'acceptance_untrusted']"
+    }
+   ]
+  },
+  {
+   "name": "PP-missing-report",
+   "what": "evidenced passes without a check-changes report",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "[!predicate.checkChanges.reported, 'check_changes_unknown']",
+     "new": "[false, 'check_changes_unknown']"
+    }
+   ]
+  },
+  {
+   "name": "PP-missing-ledger",
+   "what": "evidenced passes while the ledger is not verified",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "[!predicate.ledger.verified, 'ledger_not_verified']",
+     "new": "[false, 'ledger_not_verified']"
+    }
+   ]
+  },
+  {
+   "name": "PP-status-unchecked",
+   "what": "a status the listed facts do not give is accepted",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (criterion.status !== expected) add(`${at}/status`",
+     "new": "if (false) add(`${at}/status`"
+    }
+   ]
+  },
+  {
+   "name": "PP-semantic-skipped",
+   "what": "the rules beyond the schema are not checked",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "  const errors = semanticErrors(statement);",
+     "new": "  const errors = [];"
+    }
+   ]
+  }
+ ]
+}
