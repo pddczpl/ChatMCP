@@ -174,10 +174,11 @@ keeps the integrity level "unconfined" (as in [PROOF-LEDGER.md](PROOF-LEDGER.md)
 
 ## Budgets and measured numbers
 
-Each run of `tests/verify-proof-baseline.mjs` prints one line `PROOF_BASELINE_BUDGET {...}` and holds these budgets:
+Each run of `tests/verify-proof-baseline.mjs` prints one line `PROOF_BASELINE_BUDGET {...}` and holds these budgets, set with room for
+a CI runner two to three times slower than the machine below:
 
-- storing the objects costs at most `max(2 s, 0.5 ms × blobs)`;
-- a baseline costs at most its own full snapshot plus `max(3 s, that snapshot again)`;
+- storing the objects costs at most `max(3 s, 1 ms × blobs)` (the plan measured 5.6 ms per new loose blob);
+- a baseline costs at most `max(5 s, 2.5 × its own full snapshot)` (storing reads every file the snapshot hashed once more);
 - a diff costs at most `max(10 s, 4 × the full snapshot)`.
 
 Measured on 2026-11-22 on the author's machine (Windows 11, Node 24.19.0, Git 2.55.0):

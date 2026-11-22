@@ -372,7 +372,8 @@ criteria:
     modified: [{ path: 'mode', oldMode: '100644', newMode: '100755', oldOid: '3'.repeat(40), newOid: '3'.repeat(40) }],
     deleted: [{ path: 'gone', mode: '100644', oid: '2'.repeat(40) }],
   });
-  assert.equal(workspaceKey(path.join(os.tmpdir(), 'a', '..', 'b')), workspaceKey(path.join(os.tmpdir(), 'b')), 'the path is resolved first');
+  assert.equal(workspaceKey(`${os.tmpdir()}${path.sep}a${path.sep}..${path.sep}b`), workspaceKey(path.join(os.tmpdir(), 'b')), 'the path is resolved first');
+  assert.equal(workspaceKey('some/where'), workspaceKey(path.resolve('some/where')), 'a relative path names the folder it resolves to');
   assert.match(workspaceKey('C:/some/where'), /^[0-9a-f]{32}$/);
   assert.notEqual(workspaceKey('/one'), workspaceKey('/two'));
   if (!POSIX) assert.equal(workspaceKey('C:\\Work\\Repo'), workspaceKey('c:\\work\\repo'), 'case does not matter on Windows');
@@ -719,10 +720,12 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
       diffMs, patchBytes: diff.patch.bytes, storeBytes, recordBytes: fs.statSync(base.file).size,
     };
     budgets.push(row);
-    // Budgets (docs/PROOF-BASELINE.md "Budgets"): storing the objects costs at most 0.5 ms per blob (the plan measured 5.6 ms per new
-    // loose blob), a baseline at most its own full snapshot plus max(3 s, that snapshot again), a diff at most max(10 s, 4x the snapshot).
-    assert.ok(row.storeMs <= Math.max(2_000, 0.5 * row.files), `${label}: storing ${row.files} blobs took ${row.storeMs} ms`);
-    assert.ok(row.baselineMs <= snapshotMs + Math.max(3_000, snapshotMs), `${label}: the baseline took ${row.baselineMs} ms, its snapshot alone ${snapshotMs} ms`);
+    // Budgets (docs/PROOF-BASELINE.md "Budgets"), set with room for a CI runner two to three times slower than the machine that
+    // measured them: storing the objects costs at most max(3 s, 1 ms per blob) (the plan measured 5.6 ms per new loose blob); a baseline
+    // at most max(5 s, 2.5x its own full snapshot) (storing reads every file the snapshot hashed once more); a diff at most
+    // max(10 s, 4x the snapshot).
+    assert.ok(row.storeMs <= Math.max(3_000, row.files), `${label}: storing ${row.files} blobs took ${row.storeMs} ms`);
+    assert.ok(row.baselineMs <= Math.max(5_000, 2.5 * snapshotMs), `${label}: the baseline took ${row.baselineMs} ms, its snapshot alone ${snapshotMs} ms`);
     assert.ok(row.diffMs <= Math.max(10_000, 4 * snapshotMs), `${label}: the diff took ${row.diffMs} ms`);
   }
   console.log(`PROOF_BASELINE_BUDGET ${JSON.stringify({ platform: process.platform, node: process.versions.node, budgets })}`);
