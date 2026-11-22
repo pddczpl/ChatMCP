@@ -115,8 +115,9 @@ function hashFile(file) {
 const blobId = (bytes, format) => createHash(format === 'sha256' ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
 
 /**
- * Checks everything, writes the file and (with `tag`) creates the tag. Returns {out, sha256, commit, tag, tasks}.
- * Throws FreezeError {code} for every refusal; nothing is written or tagged then.
+ * Checks everything, writes the file and (with `tag`) creates the tag. Returns {out, sha256, commit, tag, tasks, corpusSha256}.
+ * Throws FreezeError {code} for every refusal: nothing is written or tagged then, except after `tag_failed` (git itself could not make
+ * the tag), when the file has been written already.
  */
 export async function freeze({ corpus, hidden, config: configFile, out, tag = null }) {
   if (tag !== null && (!TAG_NAME.test(tag) || git(undefined, ['check-ref-format', `refs/tags/${tag}`]).status !== 0)) {
