@@ -188,9 +188,9 @@
   },
   {
    "name": "R12",
-   "what": "a message switches a running ordinary task to plan mode silently",
+   "what": "a message switches a running ordinary task to plan mode silently (the check that it does not leave plan mode stays)",
    "patches": [
-    { "file": "lib/agent.mjs", "old": "if(this.#planModeAfter(context.task,planMode)===true&&!planOnly(context.task))", "new": "if(false)" }
+    { "file": "lib/agent.mjs", "old": "if(this.#planModeAfter(context.task,planMode)===true&&!planOnly(context.task))", "new": "if(this.#planModeAfter(context.task,planMode)===true&&false)" }
    ]
   },
   {

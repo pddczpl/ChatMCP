@@ -739,7 +739,7 @@ export class PermissionGate {
   /**
    * The decision for one call. `forceAsk` is the only thing a PreToolUse hook can ask of the gate (lib/manager.mjs): a call that
    * would have run without a question becomes a question for the owner. It is checked after every refusal below (a protected file,
-   * Read Only, sandbox-only, an unclassified tool in Autonomous, nobody to ask), so it can add a question and never remove one or
+   * plan mode, Read Only, sandbox-only, an unclassified tool in Autonomous, nobody to ask), so it can add a question and never remove one or
    * turn a refusal into an approval; `askReason` is shown with the question. A result with `asked: true` went to the owner.
    */
   async authorize({name,args={},definition={},taskId,signal,forceAsk=false,askReason=''}={}){
