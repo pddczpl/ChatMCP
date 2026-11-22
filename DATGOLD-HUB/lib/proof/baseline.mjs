@@ -328,10 +328,10 @@ function streamGit(exe, args, { cwd, env, source, signal = null, timeoutMs = BAS
     child.stdout.on('error', () => {});
     child.stderr.on('error', () => {});
     child.stdin.on('error', () => {});
-    // A source that throws (bytes that are not the blob) stops Git before it reads `done`, so it commits nothing.
+    // A source that throws (bytes that are not the blob) stops Git before it reads `done`, so it commits nothing. A closed pipe means
+    // Git stopped reading: its exit code says why.
     const fed = pipeline(Readable.from(source), child.stdin).then(() => null, (error) => {
-      if (error?.code && !['EPIPE', 'EOF', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_STREAM_DESTROYED'].includes(error.code)) stop(error);
-      else if (!error?.code) stop(error);
+      if (!['EPIPE', 'EOF', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_STREAM_DESTROYED'].includes(error?.code)) stop(error);
       return error;
     });
     const timer = setTimeout(() => stop(fault('git_timeout', `git did not finish within ${timeoutMs} ms`)), timeoutMs);
@@ -359,31 +359,22 @@ export async function importTree({ git, env = process.env, gitDir, entries, cont
   if (typeof git !== 'string' || !git || typeof gitDir !== 'string' || !Array.isArray(entries) || typeof ref !== 'string' || !ref.startsWith('refs/')) {
     throw fault('baseline_bad_argument', 'importTree needs git, gitDir, entries and a ref');
   }
-  const marks = new Map();
-  const lines = [];
+  // Every blob to write once (the first path that has it), then the commit whose `M` lines name blobs by mark or by id.
+  const toWrite = [...new Map(entries.filter((entry) => entry.mode !== MODE.gitlink && !known.has(entry.oid)).map((entry) => [entry.oid, entry])).values()];
+  const marks = new Map(toWrite.map((entry, index) => [entry.oid, index + 1]));
   async function* source() {
-    const pending = entries.filter((entry) => entry.mode !== MODE.gitlink && !known.has(entry.oid));
-    let next = 0;
-    for (const entry of entries) {
-      if (entry.mode === MODE.gitlink || known.has(entry.oid)) { lines.push(`M ${entry.mode} ${entry.oid} ${fastImportPath(entry.path)}\n`); continue; }
-      if (!marks.has(entry.oid)) {
-        while (next < pending.length && pending[next] !== entry) next += 1;
-        // read ahead: the next READ_AHEAD files are read at once, written in order
-        const batch = pending.slice(next, next + READ_AHEAD).filter((row) => !marks.has(row.oid));
-        const contents = await Promise.all(batch.map((row) => contentOf(row)));
-        for (let index = 0; index < batch.length; index += 1) {
-          const row = batch[index];
-          if (marks.has(row.oid)) continue;
-          const content = contents[index];
-          if (!Buffer.isBuffer(content) || blobId(content, objectFormat) !== row.oid) throw fault('workspace_changed', `${row.path} changed while it was read; take the snapshot again`);
-          marks.set(row.oid, marks.size + 1);
-          yield Buffer.concat([Buffer.from(`blob\nmark :${marks.size}\ndata ${content.length}\n`), content, Buffer.from('\n')]);
-        }
-        next += batch.length;
+    for (let start = 0; start < toWrite.length; start += READ_AHEAD) {
+      const batch = toWrite.slice(start, start + READ_AHEAD);
+      const contents = await Promise.all(batch.map((row) => contentOf(row))); // READ_AHEAD files read at once, written in order
+      for (const [index, row] of batch.entries()) {
+        const content = contents[index];
+        if (!Buffer.isBuffer(content) || blobId(content, objectFormat) !== row.oid) throw fault('workspace_changed', `${row.path} changed while it was read; take the snapshot again`);
+        yield Buffer.concat([Buffer.from(`blob\nmark :${marks.get(row.oid)}\ndata ${content.length}\n`), content, Buffer.from('\n')]);
       }
-      lines.push(`M ${entry.mode} :${marks.get(entry.oid)} ${fastImportPath(entry.path)}\n`);
     }
     yield Buffer.from(`commit ${ref}\ncommitter DatGold Baseline <baseline@datgold.invalid> ${Math.floor(when.getTime() / 1000)} +0000\ndata 0\ndeleteall\n`);
+    // a submodule or a known blob is named by its id (a submodule's commit id is never among the marks of blobs)
+    const lines = entries.map((entry) => `M ${entry.mode} ${marks.has(entry.oid) ? `:${marks.get(entry.oid)}` : entry.oid} ${fastImportPath(entry.path)}\n`);
     for (let index = 0; index < lines.length; index += 4096) yield Buffer.from(lines.slice(index, index + 4096).join(''), 'utf8');
     yield Buffer.from('\ndone\n');
   }

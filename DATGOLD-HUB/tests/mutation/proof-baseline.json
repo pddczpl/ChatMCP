@@ -161,7 +161,7 @@
     {
       "name": "PB-import-known-ignored",
       "what": "a blob the store already has is not named by its id",
-      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (entry.mode === MODE.gitlink || known.has(entry.oid)) { lines.push(", "new": "if (entry.mode === MODE.gitlink) { lines.push(" }]
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "entry.mode !== MODE.gitlink && !known.has(entry.oid)", "new": "entry.mode !== MODE.gitlink" }]
     },
     {
       "name": "PB-import-no-done",
