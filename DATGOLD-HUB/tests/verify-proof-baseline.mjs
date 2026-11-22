@@ -655,6 +655,43 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   ok('an edited record is refused (byte flip; re-hashed against the anchor; manifest; format; wrong workspace; ids); a missing or forged store is reported');
 }
 
+// ------------------------------------------------------------------ 6b: the old blobs are hashed as a stream, their sum has no limit
+// (audit F1 of #148: one buffered `cat-file --batch` for every old blob hit the output cap of the store check, so a 270 MB file with a
+// 7-byte change, or a 280 MB deletion, threw `git_output_limit` and lost the change list). `limits` lowers the caps to keep it small.
+{
+  const hub = fresh('hub');
+  const repo = newRepo('old-blobs');
+  const text = (tag) => Array.from({ length: 2000 }, (_, line) => `${tag} line ${String(line).padStart(5, '0')} ${'x'.repeat(80)}\n`).join('');
+  for (const name of ['big1.txt', 'big2.txt', 'big3.txt']) write(repo, name, text(name)); // about 190 KiB each, more than one pipe chunk
+  write(repo, 'empty.txt', '');
+  let state = 7;
+  const noise = Buffer.alloc(200 * 1024, 0).map(() => { state = (state * 1103515245 + 12345) % 2147483648; return state >>> 16; });
+  write(repo, 'noise.bin', noise);
+  write(repo, 'keep.txt', 'keep\n');
+  commitAll(repo);
+  const base = await snapshotBaseline({ hubDir: hub, root: repo, toolchain });
+  for (const name of ['big1.txt', 'big2.txt', 'big3.txt']) write(repo, name, text(name).replace(`${name} line 00001 `, `${name} line 0000X `));
+  write(repo, 'empty.txt', 'no longer empty\n');
+  const cap = 64 * 1024; // the old blobs total about 570 KiB
+  const small = await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256, limits: { gitOutputBytes: cap } });
+  assert.equal(small.patch.status, 'ok', `a small patch over old blobs larger than the output cap: ${JSON.stringify(small.patch)}`);
+  assert.ok(small.patch.bytes < 8192, `the patch is small: ${small.patch.bytes} bytes`);
+  assert.deepEqual(paths(small.changes.modified), ['big1.txt', 'big2.txt', 'big3.txt', 'empty.txt']);
+  const checkout = checkoutBaseline(storeOf(hub, repo, base.record));
+  applyPatch(checkout, small.patchBytes);
+  assert.equal(git(checkout, ['write-tree']).stdout.trim(), small.final.tree, 'the patch gives the final tree');
+  fs.rmSync(path.join(repo, 'noise.bin'));
+  const deleted = await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256, limits: { gitOutputBytes: cap, maxPatchBytes: 32 * 1024 } });
+  assert.deepEqual(deleted.patch, { status: 'unavailable', reason: 'patch_too_large' }, 'a large deletion is a patch too large, not a thrown output limit');
+  assert.equal(deleted.patchBytes, null);
+  assert.deepEqual(paths(deleted.changes.deleted), ['noise.bin'], 'with the change list');
+  assert.deepEqual(deleted.counts, { added: 0, modified: 4, deleted: 1 });
+  const unreadable = await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256, limits: { gitOutputBytes: 16 } });
+  assert.deepEqual(unreadable.patch, { status: 'unavailable', reason: 'baseline_objects_unreadable' }, 'a store Git cannot read within the limits is a reason, not a throw');
+  assert.deepEqual(unreadable.counts, { added: 0, modified: 4, deleted: 1 }, 'with the change list');
+  ok('the old blobs of the changed paths are hashed as a stream: a small patch over old blobs larger than the output cap, a large deletion is patch_too_large, an unreadable store is a reason, both with the change list');
+}
+
 // ------------------------------------------------------------------ the rows of a snapshot (lib/proof/tree-snapshot.mjs, `entries: true`)
 {
   const repo = newRepo('entries');
