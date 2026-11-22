@@ -13,7 +13,7 @@
       "name": "K2",
       "what": "the pool does not hand the setting to the runner of a new conversation",
       "patches": [
-        { "file": "lib/concurrent-api-agent.mjs", "old": "roleProfiles:selectedRoleProfiles,...(effort!==null?{reasoningEffort:effort}:{})});", "new": "roleProfiles:selectedRoleProfiles});" }
+        { "file": "lib/concurrent-api-agent.mjs", "old": "roleProfiles:selectedRoleProfiles,...(effort!==null?{reasoningEffort:effort}:{}),", "new": "roleProfiles:selectedRoleProfiles," }
       ]
     },
     {
@@ -34,7 +34,7 @@
       "name": "K5",
       "what": "a follow-up hands the runner nothing of the setting it names",
       "patches": [
-        { "file": "lib/concurrent-api-agent.mjs", "old": "const named = effort !== null ? { reasoningEffort: effort } : {};", "new": "const named = {};" }
+        { "file": "lib/concurrent-api-agent.mjs", "old": "const named = { ...(effort !== null ? { reasoningEffort: effort } : {}), ", "new": "const named = { " }
       ]
     },
     {
