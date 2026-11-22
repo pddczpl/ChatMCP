@@ -54,7 +54,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const FORBIDDEN_WORDS = /certified|tamper[-\s]?proof|guarantee/i;
 const TREE_A = 'a'.repeat(40);
 const TREE_B = 'b'.repeat(40);
-const AGENT = { name: 'DatGold', version: '3.11.2' };
+const AGENT = { name: 'DatGold', version: '1.2.3-test' }; // any version: the pack copies it, it does not read the Hub's
 const MODEL = { provider: 'test-provider', id: 'scripted-model', profileRevision: 'profile-7' };
 const AT = '2026-11-22T10:00:00.000Z';
 
@@ -809,7 +809,7 @@ async function finish(repo, ledger, { ownerAcceptances = [], secrets = [SECRET],
   const plainBytes = fs.readFileSync(plain.file);
   assert.ok(plainBytes.toString('utf8').includes(SECRET), 'the unmasked ledger holds the secret');
   const leaky = buildAgentChangeStatement({
-    agent: { name: 'DatGold', version: `3.11.2-${SECRET}` }, model: { provider: SECRET, id: `m-${SECRET}`, profileRevision: SECRET }, baseCommit: repo.baseCommit,
+    agent: { name: 'DatGold', version: `1.2.3-test-${SECRET}` }, model: { provider: SECRET, id: `m-${SECRET}`, profileRevision: SECRET }, baseCommit: repo.baseCommit,
     trees: { before: repo.before, after }, diff, acceptance, checkChanges, ledger: plainBytes,
     ownerAcceptances: [{ criterionId: 'docs', treeAlgorithm: after.treeAlgorithm, tree: after.tree, by: SECRET, at: AT }], cost: null, secrets: [SECRET],
   });
