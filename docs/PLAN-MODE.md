@@ -38,6 +38,7 @@ refused without a question and recorded as a policy refusal; the reason the mode
 - every command tool (`run_command`, `tasks_run`, and any tool named like a shell), a command that only reads included;
 - every tool of an external MCP server, one its server marks `readOnlyHint: true` and the owner allowed and trusts included;
 - every write, edit, Git change, deletion, execution and unclassified call, whatever the mode; plan mode with Full Access on still refuses them.
+  This includes the web tools of category `execute` (`web_fetch`, `web_search`, `web_extract`, `docs_search`): in v1 a plan cannot read the web.
 
 ## exit_plan_mode
 

@@ -100,6 +100,8 @@ const NEVER_A_RUN_RECORD = [
   'invalid_attachments', 'invalid_attachment', 'protected_attachment', 'attachments_too_large', 'image_too_large', 'unsupported_attachment',
   'empty_catalog', 'invalid_catalog', 'invalid_task_id', 'task_running', 'task_not_found', 'task_not_running', 'invalid_auto_resume', 'invalid_prompt', 'pending_messages_full',
   'shutting_down', 'invalid_limits', 'invalid_reasoning_effort', 'preflight_timeout', 'workspace_missing', 'provider_not_ready',
+  // plan mode (docs/PLAN-MODE.md): a start, a continue or a queued message refused before the lock, so before any run exists; the caller reads the Hub's answer
+  'invalid_plan_mode', 'plan_mode_unavailable', 'plan_mode_pending', 'plan_mode_running',
   'invalid_arguments', 'unknown_function', 'unknown_tool', 'unknown_capability',
 ];
 
