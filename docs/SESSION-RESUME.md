@@ -59,8 +59,8 @@ A task written before the journal existed (3.11.2 and earlier, v3.9.0 included) 
 | `droppedTailItems` | the journal items of the last run's interrupted turn that were cut: its text, its calls and the results it had (`interruptedCalls` is how many of them were calls) |
 | `droppedOldItems` | the oldest items left out to fit the size limit (the number the `[HISTORY LEFT OUT` note names) |
 | `summaryUsed` | whether a `context_summary` record replaced the items before it (nothing writes one yet, so this is `false` until ac-7) |
-| `noResultCalls` | the prior calls with no recorded result, the ones the note names |
-| `unverified` | the unverified operations the task carries (`task.unverifiedOperations`, which the note lists) |
+| `noResultCalls` | the prior calls with no recorded result, all of them (the note names the last ten) |
+| `unverified` | the unverified operations the task carries, all of them (`task.unverifiedOperations`; the note lists the last ten) |
 
 **The task.** `task.resume` holds the same numbers with `mode: 'transcript'`, the run (1-based) and the time; the public task and the payload of `/api/tasks/continue` carry `resume` and `resumeMode`. When the journal could not be used the run starts from the checkpoint text as before, the `resume_fallback` event says why, and `task.resume` is `{mode: 'checkpoint', run, at, reason, bytes, unverified}`, where `bytes` is the size of the checkpoint text in UTF-8; no `resumed_from_transcript` is emitted. A run that is not a continuation, or one that fails before it reads the history, has `resumeMode: null`. A stored mode this Hub does not know is shown as `null`. `task.resume` is saved in `task.json`, so a Hub that loads the task again shows how its last run resumed.
 
