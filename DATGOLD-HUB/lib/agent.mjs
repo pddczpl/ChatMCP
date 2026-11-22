@@ -14,7 +14,7 @@ import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
 import { EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
 import { taskToolSelectionMode, selectTaskToolNames, isExternalTool } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
-import { historyBytes, itemRecord, journalCounters, loadHistoryJournal, resumeNote, runEndRecord, runStartRecord } from './history-journal.mjs';
+import { callsWithoutResult, historyBytes, itemRecord, journalCounters, loadHistoryJournal, resumeNote, runEndRecord, runStartRecord } from './history-journal.mjs';
 import { withoutStaleThinking } from './thinking-blocks.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
 import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArguments, shapeAgentResults } from './agent-results.mjs';
@@ -42,6 +42,16 @@ const MAX_CONTEXT_BYTES = 48 * 1024 * 1024;
 // What a resumed run adds besides its instructions, its skill index and its prompt (the resumed note, the notices of background agents): the
 // history replayed from the journal is cut to leave this much of the 48 MiB free (lib/history-journal.mjs).
 const RESUME_RESERVE_BYTES = 256 * 1024;
+// How the latest run of a task started when it continued an earlier one (P9 ac-18, docs/SESSION-RESUME.md): 'transcript', the history replayed
+// from the journal, or 'checkpoint', the checkpoint text because the journal could not be used. task.resume holds it with its numbers.
+const RESUME_MODES = new Set(['transcript', 'checkpoint']);
+const resumeOf = (task) => (RESUME_MODES.has(task.resume?.mode) ? task.resume : null);
+/** The report's line about how the latest run started. */
+function resumeReportLine(resume) {
+  if (!resume) return 'Resume (latest run): none (this run did not continue an earlier one)';
+  if (resume.mode === 'checkpoint') return `Resume (latest run): checkpoint (the journal could not be used: ${resume.reason}); checkpoint text ${resume.bytes} bytes; unverified operations: ${resume.unverified}`;
+  return `Resume (latest run): transcript; ${resume.items} items, ${resume.bytes} bytes replayed; ${resume.droppedTailItems} items of an interrupted turn left out; ${resume.droppedOldItems} older items left out for size; summary used: ${resume.summaryUsed ? 'yes' : 'no'}; calls with no recorded result: ${resume.noResultCalls}; unverified operations: ${resume.unverified}`;
+}
 const MAX_ARGUMENT_BYTES = 4 * 1024 * 1024;
 const TOOL_TIMEOUT = 120000;
 // Initializing a task is bounded even when the user has opted out of model request/time limits.
@@ -734,6 +744,8 @@ export class AgentRunner {
       planMode:task.planMode===true,
       planApproval:task.planApproval??null,
       planOnly:planOnly(task),
+      resumeMode:resumeOf(task)?.mode??null,
+      resume:resumeOf(task),
     };
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
@@ -758,7 +770,7 @@ export class AgentRunner {
       'CHATMCP HUB — BẢN GHI TÁC VỤ', `ID: ${task.id}`, `Trạng thái: ${task.status}${isTaskState(task.state) ? ` · ${describeState(task.state).label} (${task.state})` : ''}`,
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Effective task profile: ${JSON.stringify(task.effectiveProfile??{source:'global_provider'})}`,
-      `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
+      `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`, resumeReportLine(resumeOf(task)),
       `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; provider-reported input/output tokens (partial when missing): ${task.usage.inputTokens}/${task.usage.outputTokens}; missing input/output reports: ${task.usage.inputUsageMissing??'legacy-unknown'}/${task.usage.outputUsageMissing??'legacy-unknown'}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
       `Cost in USD (the owner's rates, or when there are none the model catalog's, then an estimate; model response evidence only; incomplete billing): ${JSON.stringify(task.modelCost??createCostLedger())}`,
       '', 'NGỮ CẢNH MODEL (DỰ TOÁN)', JSON.stringify(task.contextPolicy??{source:'not_recorded'}),
@@ -1173,6 +1185,7 @@ export class AgentRunner {
           /^[a-z0-9][a-z0-9._-]{0,40}$/i.test(id))) : {};
     if (taskEffort !== null) task.reasoningEffort = taskEffort;
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.finalParts = null; task.error = null; task.errorCode = null; task.cancelRequested = false;
+    task.resume = null; // set below when this run continues an earlier one
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
     // selectionText is stored only when it is not the prompt: a later run of the conversation reads this prompt as an earlier one, and must read the same text.
@@ -1428,9 +1441,18 @@ export class AgentRunner {
           context.history.seed(loaded.items);
           for (const item of loaded.items) if (item?.type === 'function_call' && typeof item.call_id === 'string') context.seenCalls.add(item.call_id);
           seed = { source: 'journal', items: loaded.items.length, bytes: loaded.bytes, dropped: loaded.dropped, cut: loaded.interrupted.length };
-          resumedNote = this.#redact(resumeNote({ unverified: task.unverifiedOperations ?? [], interrupted: loaded.interrupted, calls: loaded.calls, dropped: loaded.dropped, previous: previousRun }));
+          resumedNote = this.#redact(resumeNote({ unverified: task.unverifiedOperations ?? [], interrupted: loaded.interrupted, calls: loaded.calls, answered: loaded.answered, dropped: loaded.dropped, previous: previousRun }));
+          const unverified = task.unverifiedOperations ?? [];
+          // What the page and the report show about this start (P9 ac-18): the loader's own numbers, nothing estimated.
+          const stats = { items: loaded.items.length, bytes: loaded.bytes, droppedTailItems: loaded.cutItems, droppedOldItems: loaded.dropped, summaryUsed: loaded.summaryApplied === true,
+            interruptedCalls: loaded.interrupted.length, noResultCalls: callsWithoutResult({ unverified, interrupted: loaded.interrupted, calls: loaded.calls, answered: loaded.answered }).length, unverified: unverified.length };
+          task.resume = { mode: 'transcript', run: task.runs.length, at: now(), ...stats };
+          await this.#event(task, 'resumed_from_transcript', `Tiếp tục từ lịch sử đã lưu: phát lại ${stats.items} mục (${stats.bytes} byte) từ nhật ký, không chạy lại thao tác nào.`
+            + (stats.droppedTailItems ? ` Bỏ ${stats.droppedTailItems} mục của lượt bị ngắt.` : '') + (stats.droppedOldItems ? ` Bỏ ${stats.droppedOldItems} mục cũ cho vừa giới hạn kích thước.` : '')
+            + (stats.summaryUsed ? ' Dùng bản tóm tắt ngữ cảnh đã lưu.' : '') + (stats.noResultCalls ? ` ${stats.noResultCalls} lời gọi trước chưa có kết quả được ghi: model được nhắc kiểm tra trước khi lặp lại.` : ''), stats);
         } else {
           seed = { ...seed, reason: loaded.reason };
+          task.resume = { mode: 'checkpoint', run: task.runs.length, at: now(), reason: loaded.reason, bytes: Buffer.byteLength(context.resumeEvidence ?? ''), unverified: (task.unverifiedOperations ?? []).length };
           await this.#event(task, 'resume_fallback', loaded.reason === 'no_journal'
             ? 'Phiên này được ghi trước khi có nhật ký lịch sử: model nhận bản tóm tắt checkpoint của phiên như trước.'
             : `Không dùng được nhật ký lịch sử của phiên (${loaded.reason}): model nhận bản tóm tắt checkpoint như trước. Không thao tác nào được chạy lại.`, {}, { reason: loaded.reason, ...(loaded.detail ? { detail: loaded.detail } : {}) });

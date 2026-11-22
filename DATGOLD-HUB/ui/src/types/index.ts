@@ -52,6 +52,32 @@ export interface TaskSummary {
   workspace?: { path: string };
   transport?: string;
   autoResume?: boolean;
+  /** How the latest run started when it continued an earlier one (lib/agent.mjs, P9 ac-18); null for a run that did not. */
+  resumeMode?: ResumeMode | null;
+  resume?: TaskResume | null;
+}
+
+/** 'transcript': the run replayed the conversation's history from the Hub's journal; 'checkpoint': the journal could not be used, the run got the checkpoint text. */
+export type ResumeMode = 'transcript' | 'checkpoint';
+
+/**
+ * `task.resume` (lib/agent.mjs, docs/SESSION-RESUME.md): the numbers of how the latest run resumed, as the loader counted them. The transcript fields are set
+ * for mode 'transcript'; `reason` (why the journal could not be used) for 'checkpoint', whose `bytes` is the size of the checkpoint text.
+ */
+export interface TaskResume {
+  mode: ResumeMode;
+  /** The run (1-based) that resumed, and when. */
+  run?: number;
+  at?: string;
+  items?: number;
+  bytes?: number;
+  droppedTailItems?: number;
+  droppedOldItems?: number;
+  summaryUsed?: boolean;
+  interruptedCalls?: number;
+  noResultCalls?: number;
+  unverified?: number;
+  reason?: string;
 }
 
 /**
@@ -594,6 +620,8 @@ export interface Task {
   transport?: string;
   chatUrl?: string | null;
   handoff?: {fromTaskId:string;toTransport:string;note:string};
+  resumeMode?: ResumeMode | null;
+  resume?: TaskResume | null;
 }
 
 export interface HubHealth {

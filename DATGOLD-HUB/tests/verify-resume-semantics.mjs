@@ -34,6 +34,7 @@ import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { DualAgent } from '../lib/dual-agent.mjs';
 import { createHubServer } from '../hub.mjs';
 import { LEFT_OUT_HEADER, NO_RESULT_HEADER, RESUME_NOTE_HEADER, callsWithoutResult, historyBytes, loadHistoryJournal, resumeNote } from '../lib/history-journal.mjs';
+import { SKILL_REFERENCES_HEADER } from '../lib/skill-index.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -77,7 +78,8 @@ const outputText = (item) => (typeof item.output === 'string' ? item.output : JS
 const outputsOf = (input) => new Map(input.filter((item) => item?.type === 'function_call_output').map((item) => [item.call_id, outputText(item)]));
 const textOf = (item) => (Array.isArray(item?.content) ? item.content.map((part) => String(part?.text ?? '')).join('') : String(item?.content ?? ''));
 const userTexts = (input) => input.filter((item) => item?.role === 'user').map(textOf);
-const noteIndex = (input) => input.findIndex((item) => item?.role === 'user' && textOf(item).startsWith(RESUME_NOTE_HEADER));
+/** Where the replayed history ends in a request: at the first item the new run adds (its skill index, else the resumed note). */
+const noteIndex = (input) => input.findIndex((item) => item?.role === 'user' && (textOf(item).startsWith(RESUME_NOTE_HEADER) || textOf(item).startsWith(SKILL_REFERENCES_HEADER)));
 const records = async (file) => (await fs.readFile(file, 'utf8')).split('\n').filter(Boolean).map((text) => JSON.parse(text));
 /** The lines of one section of the note: from its header to the next line that is not an entry. */
 const section = (note, header) => {
@@ -549,6 +551,7 @@ try {
     const planCard = await pendingPlan(gate, planTask.id);
     model.scriptChild(turn(call('read_file', { path: 'src/app.js' })), final('Second chat read it.'));
     const second = await pool.start({ prompt: `${CHILD_TAG} read src/app.js.` });
+    assert.equal(second.resumeMode, null, 'a second chat that waits for its worktree has not resumed');
     const worktreeCard = await until(() => gate.state().pending.find((item) => item.toolName === 'local.worktrees_create' && item.taskId === second.id), 'the worktree question of the second chat');
     gate.decide(worktreeCard.id, true);
     await until(() => pool.get(second.id)?.status === 'completed', 'the second chat to finish');
