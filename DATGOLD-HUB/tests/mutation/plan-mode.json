@@ -1,0 +1,239 @@
+{
+ "suite": "verify-plan-mode.mjs",
+ "description": "What the plan-mode suite must notice (P9 ac-9, docs/PLAN-MODE.md): the gate's per-task plan policy weakened, moved behind Full Access or keyed wrongly; the plan approval clearing the policy on anything but an approval; decide() taking feedback or an edited plan where it must not; the runner not holding the policy, offering or running the spawn tools, reading MCP prompts, or forgetting the approval; and the routes and transports that carry planMode and the answer.",
+ "mutations": [
+  {
+   "name": "G1",
+   "what": "the plan check is removed from authorize()",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(planned!==null)return this.#refuse(name,args,verdict,taskId,'policy',planned);", "new": "" }
+   ]
+  },
+  {
+   "name": "G2",
+   "what": "the plan check comes after the Full Access shortcut",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(planned!==null)return this.#refuse(name,args,verdict,taskId,'policy',planned);", "new": "" },
+    { "file": "lib/permissions.mjs", "old": "    // Full Access stays outside the workspace checks even for the operations it still asks about.", "new": "    if(planned!==null)return this.#refuse(name,args,verdict,taskId,'policy',planned);\n    // Full Access stays outside the workspace checks even for the operations it still asks about." }
+   ]
+  },
+  {
+   "name": "G3",
+   "what": "any name counts as one of the Hub's own tools (a local.* name that no tool has, read by its name)",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "const own=(verdict.local===true&&lower.startsWith('local.'))||lower.startsWith('studio.');", "new": "const own=true;" }
+   ]
+  },
+  {
+   "name": "G4",
+   "what": "a command that reads runs in plan mode",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "else if(PLAN_SHELL.test(lower))what=", "new": "else if(false)what=" }
+   ]
+  },
+  {
+   "name": "G5",
+   "what": "only dangerous calls are refused in plan mode",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "else if(verdict.category!=='read'&&verdict.category!=='checkpoint')what=", "new": "else if(verdict.category==='dangerous')what=" }
+   ]
+  },
+  {
+   "name": "G6",
+   "what": "a checkpoint call (update_plan, studio.plan_set) is refused in plan mode",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "else if(verdict.category!=='read'&&verdict.category!=='checkpoint')what=", "new": "else if(verdict.category!=='read')what=" }
+   ]
+  },
+  {
+   "name": "G7",
+   "what": "one plan-mode task holds every task of the gate",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(this.taskPolicies.get(taskId)?.planOnly!==true)return null;", "new": "if(this.taskPolicies.size===0)return null;" }
+   ]
+  },
+  {
+   "name": "G8",
+   "what": "a policy that only looks like planOnly holds the task",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(policy?.planOnly!==true){this.taskPolicies.delete(taskId);return null;}", "new": "if(!policy?.planOnly){this.taskPolicies.delete(taskId);return null;}" }
+   ]
+  },
+  {
+   "name": "G9",
+   "what": "an approval does not clear the policy",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan};", "new": "this.taskPolicies.set(taskId,Object.freeze({planOnly:true}));return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan};" }
+   ]
+  },
+  {
+   "name": "G10",
+   "what": "a denial or an expiry clears the policy",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null};", "new": "this.taskPolicies.delete(taskId);return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null};" }
+   ]
+  },
+  {
+   "name": "G11",
+   "what": "an edited plan is taken with a denial",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(plan!==null&&(req.category!=='plan'||approved!==true))throw", "new": "if(plan!==null&&req.category!=='plan')throw" }
+   ]
+  },
+  {
+   "name": "G12",
+   "what": "feedback is taken for an ordinary approval request",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(feedback!==null&&req.category!=='plan')throw", "new": "if(false)throw" }
+   ]
+  },
+  {
+   "name": "G13",
+   "what": "feedback of any length",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "feedback.length > PLAN_LIMITS.feedbackChars", "new": "false" }
+   ]
+  },
+  {
+   "name": "G14",
+   "what": "a plan approval is raised for a task that is not in plan mode",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(this.taskPolicies.get(taskId)?.planOnly!==true)throw error('not_in_plan_mode'", "new": "if(false)throw error('not_in_plan_mode'" }
+   ]
+  },
+  {
+   "name": "G15",
+   "what": "a plan approval is held where nobody can answer it",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(!this.canAsk())return {approved:false,status:'unanswerable',feedback:null,plan:null};", "new": "" }
+   ]
+  },
+  {
+   "name": "R1",
+   "what": "the spawn tools are offered to a plan-mode run",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "const spawnAllowed=!context.planTool&&(", "new": "const spawnAllowed=(" }
+   ]
+  },
+  {
+   "name": "R2",
+   "what": "dispatch runs spawn_agent / spawn_workflow for a plan-mode task (and they are offered)",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "const spawnAllowed=!context.planTool&&(", "new": "const spawnAllowed=(" },
+    { "file": "lib/agent.mjs", "old": "if(call.namespace==null&&(call.name==='spawn_agent'||call.name==='spawn_workflow')&&planOnly(context.task))", "new": "if(false)" }
+   ]
+  },
+  {
+   "name": "R3",
+   "what": "dispatch drops its own refusal of the spawn tools (they are still not offered)",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "if(call.namespace==null&&(call.name==='spawn_agent'||call.name==='spawn_workflow')&&planOnly(context.task))", "new": "if(false)" }
+   ]
+  },
+  {
+   "name": "R4",
+   "what": "exit_plan_mode and the plan-mode instructions are not given to the model",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "      if(context.planTool){", "new": "      if(false){" }
+   ]
+  },
+  {
+   "name": "R5",
+   "what": "a plan-mode run does not hold its task on the gate",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "    if (planOnly(task)) this.#holdPlan(task);", "new": "" }
+   ]
+  },
+  {
+   "name": "R6",
+   "what": "a Hub that loads a plan-mode task does not hold it",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "if (planOnly(task)) this.manager.permissions?.setTaskPolicy?.(task.id, { planOnly: true });", "new": "" }
+   ]
+  },
+  {
+   "name": "R7",
+   "what": "an approved plan is forgotten (planOnly ignores planApproval)",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "return task?.planMode === true && task.planApproval?.status !== 'approved';", "new": "return task?.planMode === true;" }
+   ]
+  },
+  {
+   "name": "R8",
+   "what": "a follow-up with planMode:false leaves plan mode",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "if (wanted === false && planOnly(task)) throw fault('plan_mode_pending'", "new": "if (false) throw fault('plan_mode_pending'" }
+   ]
+  },
+  {
+   "name": "R9",
+   "what": "MCP prompts and resources are read in plan mode",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "if (planOnly(context.task)) return await this.#planRefused(context, call, `mcp_capabilities", "new": "if (false) return await this.#planRefused(context, call, `mcp_capabilities" }
+   ]
+  },
+  {
+   "name": "R10",
+   "what": "the approved plan is not injected as a user message",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "context.history.appendUser([{ type: 'input_text', text: `APPROVED PLAN (revision", "new": "void ([{ type: 'input_text', text: `APPROVED PLAN (revision" }
+   ]
+  },
+  {
+   "name": "R11",
+   "what": "planApproval is not recorded on an approval",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "task.planApproval = { status: 'approved', at, revision, editedByUser };", "new": "" }
+   ]
+  },
+  {
+   "name": "R12",
+   "what": "a message switches a running ordinary task to plan mode silently (the check that it does not leave plan mode stays)",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "if(this.#planModeAfter(context.task,planMode)===true&&!planOnly(context.task))", "new": "if(this.#planModeAfter(context.task,planMode)===true&&false)" }
+   ]
+  },
+  {
+   "name": "C1",
+   "what": "the pool drops planMode for the primary runner",
+   "patches": [
+    { "file": "lib/concurrent-api-agent.mjs", "old": "...(effort!==null?{reasoningEffort:effort}:{}),...(plan===true?{planMode:true}:{})});", "new": "...(effort!==null?{reasoningEffort:effort}:{})});" }
+   ]
+  },
+  {
+   "name": "C2",
+   "what": "a plan-mode conversation that runs as a second chat starts as an ordinary task",
+   "patches": [
+    { "file": "lib/concurrent-api-agent.mjs", "old": "...(record.planMode===true?{planMode:true}:{}) });", "new": "});" }
+   ]
+  },
+  {
+   "name": "C3",
+   "what": "the pool drops the feedback of an answer to a second chat's request",
+   "patches": [
+    { "file": "lib/concurrent-api-agent.mjs", "old": "return child.manager.permissions.decide(id, approved, extras);", "new": "return child.manager.permissions.decide(id, approved);" }
+   ]
+  },
+  {
+   "name": "H1",
+   "what": "the decide route drops the feedback of an answer",
+   "patches": [
+    { "file": "hub.mjs", "old": "? gate.decide(payload.id,payload.approved,extras)", "new": "? gate.decide(payload.id,payload.approved)" }
+   ]
+  },
+  {
+   "name": "B1",
+   "what": "the Browser Companion ignores planMode",
+   "patches": [
+    { "file": "lib/browser-runner.mjs", "old": "if (planMode !== undefined && planMode !== null && planMode !== false)", "new": "if (false)" }
+   ]
+  },
+  {
+   "name": "D1",
+   "what": "a plan-mode API task is carried to the Companion",
+   "patches": [
+    { "file": "lib/dual-agent.mjs", "old": "if(this.mode==='chatgpt-web'&&(existing.planOnly===true||", "new": "if(this.mode==='chatgpt-web'&&(false||" }
+   ]
+  }
+ ]
+}

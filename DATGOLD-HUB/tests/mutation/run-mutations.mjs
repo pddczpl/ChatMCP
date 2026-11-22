@@ -14,6 +14,9 @@
 // it survives it is reported as EQUIVALENT and does not fail the run - if it is killed after all, the annotation is stale and says so.
 // A mutation can be limited with `"platforms": ["win32"]` (Node's process.platform names) when it breaks code that only runs there - the
 // Windows DPAPI key store, say, or Unix file modes. On any other platform it is reported as N/A: not run, neither killed nor survived.
+// A list can name folders that stand beside the Hub in the repository, `"beside": ["corpus"]`, for a suite that tests code there (the
+// benchmark corpus at corpus/): each is copied next to the copy of the Hub, which then keeps the Hub folder's own name so that imports
+// between the two resolve, and a patch may name a file in one of them as `../corpus/...`. Any other path outside the Hub stays refused.
 // The suite is run first against the unmodified copy: if it does not PASS there, every later "KILLED" would be meaningless, so the
 // run stops (exit 2). A suite that SKIPs (for example the FastAPI end-to-end suite without Python) cannot judge anything: SKIP.
 //
@@ -54,11 +57,21 @@ function parseOptions(argv) {
   return options;
 }
 
-async function loadList(file) {
+/** The list in `file`, checked; `hubName` is the name of the Hub folder (and of its copy). */
+async function loadList(file, hubName) {
   const list = JSON.parse(await readFile(file, 'utf8'));
   if (!list || typeof list.suite !== 'string' || !/^[\w.-]+\.mjs$/.test(list.suite) || !Array.isArray(list.mutations) || list.mutations.length === 0) {
     throw new Error(`${file}: expected {"suite": "verify-x.mjs", "mutations": [...]}`);
   }
+  const beside = list.beside ?? [];
+  if (list.beside !== undefined && (!Array.isArray(beside) || beside.length === 0 || new Set(beside).size !== beside.length
+    || beside.some((name) => typeof name !== 'string' || !/^[A-Za-z0-9][\w.-]*$/.test(name) || name.toLowerCase() === hubName.toLowerCase()))) {
+    throw new Error(`${file}: "beside" must list different folder names (letters, digits, _, . and -) that stand next to the Hub folder, not the Hub folder itself`);
+  }
+  const insideOf = (folder, target) => {
+    const relative = path.relative(folder, target);
+    return Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+  };
   const names = new Set();
   for (const mutation of list.mutations) {
     if (typeof mutation.name !== 'string' || !mutation.name || names.has(mutation.name)) throw new Error(`${file}: every mutation needs a unique name (${mutation.name})`);
@@ -70,8 +83,10 @@ async function loadList(file) {
     }
     for (const patch of mutation.patches) {
       if (typeof patch.file !== 'string' || typeof patch.old !== 'string' || typeof patch.new !== 'string' || !patch.old) throw new Error(`${file}: ${mutation.name} has a malformed patch`);
-      const relative = path.relative(path.resolve('hub'), path.resolve('hub', patch.file));
-      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`${file}: ${mutation.name}: ${patch.file} is outside the Hub folder`);
+      const target = path.resolve('repo', hubName, patch.file);
+      if (!insideOf(path.resolve('repo', hubName), target) && !beside.some((name) => insideOf(path.resolve('repo', name), target))) {
+        throw new Error(`${file}: ${mutation.name}: ${patch.file} is outside the Hub folder${beside.length ? ` and the folders beside it that the list names (${beside.join(', ')})` : ''}`);
+      }
     }
   }
   return list;
@@ -137,19 +152,26 @@ const skipReason = (output) => output.match(/^CHATMCP_TEST_SKIP:\s*(.*)$/m)?.[1]
 async function main() {
   let options;
   try { options = parseOptions(process.argv.slice(2)); } catch (error) { console.error(error.message); return 2; }
+  // The copy keeps the Hub folder's name, so that a folder copied beside it ("beside") reaches it by the same relative path as in the repository.
+  const hubName = path.basename(options.hubRoot) || 'hub';
   let list;
-  try { list = await loadList(options.list); } catch (error) { console.error(error.message); return 2; }
+  try { list = await loadList(options.list, hubName); } catch (error) { console.error(error.message); return 2; }
   const mutations = list.mutations.filter((mutation) => !options.only || options.only.has(mutation.name));
   if (mutations.length === 0) { console.error('No mutation matched --only.'); return 2; }
   if (!existsSync(path.join(options.hubRoot, 'tests', list.suite))) { console.error(`The suite tests/${list.suite} does not exist in ${options.hubRoot}.`); return 2; }
+  const beside = list.beside ?? [];
+  const missing = beside.filter((name) => !existsSync(path.join(path.dirname(options.hubRoot), name)));
+  if (missing.length) { console.error(`The folder(s) ${missing.join(', ')} named in "beside" do not exist next to ${options.hubRoot}.`); return 2; }
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'chatmcp-mutation-'));
-  const copy = path.join(scratch, 'hub');
+  const copy = path.join(scratch, hubName);
   try {
     // mkdtemp makes the folder private to this user. The suites that switch to other accounts (as root on Linux) need every folder above
     // the Hub to be walkable by those accounts, or they report "not applicable" and cannot kill a mutation of the separation.
     if (process.platform !== 'win32') await chmod(scratch, 0o755);
-    await cp(options.hubRoot, copy, { recursive: true, filter: (source) => !/[\\/](node_modules|test-results|\.git|__pycache__|\.generated)([\\/]|$)/.test(source) });
+    const filter = (source) => !/[\\/](node_modules|test-results|\.git|__pycache__|\.generated)([\\/]|$)/.test(source);
+    await cp(options.hubRoot, copy, { recursive: true, filter });
+    for (const name of beside) await cp(path.join(path.dirname(options.hubRoot), name), path.join(scratch, name), { recursive: true, filter });
     // The suite is told where its copy came from: the copy has no node_modules, and a suite of the UI borrows the package it needs from that folder.
     // The FastAPI suite looks for its Python next to the repository, which a copy in the temp folder does not have.
     const env = { CHATMCP_MUTATION_SOURCE: options.hubRoot };

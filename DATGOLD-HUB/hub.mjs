@@ -17,7 +17,7 @@ import { createCatalogStore } from './lib/model-catalog-store.mjs';
 import { AiProfiles } from './lib/ai-profiles.mjs';
 import { WorkspaceLock } from './lib/workspace-lock.mjs';
 import { SandboxEngine } from './lib/sandbox-engine.mjs';
-import { PermissionGate } from './lib/permissions.mjs';
+import { PermissionGate, decisionExtras } from './lib/permissions.mjs';
 import { PluginManager } from './lib/plugins.mjs';
 import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
@@ -509,13 +509,19 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
                 code:'workers_active',statusCode:409,
               });
             result=gate.configure(payload);break;
-          case '/api/studio/permissions/decide': result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
-              ? gate.decide(payload.id,payload.approved)
-              : taskEngine?.api?.decidePermission?.(payload.id,payload.approved)
-                || browser?.decidePermission?.(payload.id,payload.approved)
-                || manager.mcpHost?.decide?.(payload.id,payload.approved);
+          case '/api/studio/permissions/decide': {
+              // The feedback and the edited plan of an answer (plan mode, docs/PLAN-MODE.md) are checked here for type and length; the gate that holds
+              // the request checks that it is a plan request. The Companion and the MCP host hold no plan request: an answer with either goes to none of them.
+              const extras=decisionExtras(payload);
+              const plain=extras.feedback===null&&extras.plan===null;
+              result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
+                ? gate.decide(payload.id,payload.approved,extras)
+                : taskEngine?.api?.decidePermission?.(payload.id,payload.approved,extras)
+                  || (plain?(browser?.decidePermission?.(payload.id,payload.approved)
+                    || manager.mcpHost?.decide?.(payload.id,payload.approved)):null);
               if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
               break;
+            }
           // Only the label of a checkpoint is the page's to give. Which task a checkpoint belongs to, and which files it covers, are the Hub's own record of what a tool call did (a review
           // is made from them), so a request cannot name them.
           case '/api/studio/checkpoint': result=await studio.checkpoint({label:payload.label});break;

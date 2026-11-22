@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:datgold:pod-corpus:task:1",
+  "title": "A task of the Proof-of-Done benchmark corpus (tasks/<id>/task.yml), version 1",
+  "description": "The shape of task.yml after it is read as YAML (the strict subset of DATGOLD-HUB/lib/proof/yaml-subset.mjs). corpus/tools/load.mjs checks this schema and then the rules that a schema cannot say: the marker contract at the end of the prompt, exactly one repository source, allowed_paths inside the repository, the id equal to the folder name, no hidden characters, the files of the task folder and their hashes (corpus/README.md). x-code names the refusal code the loader reports.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "id", "title", "prompt", "repo", "acceptance", "hidden_tests", "allowed_paths", "limits", "tags", "oracle"],
+  "properties": {
+    "version": { "const": 1, "x-code": "unsupported_version", "description": "the format version, exactly 1 (a plain number, not quoted)" },
+    "id": { "$ref": "#/$defs/id" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200, "description": "one line of text, 1 to 200 characters" },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 20000, "description": "the text every agent receives, ending with the marker contract (corpus/README.md)" },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "a mapping with exactly one of `git` and `tarball`",
+      "properties": {
+        "git": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "commit"],
+          "description": "a mapping with `url` and `commit`",
+          "properties": {
+            "url": {
+              "type": "string",
+              "maxLength": 400,
+              "pattern": "^https://[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?/[^\\s@?#\\\\]+$",
+              "x-code": "bad_git_url",
+              "description": "an https:// URL without user name, password, query or fragment"
+            },
+            "commit": { "$ref": "#/$defs/commit" }
+          }
+        },
+        "tarball": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "sha256"],
+          "description": "a mapping with `file` (in the task folder) and its `sha256`",
+          "properties": {
+            "file": { "$ref": "#/$defs/fileName" },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "setup": {
+      "type": "array",
+      "maxItems": 50,
+      "description": "a list of up to 50 commands",
+      "items": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "a command of 1 to 4000 characters" }
+    },
+    "acceptance": { "$ref": "#/$defs/fileName" },
+    "hidden_tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["archive", "sha256"],
+      "description": "a mapping with the `archive` file name and its `sha256`",
+      "properties": {
+        "archive": { "$ref": "#/$defs/fileName" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "allowed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true,
+      "description": "a list of 1 to 100 relative paths or globs",
+      "items": { "type": "string", "minLength": 1, "maxLength": 400, "description": "a relative path or glob of 1 to 400 characters" }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wall_seconds"],
+      "description": "a mapping with `wall_seconds` and optionally `max_turns` and `max_cost_cents`",
+      "properties": {
+        "wall_seconds": { "type": "integer", "minimum": 60, "maximum": 14400, "description": "a whole number of seconds" },
+        "max_turns": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "a whole number of agent turns" },
+        "max_cost_cents": { "type": "integer", "minimum": 1, "maximum": 10000, "description": "a whole number of US cents" }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "description": "a list of 1 to 20 tags",
+      "items": { "$ref": "#/$defs/tag" }
+    },
+    "oracle": { "$ref": "#/$defs/fileName" }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+      "x-code": "bad_id",
+      "description": "a safe folder name: 1 to 64 lower-case letters, digits and hyphens, starting and ending with a letter or digit"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "x-code": "bad_sha256",
+      "description": "a sha256: 64 lower-case hex digits"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "x-code": "bad_commit",
+      "description": "a full commit id, 40 or 64 lower-case hex digits (a branch, a tag or a short id can move)"
+    },
+    "fileName": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*(?:\\.[A-Za-z0-9_-]+)*$",
+      "x-code": "bad_file_name",
+      "description": "a plain file name in the task folder: letters, digits, _, - and inner dots, no folder"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+      "x-code": "bad_tag",
+      "description": "a tag: 1 to 32 lower-case letters, digits and hyphens"
+    }
+  }
+}
