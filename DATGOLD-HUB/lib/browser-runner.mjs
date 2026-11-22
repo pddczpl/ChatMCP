@@ -23,6 +23,12 @@ function safeResultChunk(value, offset, limit) {
   return { text: value.slice(offset, end), nextOffset: end < value.length ? end : null };
 }
 function fault(code, message, statusCode = 400) { return Object.assign(new Error(message), { code, statusCode }); }
+// The Companion has no plan mode (P9 ac-9, docs/PLAN-MODE.md): the web chat calls the Hub's tools with no plan policy, so a request that asks for one is
+// refused with a word instead of running as an ordinary task.
+function refusePlanMode(planMode) {
+  if (planMode !== undefined && planMode !== null && planMode !== false)
+    throw fault('plan_mode_unsupported', 'ChatGPT Web Companion không có chế độ lập kế hoạch (plan mode). Chuyển sang Model API để lập kế hoạch trước khi sửa.');
+}
 function same(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -456,7 +462,8 @@ export class BrowserRunner {
     return { id: randomUUID(), taskId: task.id, turn, text, status: 'pending', clientId: null, sentAt: null,
       resumeUrl: task.continuation === true ? task.chatUrl : null, resumeStart };
   }
-  async start({ prompt, workspacePath = null, conversationId = null, linkedFromTaskId = null, handoffText = '' } = {}) {
+  async start({ prompt, workspacePath = null, conversationId = null, linkedFromTaskId = null, handoffText = '', planMode = null } = {}) {
+    refusePlanMode(planMode);
     if (this.stopped) throw fault('hub_stopped', 'Hub đang dừng.', 409);
     if (!this.client) throw fault('browser_not_paired', 'Ghép tiện ích DatGold Hub trước khi giao nhiệm vụ.', 409);
     // A task that has just reported 'completed' is still closing its session: wait for it instead of answering 409.
@@ -525,7 +532,8 @@ export class BrowserRunner {
     return this.publicTask(task);
   }
 
-  async continue({ id, prompt } = {}) {
+  async continue({ id, prompt, planMode = null } = {}) {
+    refusePlanMode(planMode);
     if (this.context?.task.id === id && this.context.finishing) await this.context.finishing;
     if (this.stopped || this.context || this.pairBusy) throw fault('task_active', 'Hub đang xử lý một tác vụ.', 409);
     if (!this.client) throw fault('browser_not_paired', 'Cần ghép Companion trước khi tiếp tục.', 409);

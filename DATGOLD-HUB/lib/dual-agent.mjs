@@ -7,6 +7,7 @@ const ACTIVE = new Set(['preparing','queued','running']);
 const HANDOFF_NOTE_CHARACTERS = 300;
 const clipped = (text, limit) => (text.length > limit ? text.slice(0, limit - 1) + '…' : text);
 const BAD_MODE = () => Object.assign(new Error('Chế độ phải là chatgpt-web hoặc api.'), { statusCode: 400 });
+const PLAN_MODE_UNSUPPORTED = () => Object.assign(new Error('ChatGPT Web Companion không có chế độ lập kế hoạch (plan mode). Chuyển sang Model API để lập kế hoạch trước khi sửa, hoặc để duyệt kế hoạch của hội thoại này.'), { statusCode: 400, code: 'plan_mode_unsupported' });
 
 /** A single task surface backed by either the original browser runner or API runner. */
 export class DualAgent {
@@ -158,6 +159,8 @@ export class DualAgent {
     // The thinking effort of a task is a Model API setting: refused here, not dropped without a word.
     if(payload?.reasoningEffort!==undefined&&payload.reasoningEffort!==null&&String(payload.reasoningEffort).trim()!=='')
       throw Object.assign(new Error('The thinking effort is a Model API setting; it is not available through the ChatGPT Web Companion transport.'),{statusCode:400});
+    // Plan mode is a Model API feature (docs/PLAN-MODE.md): refused here, not dropped without a word.
+    if(payload?.planMode!==undefined&&payload.planMode!==null&&payload.planMode!==false)throw PLAN_MODE_UNSUPPORTED();
     if(this.browser.state().activeTaskId)
       throw Object.assign(new Error('ChatGPT Web Companion đang xử lý một task khác. Dừng hoặc chờ task này trước khi giao tác vụ web mới.'),{statusCode:409});
     const apiWorkers=this.api.state().activeTaskIds||[];
@@ -175,6 +178,9 @@ export class DualAgent {
     const physicalRunning=this.state().activeTaskIds.includes(existing.id)||
       ACTIVE.has(existing.status)||['waiting_approval','planning','verifying'].includes(existing.status);
     if(existing.transport!==this.mode){
+      // A plan-mode API task is not carried to the Companion, which has no plan mode: the next turn there would run with no plan policy.
+      if(this.mode==='chatgpt-web'&&(existing.planOnly===true||(payload?.planMode!==undefined&&payload.planMode!==null&&payload.planMode!==false)))
+        throw PLAN_MODE_UNSUPPORTED();
       if(physicalRunning)
         throw Object.assign(new Error('Tác vụ cũ còn chạy. Hãy dừng/chờ hoàn thành trước khi chuyển backend cho lượt tiếp theo.'),{statusCode:409,code:'transport_switch_busy'});
       if(this.mode==='chatgpt-web'&&payload?.attachments?.length)
@@ -185,7 +191,8 @@ export class DualAgent {
         linkedFromTaskId:existing.id,
         handoffText:this.buildHandoff(existing,payload.prompt),
         // Only the API worker has anything to select: it is given the user's requests apart from the text.
-        ...(this.mode==='api'?{handoffRequests:this.handoffRequests(existing),profileId:payload.profileId||null,roleProfiles:payload.roleProfiles||null}:{}),
+        ...(this.mode==='api'?{handoffRequests:this.handoffRequests(existing),profileId:payload.profileId||null,roleProfiles:payload.roleProfiles||null,
+          ...(payload.planMode!==undefined?{planMode:payload.planMode}:{})}:{}),
       });
       const link={fromTaskId:existing.id,toTaskId:switched.id,
         conversationId:existing.conversationId||existing.id,

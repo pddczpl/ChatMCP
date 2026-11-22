@@ -103,15 +103,21 @@ const outputsOf = (input) => new Map(input.filter((item) => item?.type === 'func
 const userTexts = (input) => input.filter((item) => item?.role === 'user').flatMap((item) => (Array.isArray(item.content) ? item.content.map((part) => String(part?.text ?? '')) : [String(item.content ?? '')]));
 const toolNames = (request) => (request.tools ?? []).map((tool) => tool.name);
 
+// One model for every runner of a stack (ConcurrentApiAgent gives the primary runner its own provider on start and continue): a request whose
+// conversation holds CHILD_TAG is the second chat's, any other the first chat's.
+const CHILD_TAG = '[second chat]';
 class Model {
-  constructor() { this.steps = []; this.requests = []; }
+  constructor() { this.queues = { main: [], child: [] }; this.requests = []; }
   ready() { return true; }
   snapshot() { return { provider: 'fixture', model: 'plan-mode-fixture' }; }
-  /** The next answers, one per model request; each is a response or a function of the request that returns one. */
-  script(...steps) { this.steps.push(...steps); }
+  state() { return { provider: 'fixture', model: 'plan-mode-fixture', configured: true, keySource: 'none' }; }
+  /** The next answers of the first chat, one per model request; each is a response or a function of the request that returns one. */
+  script(...steps) { this.queues.main.push(...steps); }
+  scriptChild(...steps) { this.queues.child.push(...steps); }
   async respond(request) {
-    this.requests.push(request);
-    const step = this.steps.shift();
+    const key = userTexts(request.input).some((text) => text.includes(CHILD_TAG)) ? 'child' : 'main';
+    if (key === 'main') this.requests.push(request);
+    const step = this.queues[key].shift();
     if (!step) return final('Nothing more to do.');
     return typeof step === 'function' ? step(request) : step;
   }
@@ -126,10 +132,10 @@ async function makeStack(name, { repo = null, data = null } = {}) {
   await hub.permissions.load();
   await hub.startLocal(workspace);
   const model = new Model();
-  const childModel = new Model();
+  const childModel = { script: (...steps) => model.scriptChild(...steps) };
   const runner = new AgentRunner({ manager: hub, provider: model, taskDirectory: path.join(directory, 'api-tasks'), log: () => {}, toolSelectionMode: 'full' });
   await runner.load();
-  const pool = new ConcurrentApiAgent({ primary: runner, manager: hub, provider: childModel, bundleRoot, directory: path.join(directory, 'api-conversations'), log: () => {} });
+  const pool = new ConcurrentApiAgent({ primary: runner, manager: hub, provider: model, bundleRoot, directory: path.join(directory, 'api-conversations'), log: () => {} });
   hub.spawnBackgroundAgent = (parentId, request) => pool.spawnAgent(parentId, request);
   hub.spawnWorkflow = (parentId, request) => pool.spawnWorkflow(parentId, request);
   const asked = [];
@@ -160,39 +166,43 @@ try {
     const readOnlyExternal = { annotations: { readOnlyHint: true } };
 
     const gate = newGate();
-    assert.throws(() => gate.setTaskPolicy('', { planOnly: true }), /task/i, 'a policy needs a task');
-    assert.throws(() => gate.setTaskPolicy(42, { planOnly: true }), /task/i);
+    assert.throws(() => gate.setTaskPolicy('', { planOnly: true }), { code: 'missing_task' }, 'a policy needs a task');
+    assert.throws(() => gate.setTaskPolicy(42, { planOnly: true }), { code: 'missing_task' });
     assert.deepEqual(gate.setTaskPolicy('plan-1', { planOnly: true }), { planOnly: true });
     assert.deepEqual(gate.taskPolicy('plan-1'), { planOnly: true });
     assert.equal(gate.taskPolicy('chat-2'), null, 'another task has no policy');
     assert.equal(gate.mode, 'review', 'the global mode is not touched');
     assert.throws(() => { gate.taskPolicy('plan-1').planOnly = false; }, TypeError, 'the policy object is frozen');
 
-    const verdicts = async (taskId, extra = {}) => {
-      const run = async (name, args, definition = {}) => {
+    const CALLS = {
+      read: ['local.read_file', { path: 'a.txt' }],
+      plan: ['local.update_plan', { items: [] }],
+      studioPlan: ['studio.plan_set', { taskId: 'plan-1', operation: 'set', title: 'x', items: [] }],
+      studioRead: ['studio.read', { path: 'a.txt' }],
+      write: ['local.write_file', { path: 'b.txt', content: 'b' }],
+      readCommand: ['local.run_command', { command: 'git status' }],
+      task: ['local.tasks_run', { command: 'echo hi' }],
+      remove: ['local.delete_path', { path: 'a.txt' }],
+      external: ['fixture.read_notes', {}, readOnlyExternal],
+      // No tool of LocalTools has this name; the gate classifies it by its name as a read. Plan mode runs only the Hub's own tools.
+      ghost: ['local.read_ghost', {}],
+    };
+    const verdicts = async (taskId, keys = Object.keys(CALLS)) => {
+      const seen = {};
+      for (const key of keys) {
+        const [name, args, definition = {}] = CALLS[key];
         const before = gate.state().pending.length;
-        const decision = await Promise.race([gate.authorize({ name, args, definition, taskId, ...extra }), delay(3000).then(() => ({ timedOut: true }))]);
+        seen[key] = await Promise.race([gate.authorize({ name, args, definition, taskId }), delay(3000).then(() => ({ timedOut: true }))]);
         assert.equal(gate.state().pending.length, before, `${name} for ${taskId} must not leave a question`);
-        return decision;
-      };
-      return {
-        read: await run('local.read_file', { path: 'a.txt' }),
-        plan: await run('local.update_plan', { items: [] }),
-        studioPlan: await run('studio.plan_set', { taskId, operation: 'set', title: 'x', items: [] }),
-        studioRead: await run('studio.read', { path: 'a.txt' }),
-        write: await run('local.write_file', { path: 'b.txt', content: 'b' }),
-        readCommand: await run('local.run_command', { command: 'git status' }),
-        task: await run('local.tasks_run', { command: 'echo hi' }),
-        remove: await run('local.delete_path', { path: 'a.txt' }),
-        external: await run('fixture.read_notes', {}, readOnlyExternal),
-      };
+      }
+      return seen;
     };
     for (const setting of ['review', 'autonomous', 'full-access']) {
       if (setting === 'full-access') gate.configure({ mode: 'full-access', confirmation: 'FULL ACCESS' });
       else gate.configure({ mode: setting, leaveFullAccess: true });
       const seen = await verdicts('plan-1');
       for (const key of ['read', 'plan', 'studioPlan', 'studioRead']) assert.equal(seen[key].allowed, true, `${setting}: ${key} runs in plan mode`);
-      for (const key of ['write', 'readCommand', 'task', 'remove', 'external']) {
+      for (const key of ['write', 'readCommand', 'task', 'remove', 'external', 'ghost']) {
         assert.equal(seen[key].allowed, false, `${setting}: ${key} is refused in plan mode`);
         assert.equal(seen[key].asked, undefined, `${setting}: ${key} is refused without a question`);
         assert.match(seen[key].reason, PLAN_REFUSAL, `${setting}: the refusal of ${key} tells the model how plan mode ends`);
@@ -200,8 +210,8 @@ try {
       assert.equal(gate.history.at(-1).decision, 'policy', 'a plan refusal is recorded as a policy refusal');
     }
     // Full Access is on: the same calls of another task run (the external one too: the owner allowed it and trusts its server).
-    const other = await verdicts('chat-2');
-    for (const key of ['write', 'readCommand', 'task', 'external']) assert.equal(other[key].allowed, true, `Full Access: ${key} of another task runs`);
+    const other = await verdicts('chat-2', ['write', 'readCommand', 'task', 'external', 'ghost']);
+    for (const key of ['write', 'readCommand', 'task', 'external', 'ghost']) assert.equal(other[key].allowed, true, `Full Access: ${key} of another task runs`);
     gate.configure({ mode: 'review', leaveFullAccess: true });
     assert.equal(gate.mode, 'review');
     // A hook's question can never pass plan mode: the forced question is refused before it is asked.
@@ -313,6 +323,10 @@ try {
     ['mcp_call', { name: 'local.github_action', arguments_json: JSON.stringify({ action: 'issue_create', title: 'owned', body: 'x' }) }],
     ['mcp_call', { name: 'local.browser_launch', arguments_json: '{}' }],
   ];
+  // Not one of the twelve: a prompt of an MCP server is read by the server's own code, outside the gate, so plan mode refuses it as well.
+  const PROMPT_REQUEST = ['mcp_capabilities', { action: 'get_prompt', server: 'local', name: 'anything', arguments_json: null, uri: null, filter: null, offset: 0, limit: 10 }];
+  // What a plan-mode task may do, in the same turn: a read and a plan update run.
+  const ALLOWED = [['read_file', { path: 'src/app.js' }], ['update_plan', { title: 'Refactor', items: [{ text: 'Read src/app.js', status: 'done', evidence: 'read_file' }] }]];
   const attempts = await makeStack('attempts');
   {
     const { repo, gate, runner, pool, model, asked } = attempts;
@@ -333,8 +347,14 @@ try {
       let first = null;
       let outputs = null;
       const issued = [];
+      const allowed = [];
       model.script(
-        (request) => { first = request; const items = ATTEMPTS.map(([name, args]) => call(name, args)); issued.push(...items); return turn(...items); },
+        (request) => {
+          first = request;
+          allowed.push(...ALLOWED.map(([name, args]) => call(name, args)));
+          issued.push(...[...ATTEMPTS, PROMPT_REQUEST].map(([name, args]) => call(name, args)));
+          return turn(allowed[0], ...issued, allowed[1]);
+        },
         (request) => { outputs = outputsOf(request.input); return final('Nothing could be changed in plan mode.'); },
       );
       const started = await runner.start({ prompt: 'Plan the refactor of src/app.js. Try every tool.', planMode: true });
@@ -353,12 +373,15 @@ try {
         assert.ok(text, `${setting}: attempt ${index + 1} (${item.name}) has a result`);
         assert.match(text, PLAN_REFUSAL, `${setting}: attempt ${index + 1} (${item.name}) is refused by plan mode: ${text.slice(0, 300)}`);
       }
+      assert.match(outputs.get(allowed[0].call_id), /answer = 42/, `${setting}: read_file runs in plan mode`);
+      assert.doesNotMatch(outputs.get(allowed[1].call_id), PLAN_REFUSAL, `${setting}: update_plan runs in plan mode`);
+      assert.doesNotMatch(outputs.get(allowed[1].call_id), /"isError":true/, `${setting}: update_plan succeeds`);
       const refusals = gate.history.filter((entry) => entry.taskId === started.id && entry.decision === 'policy');
       assert.ok(refusals.length >= 9, `${setting}: the gate recorded its plan refusals (${refusals.length})`);
       assert.deepEqual(await fingerprint(repo), before, `${setting}: the workspace tree hash, HEAD, refs and status are unchanged`);
       for (const file of ['pwned.txt', 'batch.txt', 'redirect.txt', 'mcp.txt', 'task.txt']) await assert.rejects(fs.access(path.join(repo, file)), `${file} was not written`);
       assert.equal(done.planApproval, null);
-      ok(`${setting === 'review' ? 'Review' : 'Full Access'}: all 12 attempts (write, edit, batch, redirect, commit, delete, mcp_call write, spawn_agent, spawn_workflow, tasks_run, github_action, browser_launch) refused unasked; tree ${before.tree.slice(0, 12)} unchanged`);
+      ok(`${setting === 'review' ? 'Review' : 'Full Access'}: all 12 attempts (write, edit, batch, redirect, commit, delete, mcp_call write, spawn_agent, spawn_workflow, tasks_run, github_action, browser_launch) and an MCP prompt request refused unasked; tree ${before.tree.slice(0, 12)} unchanged`);
     }
     gate.configure({ mode: 'review', leaveFullAccess: true });
   }
@@ -498,11 +521,12 @@ try {
     childModel.script(turn(call('write_file', { path: 'second.txt', content: 'from the second chat\n' })), final('Second chat done.'));
     const planTask = await runner.start({ prompt: 'Plan only.', planMode: true });
     const planCard = await pendingPlan(gate, planTask.id);
-    const second = await pool.start({ prompt: 'Second chat: write second.txt.' });
+    const second = await pool.start({ prompt: `${CHILD_TAG} write second.txt.` });
     assert.notEqual(second.id, planTask.id);
     const worktreeCard = await until(() => gate.state().pending.find((item) => item.toolName === 'local.worktrees_create' && item.taskId === second.id), 'the worktree question of the second chat');
     gate.decide(worktreeCard.id, true);
     const writeCard = await until(() => pool.pendingApprovals().find((item) => item.toolName === 'local.write_file' && item.taskId === second.id), 'the write question of the second chat');
+    await assert.rejects(pool.continue({ id: second.id, prompt: 'Plan this instead.', planMode: true }), { code: 'plan_mode_running', statusCode: 409 }, 'a message to a running ordinary task cannot switch it to plan mode');
     pool.decidePermission(writeCard.id, true);
     const record = await until(() => { const r = pool.records.get(second.id); return r?.worktree && pool.get(second.id)?.status === 'completed' ? r : null; }, 'the second chat to finish');
     assert.equal(await fs.readFile(path.join(record.worktree, 'second.txt'), 'utf8'), 'from the second chat\n', 'the second chat (Review) wrote its file after the owner approved it');
@@ -575,11 +599,12 @@ try {
   {
     const stack = await makeStack('http');
     const { gate, runner, pool, model, childModel } = stack;
-    const browserStub = { state: () => ({ tasks: [], active: null, activeTaskId: null }), get: () => null, subscribe: () => () => {}, settle: async () => {}, shutdown: async () => {}, decidePermission: () => null };
+    const browserStub = { state: () => ({ tasks: [], active: null, activeTaskId: null }), browserState: () => ({ paired: false }), get: () => null, subscribe: () => () => {}, settle: async () => {}, shutdown: async () => {}, decidePermission: () => null };
     const dual = new DualAgent({ browser: browserStub, api: pool, directory: path.join(stack.data, 'dual'), defaultMode: 'api' });
     const port = await new Promise((resolve) => { const probe = net.createServer(); probe.listen(0, '127.0.0.1', () => { const { port: free } = probe.address(); probe.close(() => resolve(free)); }); });
     const secret = 'plan-mode-secret-'.padEnd(40, 'x');
-    const server = createHubServer(stack.hub, { port, secret, agent: dual, browser: browserStub, bundleRoot });
+    // The Hub's profile resolver hands out the provider it was built with: the scripted model.
+    const server = createHubServer(stack.hub, { port, secret, agent: dual, browser: browserStub, provider: model, bundleRoot });
     await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
     cleanups.unshift(async () => { await new Promise((resolve) => server.close(resolve)); });
     const origin = `http://127.0.0.1:${port}`;
@@ -587,13 +612,15 @@ try {
     const state = await fetch(`${origin}/api/state`, { headers: auth }).then((response) => response.json());
     const post = (route, body) => fetch(origin + route, { method: 'POST', headers: { ...auth, Origin: origin, 'Content-Type': 'application/json', 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken }, body: JSON.stringify(body) });
 
+    assert.equal(typeof state.csrfToken, 'string', 'the state route answers');
     assert.equal((await post('/api/tasks/start', { prompt: 'x', planMode: 'yes' })).status, 400, 'a planMode that is not a boolean is refused');
     const exit = call('exit_plan_mode', { plan: PLAN });
     let exitOutput = null;
     model.script(turn(exit), (request) => { exitOutput = outputsOf(request.input).get(exit.call_id); return final('Will revise.'); });
     const started = await post('/api/tasks/start', { prompt: 'Plan over HTTP.', planMode: true });
-    assert.equal(started.status, 200);
-    const primary = (await started.json()).task;
+    const startedBody = await started.json();
+    assert.equal(started.status, 200, JSON.stringify(startedBody).slice(0, 400));
+    const primary = startedBody.task;
     assert.equal(primary.planMode, true);
     const card = await pendingPlan(gate, primary.id);
     assert.equal((await post('/api/studio/permissions/decide', { id: card.id, approved: false, feedback: { text: 'x' } })).status, 400);
@@ -606,7 +633,7 @@ try {
     let childOutput = null;
     let childFirst = null;
     childModel.script((request) => { childFirst = request; return turn(childExit); }, (request) => { childOutput = outputsOf(request.input).get(childExit.call_id); return final('Child will revise.'); });
-    const childStart = await post('/api/tasks/start', { prompt: 'Second plan chat.', planMode: true });
+    const childStart = await post('/api/tasks/start', { prompt: `${CHILD_TAG} plan this too.`, planMode: true });
     assert.equal(childStart.status, 200);
     const childTask = (await childStart.json()).task;
     const worktreeCard = await until(() => gate.state().pending.find((item) => item.toolName === 'local.worktrees_create' && item.taskId === childTask.id), 'the worktree question of the plan chat');

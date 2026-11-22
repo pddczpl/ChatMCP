@@ -430,6 +430,33 @@ export function previewArguments(value,length=1800,secrets=[]){
 function error(code,message,statusCode=403){return Object.assign(new Error(message),{code,statusCode});}
 const cut = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit)}… [+${text.length - limit} ký tự nữa]` : text; };
 
+// ------------------------------------------------------------------ Plan mode (P9 ac-9, docs/PLAN-MODE.md)
+// A task the owner starts in plan mode is held by a policy of its own (setTaskPolicy): only the Hub's own read and checkpoint calls of that
+// task run, and every other call is refused without a question, whatever the mode, the execution policy, the owner's MCP rules or a hook say.
+// The policy ends only when the owner approves the plan on the approval stack (askPlanApproval, answered through decide()).
+export const PLAN_LIMITS = Object.freeze({ planChars: 40_000, feedbackChars: 4_000 });
+const PLAN_TOOL = 'chatmcp.exit_plan_mode';
+// The tools that run a command: refused in plan mode even when the command reads (v1 does not depend on the command classifier).
+const PLAN_SHELL = /(?:start_process|spawn|execute_code|terminal|(?:^|[._-])command(?:[._-]|$)|shell|run_script|bash|powershell|tasks_run)/;
+/**
+ * The extra fields of an answer to an approval request (POST /api/studio/permissions/decide): the person's `feedback` (a bounded string;
+ * blank is none) and an edited `plan` (a non-empty bounded string). Types and lengths are checked here, before any request is looked up;
+ * which request may carry them is decide()'s business.
+ */
+export function decisionExtras({ feedback, plan } = {}) {
+  let note = null;
+  if (feedback !== undefined && feedback !== null) {
+    if (typeof feedback !== 'string' || feedback.length > PLAN_LIMITS.feedbackChars) throw error('bad_feedback', `feedback phải là văn bản tối đa ${PLAN_LIMITS.feedbackChars} ký tự.`, 400);
+    note = feedback.trim() || null;
+  }
+  let text = null;
+  if (plan !== undefined && plan !== null) {
+    if (typeof plan !== 'string' || !plan.trim() || plan.length > PLAN_LIMITS.planChars) throw error('bad_plan', `plan phải là văn bản không rỗng, tối đa ${PLAN_LIMITS.planChars} ký tự.`, 400);
+    text = plan;
+  }
+  return { feedback: note, plan: text };
+}
+
 // An edit_file call with several edits: the owner is shown ALL of them, never only the first. `edits` lists the first 20 (400 characters of each side); old_string and new_string are
 // the combined view the diff panel prints, each edit under its position, and they say how many are left out when there are more than 20.
 const EDITS_LISTED = 20;
@@ -472,6 +499,37 @@ export class PermissionGate {
     // can ask only in Review, where the owner expects to be asked and sees the request; in Autonomous and Full Access nobody is watching.
     this.interactive=true;
     this.backgroundAgent=false;
+    // Per-task policies (plan mode): task id -> {planOnly: true}. They never change `mode`, which every task of this gate shares.
+    this.taskPolicies=new Map();
+  }
+  /**
+   * Holds a task in plan mode ({planOnly: true}) or lets it go (anything else). The runner sets it when a plan-mode run starts or a Hub
+   * loads such a task; askPlanApproval clears it when the owner approves the plan. Returns the policy now in force, or null.
+   */
+  setTaskPolicy(taskId,policy){
+    if(typeof taskId!=='string'||!taskId)throw error('missing_task','Thiếu mã tác vụ cho chính sách của tác vụ.',400);
+    if(policy?.planOnly!==true){this.taskPolicies.delete(taskId);return null;}
+    const held=Object.freeze({planOnly:true});
+    this.taskPolicies.set(taskId,held);
+    return held;
+  }
+  /** The policy of one task ({planOnly: true}) or null. */
+  taskPolicy(taskId){return this.taskPolicies.get(taskId)??null;}
+  /**
+   * Why plan mode refuses this call, or null when it may go on to the ordinary rules. A plan-mode task runs the Hub's own read and checkpoint
+   * calls (a local tool the gate knows, or a studio.* tool) and nothing else: no call of an external server (its readOnlyHint is the server's
+   * word), no command (a command that reads too), nothing that writes, executes, deletes or is not classified.
+   */
+  #planRefusal(name,verdict,taskId){
+    if(this.taskPolicies.get(taskId)?.planOnly!==true)return null;
+    const lower=String(name).toLowerCase();
+    const own=(verdict.local===true&&lower.startsWith('local.'))||lower.startsWith('studio.');
+    let what;
+    if(!own)what=verdict.category==='external'?`Công cụ MCP bên ngoài ${cut(name,200)} (kể cả công cụ tự nhận là chỉ đọc)`:`${cut(name,200)} không phải công cụ đọc của Hub`;
+    else if(PLAN_SHELL.test(lower))what=`Lệnh ${cut(name,200)} (kể cả lệnh chỉ đọc)`;
+    else if(verdict.category!=='read'&&verdict.category!=='checkpoint')what=`${cut(name,200)} (${verdict.reason||verdict.category})`;
+    else return null;
+    return `Plan mode (chế độ lập kế hoạch): tác vụ này chỉ được đọc workspace và cập nhật kế hoạch cho tới khi người dùng duyệt kế hoạch. ${what} bị từ chối, không hỏi người dùng. Hãy viết kế hoạch rồi gọi exit_plan_mode để người dùng duyệt.`;
   }
   /** Whether a request for approval can be answered at all in this context. */
   canAsk(){
@@ -693,6 +751,10 @@ export class PermissionGate {
     if(args?.isolationRequired){
       return this.#refuse(name,args,verdict,taskId,'policy','Yêu cầu cách ly hệ điều hành (isolationRequired), nhưng lệnh shell host không có cách ly OS. Bị từ chối fail-closed.');
     }
+    // Plan mode, BEFORE every rule below that can let a call run (the owner's MCP rules, Full Access, the mode) or ask about it (a hook's
+    // forceAsk): a plan-mode task is refused without a question whatever they say.
+    const planned=this.#planRefusal(name,verdict,taskId);
+    if(planned!==null)return this.#refuse(name,args,verdict,taskId,'policy',planned);
     // A tool of an external server has rules of its own (#externalDecision) and no workspace path inspection: what a path means is the
     // server's business, and the owner reads the arguments on the card. A call that is neither refused nor run is asked like any other.
     if(category==='external'){
@@ -755,16 +817,57 @@ export class PermissionGate {
     // `expiresAt` lets the page show how long the request will wait; the timer below is what actually enforces it.
     const askedAt=this.now();
     const request={id,taskId,toolName:name,category,...serverAndTool(verdict),reason:shownReason,summary,preview,detail,at:new Date(askedAt).toISOString(),expiresAt:new Date(askedAt+this.timeout).toISOString()};
-    const promise=new Promise((resolve,reject)=>{
+    const promise=this.#hold(request,signal);
+    this.#emit({type:'approval_requested',...request});
+    const {approved:yes}=await promise;
+    return {allowed:yes,category,risk:verdict.risk,local:verdict.local,asked:true,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt',...(yes&&shown?.guard?{guard:shown.guard}:{})};
+  }
+  /**
+   * Puts a request on the approval stack until it is answered (decide, cancelTask, shutdown), expires (timeout: a denial) or its task stops
+   * (the signal: rejects). Resolves with {approved, feedback, plan} (`expired: true` for an expiry).
+   */
+  #hold(request,signal){
+    const {id}=request;
+    return new Promise((resolve,reject)=>{
       // An expired request is over: the stop of its task that may follow must not record it once more as cancelled, so the listener goes with it.
-      const timer=setTimeout(()=>{signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,'expired');resolve(false);},this.timeout);
+      const timer=setTimeout(()=>{signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,'expired');resolve({approved:false,expired:true,feedback:null,plan:null});},this.timeout);
       const aborted=()=>{clearTimeout(timer);this.requests.delete(id);this.#record(request,'cancelled');reject(signal.reason||error('cancelled','Tác vụ đã dừng.'));};
       if(signal)signal.addEventListener('abort',aborted,{once:true});
-      this.requests.set(id,{...request,resolve:(yes)=>{clearTimeout(timer);signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,yes?'approved':'denied');resolve(yes);},abort:aborted});
+      this.requests.set(id,{...request,resolve:(yes,{feedback=null,plan=null}={})=>{
+        clearTimeout(timer);signal?.removeEventListener('abort',aborted);this.requests.delete(id);
+        // The person's feedback is kept with the decision (bounded and masked like every other text of the history).
+        this.#record(feedback===null?request:{...request,feedback:maskSecrets(cut(feedback,500),this.manager?.secrets??[])},yes?'approved':'denied');
+        resolve({approved:yes,feedback,plan});
+      },abort:aborted});
     });
+  }
+  /**
+   * The approval of a plan-mode task's plan (the exit_plan_mode tool of lib/agent.mjs): a request of category `plan` on the approval stack, with
+   * its expiry and its stop like any other, so the task shows `waiting_approval`. Only an approval clears the task's policy; a denial, an
+   * expiry, a cancel, a stop (rejects) and a context where nobody can answer leave the task read-only. Resolves with {approved, status:
+   * 'approved' | 'denied' | 'expired' | 'unanswerable', feedback, plan} where `plan` is the text the person edited, or null.
+   */
+  async askPlanApproval({taskId,plan,revision=1,signal}={}){
+    if(typeof taskId!=='string'||!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin duyệt kế hoạch.',400);
+    if(this.taskPolicies.get(taskId)?.planOnly!==true)throw error('not_in_plan_mode','Tác vụ này không ở chế độ lập kế hoạch nên không có kế hoạch để duyệt.',409);
+    if(typeof plan!=='string'||!plan.trim()||plan.length>PLAN_LIMITS.planChars)throw error('bad_plan',`Kế hoạch phải là văn bản không rỗng, tối đa ${PLAN_LIMITS.planChars} ký tự.`,400);
+    if(!Number.isSafeInteger(revision)||revision<1)throw error('bad_revision','Số bản của kế hoạch không hợp lệ.',400);
+    if(signal?.aborted)throw signal.reason||error('cancelled','Tác vụ đã dừng.');
+    if(!this.canAsk())return {approved:false,status:'unanswerable',feedback:null,plan:null};
+    const shown=maskSecrets(plan,this.manager?.secrets??[]);
+    const id=randomUUID();
+    const askedAt=this.now();
+    const request={id,taskId,toolName:PLAN_TOOL,category:'plan',reason:`Kế hoạch (bản ${revision}) chờ người dùng duyệt; tác vụ chỉ được đọc cho tới khi kế hoạch được duyệt.`,
+      summary:`Duyệt kế hoạch, bản ${revision}`,preview:shown.slice(0,HISTORY_PREVIEW_CHARS),detail:{kind:'plan',plan:shown,revision},
+      at:new Date(askedAt).toISOString(),expiresAt:new Date(askedAt+this.timeout).toISOString()};
+    const promise=this.#hold(request,signal);
     this.#emit({type:'approval_requested',...request});
-    const yes=await promise;
-    return {allowed:yes,category,risk:verdict.risk,local:verdict.local,asked:true,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt',...(yes&&shown?.guard?{guard:shown.guard}:{})};
+    const answer=await promise;
+    if(answer.approved){
+      this.taskPolicies.delete(taskId);
+      return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan};
+    }
+    return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null};
   }
   #record(request,decision){
     // The audit trail keeps a bounded preview, never the full structured detail.
@@ -775,7 +878,20 @@ export class PermissionGate {
     this.#emit({type,id:request.id,taskId:request.taskId,toolName:request.toolName});
     this.#save();
   }
-  decide(id,approved){const req=this.requests.get(id);if(!req)throw error('not_pending','Yêu cầu đã hết hạn hoặc không tồn tại.',404);if(typeof approved!=='boolean')throw error('bad_decision','approved phải là boolean.',400);req.resolve(approved);return {ok:true,id,approved};}
+  /**
+   * The person's answer. `feedback` and an edited `plan` (decisionExtras) answer a plan request only, and an edited plan only approves it:
+   * anything else is refused and the request stays pending.
+   */
+  decide(id,approved,extras={}){
+    const req=this.requests.get(id);
+    if(!req)throw error('not_pending','Yêu cầu đã hết hạn hoặc không tồn tại.',404);
+    if(typeof approved!=='boolean')throw error('bad_decision','approved phải là boolean.',400);
+    const {feedback,plan}=decisionExtras(extras??{});
+    if(feedback!==null&&req.category!=='plan')throw error('bad_feedback','Chỉ yêu cầu duyệt kế hoạch (category plan) nhận phản hồi (feedback).',400);
+    if(plan!==null&&(req.category!=='plan'||approved!==true))throw error('bad_plan','Kế hoạch đã sửa chỉ đi kèm việc duyệt (approved: true) một yêu cầu duyệt kế hoạch.',400);
+    req.resolve(approved,{feedback,plan});
+    return {ok:true,id,approved};
+  }
   cancelTask(taskId){for(const request of [...this.requests.values()])if(request.taskId===taskId)request.resolve(false);}
   shutdown(){for(const request of [...this.requests.values()])request.resolve(false);}
 }
