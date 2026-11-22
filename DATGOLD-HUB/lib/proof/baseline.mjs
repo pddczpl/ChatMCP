@@ -13,8 +13,9 @@
 // patch's sha256 is what a proof pack (pod-29) binds to. A plain folder gets the change list and `patch: unavailable`.
 //
 // The record file ends with its own sha256. The caller keeps that hash elsewhere (the proof ledger) and passes it back as the anchor.
-// Neither is a seal: the agent runs as the same user and can delete or rewrite the record, the store and the ledger. An edit is detected,
-// a deletion is reported; nothing here is tamper-proof. Nothing in the agent or the Hub calls this module yet (pod-26 and pod-32).
+// Neither is a seal: the agent runs as the same user and can delete or rewrite the record, the store and the ledger. The baseline is
+// tamper-evident (an edit is detected, a deletion is reported), it is not tamper-proof. Nothing in the agent or the Hub calls this
+// module yet (pod-26 and pod-32).
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';

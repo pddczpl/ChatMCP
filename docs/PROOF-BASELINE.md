@@ -169,7 +169,7 @@ The agent runs as the same Windows user as the Hub and can read, delete and rewr
 - a record that names another workspace (`baseline_wrong_workspace`), another format, another store folder, or a manifest that does not
   build its tree (`baseline_bad_record`) is refused.
 
-None of this is tamper-proof: an agent that also rewrites the anchor where it is kept can replace a baseline whole. A pack built on it
+So a baseline is tamper-evident, it is not tamper-proof: an agent that also rewrites the anchor where it is kept can replace a baseline whole. A pack built on it
 keeps the integrity level "unconfined" (as in [PROOF-LEDGER.md](PROOF-LEDGER.md)).
 
 ## Budgets and measured numbers
