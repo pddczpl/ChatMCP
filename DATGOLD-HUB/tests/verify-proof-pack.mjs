@@ -262,8 +262,9 @@ function statementV1Problems(statement) {
 // =====================================================================================================================
 const specDir = path.join(REPO, 'docs', 'spec');
 {
-  const schemaText = fs.readFileSync(path.join(specDir, 'agent-change-v0.1.schema.json'), 'utf8');
-  assert.equal(schemaText, `${JSON.stringify(AGENT_CHANGE_SCHEMA, null, 2)}\n`, 'docs/spec/agent-change-v0.1.schema.json must be the schema of lib/proof/pack.mjs, byte for byte');
+  // A checkout on Windows writes text files with CRLF (.gitattributes: text=auto); the repository holds LF. Compared as LF text.
+  const schemaText = fs.readFileSync(path.join(specDir, 'agent-change-v0.1.schema.json'), 'utf8').replaceAll('\r\n', '\n');
+  assert.equal(schemaText, `${JSON.stringify(AGENT_CHANGE_SCHEMA, null, 2)}\n`, 'docs/spec/agent-change-v0.1.schema.json must be the schema of lib/proof/pack.mjs, byte for byte (LF)');
   assert.equal(AGENT_CHANGE_SCHEMA.$id, SCHEMA_ID);
   assert.equal(AGENT_CHANGE_SCHEMA.properties._type.const, STATEMENT_TYPE);
   assert.equal(AGENT_CHANGE_SCHEMA.properties.predicateType.const, PREDICATE_TYPE);
