@@ -27,7 +27,9 @@ await pruneBaselines({ hubDir, root });                        // { removed, kep
 
 Options of `snapshotBaseline` and `diffBaseline`: `git` (as for `TreeSnapshotter`: PATH when left out, `null` for none), `env`, `signal`,
 `lock` (overrides of `LOCK_RULES`); `snapshotBaseline` also takes `toolchain` (a `{versions(root)}` probe, `null` for none, a
-`ToolchainProbe` of the ledger when left out), `now` (the clock of the id and of retention) and `retention` (overrides of `RETENTION`).
+`ToolchainProbe` of the ledger when left out), `now` (the clock of the id and of retention) and `retention` (overrides of `RETENTION`);
+`diffBaseline` also takes `limits`, which can only lower `BASELINE_LIMITS.maxPatchBytes` (128 MiB) and `gitOutputBytes` (256 MiB, the
+most a Git command of the store check may print into memory).
 
 Building blocks, exported for pod-29 and the tests: `importTree`, `treePatch`, `patchReproduces`, `initStore`, `encodeManifest`,
 `decodeManifest`, `manifestChanges`, `workspaceKey`, `baselineFolder`, `acquireWorkspaceLock`, and the constants `BASELINE_FORMAT`,
@@ -101,7 +103,9 @@ with other bytes (zlib), so `patch.git` records the version that made it; the re
 
 Before the patch is made, the store is checked against the verified manifest: `git ls-tree -r` of the baseline tree must list exactly
 the manifest's rows (Git checks the hash of the root tree when it parses it, but not of the trees below it), and the old blob of every
-modified or deleted path is read with `cat-file --batch` and hashed again (Git does not check that either).
+modified or deleted path is read with `cat-file --batch` and hashed again (Git does not check that either). The old blobs are hashed as
+Git prints them, chunk by chunk, so neither one blob nor their sum is held in memory or limited: a 270 MB file with a 7-byte change
+gives a patch of a few hundred bytes, and a 280 MB deletion gives `patch_too_large`, both with the change list.
 
 ### When the patch is unavailable
 
@@ -112,7 +116,7 @@ modified or deleted path is read with `cat-file --batch` and hashed again (Git d
 | `git_missing` | no usable Git when the baseline was taken, or when the diff runs |
 | `baseline_objects_missing` | the store folder, its baseline tree or a blob it must hold is gone |
 | `baseline_objects_mismatch` | the store does not hold the manifest's trees, or an old blob does not hash to its id |
-| `baseline_objects_unreadable` | Git could not read the old blobs |
+| `baseline_objects_unreadable` | Git could not read the store: it failed, timed out (`gitTimeoutMs`), printed more than `gitOutputBytes`, or printed something other than the blobs asked for |
 | `object_format_changed` | the repository moved between SHA-1 and SHA-256 |
 | `patch_too_large` | the patch is over `BASELINE_LIMITS.maxPatchBytes` (128 MiB) |
 | `patch_does_not_reproduce` | the patch applied to the baseline tree does not give the final tree |
@@ -199,6 +203,9 @@ roughly 25 times cheaper. The store time is mostly reading the files.
   beyond them); the objects are written as one pack, never as loose objects.
 - **An agent deletes or edits a baseline**: detected and reported as above, never prevented.
 - **A file that changes while the baseline is taken**: `workspace_changed`; the caller takes it again.
+- **The state folder inside the workspace** (only possible with `CHATMCP_STATE_DIR`; the default is `%LOCALAPPDATA%\ChatMCP\hub`): the
+  snapshot then includes the baselines folder itself, so an untouched workspace diffs with changes (measured: 11 added, 1 modified,
+  4 deleted). This module does not refuse it; the caller that wires it in (pod-26) should.
 
 ## Decisions
 
@@ -212,7 +219,7 @@ roughly 25 times cheaper. The store time is mostly reading the files.
 
 ## Tests
 
-`DATGOLD-HUB/tests/verify-proof-baseline.mjs` (12 checks) on real temporary folders and Git repositories: the record of a Git workspace
+`DATGOLD-HUB/tests/verify-proof-baseline.mjs` (13 checks) on real temporary folders and Git repositories: the record of a Git workspace
 (the tree equals `git add -A` without the protected `.env`, a `.gitattributes` conversion, an untracked file, an ignored file, the
 repository's `.git` byte for byte unchanged); the agent edits (text, CRLF, binary), deletes, renames, adds a path with spaces and
 Vietnamese letters, changes a mode (POSIX), commits on a new branch, switches branches, rewrites history into an orphan commit, deletes
@@ -222,5 +229,7 @@ submodule, an empty file, names fast-import must quote on POSIX, reproducible by
 the manifest and its refusals; the lock in and across processes (a live holder, a crashed one, an old heartbeat, another host,
 unreadable content, a crashed breaker, the heartbeat, a release that is no longer its own) and four concurrent baselines of one
 workspace; retention by count, by age, across workspaces, leftovers; edited, re-hashed, moved and missing records; a missing store, a
-forged blob, a forged tree below the root and a forged root; the snapshot's rows; the budgets.
+forged blob, a missing old blob, a forged tree below the root and a forged root; old blobs larger than a lowered output cap (a small
+patch, a deletion over a lowered patch cap, a store unreadable within the limits, each with the change list); the snapshot's rows; the
+budgets.
 Mutation list: `DATGOLD-HUB/tests/mutation/proof-baseline.json`.

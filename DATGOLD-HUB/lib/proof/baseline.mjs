@@ -725,39 +725,101 @@ const unavailable = (reason) => ({ patch: { status: 'unavailable', reason }, pat
  * The store must hold exactly the tree of the verified manifest, and the old blob of every changed path must hash to its id (the
  * patch is made of them). null when it does, else the reason the patch is unavailable. Git checks the hash of the root tree when it
  * parses it (a forged root fails `ls-tree`), but not of the trees below it nor of blobs read by `cat-file --batch`: those are compared
- * here.
+ * here. A store Git cannot read within the limits (an output over `maxOutputBytes`, a timeout) is 'baseline_objects_unreadable'.
  */
 async function storeProblem({ exe, env, storeDir, record, before, changes, maxOutputBytes, signal }) {
-  const listed = await storeGit(exe, storeDir, env, ['ls-tree', '-r', '-z', '--full-tree', record.tree], { maxBytes: maxOutputBytes, signal });
-  if (listed.code !== 0) {
-    const present = await storeGit(exe, storeDir, env, ['cat-file', '-e', record.tree], { maxBytes: maxOutputBytes, signal });
-    return present.code === 0 ? 'baseline_objects_mismatch' : 'baseline_objects_missing';
+  try {
+    const listed = await storeGit(exe, storeDir, env, ['ls-tree', '-r', '-z', '--full-tree', record.tree], { maxBytes: maxOutputBytes, signal });
+    if (listed.code !== 0) {
+      const present = await storeGit(exe, storeDir, env, ['cat-file', '-e', record.tree], { maxBytes: maxOutputBytes, signal });
+      return present.code === 0 ? 'baseline_objects_mismatch' : 'baseline_objects_missing';
+    }
+    const expected = new Set(before.map((row) => `${row.mode} ${row.oid}\t${row.path}`));
+    const rows = splitNul(listed.stdout).map((line) => {
+      const tab = line.indexOf('\t');
+      const [mode, , oid] = line.slice(0, tab).split(' ');
+      return `${mode} ${oid}\t${line.slice(tab + 1)}`;
+    });
+    if (rows.length !== expected.size || rows.some((row) => !expected.has(row))) return 'baseline_objects_mismatch';
+    const wanted = [...new Set([...changes.modified.filter((row) => row.oldMode !== MODE.gitlink).map((row) => row.oldOid),
+      ...changes.deleted.filter((row) => row.mode !== MODE.gitlink).map((row) => row.oid)])];
+    if (!wanted.length) return null;
+    return await oldBlobsProblem({ exe, env, gitDir: storeDir, oids: wanted, objectFormat: record.objectFormat, signal });
+  } catch (error) {
+    if (signal?.aborted || !['git_output_limit', 'git_timeout', 'git_missing'].includes(error?.code)) throw error;
+    return 'baseline_objects_unreadable'; // the store check ran out of a limit
   }
-  const expected = new Set(before.map((row) => `${row.mode} ${row.oid}\t${row.path}`));
-  const rows = splitNul(listed.stdout).map((line) => {
-    const tab = line.indexOf('\t');
-    const [mode, , oid] = line.slice(0, tab).split(' ');
-    return `${mode} ${oid}\t${line.slice(tab + 1)}`;
+}
+
+/**
+ * Hashes the blobs `oids` of the store at `gitDir` as one `git cat-file --batch` prints them, chunk by chunk. No blob and no sum of
+ * blobs is held in memory, so their size has no limit (audit F1 of #148: a 270 MB file with a 7-byte change). null when each is a
+ * blob that hashes to its id, else 'baseline_objects_missing', 'baseline_objects_mismatch' or 'baseline_objects_unreadable' (Git
+ * failed, timed out or printed something else). Rejects only when `signal` aborts.
+ */
+function oldBlobsProblem({ exe, env, gitDir, oids, objectFormat, signal = null, timeoutMs = BASELINE_LIMITS.gitTimeoutMs }) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason ?? fault('cancelled', 'cancelled')); return; }
+    let child;
+    try {
+      child = spawn(exe, [...storeArgs(gitDir), 'cat-file', '--batch'], {
+        cwd: gitDir, env: storeEnv(env, gitDir), shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'], detached: process.platform !== 'win32',
+      });
+    } catch { resolve('baseline_objects_unreadable'); return; }
+    let verdict; // undefined while the answer is still being read
+    let index = 0; // the object being read
+    let left = -1; // the bytes of its content not hashed yet; -1 while its header line is awaited
+    let header = Buffer.alloc(0);
+    let hash = null;
+    const settle = (value) => { if (verdict === undefined) { verdict = value; killTree(child); } };
+    const read = (chunk) => {
+      let at = 0;
+      while (at < chunk.length && verdict === undefined) {
+        if (left > 0) {
+          const part = chunk.subarray(at, at + left);
+          hash.update(part);
+          left -= part.length;
+          at += part.length;
+        } else if (left === 0) { // the line end after the content
+          if (chunk[at] !== 0x0a) { settle('baseline_objects_unreadable'); return; }
+          if (hash.digest('hex') !== oids[index]) { settle('baseline_objects_mismatch'); return; }
+          at += 1;
+          left = -1;
+          index += 1;
+        } else {
+          const newline = chunk.indexOf(0x0a, at);
+          if (newline < 0) { // a header split between two chunks
+            header = Buffer.concat([header, chunk.subarray(at)]);
+            if (header.length > 512) settle('baseline_objects_unreadable');
+            return;
+          }
+          const [id, type, size] = Buffer.concat([header, chunk.subarray(at, newline)]).toString('latin1').split(' ');
+          header = Buffer.alloc(0);
+          at = newline + 1;
+          if (index >= oids.length) { settle('baseline_objects_unreadable'); return; }
+          if (type === 'missing') { settle('baseline_objects_missing'); return; }
+          if (id !== oids[index] || type !== 'blob' || !/^\d{1,15}$/.test(size ?? '')) { settle('baseline_objects_mismatch'); return; }
+          left = Number(size);
+          hash = createHash(objectFormat).update(`blob ${left}\0`);
+        }
+      }
+    };
+    child.stdout.on('data', read);
+    child.stdout.on('error', () => {});
+    child.stdin.on('error', () => {});
+    child.stdin.end(`${oids.join('\n')}\n`);
+    const timer = setTimeout(() => settle('baseline_objects_unreadable'), timeoutMs);
+    const onAbort = () => settle('baseline_objects_unreadable');
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const finish = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); };
+    child.once('error', () => { finish(); settle('baseline_objects_unreadable'); resolve(verdict); });
+    child.once('close', (code) => {
+      finish();
+      if (signal?.aborted) reject(signal.reason ?? fault('cancelled', 'cancelled'));
+      else if (verdict !== undefined) resolve(verdict);
+      else resolve(code === 0 && index === oids.length && left === -1 && !header.length ? null : 'baseline_objects_unreadable');
+    });
   });
-  if (rows.length !== expected.size || rows.some((row) => !expected.has(row))) return 'baseline_objects_mismatch';
-  const wanted = [...new Set([...changes.modified.filter((row) => row.oldMode !== MODE.gitlink).map((row) => row.oldOid),
-    ...changes.deleted.filter((row) => row.mode !== MODE.gitlink).map((row) => row.oid)])];
-  if (!wanted.length) return null;
-  const batch = await storeGit(exe, storeDir, env, ['cat-file', '--batch'], { input: `${wanted.join('\n')}\n`, maxBytes: maxOutputBytes, signal });
-  if (batch.code !== 0) return 'baseline_objects_unreadable';
-  let at = 0;
-  for (const oid of wanted) {
-    const newline = batch.stdout.indexOf(0x0a, at);
-    if (newline < 0) return 'baseline_objects_unreadable';
-    const header = batch.stdout.subarray(at, newline).toString('utf8').split(' ');
-    at = newline + 1;
-    if (header[1] === 'missing') return 'baseline_objects_missing';
-    const length = Number(header[2]);
-    if (header[0] !== oid || header[1] !== 'blob' || !Number.isSafeInteger(length)) return 'baseline_objects_mismatch';
-    if (blobId(batch.stdout.subarray(at, at + length), record.objectFormat) !== oid) return 'baseline_objects_mismatch';
-    at += length + 1;
-  }
-  return null;
 }
 
 async function buildPatch({ exe, env, folder, record, before, snapshot, changes, work, root, bounds, signal }) {

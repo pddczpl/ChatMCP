@@ -10,11 +10,12 @@
 //   4. an empty diff, a plain folder (manifest change list and `patch: unavailable`), no Git;
 //   5. the lock: in-process and cross-process waiting, refusal after the wait, stale locks of a crashed process, an old heartbeat, another
 //      host, unreadable content; four concurrent baselines of one workspace, none corrupt;
-//   6. retention by count and by age, leftovers; an edited, re-hashed, moved, missing or forged baseline is refused or reported;
+//   6. retention by count and by age, leftovers; an edited, re-hashed, moved, missing or forged baseline is refused or reported; old
+//      blobs larger than the output cap are hashed as a stream (a small patch, patch_too_large, unreadable, each with the change list);
 //   7. budgets on a 663-file and an 8,002-file repository, printed as PROOF_BASELINE_BUDGET {...}.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -634,6 +635,10 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   // the blob put back, then a tree forged: other bytes under the id of the sub folder's tree, then under the root tree's id
   fs.writeFileSync(loose, zlib.deflateSync(Buffer.from('blob 2\0a\n', 'latin1')));
   assert.equal((await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256 })).patch.status, 'ok', 'the genuine blob is back');
+  fs.renameSync(loose, `${loose}.aside`); // the trees are whole, the old blob of a.txt is gone (ls-tree does not read blobs)
+  const blobGone = await diffBaseline({ hubDir: hub, root: repo, id: base.id, expectSha256: base.sha256 });
+  assert.deepEqual(blobGone.patch, { status: 'unavailable', reason: 'baseline_objects_missing' }, 'a missing old blob');
+  fs.renameSync(`${loose}.aside`, loose);
   const inStore = { ...process.env, GIT_DIR: store };
   const forgeTree = (id) => {
     const other = git(store, ['mktree', '--missing'], { env: inStore, input: `100644 blob ${blobId(Buffer.from('forged\n'))}\tb.txt\n` }).stdout.trim();
@@ -664,9 +669,7 @@ process.stdout.write(JSON.stringify({ id: result.id, sha256: result.sha256 }) + 
   const text = (tag) => Array.from({ length: 2000 }, (_, line) => `${tag} line ${String(line).padStart(5, '0')} ${'x'.repeat(80)}\n`).join('');
   for (const name of ['big1.txt', 'big2.txt', 'big3.txt']) write(repo, name, text(name)); // about 190 KiB each, more than one pipe chunk
   write(repo, 'empty.txt', '');
-  let state = 7;
-  const noise = Buffer.alloc(200 * 1024, 0).map(() => { state = (state * 1103515245 + 12345) % 2147483648; return state >>> 16; });
-  write(repo, 'noise.bin', noise);
+  write(repo, 'noise.bin', randomBytes(200 * 1024)); // does not deflate: its deletion patch is over 250 KiB
   write(repo, 'keep.txt', 'keep\n');
   commitAll(repo);
   const base = await snapshotBaseline({ hubDir: hub, root: repo, toolchain });

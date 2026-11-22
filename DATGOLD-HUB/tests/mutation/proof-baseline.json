@@ -232,7 +232,32 @@
     {
       "name": "PB-store-rehash",
       "what": "the old blobs of the changed paths are not hashed again",
-      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (blobId(batch.stdout.subarray(at, at + length), record.objectFormat) !== oid) return 'baseline_objects_mismatch';", "new": "" }]
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (hash.digest('hex') !== oids[index]) { settle('baseline_objects_mismatch'); return; }", "new": "hash.digest('hex');" }]
+    },
+    {
+      "name": "PB-blobs-buffered",
+      "what": "the old blobs are read by one buffered cat-file under the output cap again (audit F1: their sum hit the limit)",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "return await oldBlobsProblem({ exe, env, gitDir: storeDir, oids: wanted, objectFormat: record.objectFormat, signal });", "new": "return (await storeGit(exe, storeDir, env, ['cat-file', '--batch'], { input: wanted.join('\\n'), maxBytes: maxOutputBytes, signal }), null);" }]
+    },
+    {
+      "name": "PB-blobs-unreadable-throws",
+      "what": "a store Git cannot read within the limits throws instead of giving a reason with the change list",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "return 'baseline_objects_unreadable'; // the store check ran out of a limit", "new": "throw error;" }]
+    },
+    {
+      "name": "PB-blobs-missing-as-mismatch",
+      "what": "an old blob missing from the store is reported as forged",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "if (type === 'missing') { settle('baseline_objects_missing'); return; }", "new": "if (type === 'missing') { settle('baseline_objects_mismatch'); return; }" }]
+    },
+    {
+      "name": "PB-blobs-no-object-header",
+      "what": "the streamed hash leaves out Git's object header",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "hash = createHash(objectFormat).update(`blob ${left}\\0`);", "new": "hash = createHash(objectFormat);" }]
+    },
+    {
+      "name": "PB-blobs-overread",
+      "what": "a chunk is hashed past the end of the blob's content",
+      "patches": [{ "file": "lib/proof/baseline.mjs", "old": "const part = chunk.subarray(at, at + left);", "new": "const part = chunk.subarray(at);" }]
     },
     {
       "name": "PB-store-corrupt-as-missing",
