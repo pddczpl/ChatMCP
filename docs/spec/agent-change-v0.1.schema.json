@@ -1,0 +1,914 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pddczpl/ChatMCP/blob/main/docs/spec/agent-change-v0.1.schema.json",
+  "title": "DatGold agent-change predicate v0.1 in an in-toto Statement v1",
+  "description": "What an agent changed in a workspace and what is known about each acceptance criterion of the task. Versioned: the fields will change after outside feedback.",
+  "$comment": "Apache-2.0, like the DatGold repository. Unsigned in v0.1 (a DSSE envelope comes later); integrity level unconfined. The rules a schema cannot say (unique subject names, digest lengths, statuses that follow from the listed facts) are in docs/spec/agent-change-v0.1.md, section \"Rules beyond the schema\".",
+  "type": "object",
+  "required": [
+    "_type",
+    "subject",
+    "predicateType",
+    "predicate"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "_type": {
+      "const": "https://in-toto.io/Statement/v1"
+    },
+    "subject": {
+      "type": "array",
+      "maxItems": 4,
+      "minItems": 3,
+      "items": {
+        "$ref": "#/$defs/subject"
+      }
+    },
+    "predicateType": {
+      "const": "https://github.com/pddczpl/ChatMCP/blob/main/docs/spec/agent-change-v0.1.md"
+    },
+    "predicate": {
+      "$ref": "#/$defs/predicate"
+    }
+  },
+  "$defs": {
+    "hex64": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "hex64OrNull": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitId": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "gitIdOrNull": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "treeAlgorithm": {
+      "enum": [
+        "git-pinned-v1",
+        "raw-v1"
+      ]
+    },
+    "objectFormat": {
+      "enum": [
+        "sha1",
+        "sha256"
+      ]
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "name",
+        "digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": [
+            "workspace-tree-before",
+            "workspace-tree-after",
+            "change.diff",
+            "git-commit"
+          ]
+        },
+        "digest": {
+          "type": "object",
+          "required": [],
+          "additionalProperties": false,
+          "properties": {
+            "gitTree": {
+              "$ref": "#/$defs/gitId"
+            },
+            "gitCommit": {
+              "$ref": "#/$defs/gitId"
+            },
+            "sha256": {
+              "$ref": "#/$defs/hex64"
+            }
+          },
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      }
+    },
+    "tree": {
+      "type": "object",
+      "required": [
+        "treeAlgorithm",
+        "objectFormat",
+        "engineReason",
+        "ignoreRules",
+        "files",
+        "bytes",
+        "limitations"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "treeAlgorithm": {
+          "$ref": "#/$defs/treeAlgorithm"
+        },
+        "objectFormat": {
+          "$ref": "#/$defs/objectFormat"
+        },
+        "engineReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "ignoreRules": {
+          "enum": [
+            "git",
+            "none"
+          ]
+        },
+        "files": {
+          "$ref": "#/$defs/count"
+        },
+        "bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "untracked-ignored-paths-not-covered",
+              "ignore-rules-not-applied",
+              "counts-from-last-full-snapshot"
+            ]
+          }
+        }
+      }
+    },
+    "reason": {
+      "type": "object",
+      "required": [
+        "code",
+        "check",
+        "detail"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "owner_accepted",
+            "owner_accepted_other_tree",
+            "check_failed",
+            "check_repeats_short",
+            "check_stale",
+            "check_tree_unknown",
+            "check_not_run",
+            "checks_modified",
+            "acceptance_untrusted",
+            "check_changes_unknown",
+            "ledger_not_verified",
+            "manual_not_accepted"
+          ]
+        },
+        "check": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 19
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 600
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "required": [
+        "index",
+        "run",
+        "cwd",
+        "commandSha256",
+        "expectExit",
+        "repeat",
+        "result",
+        "passes",
+        "receipts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 19
+        },
+        "run": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "cwd": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "commandSha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "expectExit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "repeat": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "result": {
+          "enum": [
+            "passed",
+            "failed",
+            "repeats_short",
+            "stale",
+            "tree_unknown",
+            "not_run"
+          ]
+        },
+        "passes": {
+          "$ref": "#/$defs/count"
+        },
+        "receipts": {
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/seq"
+          }
+        }
+      }
+    },
+    "criterion": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "status",
+        "checks",
+        "reasons",
+        "omittedReasons"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "kind": {
+          "enum": [
+            "checks",
+            "manual"
+          ]
+        },
+        "status": {
+          "enum": [
+            "evidenced",
+            "owner_accepted",
+            "unverified",
+            "failed",
+            "stale",
+            "checks_modified"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/reason"
+          }
+        },
+        "omittedReasons": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "required": [
+        "sha256",
+        "bytes",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "treeRef": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "treeAlgorithm",
+        "objectFormat",
+        "tree"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "treeAlgorithm": {
+          "enum": [
+            "git-pinned-v1",
+            "raw-v1",
+            null
+          ]
+        },
+        "objectFormat": {
+          "enum": [
+            "sha1",
+            "sha256",
+            null
+          ]
+        },
+        "tree": {
+          "$ref": "#/$defs/gitIdOrNull"
+        }
+      }
+    },
+    "toolchain": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "node",
+        "python",
+        "dotnet",
+        "git"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "python": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "dotnet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "git": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "required": [
+        "seq",
+        "hash",
+        "ts",
+        "command",
+        "commandTruncated",
+        "commandSha256",
+        "argsSha256",
+        "cwd",
+        "shell",
+        "exit",
+        "signal",
+        "timedOut",
+        "cancelled",
+        "stdout",
+        "stderr",
+        "treeBefore",
+        "treeAfter",
+        "toolchain",
+        "durationMs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "$ref": "#/$defs/seq"
+        },
+        "hash": {
+          "$ref": "#/$defs/hex64"
+        },
+        "ts": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "command": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "commandTruncated": {
+          "type": "boolean"
+        },
+        "commandSha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "argsSha256": {
+          "$ref": "#/$defs/hex64"
+        },
+        "cwd": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "shell": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "exit": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 32
+        },
+        "timedOut": {
+          "type": "boolean"
+        },
+        "cancelled": {
+          "type": "boolean"
+        },
+        "stdout": {
+          "$ref": "#/$defs/stream"
+        },
+        "stderr": {
+          "$ref": "#/$defs/stream"
+        },
+        "treeBefore": {
+          "$ref": "#/$defs/treeRef"
+        },
+        "treeAfter": {
+          "$ref": "#/$defs/treeRef"
+        },
+        "toolchain": {
+          "$ref": "#/$defs/toolchain"
+        },
+        "durationMs": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "required": [
+        "agent",
+        "model",
+        "baseCommit",
+        "trees",
+        "excludedPaths",
+        "lockfiles",
+        "acceptance",
+        "checkChanges",
+        "criteria",
+        "receipts",
+        "ledger",
+        "permissions",
+        "uncertain",
+        "cost",
+        "integrity",
+        "limitations"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "type": "object",
+          "required": [
+            "name",
+            "version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "maxLength": 64,
+              "minLength": 1
+            }
+          }
+        },
+        "model": {
+          "type": "object",
+          "required": [
+            "provider",
+            "id",
+            "profileRevision"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            },
+            "profileRevision": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            }
+          }
+        },
+        "baseCommit": {
+          "$ref": "#/$defs/gitIdOrNull"
+        },
+        "trees": {
+          "type": "object",
+          "required": [
+            "before",
+            "after"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "before": {
+              "$ref": "#/$defs/tree"
+            },
+            "after": {
+              "$ref": "#/$defs/tree"
+            }
+          }
+        },
+        "excludedPaths": {
+          "type": "object",
+          "required": [
+            "classes",
+            "protected",
+            "runs",
+            "gitlinks"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "classes": {
+              "type": "array",
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "protected-files",
+                  "runs-folder",
+                  "untracked-ignored-paths",
+                  "nested-repository-content"
+                ]
+              }
+            },
+            "protected": {
+              "$ref": "#/$defs/count"
+            },
+            "runs": {
+              "$ref": "#/$defs/count"
+            },
+            "gitlinks": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        "lockfiles": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "status",
+              "sha256Before",
+              "sha256After"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "maxLength": 1024,
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "unchanged",
+                  "modified",
+                  "added",
+                  "deleted"
+                ]
+              },
+              "sha256Before": {
+                "$ref": "#/$defs/hex64OrNull"
+              },
+              "sha256After": {
+                "$ref": "#/$defs/hex64OrNull"
+              }
+            }
+          }
+        },
+        "acceptance": {
+          "type": "object",
+          "required": [
+            "baselineSha256",
+            "trusted",
+            "edited"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "baselineSha256": {
+              "$ref": "#/$defs/hex64OrNull"
+            },
+            "trusted": {
+              "type": "boolean"
+            },
+            "edited": {
+              "type": "boolean"
+            }
+          }
+        },
+        "checkChanges": {
+          "type": "object",
+          "required": [
+            "reported",
+            "checksModified"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "reported": {
+              "type": "boolean"
+            },
+            "checksModified": {
+              "type": "boolean"
+            }
+          }
+        },
+        "criteria": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/criterion"
+          }
+        },
+        "receipts": {
+          "type": "array",
+          "maxItems": 21000,
+          "items": {
+            "$ref": "#/$defs/receipt"
+          }
+        },
+        "ledger": {
+          "type": "object",
+          "required": [
+            "present",
+            "verified",
+            "records",
+            "lastHash",
+            "brokenAt",
+            "reason",
+            "checks",
+            "omittedReceipts",
+            "omittedUncertain"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "present": {
+              "type": "boolean"
+            },
+            "verified": {
+              "type": "boolean"
+            },
+            "records": {
+              "$ref": "#/$defs/count"
+            },
+            "lastHash": {
+              "$ref": "#/$defs/hex64"
+            },
+            "brokenAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "reason": {
+              "enum": [
+                "line_too_long",
+                "not_utf8",
+                "bad_envelope",
+                "hash_mismatch",
+                "not_json",
+                "bad_version",
+                "seq_mismatch",
+                "prev_mismatch",
+                "unknown_type",
+                "bad_record",
+                "torn_tail",
+                null
+              ]
+            },
+            "checks": {
+              "$ref": "#/$defs/count"
+            },
+            "omittedReceipts": {
+              "$ref": "#/$defs/count"
+            },
+            "omittedUncertain": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        "permissions": {
+          "type": "object",
+          "required": [
+            "records",
+            "approved",
+            "denied",
+            "expired",
+            "cancelled",
+            "blocked",
+            "policy",
+            "other"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "records": {
+              "$ref": "#/$defs/count"
+            },
+            "approved": {
+              "$ref": "#/$defs/count"
+            },
+            "denied": {
+              "$ref": "#/$defs/count"
+            },
+            "expired": {
+              "$ref": "#/$defs/count"
+            },
+            "cancelled": {
+              "$ref": "#/$defs/count"
+            },
+            "blocked": {
+              "$ref": "#/$defs/count"
+            },
+            "policy": {
+              "$ref": "#/$defs/count"
+            },
+            "other": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        "uncertain": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "required": [
+              "seq",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "seq": {
+                "$ref": "#/$defs/seq"
+              },
+              "reason": {
+                "type": "string",
+                "pattern": "^[a-z0-9_]{1,64}$"
+              }
+            }
+          }
+        },
+        "cost": {
+          "oneOf": [
+            {
+              "const": "unknown"
+            },
+            {
+              "type": "object",
+              "required": [
+                "currency",
+                "knownSubtotal",
+                "complete"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "knownSubtotal": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000000
+                },
+                "complete": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        },
+        "integrity": {
+          "type": "object",
+          "required": [
+            "level",
+            "signed"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "const": "unconfined"
+            },
+            "signed": {
+              "const": false
+            }
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "unsigned",
+              "integrity-unconfined",
+              "ledger-end-not-anchored",
+              "untracked-ignored-paths-not-covered",
+              "heuristics-may-flag-legitimate-changes",
+              "test-selection-unknown",
+              "protected-files-not-read"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
