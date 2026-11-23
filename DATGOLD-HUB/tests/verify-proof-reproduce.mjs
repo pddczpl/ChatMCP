@@ -31,6 +31,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compileSchema } from '../lib/proof/schema-validate.mjs';
 import { canonicalJson, statementDigest, validateStatement } from '../lib/proof/pack.mjs';
+import { ProofLedger, verifyChain } from '../lib/proof/ledger.mjs';
 import { CLI_DATA_SCHEMAS, CLI_FORMAT, CLI_OUTPUT_SCHEMA, CODES, COMMANDS, EXIT, MESSAGES, main } from '../lib/proof/cli/index.mjs';
 import { PACK_FILE_FORMAT, PACK_FILE_MAX_BYTES, PACK_FILE_NAMES, encodePackFile, readPackFile } from '../lib/proof/cli/check.mjs';
 import { NOT_COMPARED, REPRODUCE_PASSES, REPRODUCE_REASONS, variablesNamed, verdictOf } from '../lib/proof/cli/reproduce.mjs';
@@ -351,6 +352,31 @@ let goodBytes;
 }
 function write1(root, relative, content) { writeFiles(root, { [relative]: content }); }
 
+/**
+ * A pack whose ledger gains one more `check` record (appended with the ledger's own code, so its chain verifies): the last passing run of
+ * `command` again, on the same final tree, with exit 1. The statement's ledger summary is updated to the new chain; its criteria and
+ * receipts are left as they were, and the pack is encoded again with its digest. Every hash in it holds; only the roll-up does not.
+ */
+async function failureAppended(bytes, command) {
+  const { statement, files } = readPackFile(bytes);
+  const scratchLedger = path.join(folder('forged-ledger'), 'ledger.jsonl');
+  fs.writeFileSync(scratchLedger, files['ledger.jsonl']);
+  const entries = files['ledger.jsonl'].toString('utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const passing = entries.findLast((entry) => entry.type === 'check' && entry.record.command === command && entry.record.exit === 0);
+  assert.ok(passing, `a passing run of ${command} to copy`);
+  const ledger = new ProofLedger({ file: scratchLedger, now: () => new Date() });
+  await ledger.append('check', { ...passing.record, exit: 1 });
+  const ledgerBytes = fs.readFileSync(scratchLedger);
+  const report = verifyChain(ledgerBytes);
+  assert.ok(report.ok, 'the forged ledger verifies');
+  const forged = structuredClone(statement);
+  Object.assign(forged.predicate.ledger, {
+    records: report.records, lastHash: report.lastHash, checks: forged.predicate.ledger.checks + 1, omittedReceipts: forged.predicate.ledger.omittedReceipts + 1,
+  });
+  assert.deepEqual(validateStatement(forged), { valid: true, errors: [] }, 'the forged statement passes the spec\'s rules: they see only the listed receipts');
+  return encodePackFile({ statement: forged, diff: files['change.diff'], ledger: ledgerBytes, acceptance: files['acceptance.yml'] ?? null });
+}
+
 // ------------------------------------------------------------------------------------------------------------------------- 4. tampering
 {
   // every byte of the pack, changed one at a time, in process: each one is refused with an integrity code
@@ -450,6 +476,16 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
   assert.deepEqual([looseError?.code, looseError?.detail?.why], ['pack_file_mismatch', 'base64'], `base64 of ${padded} with a padding bit set`);
   // a reader can be held to a smaller limit; the CLI's is PACK_FILE_MAX_BYTES
   assert.deepEqual([refusal(goodBytes, 100)?.code, refusal(goodBytes, 100)?.detail?.why], ['pack_unreadable', 'too_large']);
+  // audit F1: the ledger the pack carries gains a failing run of the unit check on the final tree; the statement's ledger summary is made
+  // to match, its criteria still say evidenced. check re-derives the criteria from that ledger with the spec's own roll-up and refuses it
+  for (const [label, bytes] of [['the good pack', goodBytes], ...committedPacks().map(({ platform, file }) => [`the ${platform} fixture pack`, fs.readFileSync(file)])]) {
+    const forgedPack = await failureAppended(bytes, 'node test.mjs');
+    const error = refusal(forgedPack);
+    assert.deepEqual([error?.code, error?.detail?.part], ['pack_invalid', 'rollup'], `${label} with a failure the statement hides: ${error?.code} ${JSON.stringify(error?.detail)}`);
+    assert.deepEqual([error.detail.criterion, error.detail.field], ['unit', 'status'], `${label}: the first difference is named`);
+    assert.match(error.detail.errors[0].message, /failed/, `${label}: the roll-up says failed`);
+    assert.ok(readPackFile(bytes).statement, `${label} itself still verifies`);
+  }
   const consistent = remade((copy) => { copy.statement.predicate.agent.name = 'someone else'; });
   assert.equal(readPackFile(consistent).statement.predicate.agent.name, 'someone else', 'a pack re-made consistently verifies: a pack is not signed');
   // encodePackFile refuses a pack over its limit
