@@ -1,0 +1,1168 @@
+{
+ "suite": "ui-plan-view-for-mutation.mjs",
+ "description": "What ui/tests/plan-draft.test.mjs and plan-view.test.mjs must notice of the logic of the plan-mode page (P9 ac-11): the owner's draft of a plan, what it saves, whose the status and the evidence of a step are, the merge and the conflict when the plan moves on and the two ways out (ui/src/lib/plan-draft.ts); which request is a plan, what its card shows and which revision an approval answers, the Plan flag of the composer, the line of the banner and the head of the Plan tab (ui/src/lib/plan-view.ts); and the owner's feedback in the history of approvals (ui/src/lib/task-view.ts). The components are not mutated here: their tests (ui/tests/plan-components.test.mjs) bundle them with esbuild, which needs node_modules.",
+ "mutations": [
+  {
+   "name": "D-lim-steps",
+   "what": "a plan may have 101 steps",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "steps: 100,", "new": "steps: 101," }
+   ]
+  },
+  {
+   "name": "D-lim-chars",
+   "what": "a step may be 501 characters",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "stepChars: 500,", "new": "stepChars: 501," }
+   ]
+  },
+  {
+   "name": "D-lim-title",
+   "what": "a title may be 241 characters",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "titleChars: 240,", "new": "titleChars: 241," }
+   ]
+  },
+  {
+   "name": "D-lim-text",
+   "what": "a text may be 40,001 characters",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "textChars: 40_000,", "new": "textChars: 40_001," }
+   ]
+  },
+  {
+   "name": "D-lim-feedback",
+   "what": "feedback may be 4,001 characters",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "feedbackChars: 4_000 });", "new": "feedbackChars: 4_001 });" }
+   ]
+  },
+  {
+   "name": "D-same-trim-a",
+   "what": "the words of the plan are compared with their spaces",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "a.trim() === b.trim();", "new": "a === b.trim();" }
+   ]
+  },
+  {
+   "name": "D-same-any",
+   "what": "every two texts are the same words",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "a.trim() === b.trim();", "new": "true;" }
+   ]
+  },
+  {
+   "name": "D-basis-rev",
+   "what": "a plan with no revision has no number",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "revision: plan.revision ?? 0,", "new": "revision: plan.revision ?? -1," }
+   ]
+  },
+  {
+   "name": "D-basis-by",
+   "what": "who wrote last is forgotten",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "updatedBy: plan.updatedBy ?? null,", "new": "updatedBy: null," }
+   ]
+  },
+  {
+   "name": "D-basis-title",
+   "what": "the title of the plan is forgotten",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "title: plan.title ?? '', text:", "new": "title: '', text:" }
+   ]
+  },
+  {
+   "name": "D-basis-text",
+   "what": "the text of the plan is forgotten",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "text: plan.text ?? '',", "new": "text: ''," }
+   ]
+  },
+  {
+   "name": "D-basis-text-missing",
+   "what": "a plan with no text has the text \"undefined\"",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "text: plan.text ?? '',", "new": "text: String(plan.text)," }
+   ]
+  },
+  {
+   "name": "D-basis-items",
+   "what": "a plan with no steps throws",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "(plan.items ?? []).map", "new": "(plan.items as PlanItem[]).map" }
+   ]
+  },
+  {
+   "name": "D-basis-evidence",
+   "what": "the evidence of the agent is forgotten",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "evidence: evidence ?? '' }))", "new": "evidence: '' }))" }
+   ]
+  },
+  {
+   "name": "D-basis-status",
+   "what": "the status of the agent is forgotten",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "({ text, status, evidence }) => ({ text, status, evidence", "new": "({ text, evidence }) => ({ text, status: 'todo' as const, evidence" }
+   ]
+  },
+  {
+   "name": "D-open-from",
+   "what": "an opened step does not know the step it was",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "text: item.text, from: index }", "new": "text: item.text, from: null }" }
+   ]
+  },
+  {
+   "name": "D-open-next",
+   "what": "an added step takes the id of the last one",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "nextId: basis.items.length };", "new": "nextId: basis.items.length - 1 };" }
+   ]
+  },
+  {
+   "name": "D-open-title",
+   "what": "a draft opens without the title",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "return { basis, title: basis.title, text", "new": "return { basis, title: '', text" }
+   ]
+  },
+  {
+   "name": "D-open-text",
+   "what": "a draft opens without the text",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "text: basis.text, steps", "new": "text: '', steps" }
+   ]
+  },
+  {
+   "name": "D-edit-title",
+   "what": "an edit of the title is dropped",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "PlanDraft => ({ ...draft, title });", "new": "PlanDraft => ({ ...draft });" }
+   ]
+  },
+  {
+   "name": "D-edit-text",
+   "what": "an edit of the text is dropped",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "PlanDraft => ({ ...draft, text });", "new": "PlanDraft => ({ ...draft });" }
+   ]
+  },
+  {
+   "name": "D-edit-step-all",
+   "what": "an edit of a step edits every step",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "(step.id === id ? { ...step, text } : step)", "new": "({ ...step, text })" }
+   ]
+  },
+  {
+   "name": "D-edit-step-from",
+   "what": "a reworded step forgets which step it was",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "(step.id === id ? { ...step, text } : step)", "new": "(step.id === id ? { ...step, text, from: null } : step)" }
+   ]
+  },
+  {
+   "name": "D-remove-none",
+   "what": "a deleted step stays",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.steps.filter((step) => step.id !== id)", "new": "draft.steps.filter(() => true)" }
+   ]
+  },
+  {
+   "name": "D-remove-others",
+   "what": "deleting a step deletes the others",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.steps.filter((step) => step.id !== id)", "new": "draft.steps.filter((step) => step.id === id)" }
+   ]
+  },
+  {
+   "name": "D-add-after",
+   "what": "a step is added above the one it was to go under",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "at < 0 ? draft.steps.length : at + 1;", "new": "at < 0 ? draft.steps.length : at;" }
+   ]
+  },
+  {
+   "name": "D-add-start",
+   "what": "a step with no place goes first",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "at < 0 ? draft.steps.length : at + 1;", "new": "at + 1;" }
+   ]
+  },
+  {
+   "name": "D-add-id",
+   "what": "the id counter does not move",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "nextId: draft.nextId + 1,", "new": "nextId: draft.nextId," }
+   ]
+  },
+  {
+   "name": "D-add-text",
+   "what": "an added step is not empty",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "{ id, text: '', from: null }", "new": "{ id, text: ' ', from: null }" }
+   ]
+  },
+  {
+   "name": "D-add-from",
+   "what": "an added step is the first of the agent",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "{ id, text: '', from: null }", "new": "{ id, text: '', from: 0 }" }
+   ]
+  },
+  {
+   "name": "D-move-first",
+   "what": "the first step can go up",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (at < 0 || to < 0 || to >= draft.steps.length)", "new": "if (at < 0 || to >= draft.steps.length)" }
+   ]
+  },
+  {
+   "name": "D-move-last",
+   "what": "the last step can go down",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (at < 0 || to < 0 || to >= draft.steps.length)", "new": "if (at < 0 || to < 0 || to > draft.steps.length)" }
+   ]
+  },
+  {
+   "name": "D-move-unknown",
+   "what": "a step that is not there can be moved",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (at < 0 || to < 0 || to >= draft.steps.length)", "new": "if (to < 0 || to >= draft.steps.length)" }
+   ]
+  },
+  {
+   "name": "D-move-nothing",
+   "what": "a move moves nothing",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "[steps[at], steps[to]] = [steps[to], steps[at]];", "new": "" }
+   ]
+  },
+  {
+   "name": "D-move-in-place",
+   "what": "a move changes the draft it was given",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "const steps = [...draft.steps];", "new": "const steps = draft.steps;" }
+   ]
+  },
+  {
+   "name": "D-dirty-title",
+   "what": "a changed title is no edit",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.title !== draft.basis.title || draft.text", "new": "draft.text" }
+   ]
+  },
+  {
+   "name": "D-dirty-text",
+   "what": "a changed text is no edit",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.text !== draft.basis.text || stepsChanged(draft);", "new": "stepsChanged(draft);" }
+   ]
+  },
+  {
+   "name": "D-dirty-steps",
+   "what": "changed steps are no edit",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.text !== draft.basis.text || stepsChanged(draft);", "new": "draft.text !== draft.basis.text;" }
+   ]
+  },
+  {
+   "name": "D-changed-length",
+   "what": "a deleted last step is no change",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "steps.length !== basis.items.length || steps.some", "new": "steps.some" }
+   ]
+  },
+  {
+   "name": "D-changed-from",
+   "what": "a step in another place is no change",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "step.from !== index || step.text", "new": "step.text" }
+   ]
+  },
+  {
+   "name": "D-changed-words",
+   "what": "a reworded step is no change",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "step.from !== index || step.text !== basis.items[index].text);", "new": "step.from !== index);" }
+   ]
+  },
+  {
+   "name": "D-problem-empty",
+   "what": "a step with no words can be saved",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (draft.steps.some((step) => !step.text.trim())) return 'empty_step';", "new": "" }
+   ]
+  },
+  {
+   "name": "D-problem-blank",
+   "what": "a step of spaces can be saved",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "!step.text.trim())) return", "new": "!step.text)) return" }
+   ]
+  },
+  {
+   "name": "D-problem-long",
+   "what": "a step that is too long can be saved",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "step.text.trim().length > PLAN_LIMITS.stepChars", "new": "step.text.trim().length > 10 ** 9" }
+   ]
+  },
+  {
+   "name": "D-problem-long-trim",
+   "what": "the spaces around a step count",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "step.text.trim().length > PLAN_LIMITS.stepChars", "new": "step.text.length > PLAN_LIMITS.stepChars" }
+   ]
+  },
+  {
+   "name": "D-problem-long-edge",
+   "what": "a step of exactly the limit is too long",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "step.text.trim().length > PLAN_LIMITS.stepChars", "new": "step.text.trim().length >= PLAN_LIMITS.stepChars" }
+   ]
+  },
+  {
+   "name": "D-problem-many",
+   "what": "any number of steps can be saved",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (draft.steps.length > PLAN_LIMITS.steps) return 'too_many_steps';", "new": "" }
+   ]
+  },
+  {
+   "name": "D-problem-many-edge",
+   "what": "exactly a hundred steps are too many",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.steps.length > PLAN_LIMITS.steps)", "new": "draft.steps.length >= PLAN_LIMITS.steps)" }
+   ]
+  },
+  {
+   "name": "D-problem-notext",
+   "what": "the text of a plan can be blanked",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (draft.basis.text.trim() && !draft.text.trim()) return 'empty_text';", "new": "" }
+   ]
+  },
+  {
+   "name": "D-problem-notext-any",
+   "what": "a plan that never had a text needs one",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.basis.text.trim() && !draft.text.trim()", "new": "!draft.text.trim()" }
+   ]
+  },
+  {
+   "name": "D-problem-notext-blank",
+   "what": "a text of spaces is a text",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "!draft.text.trim()) return", "new": "!draft.text) return" }
+   ]
+  },
+  {
+   "name": "D-problem-textlong",
+   "what": "a text of any length can be saved",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (draft.text.length > PLAN_LIMITS.textChars) return 'text_too_long';", "new": "" }
+   ]
+  },
+  {
+   "name": "D-problem-textlong-edge",
+   "what": "a text of exactly the limit is too long",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "draft.text.length > PLAN_LIMITS.textChars", "new": "draft.text.length >= PLAN_LIMITS.textChars" }
+   ]
+  },
+  {
+   "name": "D-saved-trim",
+   "what": "a step is saved with the spaces around it",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "const text = step.text.trim();", "new": "const text = step.text;" }
+   ]
+  },
+  {
+   "name": "D-saved-added-status",
+   "what": "a step the owner added is done",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (!was) return { text, status: 'todo', evidence: '' };", "new": "if (!was) return { text, status: 'done', evidence: '' };" }
+   ]
+  },
+  {
+   "name": "D-saved-added-evidence",
+   "what": "a step the owner added has evidence",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (!was) return { text, status: 'todo', evidence: '' };", "new": "if (!was) return { text, status: 'todo', evidence: text };" }
+   ]
+  },
+  {
+   "name": "D-saved-keep",
+   "what": "a step the owner did not reword loses the marks of the agent",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (sameText(was.text, text)) return { ...was, text };", "new": "" }
+   ]
+  },
+  {
+   "name": "D-saved-done",
+   "what": "a reworded step stays done",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "status: was.status === 'done' ? 'todo' : was.status, evidence: '' };", "new": "status: was.status, evidence: '' };" }
+   ]
+  },
+  {
+   "name": "D-saved-todo",
+   "what": "a reworded step that is under way starts over",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "status: was.status === 'done' ? 'todo' : was.status, evidence: '' };", "new": "status: 'todo', evidence: '' };" }
+   ]
+  },
+  {
+   "name": "D-saved-evidence",
+   "what": "a reworded step keeps the evidence of the old words",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "status: was.status === 'done' ? 'todo' : was.status, evidence: '' };", "new": "status: was.status === 'done' ? 'todo' : was.status, evidence: was.evidence };" }
+   ]
+  },
+  {
+   "name": "D-view-loses-never",
+   "what": "the editor never says that a mark is lost",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "loses: !!was && (was.status", "new": "loses: false && !!was && (was.status" }
+   ]
+  },
+  {
+   "name": "D-view-loses-added",
+   "what": "an added step is said to lose a mark",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "loses: !!was && (was.status !== saved.status", "new": "loses: (was?.status !== saved.status" }
+   ]
+  },
+  {
+   "name": "D-view-loses-status",
+   "what": "the lost word \"done\" is not said",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "(was.status !== saved.status || (!!was.evidence?.trim() && !evidence))", "new": "(!!was.evidence?.trim() && !evidence)" }
+   ]
+  },
+  {
+   "name": "D-view-loses-evidence",
+   "what": "lost evidence is not said",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "(was.status !== saved.status || (!!was.evidence?.trim() && !evidence))", "new": "(was.status !== saved.status)" }
+   ]
+  },
+  {
+   "name": "D-view-loses-blank",
+   "what": "blank evidence counts as lost",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "!!was.evidence?.trim() && !evidence", "new": "!!was.evidence && !evidence" }
+   ]
+  },
+  {
+   "name": "D-view-loses-kept",
+   "what": "kept evidence is said to be lost",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "!!was.evidence?.trim() && !evidence", "new": "!!was.evidence?.trim()" }
+   ]
+  },
+  {
+   "name": "D-save-title",
+   "what": "the title is saved with the spaces around it",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "title: draft.title.trim(), items", "new": "title: draft.title, items" }
+   ]
+  },
+  {
+   "name": "D-save-base",
+   "what": "a save names no revision it is based on",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "baseRevision: draft.basis.revision,", "new": "baseRevision: 0," }
+   ]
+  },
+  {
+   "name": "D-save-text-always",
+   "what": "the text is sent though the owner did not change it",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "...(draft.text === draft.basis.text ? {} : { text: draft.text }),", "new": "text: draft.text," }
+   ]
+  },
+  {
+   "name": "D-save-text-never",
+   "what": "a changed text is not sent",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "...(draft.text === draft.basis.text ? {} : { text: draft.text }),", "new": "" }
+   ]
+  },
+  {
+   "name": "D-words-title",
+   "what": "another title is the same words",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "a.title === b.title && a.text === b.text", "new": "a.text === b.text" }
+   ]
+  },
+  {
+   "name": "D-words-text",
+   "what": "another text is the same words",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "a.title === b.title && a.text === b.text &&", "new": "a.title === b.title &&" }
+   ]
+  },
+  {
+   "name": "D-words-length",
+   "what": "a step more is the same words",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "a.items.length === b.items.length && a.items.every", "new": "a.items.every" }
+   ]
+  },
+  {
+   "name": "D-words-items",
+   "what": "other steps are the same words",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "a.items.every((item, index) => item.text === b.items[index].text);", "new": "a.items.every(() => true);" }
+   ]
+  },
+  {
+   "name": "D-rec-same",
+   "what": "a refetch makes a new draft",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (now.revision === draft.basis.revision) return { draft, conflict: null };", "new": "" }
+   ]
+  },
+  {
+   "name": "D-rec-lower",
+   "what": "a lower revision is no change",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (now.revision === draft.basis.revision)", "new": "if (now.revision <= draft.basis.revision)" }
+   ]
+  },
+  {
+   "name": "D-rec-higher",
+   "what": "a higher revision is no change",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (now.revision === draft.basis.revision)", "new": "if (now.revision >= draft.basis.revision)" }
+   ]
+  },
+  {
+   "name": "D-rec-marks",
+   "what": "a mark of the agent is a conflict",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (sameWords(draft.basis, now)) return { draft: { ...draft, basis: now }, conflict: null };", "new": "" }
+   ]
+  },
+  {
+   "name": "D-rec-marks-base",
+   "what": "a merged draft keeps the old base",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "return { draft: { ...draft, basis: now }, conflict: null };", "new": "return { draft, conflict: null };" }
+   ]
+  },
+  {
+   "name": "D-rec-marks-any",
+   "what": "every change is merged without a word",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (sameWords(draft.basis, now))", "new": "if (true)" }
+   ]
+  },
+  {
+   "name": "D-rec-clean",
+   "what": "a draft nobody typed in does not follow the plan",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (!isDirty(draft)) return { draft: openDraft(plan), conflict: null };", "new": "" }
+   ]
+  },
+  {
+   "name": "D-rec-clean-any",
+   "what": "a draft with edits follows the plan and loses them",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (!isDirty(draft)) return", "new": "if (true) return" }
+   ]
+  },
+  {
+   "name": "D-rec-by",
+   "what": "a conflict does not say who wrote",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "revision: now.revision, by: now.updatedBy } };", "new": "revision: now.revision, by: null } };" }
+   ]
+  },
+  {
+   "name": "D-rec-base",
+   "what": "a conflict names the new revision as the base",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "conflict: { base: draft.basis.revision,", "new": "conflict: { base: now.revision," }
+   ]
+  },
+  {
+   "name": "D-mine-once",
+   "what": "a step of the plan is matched twice",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "free.delete(at);", "new": "" }
+   ]
+  },
+  {
+   "name": "D-mine-old",
+   "what": "a reworded step is matched by its new words",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "match(step.from === null ? step.text : basis.items[step.from].text)", "new": "match(step.text)" }
+   ]
+  },
+  {
+   "name": "D-mine-none",
+   "what": "kept steps take no mark of the new revision",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "if (at === undefined) return null;", "new": "return null;" }
+   ]
+  },
+  {
+   "name": "D-mine-steps",
+   "what": "the list the owner changed is dropped",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "const listed = stepsChanged(draft)", "new": "const listed = !stepsChanged(draft)" }
+   ]
+  },
+  {
+   "name": "D-mine-steps-always",
+   "what": "a list the owner did not touch is kept over the new one",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "const listed = stepsChanged(draft)", "new": "const listed = true" }
+   ]
+  },
+  {
+   "name": "D-mine-basis",
+   "what": "a kept draft stays on the old revision",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "return { basis: fresh.basis, title:", "new": "return { basis, title:" }
+   ]
+  },
+  {
+   "name": "D-mine-title",
+   "what": "the title the owner wrote is dropped",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "title: draft.title === basis.title ? fresh.title : draft.title", "new": "title: fresh.title" }
+   ]
+  },
+  {
+   "name": "D-mine-title-old",
+   "what": "the title the owner did not touch is the old one",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "title: draft.title === basis.title ? fresh.title : draft.title", "new": "title: draft.title" }
+   ]
+  },
+  {
+   "name": "D-mine-text",
+   "what": "the text the owner wrote is dropped",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "text: draft.text === basis.text ? fresh.text : draft.text", "new": "text: fresh.text" }
+   ]
+  },
+  {
+   "name": "D-mine-text-old",
+   "what": "the text the owner did not touch is the old one",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "text: draft.text === basis.text ? fresh.text : draft.text", "new": "text: draft.text" }
+   ]
+  },
+  {
+   "name": "D-mine-next",
+   "what": "an id can be used twice after \"keep mine\"",
+   "patches": [
+    { "file": "ui/src/lib/plan-draft.ts", "old": "nextId: draft.nextId }", "new": "nextId: 0 }" }
+   ]
+  },
+  {
+   "name": "V-req-risk",
+   "what": "any category is a plan request",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (approval.risk !== 'plan' || approval.tool", "new": "if (approval.tool" }
+   ]
+  },
+  {
+   "name": "V-req-tool",
+   "what": "a tool of another server is the plan tool",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "approval.tool !== PLAN_TOOL || ", "new": "" }
+   ]
+  },
+  {
+   "name": "V-req-answered",
+   "what": "an answered request is drawn as one that waits",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "approval.decision || !approval.taskId", "new": "!approval.taskId" }
+   ]
+  },
+  {
+   "name": "V-req-task",
+   "what": "a request with no task has a plan card",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "!approval.taskId || detail?.kind", "new": "detail?.kind" }
+   ]
+  },
+  {
+   "name": "V-req-kind",
+   "what": "any detail is a plan",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "|| detail?.kind !== 'plan') return null;", "new": "|| !detail) return null;" }
+   ]
+  },
+  {
+   "name": "V-req-text",
+   "what": "a plan that is not text is taken",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "typeof detail.plan !== 'string' || !detail.plan.trim() ||", "new": "!String(detail.plan).trim() ||" }
+   ]
+  },
+  {
+   "name": "V-req-blank",
+   "what": "a blank plan is taken",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "!detail.plan.trim() || !wholeFrom", "new": "!wholeFrom" }
+   ]
+  },
+  {
+   "name": "V-req-rev",
+   "what": "any revision is taken",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": " || !wholeFrom(detail.revision, 1)) return null;", "new": ") return null;" }
+   ]
+  },
+  {
+   "name": "V-req-rev0",
+   "what": "revision 0 is taken",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "!wholeFrom(detail.revision, 1)", "new": "!wholeFrom(detail.revision, 0)" }
+   ]
+  },
+  {
+   "name": "V-whole",
+   "what": "a revision that is not whole is taken",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "Number.isSafeInteger(value) && (value", "new": "Number.isFinite(value) && (value" }
+   ]
+  },
+  {
+   "name": "V-card-older",
+   "what": "a plan read before the proposal is shown as the plan that waits",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (now.revision < request.revision)", "new": "if (!plan)" }
+   ]
+  },
+  {
+   "name": "V-card-equal",
+   "what": "the plan that waits is not shown, only the copy of the request",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (now.revision < request.revision)", "new": "if (now.revision <= request.revision)" }
+   ]
+  },
+  {
+   "name": "V-card-loaded",
+   "what": "the copy of the request can be edited",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "loaded: false, changed: false, by: null };", "new": "loaded: true, changed: false, by: null };" }
+   ]
+  },
+  {
+   "name": "V-card-masked",
+   "what": "the card shows the masked copy and not the plan",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "return { text: now.text, title: now.title", "new": "return { text: request.text, title: now.title" }
+   ]
+  },
+  {
+   "name": "V-card-revision",
+   "what": "the card answers the revision of the proposal",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "steps: now.items, revision: now.revision, loaded", "new": "steps: now.items, revision: request.revision, loaded" }
+   ]
+  },
+  {
+   "name": "V-card-changed",
+   "what": "a plan written after the proposal is not told",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "changed: now.revision !== request.revision, by", "new": "changed: false, by" }
+   ]
+  },
+  {
+   "name": "V-card-by",
+   "what": "the card does not say who wrote last",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "request.revision, by: now.updatedBy };", "new": "request.revision, by: null };" }
+   ]
+  },
+  {
+   "name": "V-card-steps",
+   "what": "the card shows no steps",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "steps: now.items, revision", "new": "steps: [], revision" }
+   ]
+  },
+  {
+   "name": "V-card-title",
+   "what": "the card shows no title",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "title: now.title, steps: now.items", "new": "title: '', steps: now.items" }
+   ]
+  },
+  {
+   "name": "V-next-conflict",
+   "what": "a conflict does not hold an approval back",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (conflict) return { kind: 'blocked', why: 'conflict' };", "new": "" }
+   ]
+  },
+  {
+   "name": "V-next-dirty",
+   "what": "unsaved edits are approved away",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (draft && isDirty(draft)) {", "new": "if (false && draft) {" }
+   ]
+  },
+  {
+   "name": "V-next-clean",
+   "what": "an untouched draft is saved as an edit",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (draft && isDirty(draft)) {", "new": "if (draft) {" }
+   ]
+  },
+  {
+   "name": "V-next-problem",
+   "what": "a draft the Hub would refuse is sent",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "return why ? { kind: 'blocked', why } : { kind: 'save', body: saveBody(draft) };", "new": "return { kind: 'save', body: saveBody(draft) };" }
+   ]
+  },
+  {
+   "name": "V-next-empty",
+   "what": "a plan with no text can be approved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "return card.text.trim() ? { kind: 'decide', revision: card.revision } : { kind: 'blocked', why: 'empty_text' };", "new": "return { kind: 'decide', revision: card.revision };" }
+   ]
+  },
+  {
+   "name": "V-next-blank",
+   "what": "a plan of spaces can be approved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "return card.text.trim() ?", "new": "return card.text ?" }
+   ]
+  },
+  {
+   "name": "V-approve-save",
+   "what": "an edit is not saved before it is approved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "const saved = await client.savePlan(taskId, title, items, baseRevision, text);", "new": "const saved = { revision: baseRevision } as Plan;" }
+   ]
+  },
+  {
+   "name": "V-approve-text",
+   "what": "the text of an edit is not saved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "baseRevision, text);", "new": "baseRevision);" }
+   ]
+  },
+  {
+   "name": "V-approve-base",
+   "what": "an edit is saved over whatever is there",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "client.savePlan(taskId, title, items, baseRevision, text)", "new": "client.savePlan(taskId, title, items, null, text)" }
+   ]
+  },
+  {
+   "name": "V-approve-told",
+   "what": "nobody hears of the save",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "onSaved?.(saved);", "new": "" }
+   ]
+  },
+  {
+   "name": "V-approve-revision",
+   "what": "the revision before the edit is approved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "revision = saved.revision;", "new": "revision = baseRevision;" }
+   ]
+  },
+  {
+   "name": "V-approve-decide",
+   "what": "the revision on the card is not the one approved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "else revision = move.revision;", "new": "else revision = move.revision - 1;" }
+   ]
+  },
+  {
+   "name": "V-approve-execution",
+   "what": "the execution the owner chose is dropped",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "'approve', { execution });", "new": "'approve', { execution: 'review' });" }
+   ]
+  },
+  {
+   "name": "V-approve-answer",
+   "what": "the revision approved is not answered",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "return revision;", "new": "return 0;" }
+   ]
+  },
+  {
+   "name": "V-conflict-code",
+   "what": "every refusal is a conflict",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "?.code === 'plan_conflict';", "new": "?.code !== undefined;" }
+   ]
+  },
+  {
+   "name": "V-feedback-empty",
+   "what": "feedback of spaces is feedback",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "!text.trim() ? 'empty'", "new": "!text ? 'empty'" }
+   ]
+  },
+  {
+   "name": "V-feedback-long",
+   "what": "feedback of any length is sent",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "text.length > PLAN_LIMITS.feedbackChars ? 'too_long' : null", "new": "null" }
+   ]
+  },
+  {
+   "name": "V-feedback-edge",
+   "what": "feedback of exactly the limit is too long",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "text.length > PLAN_LIMITS.feedbackChars", "new": "text.length >= PLAN_LIMITS.feedbackChars" }
+   ]
+  },
+  {
+   "name": "V-comp-offered",
+   "what": "Plan is offered on the Browser Companion",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "const offered = agentMode === 'api';", "new": "const offered = true;" }
+   ]
+  },
+  {
+   "name": "V-comp-held",
+   "what": "a held task is not known",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "const held = task?.planOnly === true;", "new": "const held = false;" }
+   ]
+  },
+  {
+   "name": "V-comp-running",
+   "what": "a run can be put in plan mode",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "held ? 'held' : working ? 'running' : null;", "new": "held ? 'held' : null;" }
+   ]
+  },
+  {
+   "name": "V-comp-held-lock",
+   "what": "a held task can be let go from the composer",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "held ? 'held' : working ? 'running' : null;", "new": "working ? 'running' : null;" }
+   ]
+  },
+  {
+   "name": "V-comp-checked-companion",
+   "what": "a Plan that was chosen is shown on the Companion",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "checked: offered && (held", "new": "checked: (held" }
+   ]
+  },
+  {
+   "name": "V-comp-checked-held",
+   "what": "a held task does not show Plan",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "(held || (wanted && !locked))", "new": "(wanted && !locked)" }
+   ]
+  },
+  {
+   "name": "V-comp-checked-locked",
+   "what": "a running task shows a Plan it does not have",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "(held || (wanted && !locked))", "new": "(held || wanted)" }
+   ]
+  },
+  {
+   "name": "V-sends-offered",
+   "what": "planMode is sent to the Companion",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "plan.offered && wanted && !plan.locked;", "new": "wanted && !plan.locked;" }
+   ]
+  },
+  {
+   "name": "V-sends-wanted",
+   "what": "planMode is sent though nobody chose it",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "plan.offered && wanted && !plan.locked;", "new": "plan.offered && !plan.locked;" }
+   ]
+  },
+  {
+   "name": "V-sends-locked",
+   "what": "planMode is sent to a task that cannot take it",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "plan.offered && wanted && !plan.locked;", "new": "plan.offered && wanted;" }
+   ]
+  },
+  {
+   "name": "V-line-mode",
+   "what": "a task with no plan mode has a line",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (task?.planMode !== true) return null;", "new": "if (!task) return null;" }
+   ]
+  },
+  {
+   "name": "V-line-approved",
+   "what": "a task that is neither held nor approved is called approved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (approval?.status !== 'approved') return null;", "new": "if (!approval) return { kind: 'approved', held: false, revision: null, execution: null, edited: false };" }
+   ]
+  },
+  {
+   "name": "V-line-held",
+   "what": "a held task is called approved",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (task.planOnly !== true) {", "new": "if (task.planOnly !== false) {" }
+   ]
+  },
+  {
+   "name": "V-line-exec",
+   "what": "an execution the Hub does not offer is named",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "EXECUTIONS.find((name) => name === approval.execution) ?? null;", "new": "(approval.execution as PlanExecution) ?? null;" }
+   ]
+  },
+  {
+   "name": "V-line-exec-list",
+   "what": "Autonomous is not an execution",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "= ['review', 'autonomous'];", "new": "= ['review'];" }
+   ]
+  },
+  {
+   "name": "V-line-edited",
+   "what": "the line does not say that the owner edited",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "edited: approval.editedByUser === true };", "new": "edited: false };" }
+   ]
+  },
+  {
+   "name": "V-line-rev",
+   "what": "the approved revision is not named",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "held: false, revision: approval.revision ?? null, execution", "new": "held: false, revision: null, execution" }
+   ]
+  },
+  {
+   "name": "V-line-waiting",
+   "what": "a plan that waits is not told",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (waiting || !known) return { kind: waiting ?", "new": "if (!known) return { kind: waiting ?" }
+   ]
+  },
+  {
+   "name": "V-line-waiting-kind",
+   "what": "a plan that waits reads as one being written",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "kind: waiting ? 'waiting' : 'planning'", "new": "kind: 'planning'" }
+   ]
+  },
+  {
+   "name": "V-line-known-denied",
+   "what": "a denial is not known",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "(['denied', 'expired', 'unanswerable'] as const)", "new": "(['expired', 'unanswerable'] as const)" }
+   ]
+  },
+  {
+   "name": "V-line-known-expired",
+   "what": "an expiry is not known",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "(['denied', 'expired', 'unanswerable'] as const)", "new": "(['denied', 'unanswerable'] as const)" }
+   ]
+  },
+  {
+   "name": "V-line-known-unanswerable",
+   "what": "a plan nobody could answer is not known",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "(['denied', 'expired', 'unanswerable'] as const)", "new": "(['denied', 'expired'] as const)" }
+   ]
+  },
+  {
+   "name": "V-line-known-rev",
+   "what": "the line does not name the revision that was answered",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "held: true, revision: approval?.revision ?? null, execution", "new": "held: true, revision: null, execution" }
+   ]
+  },
+  {
+   "name": "V-edit-companion",
+   "what": "the plan of a Companion task can be edited",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "!!task && task.transport !== 'chatgpt-web';", "new": "!!task;" }
+   ]
+  },
+  {
+   "name": "V-edit-unknown",
+   "what": "the plan of a task the page does not know can be edited",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "!!task && task.transport !== 'chatgpt-web';", "new": "task?.transport !== 'chatgpt-web';" }
+   ]
+  },
+  {
+   "name": "V-edit-api",
+   "what": "only a task that says it is on the API can be edited",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "task.transport !== 'chatgpt-web';", "new": "task.transport === 'api';" }
+   ]
+  },
+  {
+   "name": "V-head-none",
+   "what": "a plan nobody wrote has a head",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (revision < 1) return null;", "new": "if (revision < 0) return null;" }
+   ]
+  },
+  {
+   "name": "V-head-first",
+   "what": "the first revision has no head",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "if (revision < 1) return null;", "new": "if (revision < 2) return null;" }
+   ]
+  },
+  {
+   "name": "V-head-by",
+   "what": "the head does not say who wrote",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "return { revision, by: updatedBy, approved", "new": "return { revision, by: null, approved" }
+   ]
+  },
+  {
+   "name": "V-head-approved",
+   "what": "a plan that was never approved has an approval",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "approved === null ? null : {", "new": "false ? null : {" }
+   ]
+  },
+  {
+   "name": "V-head-current",
+   "what": "an approval of an older revision is the current one's",
+   "patches": [
+    { "file": "ui/src/lib/plan-view.ts", "old": "current: approved === revision }", "new": "current: true }" }
+   ]
+  },
+  {
+   "name": "T-feedback",
+   "what": "the owner's words are not kept with an answered request",
+   "patches": [
+    { "file": "ui/src/lib/task-view.ts", "old": "typeof raw.feedback === 'string' && raw.feedback.trim()", "new": "false" }
+   ]
+  },
+  {
+   "name": "T-feedback-type",
+   "what": "feedback that is not text is kept",
+   "patches": [
+    { "file": "ui/src/lib/task-view.ts", "old": "typeof raw.feedback === 'string' && raw.feedback.trim()", "new": "raw.feedback && String(raw.feedback).trim()" }
+   ]
+  },
+  {
+   "name": "T-feedback-blank",
+   "what": "blank feedback is kept",
+   "patches": [
+    { "file": "ui/src/lib/task-view.ts", "old": "typeof raw.feedback === 'string' && raw.feedback.trim()", "new": "typeof raw.feedback === 'string'" }
+   ]
+  }
+ ]
+}

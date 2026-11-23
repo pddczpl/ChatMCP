@@ -176,14 +176,15 @@ export const api = {
   
   // Tasks
   getTask: (id: string): Promise<Task> => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then(normalizeTask),
+  // `planMode` (docs/PLAN-MODE.md) is sent only when it is chosen: false would ask the Hub to leave plan mode, which only an approval of the plan does.
   startTask: (prompt: string, attachments: ChatAttachment[] = [], baseRef: string | null = null,
     dependsOn: string[] = [], workspacePath: string | null = null,
-    profileId: string | null = null, roleProfiles: Record<string,string> = {}, reasoningEffort: string | null = null) =>
+    profileId: string | null = null, roleProfiles: Record<string,string> = {}, reasoningEffort: string | null = null, planMode = false) =>
     request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST',
-      body: JSON.stringify({ prompt, attachments, baseRef, dependsOn, workspacePath, profileId, roleProfiles, ...(reasoningEffort ? { reasoningEffort } : {}) }) })
+      body: JSON.stringify({ prompt, attachments, baseRef, dependsOn, workspacePath, profileId, roleProfiles, ...(reasoningEffort ? { reasoningEffort } : {}), ...(planMode ? { planMode } : {}) }) })
       .then((r) => ({ task: normalizeTask(r.task) })),
-  continueTask: (id: string, prompt: string, attachments: ChatAttachment[] = [], reasoningEffort: string | null = null) =>
-    request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt, attachments, ...(reasoningEffort ? { reasoningEffort } : {}) }) }).then((r) => ({ task: normalizeTask(r.task) })),
+  continueTask: (id: string, prompt: string, attachments: ChatAttachment[] = [], reasoningEffort: string | null = null, planMode = false) =>
+    request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt, attachments, ...(reasoningEffort ? { reasoningEffort } : {}), ...(planMode ? { planMode } : {}) }) }).then((r) => ({ task: normalizeTask(r.task) })),
   acceptCriterion: (payload:{id:string;objectiveId:string;criterionIndex:number;receiptId:string;confirmed:true}) =>
     request<{task:TaskDetail}>('/api/tasks/accept-criterion',{
       method:'POST',body:JSON.stringify(payload)

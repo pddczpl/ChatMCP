@@ -68,6 +68,24 @@ test('a task starts and continues with the thinking effort the person chose, and
   } finally { globalThis.fetch = original; }
 });
 
+test('plan mode is a flag of one task: start and continue carry planMode: true when the person chose it, and the field is absent otherwise', async () => {
+  const original = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (route, init) => { bodies.push([route, JSON.parse(init.body)]); return Response.json({ task: { id: 'one', status: 'running' } }); };
+  try {
+    await api.startTask('Plan it', [], null, [], '/work', null, {}, null, true);
+    await api.startTask('Plan it', [], null, [], '/work', null, {}, 'high', false);
+    await api.startTask('Plan it');
+    await api.continueTask('one', 'Plan again', [], null, true);
+    await api.continueTask('one', 'More', [], 'auto', false);
+    await api.continueTask('one', 'More');
+    assert.deepEqual(bodies.map(([route, body]) => [route, body.planMode, 'planMode' in body, body.reasoningEffort]), [
+      ['/api/tasks/start', true, true, undefined], ['/api/tasks/start', undefined, false, 'high'], ['/api/tasks/start', undefined, false, undefined],
+      ['/api/tasks/continue', true, true, undefined], ['/api/tasks/continue', undefined, false, 'auto'], ['/api/tasks/continue', undefined, false, undefined],
+    ], 'false is never sent: it asks to leave plan mode, which only an approval of the plan does (409 plan_mode_pending)');
+  } finally { globalThis.fetch = original; }
+});
+
 test('a Hub that refuses the session reports it once instead of reloading the page', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ error: 'Cần phiên Hub hợp lệ.', code: 'hub_auth_required' }, { status: 401 });

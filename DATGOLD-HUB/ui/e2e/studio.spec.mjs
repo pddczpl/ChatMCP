@@ -52,7 +52,7 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   await expect(page.getByRole('button', { name: /^local\.read_file:/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Phê duyệt', exact: true }).and(page.locator(':enabled'))).toBeVisible();
   await expect(page.getByText('Correct addition', { exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Task plan' })).toContainText(/1\s*\/\s*3/);
+  await expect(page.getByRole('region', { name: 'Kế hoạch của tác vụ' })).toContainText(/1\s*\/\s*3/);
   expect(await fs.readFile(path.join(app.project, 'calc.js'), 'utf8')).toBe(BUGGY_CALC);
   await expandToolActivity(page);
   await expect(page.getByRole('button', { name: /^local\.edit_file:/ })).toBeVisible();
@@ -69,7 +69,7 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   await expect(page.locator('#panel-conversation').getByText('Verified addition: node test.js passed with exit code 0.', { exact: true })).toBeVisible();
   expect(await fs.readFile(path.join(app.project, 'calc.js'), 'utf8')).toBe(FIXED_CALC);
   expect(app.runProjectTest().status).toBe(0);
-  await expect(page.getByRole('region', { name: 'Task plan' })).toContainText(/3\s*\/\s*3/);
+  await expect(page.getByRole('region', { name: 'Kế hoạch của tác vụ' })).toContainText(/3\s*\/\s*3/);
   // The model ran `node test.js` and the file is fixed, but the Hub recorded no verified check: the strip must say so, never green.
   const proof = page.getByTestId('proof-strip');
   await expect(proof).toBeVisible();
