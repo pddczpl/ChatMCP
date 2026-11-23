@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; script-src &#39;none&#39;; style-src &#39;sha256-2ziPhWNjhrQdveiiYpq2u6ZW2/Ud1umvkI1ou19R3us=&#39;; img-src &#39;none&#39;; font-src &#39;none&#39;; connect-src &#39;none&#39;; object-src &#39;none&#39;; frame-src &#39;none&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof report</title>
+<style>
+:root { color-scheme: light dark; --page: #ffffff; --ink: #1c1e21; --soft: #5a6068; --line: #d5d9de; --band: #f4f6f8; --code: #eef1f4; --pass: #12683a; --warn: #8a5a00; --fail: #a8201a; }
+@media (prefers-color-scheme: dark) { :root { --page: #16181b; --ink: #e8eaed; --soft: #a3abb5; --line: #363b42; --band: #1f2327; --code: #262b31; --pass: #6fd39b; --warn: #e7b655; --fail: #ff8f86; } }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 72rem; padding: 1.5rem 1rem 3rem; background: var(--page); color: var(--ink); font: 1rem/1.55 "Segoe UI", "Noto Sans", Roboto, "Helvetica Neue", Arial, sans-serif; }
+h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 0.75rem; }
+h2 { font-size: 1.2rem; line-height: 1.3; margin: 2rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--line); }
+p, ul { margin: 0.5rem 0; }
+ul { padding-left: 1.25rem; }
+.verdict { margin: 0 0 1rem; padding: 0.75rem 1rem; border: 1px solid currentColor; border-left-width: 0.4rem; border-radius: 0.25rem; font-size: 1.15rem; font-weight: 600; }
+.verdict.pass { color: var(--pass); }
+.verdict.warn { color: var(--warn); }
+.verdict.fail { color: var(--fail); }
+.note { color: var(--soft); }
+.scroll { overflow-x: auto; margin: 0.5rem 0 1rem; }
+table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.wide { min-width: 44rem; }
+th, td { padding: 0.35rem 0.6rem; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+thead th { background: var(--band); }
+.facts th { width: 30%; background: var(--band); font-weight: 600; }
+code, pre { font: 0.9em/1.45 Consolas, "Cascadia Mono", "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace; }
+code { padding: 0.05rem 0.25rem; border-radius: 0.2rem; background: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; direction: ltr; unicode-bidi: isolate; }
+code.word { white-space: nowrap; }
+pre { overflow-x: auto; padding: 0.75rem 1rem; border-radius: 0.25rem; background: var(--code); }
+.chip { display: inline-block; padding: 0 0.5rem; border: 1px solid currentColor; border-radius: 1rem; font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.chip.evidenced, .chip.owner_accepted, .chip.passed { color: var(--pass); }
+.chip.failed, .chip.checks_modified { color: var(--fail); }
+.chip.unverified, .chip.stale, .chip.repeats_short, .chip.tree_unknown, .chip.not_run { color: var(--warn); }
+@media print {
+  :root { color-scheme: light; --page: #ffffff; --ink: #000000; --soft: #333333; --line: #999999; --band: #f2f2f2; --code: #f2f2f2; --pass: #0b4f2a; --warn: #6b4500; --fail: #8a1510; }
+  body { max-width: none; padding: 0; font-size: 10pt; }
+  h2 { break-after: avoid; }
+  tr, .verdict { break-inside: avoid; }
+  thead { display: table-header-group; }
+  .scroll, pre { overflow: visible; }
+  .wide { min-width: 0; }
+  pre { white-space: pre-wrap; }
+}
+</style>
+</head>
+<body>
+<header>
+<h1>Proof report</h1>
+<p class="verdict fail">❌ Not evidenced: 1 of 11 criteria failed.</p>
+<p>Criteria by status: <span class="chip evidenced">✅ Evidenced</span> 1; <span class="chip owner_accepted">👤 Accepted by the owner</span> 1; <span class="chip unverified">❔ Unverified</span> 5; <span class="chip failed">❌ Failed</span> 1; <span class="chip stale">⏳ Stale</span> 2; <span class="chip checks_modified">🚩 Checks modified</span> 1</p>
+<p>The pack file was checked when this report was made: its schema, its digest, its files and its ledger agree, and the results of the checks follow from that ledger. What the owner accepted, the changes to the checks and whether the acceptance file was trusted are taken from the statement as it says them. The pack is not signed, so this says that it is whole, not who made it.</p>
+<p class="note">This report is a reading aid made from a proof pack. It is not evidence itself, and anyone can edit it: check the pack with the commands at the end.</p>
+</header>
+<main>
+<section id="subject">
+<h2>What was changed, and by what</h2>
+<div class="scroll">
+<table class="facts">
+<tbody>
+<tr><th scope="row">Agent</th><td><code>&lt;script&gt;alert(1)&lt;/script&gt;</code>, version <code>1.0 | [x](javascript:alert(1))</code></td></tr>
+<tr><th scope="row">Model</th><td><code>&quot;&gt;&lt;img src=x onerror=alert(1)&gt;</code> / <code>![x](https://evil.example/pixel.png)</code></td></tr>
+<tr><th scope="row">Profile revision</th><td><code>safe⟦U+202E⟧gpj.exe⟦U+202C⟧ ⟦U+2066⟧iso⟦U+2069⟧ ⟦U+200E⟧⟦U+200F⟧⟦U+061C⟧</code></td></tr>
+<tr><th scope="row">Base commit</th><td>not recorded in this pack</td></tr>
+<tr><th scope="row">Commit of the change</th><td><code>511d4c4145e3821c34533031e5f46069993dddd6</code></td></tr>
+<tr><th scope="row">Tree before</th><td><code>6a7ed406029bfc3414f392251fe2452665a77d12</code> (<code>git-pinned-v1</code>, <code>sha1</code>; files: 1,234, bytes: 5,678,901)</td></tr>
+<tr><th scope="row">Final tree</th><td><code>d19628601d7ad9a739350a1a6874a20599f0938d</code> (<code>git-pinned-v1</code>, <code>sha1</code>; files: 1,234, bytes: 5,678,901)</td></tr>
+<tr><th scope="row">Patch (sha256)</th><td><code>621b7d15134c911ef566a775910e124adee8a93f74160ea4cb22add9139de28b</code></td></tr>
+<tr><th scope="row">Statement digest</th><td><code>c1ed4404310221bbd8476419845d99964a20f2faa749ef99c8ade9aad668fd8c</code></td></tr>
+<tr><th scope="row">Acceptance file (sha256)</th><td><code>82b944007cbd0298ed998a0706065686e00498b177ef4a9262b37d9db233b6ba</code>: trusted by the maker of the pack</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="criteria">
+<h2>Criteria</h2>
+<div class="scroll">
+<table class="wide">
+<thead>
+<tr><th scope="col">Criterion</th><th scope="col">Status</th><th scope="col">What it asks</th><th scope="col">Checks passed</th></tr>
+</thead>
+<tbody>
+<tr><td><code class="word">xss</code></td><td><span class="chip failed">❌ Failed</span></td><td><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></td><td>0/1</td></tr>
+<tr><td><code class="word">attr</code></td><td><span class="chip stale">⏳ Stale</span></td><td><code>&quot;&gt;&lt;img src=x onerror=alert(1)&gt;</code></td><td>0/1</td></tr>
+<tr><td><code class="word">link</code></td><td><span class="chip checks_modified">🚩 Checks modified</span></td><td><code>[x](javascript:alert(1)) ![x](https://evil.example/pixel.png)</code></td><td>1/1</td></tr>
+<tr><td><code class="word">fence</code></td><td><span class="chip unverified">❔ Unverified</span></td><td><code>```` ``` ` fenced</code></td><td>0/1</td></tr>
+<tr><td><code class="word">pipes</code></td><td><span class="chip unverified">❔ Unverified</span></td><td><code>\| \\| \\\| end\</code></td><td>0/1</td></tr>
+<tr><td><code class="word">short</code></td><td><span class="chip unverified">❔ Unverified</span></td><td><code>@octocat @org/team #1 GH-1 pddczpl/ChatMCP#1</code></td><td>0/1</td></tr>
+<tr><td><code class="word">ok</code></td><td><span class="chip evidenced">✅ Evidenced</span></td><td><code>*a* _b_ ~~c~~ **d** $x$ $`y`$ :smile:</code></td><td>2/2</td></tr>
+<tr><td><code class="word">unrun</code></td><td><span class="chip unverified">❔ Unverified</span></td><td><code>&lt;/style&gt;&lt;/code&gt;&lt;/td&gt;&lt;/table&gt;&lt;script src=//evil.example/x.js&gt;&lt;/script&gt;</code></td><td>0/1</td></tr>
+<tr><td><code class="word">look</code></td><td><span class="chip unverified">❔ Unverified</span></td><td><code>| a | b |</code></td><td>–</td></tr>
+<tr><td><code class="word">accepted</code></td><td><span class="chip owner_accepted">👤 Accepted by the owner</span></td><td><code>&#39; onmouseover=&#39;alert(1)</code></td><td>–</td></tr>
+<tr><td><code class="word">moved</code></td><td><span class="chip stale">⏳ Stale</span></td><td><code>&amp;lt;script&amp;gt; &amp;#60; &amp;amp; &amp;copy;</code></td><td>–</td></tr>
+</tbody>
+</table>
+</div>
+<p>The checks of each criterion, and the runs that count for the final tree:</p>
+<div class="scroll">
+<table class="wide">
+<thead>
+<tr><th scope="col">Criterion</th><th scope="col">Check</th><th scope="col">Command</th><th scope="col">Folder</th><th scope="col">Expected exit</th><th scope="col">Runs that count</th><th scope="col">Result</th><th scope="col">Receipts</th></tr>
+</thead>
+<tbody>
+<tr><td><code class="word">xss</code></td><td>1</td><td><code>echo &quot;&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;&quot; | tee out.txt</code></td><td><code>.</code></td><td><code>0</code></td><td>0/1</td><td><span class="chip failed">❌ Failed</span></td><td>9</td></tr>
+<tr><td><code class="word">attr</code></td><td>1</td><td><code>node -e &quot;\&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&quot;</code></td><td><code>.</code></td><td><code>0</code></td><td>0/1</td><td><span class="chip stale">⏳ Stale</span></td><td>10</td></tr>
+<tr><td><code class="word">link</code></td><td>1</td><td><code>open &quot;javascript:alert(1)&quot; [x](javascript:alert(1)) ![i](https://evil.example/p.png)</code></td><td><code>.</code></td><td><code>0</code></td><td>1/1</td><td><span class="chip passed">✅ Passed</span></td><td>11</td></tr>
+<tr><td><code class="word">fence</code></td><td>1</td><td><code>printf &#39;```&#39; | cat `` ` ````</code></td><td><code>.</code></td><td><code>0</code></td><td>0/1</td><td><span class="chip not_run">⚪ Not run</span></td><td>–</td></tr>
+<tr><td><code class="word">pipes</code></td><td>1</td><td><code>a || b | c \| d \\| e \</code></td><td><code>.</code></td><td><code>0</code></td><td>0/1</td><td><span class="chip tree_unknown">❔ Tree unknown</span></td><td>12</td></tr>
+<tr><td><code class="word">short</code></td><td>1</td><td><code>mail @octocat #1 https://evil.example</code></td><td><code>src/&lt;b&gt;x&lt;/b&gt;</code></td><td><code>0</code></td><td>1/2</td><td><span class="chip repeats_short">🔁 Too few runs</span></td><td>13</td></tr>
+<tr><td><code class="word">ok</code></td><td>1</td><td><code>echo &quot;*bold* _it_ ~~s~~ &amp;lt;b&amp;gt;&quot;</code></td><td><code>.</code></td><td><code>0</code></td><td>1/1</td><td><span class="chip passed">✅ Passed</span></td><td>14</td></tr>
+<tr><td><code class="word">ok</code></td><td>2</td><td><code>true</code></td><td><code>.</code></td><td><code>0</code></td><td>1/1</td><td><span class="chip passed">✅ Passed</span></td><td>15</td></tr>
+<tr><td><code class="word">unrun</code></td><td>1</td><td><code>&lt;/code&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;h1&gt;fake verdict&lt;/h1&gt;</code></td><td><code>.</code></td><td><code>0</code></td><td>0/1</td><td><span class="chip not_run">⚪ Not run</span></td><td>–</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><code class="word">look</code>, note of the acceptance file: <code>&lt;svg/onload=alert(1)&gt; &lt;iframe srcdoc=&quot;&lt;b&gt;&quot;&gt; &lt;!-- c --&gt; &lt;![CDATA[x]]&gt; &lt;?php ?&gt; {{7*7}} ${7*7} @octocat @org/team #1 GH-1 pddczpl/ChatMCP#1</code></li>
+<li><code class="word">accepted</code>, for a person to look at: <code>docs/&lt;i&gt;x&lt;/i&gt;.md</code></li>
+<li><code class="word">moved</code>, note of the acceptance file: <code>x</code></li>
+</ul>
+<p>Why a criterion has its status:</p>
+<div class="scroll">
+<table class="wide">
+<thead>
+<tr><th scope="col">Criterion</th><th scope="col">Check</th><th scope="col">Reason</th><th scope="col">Detail</th></tr>
+</thead>
+<tbody>
+<tr><td><code class="word">xss</code></td><td>1</td><td>A run on the final tree did not pass.</td><td><code>exit 1, expected 0</code></td></tr>
+<tr><td><code class="word">attr</code></td><td>1</td><td>No run counts for the final tree: it ran on another tree, or changed the tree it ran on.</td><td><code>ran on tree 7adb9aaaf2067fd501b7f6077cd4b6f6e6af0a8a, not the final tree</code></td></tr>
+<tr><td><code class="word">link</code></td><td>–</td><td>A file the checks depend on was changed during the task.</td><td>–</td></tr>
+<tr><td><code class="word">fence</code></td><td>1</td><td>No receipt of this check is in the ledger.</td><td>–</td></tr>
+<tr><td><code class="word">pipes</code></td><td>1</td><td>It ran on a tree that cannot be compared with the final tree.</td><td><code>ran on a tree that cannot be compared with the final tree</code></td></tr>
+<tr><td><code class="word">short</code></td><td>1</td><td>Fewer runs passed on the final tree than the check asks for.</td><td><code>1 of 2 runs passed on the final tree</code></td></tr>
+<tr><td><code class="word">unrun</code></td><td>1</td><td>No receipt of this check is in the ledger.</td><td>–</td></tr>
+<tr><td><code class="word">look</code></td><td>–</td><td>A person has to look at it, and the owner has not accepted it.</td><td>–</td></tr>
+<tr><td><code class="word">accepted</code></td><td>–</td><td>The owner accepted it for the final tree.</td><td><code>by [x](javascript:alert(1)) at 2026-11-23T09:30:00Z</code></td></tr>
+<tr><td><code class="word">moved</code></td><td>–</td><td>The owner accepted it, but for another tree than the final one.</td><td><code>by &lt;script&gt;alert(1)&lt;/script&gt; at 2026-11-23T09:31:00Z</code></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="receipts">
+<h2>Receipts</h2>
+<div class="scroll">
+<table class="wide">
+<thead>
+<tr><th scope="col">Receipt</th><th scope="col">Command</th><th scope="col">Outcome</th><th scope="col">Tree</th><th scope="col">Duration</th><th scope="col">Time</th><th scope="col">Check it is listed by</th></tr>
+</thead>
+<tbody>
+<tr><td>9</td><td><code>echo &quot;&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;&quot; | tee out.txt</code>, shell <code>bash</code></td><td>exit <code>1</code></td><td><code class="word" title="d19628601d7ad9a739350a1a6874a20599f0938d">d19628601d7a</code> (the final tree)</td><td>1,234.567 s</td><td><code class="word">2026-11-23T08:00:09.000Z</code></td><td><code class="word">xss</code> (1)</td></tr>
+<tr><td>10</td><td><code>node -e &quot;\&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&quot;</code>, shell <code>bash</code></td><td>exit <code>0</code></td><td><code class="word" title="7adb9aaaf2067fd501b7f6077cd4b6f6e6af0a8a">7adb9aaaf206</code> (another tree)</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:10.000Z</code></td><td><code class="word">attr</code> (1)</td></tr>
+<tr><td>11</td><td><code>open &quot;javascript:alert(1)&quot; [x](javascript:alert(1)) ![i](https://evil.example/p.png)</code>, shell <code>bash</code></td><td>exit <code>0</code></td><td><code class="word" title="d19628601d7ad9a739350a1a6874a20599f0938d">d19628601d7a</code> (the final tree)</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:11.000Z</code></td><td><code class="word">link</code> (1)</td></tr>
+<tr><td>12</td><td><code>a || b | c \| d \\| e \</code>, shell <code>bash</code></td><td>exit <code>0</code></td><td><code class="word" title="fa0d0f4689f40bd0ba86906c8aee30b2dcb7f570">fa0d0f4689f4</code> (cannot be compared with the final tree)</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:12.000Z</code></td><td><code class="word">pipes</code> (1)</td></tr>
+<tr><td>13</td><td><code>mail @octocat #1 https://evil.example</code> in <code>src/&lt;b&gt;x&lt;/b&gt;</code>, shell <code>bash</code></td><td>exit <code>0</code></td><td><code class="word" title="d19628601d7ad9a739350a1a6874a20599f0938d">d19628601d7a</code> (the final tree)</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:13.000Z</code></td><td><code class="word">short</code> (1)</td></tr>
+<tr><td>14</td><td><code>echo &quot;*bold* _it_ ~~s~~ &amp;lt;b&amp;gt;&quot;</code>, shell <code>bash</code></td><td>exit <code>0</code></td><td><code class="word" title="d19628601d7ad9a739350a1a6874a20599f0938d">d19628601d7a</code> (the final tree)</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:14.000Z</code></td><td><code class="word">ok</code> (1)</td></tr>
+<tr><td>15</td><td><code>true</code>, shell <code>sh</code></td><td>exit <code>0</code></td><td><code class="word" title="d19628601d7ad9a739350a1a6874a20599f0938d">d19628601d7a</code> (the final tree)</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:15.000Z</code></td><td><code class="word">ok</code> (2)</td></tr>
+<tr><td>16</td><td><code>nul⟦U+0000⟧ esc⟦U+001B⟧[31m bel⟦U+0007⟧ cr⟦U+000D⟧ lf⟦U+000A⟧ tab⟦U+0009⟧ del⟦U+007F⟧ c1⟦U+0085⟧⟦U+009B⟧</code> in <code>safe⟦U+202E⟧gpj.exe⟦U+202C⟧ ⟦U+2066⟧iso⟦U+2069⟧ ⟦U+200E⟧⟦U+200F⟧⟦U+061C⟧</code>, shell <code>&lt;b&gt;sh&lt;/b&gt;</code></td><td>timed out</td><td><code class="word" title="d19628601d7ad9a739350a1a6874a20599f0938d">d19628601d7a</code> (the final tree); changed it to <code class="word" title="7adb9aaaf2067fd501b7f6077cd4b6f6e6af0a8a">7adb9aaaf206</code></td><td>7 ms</td><td><code class="word">2026-11-23T08:00:16.000Z</code></td><td>–</td></tr>
+<tr><td>17</td><td><code>safe⟦U+202E⟧gpj.exe⟦U+202C⟧ ⟦U+2066⟧iso⟦U+2069⟧ ⟦U+200E⟧⟦U+200F⟧⟦U+061C⟧</code>, shell <code>bash</code></td><td>cancelled</td><td>not recorded</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:17.000Z</code></td><td>–</td></tr>
+<tr><td>18</td><td><code>```⟦U+000A⟧# heading⟦U+000A⟧```</code>, shell <code>bash</code></td><td>ended by signal <code>&lt;b&gt;KILL</code></td><td><code class="word" title="6a7ed406029bfc3414f392251fe2452665a77d12">6a7ed406029b</code> (another tree)</td><td>7 ms</td><td><code class="word">2026-11-23T08:00:18.000Z</code></td><td>–</td></tr>
+<tr><td>19</td><td><code>`` ` ``` ```` xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code>, shell <code>bash</code> (cut in the pack)</td><td>exit <code>2</code></td><td><code class="word" title="6a7ed406029bfc3414f392251fe2452665a77d12">6a7ed406029b</code> (another tree); changed it to <code class="word" title="d19628601d7ad9a739350a1a6874a20599f0938d">d19628601d7a</code></td><td>7 ms</td><td><code class="word">2026-11-23T08:00:19.000Z</code></td><td>–</td></tr>
+</tbody>
+</table>
+</div>
+<p class="note">A pack holds no output of a command, only its sha256 and size; this report leaves those out too.</p>
+<p class="note">Receipts in the ledger that this pack does not list: 1.</p>
+</section>
+<section id="diff">
+<h2>Diff stat</h2>
+<p>Files: 3. Lines added: 3. Lines removed: 3. Binary files: 0.</p>
+<div class="scroll">
+<table class="wide">
+<thead>
+<tr><th scope="col">Path</th><th scope="col">Change</th><th scope="col">Lines added</th><th scope="col">Lines removed</th></tr>
+</thead>
+<tbody>
+<tr><td><code>&lt;img src=x onerror=alert(1)&gt;.js</code></td><td>modified</td><td>2</td><td>2</td></tr>
+<tr><td><code>safe⟦U+202E⟧gpj.exe</code></td><td>added</td><td>1</td><td>0</td></tr>
+<tr><td><code>tài liệu⟦U+0009⟧|`[x](y)⟦U+000A⟧.md</code></td><td>deleted</td><td>0</td><td>1</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="tamper">
+<h2>Changes to the checks</h2>
+<p>The check-changes report found changes to the files the checks depend on, for 1 of the criteria:</p>
+<div class="scroll">
+<table>
+<thead>
+<tr><th scope="col">Criterion</th><th scope="col">Finding</th></tr>
+</thead>
+<tbody>
+<tr><td><code class="word">link</code></td><td><code>assertions_removed tests/[x](javascript:alert(1)).test.mjs</code></td></tr>
+<tr><td><code class="word">link</code></td><td><code>test_file_deleted tests/&quot;&gt;&lt;img src=x onerror=alert(1)&gt;.mjs</code></td></tr>
+<tr><td><code class="word">link</code></td><td><code>protected_path_changed asafe⟦U+202E⟧gpj.exe⟦U+202C⟧ ⟦U+2066⟧iso⟦U+2069⟧ ⟦U+200E⟧⟦U+200F⟧⟦U+061C⟧|b</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The acceptance file was edited during the task. The criteria here are those of the file as it was when the task started.</p>
+<p>Lockfiles that changed:</p>
+<div class="scroll">
+<table class="wide">
+<thead>
+<tr><th scope="col">Path</th><th scope="col">Change</th><th scope="col">Before</th><th scope="col">After</th></tr>
+</thead>
+<tbody>
+<tr><td><code>&quot;&gt;&lt;img src=x onerror=alert(1)&gt;.lock</code></td><td>modified</td><td><code class="word" title="ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb">ca978112ca1b</code></td><td><code class="word" title="3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d">3e23e8160039</code></td></tr>
+<tr><td><code>new|`lock`</code></td><td>added</td><td>–</td><td><code class="word" title="2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6">2e7d2c03a950</code></td></tr>
+<tr><td><code>gone.lock</code></td><td>deleted</td><td><code class="word" title="18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4">18ac3e7343f0</code></td><td>–</td></tr>
+</tbody>
+</table>
+</div>
+<p class="note">Lockfiles that did not change: 1.</p>
+</section>
+<section id="permissions">
+<h2>Permission decisions</h2>
+<p>Permission records in the ledger: 4.</p>
+<div class="scroll">
+<table>
+<thead>
+<tr><th scope="col">Decision</th><th scope="col">Count</th></tr>
+</thead>
+<tbody>
+<tr><td>Expired</td><td>1</td></tr>
+<tr><td>Cancelled</td><td>1</td></tr>
+<tr><td>Blocked</td><td>1</td></tr>
+<tr><td>Other</td><td>1</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="uncertain">
+<h2>Uncertain events</h2>
+<div class="scroll">
+<table>
+<thead>
+<tr><th scope="col">Ledger record</th><th scope="col">Reason</th></tr>
+</thead>
+<tbody>
+<tr><td>6</td><td><code>torn_tail</code></td></tr>
+</tbody>
+</table>
+</div>
+<p class="note">Uncertain events the pack counts but does not list: 1.</p>
+</section>
+<section id="egress">
+<h2>Data sent out (Companion)</h2>
+<p class="note">Not recorded in this pack: a v0.1 statement has no field for what was sent out of this machine, by the Companion or in another way. That does not say that nothing was sent.</p>
+</section>
+<section id="cost">
+<h2>Cost</h2>
+<p>Known subtotal: 0.0000125 USD. The pack says that this does not cover every call, so the whole cost is unknown.</p>
+<p class="note">No amount in Vietnamese dong: no exchange rate was given, and none is built in or fetched.</p>
+<p class="note">Cost per verified criterion: not recorded in this pack. A v0.1 statement holds one cost for the whole run, and it is not divided here.</p>
+</section>
+<section id="integrity">
+<h2>Integrity level and limitations</h2>
+<div class="scroll">
+<table class="facts">
+<tbody>
+<tr><th scope="row">Integrity level</th><td><code>unconfined</code>: the agent runs as the same user as the Hub and could rewrite what this pack was made from. The pack records what was observed. It is not a seal against the agent.</td></tr>
+<tr><th scope="row">Ledger</th><td>Records: 19. The whole chain verifies; the hash of its last record is <code>4ddc253cf0bd35087e8e77d3b6432ed5c0728ab0eb6b12a090ca2ad2d640cb3d</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The pack is not signed.</p>
+<p>Limitations the pack names:</p>
+<ul>
+<li>The statement is not signed: its digest names it, and does not say who made it.</li>
+<li>Nothing confined the agent, so it could have changed the inputs of this pack.</li>
+<li>The end of the ledger is not anchored: lines removed from its end leave a shorter ledger that still verifies.</li>
+<li>Changes under paths that are ignored and not tracked are not seen.</li>
+<li>The heuristics also flag legitimate changes to tests.</li>
+<li>Which tests a command runs is not known, so a change to tests counts for every criterion that runs a command.</li>
+<li>Protected files (secrets and keys) are never read, so changes to them are not seen.</li>
+<li>The file and byte counts are those of the last full snapshot.</li>
+</ul>
+<p>What the tree ids leave out:</p>
+<ul>
+<li>protected files (keys, credentials, environment files): 2</li>
+<li>the runs folder: 1</li>
+<li>untracked paths that are ignored, not counted</li>
+<li>the content of nested repositories, which count as their commit: 0</li>
+</ul>
+<ul>
+<li>Why the engine of the final tree fell back: <code>&lt;script&gt;alert(1)&lt;/script&gt;</code></li>
+</ul>
+</section>
+<section id="verify">
+<h2>How to verify</h2>
+<p>This report is about the statement <code>c1ed4404310221bbd8476419845d99964a20f2faa749ef99c8ade9aad668fd8c</code>. Run check on the pack file and compare: it prints the same digest, or the report is of another pack.</p>
+<pre>chatmcp verify check hostile.pack.json
+chatmcp verify trust --pack hostile.pack.json
+chatmcp verify reproduce hostile.pack.json --base &lt;commit|folder&gt;</pre>
+<p>The commands check the pack, show the commands it would run, and run its checks again. Reproduce runs commands that someone else may have written, so read what trust shows before you trust it.</p>
+<p class="note">This pack names no base commit: give the commit or the folder the change was made on.</p>
+</section>
+</main>
+</body>
+</html>
