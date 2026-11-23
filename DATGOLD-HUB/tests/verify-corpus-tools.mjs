@@ -422,11 +422,16 @@ try {
     ok('the two example tasks under corpus/examples load (one git, one tarball source, both marked as examples); the CLI exits 0, 1 with the errors, 2 for a usage error');
   }
 
-  // ==== only the acceptance parser crosses into the Hub, and nothing reaches the network ===================================================
+  // ==== only the two bridge files cross into the Hub, and nothing reaches the network ======================================================
   {
     const problems = [];
-    const allowedHub = new Set(['../../DATGOLD-HUB/lib/proof/acceptance.mjs', '../../DATGOLD-HUB/lib/proof/yaml-subset.mjs']);
+    // acceptance-parser.mjs: the acceptance reader; hub-process.mjs (pod-36): the shell runner, the process tree and the pinned Git process.
+    const bridges = new Map([
+      ['acceptance-parser.mjs', new Set(['../../DATGOLD-HUB/lib/proof/acceptance.mjs', '../../DATGOLD-HUB/lib/proof/yaml-subset.mjs'])],
+      ['hub-process.mjs', new Set(['../../DATGOLD-HUB/lib/shell-runner.mjs', '../../DATGOLD-HUB/lib/studio-terminal.mjs', '../../DATGOLD-HUB/lib/proof/git-plumbing.mjs'])],
+    ]);
     const files = readdirSync(TOOLS).filter((name) => name.endsWith('.mjs'));
+    for (const bridge of bridges.keys()) assert.ok(files.includes(bridge), `the bridge ${bridge} exists`);
     assert.ok(files.length >= 6, `expected the corpus tools, found ${files.join(', ')}`);
     for (const name of files) {
       const text = readFileSync(path.join(TOOLS, name), 'utf8');
@@ -436,14 +441,14 @@ try {
         if (/^node:(?:http|https|http2|net|tls|dgram|dns)$/.test(specifier)) problems.push(`${name}: imports ${specifier}`);
         else if (specifier.startsWith('node:')) continue;
         else if (/^\.\/[\w.-]+\.mjs$/.test(specifier)) continue;
-        else if (allowedHub.has(specifier) && name === 'acceptance-parser.mjs') continue;
+        else if (bridges.get(name)?.has(specifier)) continue;
         else problems.push(`${name}: imports ${specifier}`);
       }
       if (/\bfetch\s*\(/.test(text)) problems.push(`${name}: calls fetch`);
       if (/['"](?:push|fetch|pull|clone|ls-remote|remote|submodule)['"]/.test(text)) problems.push(`${name}: names a Git command that talks to a remote`);
     }
-    expectNone(problems, 'corpus tools that reach past the acceptance parser or towards the network');
-    ok(`the ${files.length} corpus tools import only node: modules, each other and (in acceptance-parser.mjs alone) the pod-20 acceptance parser; none can reach the network`);
+    expectNone(problems, 'corpus tools that reach past the two bridges or towards the network');
+    ok(`the ${files.length} corpus tools import only node: modules, each other and, in two bridge files alone, the pod-20 acceptance parser and the Hub's process and pinned Git helpers; none can reach the network`);
   }
 
   // ==== freeze ==========================================================================================================================
