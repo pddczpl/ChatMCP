@@ -20,6 +20,7 @@ import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
+import { createTurnMapper } from '../lib/acp/event-map.mjs';
 import { treeKey } from '../lib/agent-progress.mjs';
 import { finalPartsOf } from '../lib/final-text.mjs';
 import { acceptanceSha256, resolveAcceptance } from '../lib/proof/acceptance.mjs';
@@ -220,7 +221,12 @@ try {
   let failedRun;
   await section('3. fails twice: ends failed with a notice, not looping; the owner\'s acceptance does not undo it; a follow-up run starts again', async () => {
     const dir = await project('twice');
+    const log = path.join(root, 'failed-hooks.txt');
+    await fs.writeFile(hooksFile(manager), JSON.stringify({ hooks: { TaskCompleted: [{ hooks: [handler({ logPayload: log })] }] } }));
     failedRun = await run(manager, dir, [read, answer('It is done.'), answer('Really done.')]);
+    await fs.rm(hooksFile(manager));
+    const payloads = fsSync.readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    equal(payloads.map((payload) => [payload.chatmcp_completion.requirements, payload.chatmcp_verification.ready]), [['failed', false]], 'a hook is asked once, about the answer the gate judged');
     const { view, model } = failedRun;
     equal(model.requests.length, 3, 'one send-back, then the end');
     equal(failedRun.gates, ['armed', 'running', 'failed', 'running', 'failed']);
@@ -233,6 +239,7 @@ try {
     check(view.verificationOutcome.missing.some((item) => /trusted acceptance checks failed/.test(item)), 'the gate is among what is missing');
     check(parts.verificationNotice !== null && !parts.verificationNotice.includes('trusted acceptance checks'), 'and not said twice');
     equal(view.progress.verifiedChecks, [], 'a failed gate leaves no verify receipt');
+    check(/This task is NOT done/.test(createTurnMapper({ cwd: dir }).finalText(view)), 'an editor that runs the task is told too');
     check(/"requirements": "failed"/.test(await failedRun.agent.report(view.id)), 'the report says failed');
     // a reload of the tasks keeps it
     const again = new AgentRunner({ manager, provider: scripted([]), taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: () => {} });
@@ -269,6 +276,7 @@ try {
     const acceptance = await resolveAcceptance({ baseline: ACCEPT(), current: ACCEPT(), trustStore: manager.acceptanceTrustStore() });
     const rolled = rollUpCriteria({ after: { ...last.treeAfter }, acceptance, checkChanges: { format: 'chatmcp.check-changes/1', checks_modified: true, criteria: [{ id: 'tests', checks_modified: true, reasons: [{ code: 'assertions_removed', path: 'calc.test.js' }] }] }, ledger: await fs.readFile(ledgerPath(manager.hubDirectory, view.id)) });
     equal(rolled.criteria[0].status, 'checks_modified', 'a pack of this ledger and tree says the same');
+    equal(fsSync.readdirSync(path.join(manager.hubDirectory, 'proof', 'gate')), ['proof'], 'the scratch folder of the report is gone');
     const next = await run(manager, dir, [answer('Anything else?')], { runner: weak.agent, id: view.id, prompt: 'Thanks.' });
     equal([next.view.completionOutcome.gate, next.view.completionOutcome.checksModified], ['passed', true], 'the baseline is the one of the conversation\'s start: a follow-up run still sees the change');
     // skipping the test while it still fails
@@ -292,7 +300,7 @@ try {
     await fs.writeFile(hooksFile(manager), JSON.stringify({ hooks: { Stop: [{ hooks: [handler({ plan: { file: count, steps: [{ exit: 2, stderr: 'Add a summary.' }, { exit: 0 }] } })] }] } }));
     const held = await run(manager, dir, [answer('First.'), answer('Second, with a summary.')]);
     equal([held.gates, checksOf(held.entries).length], [['armed', 'running', 'passed', 'passed'], 1], 'the checks ran once for two answers on one tree');
-    equal([held.view.completionOutcome.gate, held.view.proofGate.reused], ['passed', true]);
+    equal([held.view.completionOutcome.gate, held.view.proofGate.reused, held.view.goalPlan.phases.find((phase) => phase.id === 'verify').receipts], ['passed', true, 1], 'a reused judgment is no second receipt');
     // a Stop hook that writes a tracked file after the gate passed
     await fs.writeFile(hooksFile(manager), JSON.stringify({ hooks: { Stop: [{ hooks: [handler({ write: path.join(dir, 'notes.txt') })] }] } }));
     const late = await run(manager, dir, [answer('Done.')]);
@@ -329,10 +337,14 @@ try {
     const WAIT = ACCEPT({ wait: 'node wait.js' });
     await trust(manager, WAIT);
     const queued = await project('queued', { acceptance: WAIT, files: { 'wait.js': "require('node:fs').writeFileSync(require('node:path').join(__dirname, '..', 'wait.pid'), '1'); setTimeout(() => process.exit(0), 1500);\n" } });
-    const asked = await run(manager, queued, [answer('First.'), ({ users }) => { check(users.at(-1).includes('One more thing'), 'the queued message is delivered after the gate'); return [say('Second.')]; }], { during: async ({ agent, id }) => {
+    const stops = path.join(root, 'queued-hooks.txt');
+    await fs.writeFile(hooksFile(manager), JSON.stringify({ hooks: { Stop: [{ hooks: [handler({ logPayload: stops })] }] } }));
+    const asked = await run(manager, queued, [answer('First.'), ({ users }) => { check(users.at(-1).includes('One more thing'), 'the queued message is delivered after the gate'); return [say('Second.')]; }], { prompt: 'Look around.', during: async ({ agent, id }) => {
       await until(() => fsSync.existsSync(path.join(root, 'wait.pid')), 'the check to start');
       await agent.enqueueMessage({ id, prompt: 'One more thing.' });
     } });
+    await fs.rm(hooksFile(manager));
+    equal(fsSync.readFileSync(stops, 'utf8').trim().split('\n').map((line) => JSON.parse(line).last_assistant_message), ['Second.'], 'the hooks are not asked about an answer that is not the last');
     equal([asked.view.finalText, asked.view.completionOutcome.gate], ['Second.', 'passed'], 'the answer the person\'s message replaced is not the result');
     equal(asked.view.dialogue.filter((entry) => entry.role === 'assistant').map((entry) => entry.text), ['First.', 'Second.'], 'and stays in the dialogue');
   });
@@ -366,6 +378,15 @@ try {
     for (const key of fsSync.readdirSync(folder)) await fs.rm(path.join(folder, key, `${proofBaseline.id}.json`), { force: true });
     const rebased = await run(manager, plain, [answer('Done.')], { runner: first.agent, id: first.id, prompt: 'Again.' });
     check(rebased.gates.includes('rebaselined'), 'a removed baseline is taken again, and said');
+    const held = JSON.parse(fsSync.readFileSync(path.join(manager.hubDirectory, 'api-tasks', first.id, 'task.json'), 'utf8')).proofBaseline.id;
+    check(fsSync.readdirSync(folder).some((key) => fsSync.existsSync(path.join(folder, key, `${held}.json`))), '(premise) its baseline is on disk');
+    await first.agent.delete(first.id);
+    check(!fsSync.readdirSync(folder).some((key) => fsSync.existsSync(path.join(folder, key, `${held}.json`))), 'a deleted conversation takes its baseline with it');
+    // an acceptance file that .gitignore leaves out of every tree
+    const hidden = await run(manager, await project('ignored', { files: { '.gitignore': '.chatmcp/\n', 'calc.js': 'exports.add = (a, b) => a + b;\n' } }), [done], { prompt: 'Look around.' });
+    equal([hidden.view.completionOutcome.gate, hidden.view.completionOutcome.checksModified, hidden.view.proofGate.modifications], ['passed', false, []], 'an ignored acceptance file is neither missing nor deleted: its own bytes are compared');
+    const gone = await run(manager, manager.workspace, [() => [tool('run_command', { command: 'node -e "require(\'fs\').rmSync(\'.chatmcp/acceptance.yml\')"', description: 'Remove a file' })], answer('Done.'), answer('Done.')], { runner: hidden.agent, id: hidden.id, prompt: 'Tidy up.' });
+    equal([gone.view.completionOutcome.requirements, gone.view.proofGate.reason, gone.view.proofGate.edit], ['failed', 'acceptance_edited', { deleted: true }], 'deleting it is no way out either');
 
     const shared = await project('shared');
     await manager.selectWorkspace(shared);
@@ -393,7 +414,7 @@ try {
     await pool.load?.();
     const stop = approver(manager);
     try {
-      const main = await pool.start({ prompt: 'Fix add() in the main chat.' });
+      const main = await runner.start({ prompt: 'Fix add() in the main chat.' });
       const child = await pool.start({ prompt: '[second chat] Fix add().' });
       const view = await until(() => { const task = pool.get(child.id); return task && ['completed', 'failed'].includes(task.status) ? task : null; }, 'the second chat to end', 60_000);
       equal([view.status, view.completionOutcome?.gate, view.proofGate?.rounds], ['completed', 'passed', 1], 'the second chat is gated in its own worktree, by the Hub\'s trust list');

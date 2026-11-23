@@ -13,6 +13,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { acceptanceSha256 } from '../lib/proof/acceptance.mjs';
+import { baselineFolder } from '../lib/proof/baseline.mjs';
 import { createTrustStore } from '../lib/proof/trust-store.mjs';
 import {
   BASELINE_TIMEOUT_MS, DoneGate, GATE_LIMITS, GATE_ROUNDS, GATE_STATUS, clipOutput, feedbackText, gateCompletion, gateMissing, gateNotice, gateVerification, judgeChecks, staleGate,
@@ -115,6 +116,8 @@ try {
     assert.deepEqual(judged.missing, [gateMissing(result('failed', { failing }))]);
     assert.match(judged.missing[0], /^The owner's trusted acceptance checks failed on the final tree: tests \(exit 1\), lint #2 \(timed out\)$/);
     assert.deepEqual(failed.missingChecks, judged.missing);
+    assert.match(gateMissing(result('failed', { reason: 'acceptance_edited', edit: { deleted: true } })), /acceptance file \(\.chatmcp\/acceptance\.yml\) was deleted during the task, so its checks did not run/);
+    assert.match(gateMissing(result('failed', { reason: 'acceptance_edited', edit: { deleted: false } })), /was edited during the task/);
     assert.deepEqual(verification.missing, [], 'the assessment it was given is not changed');
     for (const status of ['unproven', 'stale']) {
       const open = gateCompletion(completion, result(status, { reason: status === 'stale' ? 'final_tree_changed' : 'tree_unknown' }));
@@ -138,6 +141,7 @@ try {
     const edited = gateNotice(result('failed', { reason: 'acceptance_edited', rounds: 2, edit: { deleted: false } }));
     assert.match(edited, /\.chatmcp\/acceptance\.yml was edited during the task, so the owner's checks did not run/);
     assert.match(gateNotice(result('failed', { reason: 'acceptance_edited', rounds: 2, edit: { deleted: true } })), /was deleted during the task/);
+    assert.match(edited, /chatmcp verify trust/, 'the owner is told what to do about a change of their own');
     assert.match(gateNotice(result('unproven', { reason: 'tree_unknown' })), /^DatGold could not show that the owner's trusted acceptance checks hold on the final tree: the Hub could not take the final tree\./);
     assert.match(gateNotice(result('unproven', { reason: 'failed_before_on_this_tree' })), /failed earlier on this very tree/);
     assert.match(gateNotice(result('unproven', { reason: 'some_new_code' })), /some_new_code/);
@@ -200,9 +204,13 @@ try {
     const huge = feedbackText({ result: result('failed', { failing: Array.from({ length: 60 }, (_, n) => ({ criterionId: `c${n}`, index: 0, detail: 'exit 1' })) }), details: Array.from({ length: 60 }, (_, n) => ({ criterionId: `c${n}`, index: 0, text: 't'.repeat(600), command: 'npm run x '.repeat(300), cwd: '.', detail: 'exit 1', expectExit: 0, stdout: 'o'.repeat(1500), stderr: 'e'.repeat(1500) })) });
     assert.ok(huge.length <= GATE_LIMITS.feedbackChars, `the message is bounded (${huge.length})`);
     assert.match(huge, /more failing checks?/);
+    const lines = feedbackText({ result: result('failed', { failing: [failing[0]] }), details: Array.from({ length: 5 }, (_, n) => ({ criterionId: `c${n}`, index: 0, text: 'x', command: 'npm test', cwd: '.', detail: 'exit 1', expectExit: 0, stdout: `${'\n'.repeat(700)}o`, stderr: `${'\n'.repeat(700)}e` })) });
+    assert.ok(lines.length <= GATE_LIMITS.feedbackChars, `many short lines stay bounded too (${lines.length})`);
+    assert.match(lines, /\| \[cut\]\nFix the cause in the code\./, 'what is cut is the output, never the instruction at the end');
     const edited = feedbackText({ result: result('failed', { reason: 'acceptance_edited', edit: { deleted: false } }), details: [] });
     assert.match(edited, /\.chatmcp\/acceptance\.yml/);
     assert.match(edited, /restore it exactly/i);
+    assert.match(edited, /If you did not change it, leave it/, 'an edit of the owner\'s is not undone by the agent');
     for (const text of [texts, injected, huge, edited]) assert.ok(!text.includes(hex('a')), 'no tree id reaches the model');
     ok('the host message: exit codes, masked and clipped output with every line marked as data, modified checks, an edited acceptance file, a bounded size, no tree id');
   }
@@ -260,6 +268,8 @@ try {
     assert.deepEqual(kinds(untrusted), ['untrusted'], 'an untrusted file: a notice');
     assert.match(untrusted.events[0].message, /chatmcp verify trust/);
     assert.equal(untrusted.calls.baseline, 0, 'and no baseline is taken');
+    assert.equal(untrusted.task.proofBaseline, null, 'and the conversation is not held to it');
+    await assert.rejects(fs.access(path.join(untrusted.directory, 'acceptance.yml')), 'no bytes are kept');
     const done = await untrusted.review(run);
     assert.equal(done.action, 'complete');
     assert.deepEqual([done.result.status, done.result.reason], ['skipped', 'untrusted']);
@@ -286,6 +296,7 @@ try {
     assert.equal(r.calls.baselineOptions.hubDir, path.join(r.hubDirectory, 'proof', 'gate'), 'the baselines of the gate have a folder of their own: they never push out a baseline of chatmcp verify');
     assert.ok(r.calls.baselineOptions.signal instanceof AbortSignal, 'and are bounded in time');
     assert.equal(BASELINE_TIMEOUT_MS, 120_000);
+    assert.deepEqual(r.calls.baselineOptions.retention, { maxPerWorkspace: 5 }, 'five conversations per workspace: each baseline of a Git workspace is a whole store');
     assert.deepEqual([r.task.proofBaseline.id, r.task.proofBaseline.sha256, r.task.proofBaseline.acceptanceSha256], ['20261123T000000000Z-00000000', 'cd'.repeat(32), acceptanceSha256(ACCEPT())]);
     assert.equal(await fs.readFile(path.join(r.directory, 'acceptance.yml'), 'utf8'), ACCEPT(), 'the bytes the task is held to are kept in its folder');
     const outcome = await r.review(run);
@@ -363,12 +374,47 @@ try {
     const slow = await rig({ deps: { snapshotBaseline: ({ signal }) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(signal.reason), { once: true }); }) } });
     slow.gate.baselineTimeoutMs = 30;
     await slow.begin();
-    assert.equal(slow.events.at(-1).gate, 'baseline_unavailable', 'a baseline that takes too long is given up: the run goes on without it');
+    assert.deepEqual([slow.events.at(-1).gate, slow.events.at(-1).reason], ['baseline_unavailable', 'baseline_timeout'], 'a baseline that takes too long is given up: the run goes on without it');
+    const killed = await rig({ deps: { snapshotBaseline: ({ signal }) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(Object.assign(new Error('git was killed'), { code: 'git_failed' })), { once: true }); }) } });
+    killed.gate.baselineTimeoutMs = 30;
+    await killed.begin();
+    assert.equal(killed.events.at(-1).reason, 'baseline_timeout', 'whatever the work says when it is cut');
     const stopped = await rig({ deps: { snapshotBaseline: ({ signal }) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(signal.reason), { once: true }); }) } });
+    stopped.gate.baselineTimeoutMs = 3000; // (a begin that does not hear the stop ends by its own limit instead of hanging)
     const controller = new AbortController();
     const pending = stopped.begin({ signal: controller.signal });
     setTimeout(() => controller.abort(Object.assign(new Error('stop'), { code: 'user_cancelled' })), 20);
+    const waited = Date.now();
     await assert.rejects(pending, (error) => error.code === 'user_cancelled', 'a stop of the task ends the wait');
+    assert.ok(Date.now() - waited < 2000, 'at once, not by the time limit');
+    // a baseline that takes a while is said while it is taken
+    const large = await rig({ deps: { snapshotBaseline: async () => { await new Promise((resolve) => { setTimeout(resolve, 60); }); return { id: 'x', sha256: 'cd'.repeat(32) }; } } });
+    large.gate.baselineNoticeMs = 10;
+    await large.begin();
+    assert.deepEqual(kinds(large), ['baseline', 'armed'], 'the person sees what the run is waiting for');
+    for (const value of [7, 'x', {}, { id: 'a', sha256: 'cd'.repeat(32) }, { id: 'a', sha256: 'cd'.repeat(32), acceptanceSha256: 'zz' }, { acceptanceSha256: 7 }]) {
+      const odd = await rig();
+      odd.task.proofBaseline = value;
+      assert.equal((await odd.review(await odd.begin())).result.status, 'passed', `a saved record that is not one is no record (${JSON.stringify(value)})`);
+      assert.equal(odd.calls.baseline, 1);
+    }
+    const noAnchor = await rig();
+    noAnchor.task.proofBaseline = { id: '20261123T000000000Z-00000000', sha256: 'short', acceptanceSha256: acceptanceSha256(ACCEPT()) };
+    await noAnchor.begin();
+    assert.deepEqual([noAnchor.calls.load.length, noAnchor.calls.baseline], [0, 1], 'a baseline without its anchor is not loaded');
+    // a deleted conversation takes its baseline with it, and nothing else
+    const kept = await rig();
+    await kept.begin();
+    const folder = baselineFolder(path.join(kept.hubDirectory, 'proof', 'gate'), kept.workspace);
+    const other = '20261123T000000000Z-11111111';
+    for (const id of [kept.task.proofBaseline.id, other]) { await fs.mkdir(path.join(folder, `${id}.git`), { recursive: true }); await fs.writeFile(path.join(folder, `${id}.json`), '{}'); }
+    await kept.gate.forget({ workspace: { path: kept.workspace }, proofBaseline: { ...kept.task.proofBaseline, id: '../..' } });
+    await kept.gate.forget({ workspace: { path: kept.workspace }, proofBaseline: null });
+    await kept.gate.forget({ proofBaseline: kept.task.proofBaseline });
+    assert.equal((await fs.readdir(folder)).length, 4, 'a record that is not one removes nothing');
+    await kept.gate.forget({ workspace: { path: kept.workspace }, proofBaseline: kept.task.proofBaseline });
+    assert.deepEqual((await fs.readdir(folder)).sort(), [`${other}.git`, `${other}.json`]);
+    await new DoneGate({ manager: {} }).forget({ workspace: { path: kept.workspace }, proofBaseline: kept.task.proofBaseline });
     ok('the baseline: taken again after the retention removed it, not replaced when it was edited (the changes to the checks are then unknown), given up after its time limit, a stop ends the wait');
   }
   {
@@ -384,7 +430,11 @@ try {
       if (manager.workspace === null) bare.manager.studio = { resolve: async () => { throw new Error('no workspace'); } };
       assert.equal(await bare.begin(), null, `a manager without the local backend has no gate (${JSON.stringify(Object.keys(manager))})`);
     }
-    ok('a spawned agent is not gated and says so; a manager that is not the local backend has no gate');
+    const odd = await rig({ deps: { snapshotBaseline: async () => { throw new Error('unused'); } }, manager: { acceptanceTrustStore: () => ({ isTrusted: async () => { throw Object.assign(new Error('disk'), { code: 'EIO' }); } }) } });
+    const broken = await odd.review(await odd.begin());
+    assert.deepEqual([broken.action, broken.result.status, broken.result.reason, broken.result.error, odd.calls.run.length], ['complete', 'unproven', 'gate_error', 'EIO', 0], 'a gate that cannot even begin neither fails the run nor lets it pass in silence');
+    assert.match(gateNotice(broken.result), /EIO/);
+    ok('a spawned agent is not gated and says so; a manager that is not the local backend has no gate; a gate that cannot begin is unproven');
   }
 
   // ------------------------------------------------------------------------------------------------------------------ E. review
@@ -437,7 +487,20 @@ try {
     await revoked.review(armed);
     await revoked.store.revoke(acceptanceSha256(ACCEPT()));
     const off = await revoked.review(armed);
-    assert.deepEqual([off.result.status, off.result.reason], ['skipped', 'untrusted'], 'a revoked trust counts at once');
+    assert.deepEqual([off.result.status, off.result.reason, off.action, revoked.calls.run.length], ['unproven', 'trust_revoked', 'complete', 1], 'a trust taken back while the run goes on counts at once: nothing runs, and the answer does not pass in silence');
+    assert.match(gateNotice(off.result), /no longer trusted/);
+    const nextRun = await revoked.begin();
+    assert.equal(kinds(revoked).at(-1), 'untrusted', 'a run that begins without the trust says so and is not gated');
+    const ungated = await revoked.review(nextRun);
+    assert.deepEqual([ungated.result.status, ungated.result.reason], ['skipped', 'untrusted']);
+    await revoked.store.trust(acceptanceSha256(ACCEPT()), { approvedBy: 'owner' });
+    assert.equal((await revoked.review(nextRun)).result.status, 'passed', 'a trust given while the run goes on counts at once');
+    const given = await rig({ trust: false });
+    const waiting = await given.begin();
+    await given.store.trust(acceptanceSha256(ACCEPT()), { approvedBy: 'owner' });
+    given.gate.deps.runChecks = async (options) => { given.calls.run.push(options); return report({ criteria: [criterion('tests', 'unverified', { checks: [{ index: 0, result: 'passed' }], reasons: [{ code: 'check_changes_unknown', check: null, detail: null }] })] }); };
+    const late = await given.review(waiting);
+    assert.deepEqual([late.result.status, late.result.reason, given.calls.run[0].checkChanges], ['unproven', 'check_changes_unknown', null], 'the checks run, without a baseline to judge the changes to them');
     // after the limit: an unchanged tree is not run again, a changed one is judged but never sent back
     let outcome = FAILED;
     const limit = await rig({ deps: { runChecks: async () => { limit.calls.run.push(1); return outcome; } } });
@@ -460,7 +523,8 @@ try {
       ['Read Only', { permissions: { mode: 'readonly', executionPolicy: 'full-access' } }, 'readonly', {}],
       ['sandbox-only', { permissions: { mode: 'autonomous', executionPolicy: 'sandbox-only' } }, 'sandbox_only', {}],
       ['plan mode', {}, 'plan_mode', { planMode: true }],
-      ['no shell', { localTools: { shellDisabled: true, shell: {} } }, 'no_shell', {}],
+      ['no shell', { localTools: { shellDisabled: true, shell: { run: async () => {}, secrets: () => [] } } }, 'no_shell', {}],
+      ['a shell that cannot run', { localTools: { shellDisabled: false, shell: {} } }, 'no_shell', {}],
     ]) {
       const r = await rig({ manager: over });
       const run = await r.begin();
@@ -492,8 +556,10 @@ try {
     assert.deepEqual([outcome.action, outcome.result.status, outcome.result.reason, outcome.result.error], ['complete', 'unproven', 'gate_error', 'ledger_broken'], 'a gate that cannot run never passes');
     assert.deepEqual(outcome.observed, { tree: null, checks: [] }, 'what its checks may have changed is unknown');
     const controller = new AbortController();
-    const stopped = await rig({ deps: { runChecks: async ({ signal }) => { controller.abort(Object.assign(new Error('stop'), { code: 'user_cancelled' })); assert.equal(signal.aborted, true, 'the stop reaches the checks'); return report({ cancelled: true, attempts: [attempt('tests', 0, { passed: false, cancelled: true, exit: null })] }); } } });
+    let given = null;
+    const stopped = await rig({ deps: { runChecks: async ({ signal }) => { given = signal; controller.abort(Object.assign(new Error('stop'), { code: 'user_cancelled' })); return report({ cancelled: true, attempts: [attempt('tests', 0, { passed: false, cancelled: true, exit: null })] }); } } });
     await assert.rejects(stopped.review(await stopped.begin(), { signal: controller.signal }), (error) => error.code === 'user_cancelled', 'a stopped run is not judged');
+    assert.equal(given, controller.signal, 'the stop reaches the checks');
     // a second pass when a later check changed the tree an earlier one ran on
     let n = 0;
     const settles = await rig({ deps: { runChecks: async () => (n += 1) === 1 ? report({ criteria: [criterion('tests', 'stale', { reasons: [{ code: 'check_stale', check: 0, detail: 'x' }] })] }) : report({ finalTree: ids('b') }) } });
@@ -511,6 +577,13 @@ try {
     const fails = await rig({ deps: { runChecks: async () => { failedPass += 1; return FAILED; } } });
     await fails.review(await fails.begin());
     assert.equal(failedPass, 1, 'a failure is never run again within a round');
+    let failedStale = 0;
+    const failsStale = await rig({ deps: { runChecks: async () => { failedStale += 1; return report({ checks: [row('tests', 0), row('lint', 0)], attempts: [attempt('tests', 0), attempt('lint', 0, { passed: false, exit: 1 })], criteria: [criterion('tests', 'stale', { reasons: [{ code: 'check_stale', check: 0, detail: 'x' }] }), criterion('lint', 'failed')] }); } } });
+    await failsStale.review(await failsStale.begin());
+    assert.equal(failedStale, 1, 'nor for a check beside it that went stale');
+    const partly = await rig({ deps: { runChecks: async () => report({ checks: [row('tests', 0), row('lint', 0)], attempts: [attempt('tests', 0), attempt('lint', 0, { passed: false, exit: 1 })], criteria: [criterion('tests', 'evidenced'), criterion('lint', 'failed')] }) } });
+    const half = await partly.review(await partly.begin());
+    assert.deepEqual([half.result.status, half.observed.checks], ['failed', []], 'a failed gate leaves no receipt, not even for what passed: the owner\'s option must not accept a check beside a failing one');
     ok('review: a runner that throws is unproven, a stop is not judged, stale checks get one more pass, unreliable and failing ones none');
   }
   {
@@ -533,6 +606,12 @@ try {
     assert.equal(flagged.result.checksModified, true);
     assert.deepEqual(flagged.observed.checks, [], 'a pass with modified checks is no receipt');
     assert.equal(changed.events.at(-1).checksModified, true, 'the event says it');
+    const elsewhere = await rig({ deps: { checkChanges: async () => ({ checks_modified: true, summary: 'x', criteria: [], findings: [{ path: '.github/workflows/ci.yml', flagged: true, reasons: [{ code: 'failure_masked', flagged: true }] }] }), runChecks: async ({ checkChanges }) => { await checkChanges({}); return report(); } } });
+    const ci = await elsewhere.review(await elsewhere.begin());
+    assert.deepEqual([ci.result.status, ci.result.checksModified, ci.observed.checks], ['passed', true, []], 'a flag that belongs to no criterion (a CI workflow) counts too');
+    const SECRET_RUN = ACCEPT('tests', `node check.js --key ${secret}`);
+    const spelled = await rig({ file: SECRET_RUN, manager: { secrets: [secret], localTools: { shellDisabled: false, shell } } });
+    assert.equal((await spelled.review(await spelled.begin())).result.checks[0].command, 'node check.js --key [REDACTED]', 'the command in the record is masked');
     const tamperFails = await rig({ deps: { checkChanges: async () => { throw Object.assign(new Error('x'), { code: 'workspace_too_large' }); }, runChecks: async ({ checkChanges }) => { assert.equal(await checkChanges({}), null); return report({ criteria: [criterion('tests', 'unverified', { checks: [{ index: 0, result: 'passed' }], reasons: [{ code: 'check_changes_unknown', check: null, detail: null }] })] }); } } });
     assert.equal((await tamperFails.review(await tamperFails.begin())).result.reason, 'check_changes_unknown', 'a detector that fails is not "nothing changed"');
     ok('review: the masked output of the failing check is in the message and nowhere else, flagged changes to the checks are in the record and the event, a detector that fails is unknown');
@@ -566,7 +645,7 @@ try {
     assert.deepEqual(wordsAndNotes(view), { words: 'W', notes: ['G'], recorded: true });
     const old = { words: 'W', verificationNotice: 'V', hookNotice: null };
     assert.deepEqual(finalPartsOf({ finalText: composeFinalText(old), finalParts: old }), { words: 'W', verificationNotice: 'V', hookNotice: null }, 'a record of an older Hub');
-    assert.equal(finalPartsOf({ finalText: 'W', finalParts: { ...old, verificationNotice: null, gateNotice: 7 } }), null, 'a malformed notice is no record');
+    assert.equal(finalPartsOf({ finalText: `W${GATE_NOTICE_MARK}7`, finalParts: { words: 'W', verificationNotice: null, hookNotice: null, gateNotice: 7 } }), null, 'a malformed notice is no record');
     ok('the final text: the gate notice stands right behind the words, is told apart from them, and an older record still reads');
   }
   console.log(`PASS: done-gate (${checks} checks)`);
