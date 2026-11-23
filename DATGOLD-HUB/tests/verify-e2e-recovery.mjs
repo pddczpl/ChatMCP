@@ -87,6 +87,9 @@ await runScenario({
   t.equal(found.state, 'uncertain', 'and its state is "uncertain": a command was running and nobody knows what it did');
   t.check(found.unverifiedCount >= 1 || (found.unverifiedOperations ?? []).length >= 1 || Boolean(found.pendingCall), 'the unverified command is recorded, not forgotten', JSON.stringify({ n: found.unverifiedCount, u: found.unverifiedOperations, p: found.pendingCall }));
   t.equal(found.autoResume, true, 'auto-resume is still on (nothing has consumed it)');
+  // pod-18: the command may have changed the files after the last tree the Hub saw, so the Hub no longer knows the tree: no receipt of the task counts as fresh.
+  t.equal(found.receiptFreshness?.tree, false, 'the Hub no longer knows the current tree: the command may have changed it');
+  t.equal(found.receiptFreshness?.fresh, 0, 'so no receipt is fresh');
 
   // The scheduler looks every 12 seconds. Wait through two looks: it must not touch an uncertain task.
   await sleep(26_000);
@@ -121,6 +124,7 @@ await runScenario({
   t.equal([paused.status, paused.state, paused.errorCode], ['paused', 'paused', 'process_interrupted'], 'after the restart the task is paused (not uncertain): the edit never started');
   t.check(!paused.pendingCall && paused.unverifiedCount === 0, 'nothing is left unverified', JSON.stringify({ p: paused.pendingCall, n: paused.unverifiedCount }));
   t.equal(paused.autoResume, true, 'auto-resume is on');
+  t.equal(paused.receiptFreshness?.tree, true, 'the edit never started: the Hub still knows the tree the run saw last (pod-18)');
   t.equal((await pendingApprovals(hub3)).length, 0, 'the approval that was waiting is gone: nobody can approve it by accident');
 
   const finished = await eventually(async () => {

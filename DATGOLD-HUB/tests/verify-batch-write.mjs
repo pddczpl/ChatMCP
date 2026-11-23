@@ -18,7 +18,7 @@ import path from 'node:path';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { verifyHostEvidence } from '../lib/agent-autonomy.mjs';
-import { createTaskProgress, observeTaskTool } from '../lib/agent-progress.mjs';
+import { createTaskProgress, observeTaskTool, observeTree, treeKey } from '../lib/agent-progress.mjs';
 import { createLocalAgentInstructions } from '../lib/agent.mjs';
 
 let checks = 0;
@@ -163,18 +163,22 @@ try {
     assert.deepEqual(files.map((f) => f.created), [false, false, true]);
     for (const file of files) assert.equal(file.sha256, sha(await bytes(file.path)), `${file.path}: sha256 is the hash of what is on disk`);
 
-    const evidence = await verifyHostEvidence({ manager: { backend: 'local', studio }, name: 'local.files_write_batch', result, step: 3 });
+    // The trees the proof service took around the batch (pod-18): the receipts are bound to the tree after it.
+    const T = (c) => ({ status: 'ok', treeAlgorithm: 'git-pinned-v1', objectFormat: 'sha1', tree: c.repeat(40), rawTree: null });
+    const proof = { treeBefore: T('a'), treeAfter: T('b'), overlapped: false };
+    const evidence = await verifyHostEvidence({ manager: { backend: 'local', studio }, name: 'local.files_write_batch', result, step: 3, proof });
     assert.equal(evidence.kind, 'edit');
     assert.equal(evidence.more.length, 2);
-    let progress = createTaskProgress();
-    progress = observeTaskTool(progress, { call: { name: 'mcp_call', arguments: JSON.stringify({ name: 'local.run_command', arguments_json: '{}' }) }, result: { isError: false }, step: 2, verified: { kind: 'verify', id: 'check-1', step: 2 } }).progress;
+    assert.equal(evidence.tree, treeKey(T('b')), 'bound to the tree after the batch');
+    let progress = observeTree(createTaskProgress(), T('a'));
+    progress = observeTaskTool(progress, { call: { name: 'mcp_call', arguments: JSON.stringify({ name: 'local.run_command', arguments_json: '{}' }) }, result: { isError: false }, step: 2, proof: { treeBefore: T('a'), treeAfter: T('a'), overlapped: false }, scanned: true, verified: { kind: 'verify', id: 'check-1', step: 2, tree: treeKey(T('a')) } }).progress;
     assert.equal(progress.verifiedChecks.length, 1);
-    const observed = observeTaskTool(progress, { call: { name: 'mcp_call', arguments: JSON.stringify({ name: 'local.files_write_batch', arguments_json: '{}' }) }, result, step: 3, verified: evidence });
+    const observed = observeTaskTool(progress, { call: { name: 'mcp_call', arguments: JSON.stringify({ name: 'local.files_write_batch', arguments_json: '{}' }) }, result, step: 3, verified: evidence, proof, scanned: true });
     assert.equal(observed.progress.verifiedFiles.length, 3, 'one edit receipt per written file');
     assert.deepEqual(observed.progress.verifiedFiles.map((r) => r.path), ['r1.txt', 'r2.txt', 'r3.txt']);
-    assert.equal(observed.progress.verifiedChecks.length, 0, 'a batch write invalidates an earlier passing check, like any other file mutation');
+    assert.equal(observed.progress.verifiedChecks.length, 0, 'the earlier passing check is of the tree before the batch: stale, like after any change of the files');
     assert.equal(await verifyHostEvidence({ manager: { backend: 'local', studio }, name: 'local.files_write_batch', result: { isError: false, structuredContent: { files: [{ path: 'r1.txt', sha256: 'a'.repeat(64), previousSha: null }] } } }), null, 'a hash that does not match the disk is no evidence');
-    ok('per-file path/sha256/previousSha are returned; the host mints one verified edit receipt per file and a batch invalidates stale checks');
+    ok('per-file path/sha256/previousSha are returned; the host mints one verified edit receipt per file, on the tree after the batch, and earlier checks are stale');
   }
 
   // ---------------------------------------------------------------- 6. what the model is told

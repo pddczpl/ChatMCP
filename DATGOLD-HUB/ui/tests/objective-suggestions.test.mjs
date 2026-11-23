@@ -8,11 +8,15 @@ import { acceptObjectiveCriterion, acceptanceKind, acceptedObjectiveIds, availab
 // kind each criterion needs, already chosen, and one button confirms the whole plan in the order the Hub needs. What is accepted is still decided by the Hub (lib/objective-acceptance.mjs): these
 // tests run the REAL plan builder and the REAL acceptance function against what the page suggests.
 const PROMPT = '1. Inspect source files and project requirements, capture independently verified read evidence before editing any source code.\n2. Implement a bounded source patch and test the changed code thoroughly with real command exit status and actual Git review evidence.';
+// The receipts are bound to the tree they were made on (pod-18); all of these are on the latest tree the Hub knows, so all are fresh and offered. A receipt id ends with a prefix of its tree.
+const TREE = 'git-pinned-v1:sha1:' + 'c'.repeat(40);
+const AT = '@' + 'c'.repeat(12);
 const progress = {
-  verifiedInspections: [{ kind: 'inspect', step: 1, id: 'read-1' }, { kind: 'inspect', step: 5, id: 'read-2' }],
-  verifiedFiles: [{ kind: 'edit', step: 2, path: 'source.js', sha256: 'a'.repeat(64) }, { kind: 'edit', step: 6, path: 'other.js', sha256: 'b'.repeat(64) }],
-  verifiedChecks: [{ kind: 'verify', step: 3, id: 'check-1' }],
-  gitReviews: [{ kind: 'review', step: 4, id: 'diff-1' }],
+  version: 1, tree: TREE,
+  receipts: [
+    { kind: 'inspect', step: 1, id: 'read-1', tree: TREE }, { kind: 'edit', step: 2, path: 'source.js', sha256: 'a'.repeat(64), tree: TREE }, { kind: 'verify', step: 3, id: 'check-1', tree: TREE },
+    { kind: 'review', step: 4, id: 'diff-1', tree: TREE }, { kind: 'inspect', step: 5, id: 'read-2', tree: TREE }, { kind: 'edit', step: 6, path: 'other.js', sha256: 'b'.repeat(64), tree: TREE },
+  ],
 };
 const receipts = availableObjectiveReceipts(progress);
 
@@ -27,7 +31,7 @@ test('the page reads a criterion as the Hub does', () => {
 
 test('the suggestion is the latest receipt of the kind the criterion needs, and none for a criterion no receipt can match', () => {
   const [first] = decomposeCodingTask(PROMPT).objectives;
-  assert.equal(suggestReceipt(first.acceptanceCriteria[0], receipts).receiptId, 'inspect:5:read-2', 'the later of two inspections');
+  assert.equal(suggestReceipt(first.acceptanceCriteria[0], receipts).receiptId, 'inspect:5:read-2' + AT, 'the later of two inspections');
   const second = decomposeCodingTask(PROMPT).objectives[1];
   assert.equal(suggestReceipt(second.acceptanceCriteria[1], receipts).kind, 'edit');
   assert.equal(suggestReceipt(second.acceptanceCriteria[1], receipts).step, 6, 'the later of two edits');
@@ -56,16 +60,16 @@ test('the Hub accepts what the page sends, in that order, and the whole plan is 
   assert.equal(outcome.failed, undefined);
   assert.equal(outcome.done, 4);
   assert.deepEqual(acceptedObjectiveIds(current, progress), ['objective-1', 'objective-2']);
-  assert.deepEqual(calls, ['objective-1:0:inspect:5:read-2', 'objective-2:0:inspect:5:read-2', 'objective-2:1:edit:6:' + 'b'.repeat(64), 'objective-2:2:verify:3:check-1']);
+  assert.deepEqual(calls, ['objective-1:0:inspect:5:read-2' + AT, 'objective-2:0:inspect:5:read-2' + AT, 'objective-2:1:edit:6:' + 'b'.repeat(64) + AT, 'objective-2:2:verify:3:check-1' + AT]);
   assert.deepEqual(pendingSuggestions(current.objectives, receipts), [], 'and nothing is left to suggest');
 });
 
 test('a receipt the owner chose in a list wins over the suggestion, for that criterion only', async () => {
   const plan = decomposeCodingTask(PROMPT);
   const sent = [];
-  await acceptInOrder(pendingSuggestions(plan.objectives, receipts), { 'objective-2:0': 'inspect:1:read-1' }, async (item) => { sent.push(`${item.objectiveId}:${item.criterionIndex}:${item.receiptId}`); });
-  assert.deepEqual(sent.slice(0, 2), ['objective-1:0:inspect:5:read-2', 'objective-2:0:inspect:1:read-1']);
-  assert.equal(sent[2], 'objective-2:1:edit:6:' + 'b'.repeat(64), 'the others keep the suggestion');
+  await acceptInOrder(pendingSuggestions(plan.objectives, receipts), { 'objective-2:0': 'inspect:1:read-1' + AT }, async (item) => { sent.push(`${item.objectiveId}:${item.criterionIndex}:${item.receiptId}`); });
+  assert.deepEqual(sent.slice(0, 2), ['objective-1:0:inspect:5:read-2' + AT, 'objective-2:0:inspect:1:read-1' + AT]);
+  assert.equal(sent[2], 'objective-2:1:edit:6:' + 'b'.repeat(64) + AT, 'the others keep the suggestion');
 });
 
 test('the first refusal of the Hub stops it: what was accepted stays, the rest is not tried', async () => {
@@ -86,9 +90,9 @@ test('the first refusal of the Hub stops it: what was accepted stays, the rest i
 test('a criterion that is matched to a receipt that is still current is not suggested again, and one matched to a stale receipt is', () => {
   const plan = decomposeCodingTask(PROMPT);
   const [first, second] = plan.objectives;
-  const matched = [{ ...first, status: 'verified', evidence: [{ criterionIndex: 0, receiptId: 'inspect:1:read-1' }] }, second];
+  const matched = [{ ...first, status: 'verified', evidence: [{ criterionIndex: 0, receiptId: 'inspect:1:read-1' + AT }] }, second];
   assert.deepEqual(pendingSuggestions(matched, receipts).map((item) => `${item.objectiveId}:${item.criterionIndex}`), ['objective-2:0', 'objective-2:1', 'objective-2:2'], 'objective-1 is verified: its criterion is not offered, and objective-2 is reached');
-  const partly = { ...second, status: 'has_evidence', evidence: [{ criterionIndex: 0, receiptId: 'inspect:1:read-1' }, { criterionIndex: 2, receiptId: 'verify:9:gone' }] };
+  const partly = { ...second, status: 'has_evidence', evidence: [{ criterionIndex: 0, receiptId: 'inspect:1:read-1' + AT }, { criterionIndex: 2, receiptId: 'verify:9:gone' }] };
   assert.deepEqual(pendingSuggestions([{ ...first, status: 'verified' }, partly], receipts).map((item) => item.criterionIndex), [1, 2], 'criterion 0 is current; criterion 2 names a receipt that is gone, so the current one is suggested');
 });
 
