@@ -166,12 +166,19 @@ function rollUpInputs(statement, files) {
 }
 
 /**
- * Refuses (pack_invalid, part rollup) the first difference between the statement's criteria and the roll-up: the criteria and their
- * order, each one's kind and status, each check's command, expected exit, repeat, result and passes, the reasons other than
- * checks_modified (in order, with their check); a check's listed receipts must be among the ones the roll-up lists (all of them under
- * the default limits; the pack does not record a lowered maxReceiptsPerCheck, under which the list is a part of it).
+ * Refuses (pack_invalid, part rollup) the first difference between the statement's criteria and the roll-up. A pack does not record the
+ * limits its builder used, and a statement built with lower ones must still verify, so only what no limit changes is compared exactly:
+ *   - the criteria's ids and order, each one's kind and status (computed from every reason, before any is cut);
+ *   - per check its commandSha256, cwd (masked as the builder masked it; with a registered secret the checker does not know in a folder
+ *     name the two would differ), expectExit, repeat, result and passes;
+ *   - the reasons other than checks_modified, in order with their check: exactly, because no limit cuts them in a statement that reaches
+ *     this point (validateStatement, run first, refuses a statement whose left-out reasons are not checks_modified: omitted_reasons).
+ * The receipts a check lists depend on maxReceiptsPerCheck: they must be among the ones the roll-up lists (all of them under the default
+ * limits), and must hold the run its reason names (`named`: the roll-up with maxReceiptsPerCheck 1 lists exactly that run of a failed or
+ * stale check, as the spec says the run a reason names is listed whatever the limit). checks_modified reasons are not compared: they are
+ * taken from the statement itself (rollUpInputs).
  */
-function compareRollUp(stated, rolled) {
+function compareRollUp(stated, rolled, named) {
   const differ = (path, criterion, check, field, statedValue, rolledValue) => stop('pack_invalid', {
     part: 'rollup', criterion, check, field,
     errors: [{ path, keyword: 'rollup', message: `${field} is ${JSON.stringify(statedValue)} in the statement, ${JSON.stringify(rolledValue)} by the ledger the pack carries` }],
@@ -186,11 +193,15 @@ function compareRollUp(stated, rolled) {
     if (mine.checks.length !== theirs.checks.length) throw differ(`${where}/checks`, mine.id, null, 'checks', mine.checks.length, theirs.checks.length);
     for (const [index, check] of mine.checks.entries()) {
       const other = theirs.checks[index];
-      for (const field of ['commandSha256', 'expectExit', 'repeat', 'result', 'passes']) {
+      for (const field of ['commandSha256', 'cwd', 'expectExit', 'repeat', 'result', 'passes']) {
         if (check[field] !== other[field]) throw differ(`${where}/checks/${index}/${field}`, mine.id, index, field, check[field], other[field]);
       }
       const unknown = check.receipts.find((seq) => !other.receipts.includes(seq));
-      if (unknown !== undefined) throw differ(`${where}/checks/${index}/receipts`, mine.id, index, 'receipts', check.receipts, other.receipts);
+      // the run a failed or stale check's reason names (the latest failure on the final tree, the run that went stale) is always listed
+      const reasonRun = ['failed', 'stale'].includes(other.result) ? named[at].checks[index].receipts[0] : undefined;
+      if (unknown !== undefined || (reasonRun !== undefined && !check.receipts.includes(reasonRun))) {
+        throw differ(`${where}/checks/${index}/receipts`, mine.id, index, 'receipts', check.receipts, other.receipts);
+      }
     }
     if (JSON.stringify(codes(mine)) !== JSON.stringify(codes(theirs))) throw differ(`${where}/reasons`, mine.id, null, 'reasons', codes(mine), codes(theirs));
   }
@@ -199,11 +210,16 @@ function compareRollUp(stated, rolled) {
 /** The criteria the pack's own ledger, final tree and acceptance file give, against the statement's (see above). */
 function checkRollUp(statement, files) {
   let rolled;
-  try { rolled = rollUpCriteria({ ...rollUpInputs(statement, files), ledger: files['ledger.jsonl'] }).criteria; } catch (error) {
+  let named;
+  try {
+    const inputs = { ...rollUpInputs(statement, files), ledger: files['ledger.jsonl'] };
+    rolled = rollUpCriteria(inputs).criteria;
+    named = rollUpCriteria({ ...inputs, limits: { maxReceiptsPerCheck: 1 } }).criteria;
+  } catch (error) {
     if (!(error instanceof PackError)) throw error;
     throw stop('pack_invalid', { part: 'rollup', criterion: null, check: null, field: 'input', errors: [{ path: '', keyword: 'rollup', message: String(error.message).slice(0, 300) }] });
   }
-  compareRollUp(statement.predicate.criteria, rolled);
+  compareRollUp(statement.predicate.criteria, rolled, named);
 }
 
 /**

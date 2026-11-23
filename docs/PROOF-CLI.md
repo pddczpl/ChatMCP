@@ -364,11 +364,15 @@ failure wins (every one is exit 3):
    `brokenAt`, `field`, `seq`). The texts of a receipt are not compared: the statement holds them masked and cut.
 8. **The criteria, rolled up again**: the spec's rules hold a statement to the receipts it lists, so a run it leaves out (a failure on
    the final tree, say) is beyond them. check re-derives the criteria with the spec's own `rollUpCriteria` from what the pack carries:
-   the whole ledger, the final tree (`workspace-tree-after` and `trees.after`) and the acceptance file. The statement's criteria must be
-   exactly those: their ids and order, each one's kind and status, each check's command, expected exit, repeat, result and number of
-   passes, and the reasons other than `checks_modified`, in order; a check's listed receipts must be among the ones the roll-up lists
-   (all of them under the default limits: a pack does not record a lowered `maxReceiptsPerCheck`, under which a statement lists fewer).
-   The first difference is `pack_invalid` with `detail.part` `rollup` and `detail.criterion`, `detail.check`, `detail.field`. Three
+   the whole ledger, the final tree (`workspace-tree-after` and `trees.after`) and the acceptance file. A pack does not record the limits
+   its builder used and a statement built with lower ones must still verify, so what no limit changes is compared exactly: the criteria's
+   ids and order, each one's kind and status, each check's command (`commandSha256`), folder, expected exit, repeat, result and number of
+   passes, and the reasons other than `checks_modified`, in order (no limit cuts them in a statement the spec's rules accept). A check's
+   listed receipts must be among the ones the roll-up lists (all of them under the default limits; fewer under a lowered
+   `maxReceiptsPerCheck`) and must hold the run its reason names (the latest failure on the final tree of a `failed` check, the run of a
+   `stale` one), which the spec lists whatever the limit. The first difference is `pack_invalid` with `detail.part` `rollup` and
+   `detail.criterion`, `detail.check`, `detail.field`. A folder masked with a registered secret the checker does not know would differ;
+   the CLI registers none. Three
    inputs of the roll-up are in a pack only as facts of the statement itself, and are taken from it: whether the acceptance file was
    trusted (`acceptance.trusted`), the check-changes report (`checkChanges.reported` and, per criterion, its `check_changes_unknown` and
    `checks_modified` reasons; findings beyond the 64 listed only as their count) and the owner acceptances (their `owner_accepted`
@@ -386,11 +390,12 @@ time, and each one is refused with exit 3. Then:
 
 **What check proves, and what it does not.** A pack is not signed (the spec's v0.1). check proves that the pack is whole and holds
 together: nothing in it was changed on its own, its receipts are the records of a ledger whose chain verifies, its statement obeys the
-spec, its criteria are the ones the spec's roll-up gives from the ledger the pack carries (step 8: a failure the statement leaves out of
-its receipts is found), and its patch and acceptance file are the ones the statement names. It takes three facts from the statement
-itself (step 8: the trust flag, the check-changes findings, the owner acceptances), since the pack holds them nowhere else. It does not
-prove who made it: a pack made again from start to end, every hash and the digest recomputed, verifies (the suite shows one). That needs
-signing (a later version of the spec), or `reproduce`.
+spec, and its patch and acceptance file are the ones the statement names. **The check results, the passes and the statuses are
+re-derived from the ledger the pack carries** (step 8): a failure on the final tree that the statement leaves out of its receipts is
+found. **`checks_modified`, `check_changes_unknown` and the owner acceptances are taken from the statement as written**, as is whether the
+acceptance file was trusted: the pack holds no independent source for them. And check **does not prove who made the pack**: a pack made
+again from start to end, every hash and the digest recomputed, verifies (the suite shows one). That needs signing (a later version of the
+spec), or `reproduce`.
 
 ### `reproduce`
 
