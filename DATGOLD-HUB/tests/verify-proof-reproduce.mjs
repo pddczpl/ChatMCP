@@ -34,7 +34,7 @@ import { canonicalJson, statementDigest, validateStatement } from '../lib/proof/
 import { ProofLedger, verifyChain } from '../lib/proof/ledger.mjs';
 import { CLI_DATA_SCHEMAS, CLI_FORMAT, CLI_OUTPUT_SCHEMA, CODES, COMMANDS, EXIT, MESSAGES, main } from '../lib/proof/cli/index.mjs';
 import { PACK_FILE_FORMAT, PACK_FILE_MAX_BYTES, PACK_FILE_NAMES, encodePackFile, readPackFile } from '../lib/proof/cli/check.mjs';
-import { NOT_COMPARED, REPRODUCE_PASSES, REPRODUCE_REASONS, variablesNamed, verdictOf } from '../lib/proof/cli/reproduce.mjs';
+import { NOT_COMPARED, REPRODUCE_PASSES, REPRODUCE_REASONS, runOutcome, variablesNamed, verdictOf } from '../lib/proof/cli/reproduce.mjs';
 import { CliStop } from '../lib/proof/cli/codes.mjs';
 import { git, newRepo } from './support/proof-tree-fixtures.mjs';
 import { ACCEPTANCE as FIXTURE_ACCEPTANCE, BASE as FIXTURE_BASE, applyChange as fixtureChange, committedPacks, writeFiles } from './fixtures/proof-reproduce/fixture.mjs';
@@ -169,6 +169,16 @@ const PROJECT = {
   'env-check.mjs': logged('env-check', "process.exit(process.argv[2] === 'on' ? 0 : 5);\n"),
   'flaky.mjs': logged('flaky', "const file = process.env.PROOF_FLAKY_FILE;\nconst n = fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0;\nfs.writeFileSync(file, String(n + 1));\nprocess.exit(n % 2);\n"),
   'slow.mjs': logged('slow', "fs.writeFileSync(process.env.PROOF_SLOW_MARK, String(process.pid));\nsetTimeout(() => {}, 120_000);\n"),
+  // passes for the maker, fails on the first pass here, then hangs on the second (and marks it), so a Ctrl-C can cut the second pass
+  'twice.mjs': logged('twice', [
+    "const file = process.env.PROOF_TWICE_FILE;",
+    "const n = fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0;",
+    "fs.writeFileSync(file, String(n + 1));",
+    "if (n < 2) process.exit(n);",
+    "fs.writeFileSync(process.env.PROOF_SLOW_MARK, String(process.pid));",
+    "setTimeout(() => {}, 120_000);",
+    '',
+  ].join('\n')),
 };
 const FIX = { 'src/add.mjs': 'export const add = (a, b) => a + b;\n', 'src/new.mjs': 'export const fresh = 1;\n' };
 const acceptanceOf = (criteria, setup = ['node setup.mjs']) => [
@@ -483,12 +493,13 @@ function reencoded(bytes, edit, { acceptance } = {}) {
     ['the patch subject', (copy) => { copy.statement.subject[2].digest.sha256 = sha256('another patch'); }, 'pack_file_mismatch', 'subject', null],
     ['the acceptance file', (copy) => { delete copy.files['acceptance.yml']; }, 'pack_file_mismatch', 'presence', null],
     ['the acceptance hash', (copy) => { copy.statement.predicate.acceptance.baselineSha256 = sha256('x'); }, 'pack_file_mismatch', 'statement', null],
-    ['a receipt the statement contradicts', (copy) => { copy.statement.predicate.criteria[1].checks[0].result = 'failed'; }, 'pack_invalid', null, null],
+    ['a receipt the statement contradicts', (copy) => { copy.statement.predicate.criteria[1].checks[0].result = 'failed'; }, 'pack_invalid', 'statement', null],
   ];
   for (const [label, edit, code, why, field] of forged) {
     const error = refusal(remade(edit));
     assert.equal(error?.code, code, `${label}: ${error?.code} ${JSON.stringify(error?.detail)}`);
-    if (why) assert.equal(error.detail.why, why, `${label}: why`);
+    // the spec's rules refuse it first (part statement), before the roll-up would
+    if (why) assert.equal(code === 'pack_invalid' ? error.detail.part : error.detail.why, why, `${label}: why`);
     if (field) assert.equal(error.detail.field, field, `${label}: field`);
   }
   // base64 that decodes to the same bytes but is not the one form Node writes (a padding bit set) is refused, without any digest change
@@ -746,9 +757,26 @@ function reencoded(bytes, edit, { acceptance } = {}) {
   assert.deepEqual(verdict({ attempts: [attempt({ exit: 2, toolchain: { node: '24.1.0', python: '3.12.0', dotnet: null, git: '2.50.0' } })] }), ['divergent', 'exit_differs'], 'a tool the pack did not see is no mismatch');
   assert.deepEqual(verdict({ attempts: [attempt({ exit: null, signal: 'SIGKILL' })] }), ['divergent', 'exit_differs']);
   assert.equal(verdictOf({ ...base, attempts: [attempt({ exit: 7 })] }).detail, 'exit 0 in the pack, exit 7 here');
+  // the outcome of a run, one text each: a run ended by a signal reads as the signal, not as its (null) exit code
+  assert.deepEqual([{ exit: 3 }, { exit: null, timedOut: true }, { exit: null, cancelled: true }, { exit: null, signal: 'SIGKILL' }]
+    .map((run) => runOutcome({ signal: null, timedOut: false, cancelled: false, ...run })), ['exit 3', 'timed out', 'cancelled', 'signal SIGKILL']);
+  assert.equal(verdictOf({ ...base, attempts: [attempt({ exit: null, signal: 'SIGKILL' })] }).detail, 'exit 0 in the pack, signal SIGKILL here');
   assert.deepEqual(variablesNamed('node a.mjs "$HOME_URL" ${API_BASE} $env:DB_NAME $Env:REGION $1 $? "$@" $_ \\$NOT_THIS $HOME_URL'), ['HOME_URL', 'API_BASE', 'DB_NAME', 'REGION']);
   assert.deepEqual(variablesNamed('npm test'), []);
   ok(`the divergence reasons one by one: ${REPRODUCE_REASONS.join(', ')}; the variables a command names`);
+}
+
+if (process.platform !== 'win32') {
+  // a check that ends its own shell with a signal (Linux, macOS: a short command runs as `bash -c`, so $$ is the shell ShellRunner
+  // started; on Windows Git Bash's launcher stands between them and no signal reaches Node): the pack and the run here both read
+  // `signal SIGKILL`, and the receipt reproduces
+  const acceptance = acceptanceOf([['signal', 'kill -KILL $$']], []);
+  const made = await makePack('signal', { acceptance, after: ['kill -KILL $$'], setup: false });
+  expectAnswer(await ask(['verify', 'trust', '--pack', made.packFile, '--sha256', sha256(acceptance)], { env: third }), 0, 'trusted', 'trust');
+  const answer = await ask(['verify', 'reproduce', made.packFile, '--base', made.base], { env: third });
+  expectAnswer(answer, 0, 'reproduced', 'a check ended by a signal, reproduced');
+  assert.deepEqual(answer.data.receipts.map((receipt) => [receipt.pack, receipt.here]), [['signal SIGKILL', ['signal SIGKILL']]]);
+  ok('a check ended by a signal: its outcome is `signal SIGKILL` in the pack and here, and it reproduces');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 7. Ctrl-C
@@ -775,10 +803,28 @@ function reencoded(bytes, edit, { acceptance } = {}) {
   clearInterval(watcher);
   const answer = JSON.parse(out.join(''));
   assert.equal(exitCode, 1, JSON.stringify(answer));
-  assert.equal(answer.code, 'reproduce_interrupted');
+  assert.deepEqual([answer.code, answer.detail?.step], ['reproduce_interrupted', 'checks']);
   assert.ok(performance.now() - started < 60_000, 'the slow check was stopped, not waited for');
   assert.deepEqual(leftovers(), [], 'the temporary worktree is removed after Ctrl-C');
   assert.equal(signals.listenerCount('SIGINT'), 0, 'the listeners are gone');
+  // a Ctrl-C during the second pass of the checks: no pass after it would notice, so the cut pass itself must not be judged
+  const twiceFile = path.join(SCRATCH, 'twice-count');
+  const twiceAcceptance = 'version: 1\ncriteria:\n  - id: twice\n    text: twice\n    checks:\n      - run: node twice.mjs\n        timeout: 30\n';
+  const twice = await makePack('twice', { acceptance: twiceAcceptance, after: ['node twice.mjs'], env: { PROOF_TWICE_FILE: twiceFile }, setup: false });
+  expectAnswer(await ask(['verify', 'trust', '--pack', twice.packFile, '--sha256', sha256(twiceAcceptance)], { env: third }), 0, 'trusted', 'trust');
+  fs.rmSync(mark, { force: true });
+  const second = new EventEmitter();
+  const secondOut = [];
+  const secondStream = { write: (text, done) => { secondOut.push(String(text)); done?.(); return true; } };
+  const secondWatch = setInterval(() => { if (fs.existsSync(mark)) { clearInterval(secondWatch); second.emit('SIGINT'); } }, 50);
+  const secondExit = await main(['verify', 'reproduce', twice.packFile, '--base', twice.base, '--json'], {
+    stdout: secondStream, stderr: secondStream, env: { ...BASE_ENV, ...third, PROOF_TWICE_FILE: twiceFile, PROOF_SLOW_MARK: mark }, cwd: SCRATCH, signals: second,
+  });
+  clearInterval(secondWatch);
+  const secondAnswer = JSON.parse(secondOut.join(''));
+  assert.deepEqual([secondExit, secondAnswer.code, secondAnswer.detail?.step], [1, 'reproduce_interrupted', 'checks'], JSON.stringify(secondAnswer).slice(0, 2000));
+  assert.equal(Number(fs.readFileSync(twiceFile, 'utf8')), 3, 'the maker\'s run, the first pass, the second pass cut');
+  assert.deepEqual(leftovers(), [], 'the temporary worktree is removed after a Ctrl-C in the second pass');
   if (process.platform !== 'win32') {
     fs.rmSync(mark, { force: true });
     const result = await cli(['verify', 'reproduce', packFile, '--base', timed.base, '--json'], {
@@ -787,9 +833,10 @@ function reencoded(bytes, edit, { acceptance } = {}) {
     });
     const real = answerOf(result, 'reproduce with a real SIGINT');
     expectAnswer(real, 1, 'reproduce_interrupted', 'a real SIGINT');
+    assert.equal(real.detail?.step, 'checks');
     assert.deepEqual(leftovers(), [], 'the temporary worktree is removed after a real SIGINT');
   }
-  ok(`Ctrl-C while a check runs: the check is stopped, the temporary worktree removed, reproduce_interrupted (exit 1)${process.platform === 'win32' ? ' (injected; Windows cannot send one process a Ctrl-C)' : ', injected and a real SIGINT'}`);
+  ok(`Ctrl-C while a check runs, in the first and in the second pass: the check is stopped, the temporary worktree removed, reproduce_interrupted (exit 1, step checks)${process.platform === 'win32' ? ' (injected; Windows cannot send one process a Ctrl-C)' : ', injected and a real SIGINT'}`);
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 8. the cross-system fixture
