@@ -30,7 +30,7 @@ import { validateStatement } from '../lib/proof/pack.mjs';
 import { verifyChain } from '../lib/proof/ledger.mjs';
 import { parseFinalMarker } from '../lib/proof/marker.mjs';
 import { CLI_DATA_SCHEMAS, CLI_FORMAT, CLI_OUTPUT_SCHEMA, CODES, EXIT, MESSAGES } from '../lib/proof/cli/index.mjs';
-import { CLAIM_WINDOW_BYTES, INTERRUPT_GRACE_MS, LOG_MAX_BYTES, claimText, outcomeOf, readClaim, runCriteria } from '../lib/proof/cli/exec.mjs';
+import { CLAIM_WINDOW_BYTES, INTERRUPT_GRACE_MS, LOG_MAX_BYTES, StreamEvidence, claimText, outcomeOf, readClaim, runCriteria } from '../lib/proof/cli/exec.mjs';
 import { compileClaimMarker } from '../lib/proof/cli/args.mjs';
 import { ADAPTERS, ADAPTER_NAMES, readAgentOutput } from '../lib/proof/adapters/index.mjs';
 import { commitAll, newRepo, write } from './support/proof-tree-fixtures.mjs';
@@ -260,6 +260,20 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   assert.equal(claimText(Buffer.alloc(0), 0), '', 'an empty stream');
   assert.equal(CLAIM_WINDOW_BYTES, 64 * 1024);
   assert.equal(LOG_MAX_BYTES, 16 * 1024 * 1024);
+  // the evidence of one stream, with a chunk that crosses the log limit (a pipe hands over 64 KiB at a time, and 16 MiB is a multiple of
+  // that, so an agent's output alone may never cross it inside a chunk)
+  const logFile = path.join(SCRATCH, 'evidence-unit.log');
+  const evidence = new StreamEvidence(logFile);
+  evidence.push(Buffer.alloc(LOG_MAX_BYTES - 1, 0x61));
+  evidence.push(Buffer.from('bcd\nDONE\n'));
+  await evidence.close();
+  assert.equal(fs.statSync(logFile).size, LOG_MAX_BYTES, 'the log stops at the limit inside a chunk');
+  assert.deepEqual(evidence.summary(), {
+    sha256: sha256(Buffer.concat([Buffer.alloc(LOG_MAX_BYTES - 1, 0x61), Buffer.from('bcd\nDONE\n')])), bytes: LOG_MAX_BYTES + 8, logged: LOG_MAX_BYTES, truncated: true,
+  }, 'hashed and counted whole, logged up to the limit');
+  assert.equal(evidence.window().length, CLAIM_WINDOW_BYTES, 'the window is the last 64 KiB');
+  assert.equal(parseFinalMarker(claimText(evidence.window(), evidence.bytes)).marker, 'DONE', 'and the claim is read from its end');
+  fs.rmSync(logFile);
   // no false DONE from a cut: the true last line is `zzz...DONE`, longer than the window
   const long = `${'z'.repeat(CLAIM_WINDOW_BYTES * 2)}DONE\n\n`;
   const tail = Buffer.from(long).subarray(-CLAIM_WINDOW_BYTES);

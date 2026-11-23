@@ -127,7 +127,7 @@ export async function runCriteria({ runnable, recordOne, signal = null }) {
 
 // --------------------------------------------------------------------------------------------------------------------------- the agent
 /** One output stream of the agent: hashed and counted whole, written to its log up to LOG_MAX_BYTES, its last bytes kept for the claim. */
-class StreamEvidence {
+export class StreamEvidence {
   constructor(file) {
     this.hash = createHash('sha256');
     this.bytes = 0;
