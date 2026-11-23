@@ -41,10 +41,11 @@ files from `onDecision`'s `mayChangeFiles` (the categories the proof service sca
 
 | Event | `progress.tree` after it |
 |---|---|
-| a run starts | the run's start tree from the ledger (`HubManager.createAgentSession` reads the `tree` record that `ProofService.begin` wrote and puts its ids on the session as `proofStart`); none: unknown |
+| a run starts | the run's start tree: `ProofService.begin()` returns the ids of the full snapshot it recorded and `HubManager.createAgentSession` puts them on the session as `proofStart`; none: unknown |
 | a call with trees | its tree after, whatever the tool and whatever it returned (an error, a refusal of the tool itself) |
 | a call that may change files and came back without trees (checks-only, the service disabled or halted) | unknown |
 | a read, a call refused by the gate or a hook, a call that never ran | unchanged |
+| the run ends (`ProofService.end()`, after the completion was judged) | the run's real final tree, when it is known and differs from the current one (below) |
 | the Hub died while a call that may change files was running (the task is `uncertain` after the restart) | unknown |
 
 A change made outside a scanned call (an external MCP server the owner did not flag, the person's own editor, a process left running) is not
@@ -67,6 +68,16 @@ No verified successful project check on the final tree: freshness unknown (the H
 
 Both carry `freshness`: `fresh` (ready), else `unknown` before `stale` before `missing`, and `not_applicable` without a plan. The task's
 `verificationOutcome.missing` and its answer's warning (`DatGold has NOT independently verified full completion: ...`) use these words.
+
+**The run's real final tree.** The completion is judged when the model gives its final answer, against the latest tree the run knows: the
+tree after its last scanned call. A change made after that call by something the Hub does not scan (a process a command left running, a
+watcher, the person's own editor, an external tool the owner did not flag) is not in that tree. The full snapshot `ProofService.end()` takes
+when the run ends is: `AgentRunner#finish` compares it with the tree the completion used (`#judgeFinalTree`). When both are known and
+differ, the final tree becomes the current tree, the receipts made on the other one are stale, and a completed task is judged again:
+`verificationOutcome.ready: false`, `completionOutcome.verification: 'missing_evidence'`, `freshness: 'stale'`, the Hub's warning added to
+its answer and a `verification_unverified` event with `reason: 'final_tree_changed'`, all saved. The task's status stays `completed`. A
+final tree that is not known (the snapshot failed, the service is disabled) changes nothing: it is no evidence that the files changed. The
+Stop and TaskCompleted hooks run before the end and see the judgment made at the final answer.
 
 **What a task with unknown freshness ends as.** A coding task whose receipts are of unknown freshness at the end (checks-only after the scan
 budget switch, the Hub's data folder inside the workspace, a snapshot that failed) ends `completed` with `verificationOutcome.ready: false`,
@@ -105,7 +116,7 @@ rest are, or that the Hub does not know the tree; the acceptance panel says how 
 
 ## Not done here
 
-- The done-gate that sends the model back when its receipts are not fresh is pod-23's.
-- No snapshot is taken at the final answer or at accept time: a change made after the last scanned call by something the Hub does not scan is
-  seen only by the next scanned call or the next run (the task_end snapshot of the ledger is written after the completion is judged).
+- The done-gate that sends the model back when its receipts are not fresh is pod-23's. The final tree is checked after the run, so the
+  model is not asked to do anything about a change it did not see.
+- No snapshot is taken at accept time: a change made after the run ended is seen at the next run.
 - The Browser Companion and the MCP host do not keep agent receipts; their calls are in the ledger only.

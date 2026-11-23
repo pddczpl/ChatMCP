@@ -1,6 +1,6 @@
 {
  "suite": "verify-proof-receipts.mjs",
- "description": "The seams that give the agent its trees (plan task pod-18, docs/PROOF-RECEIPTS.md): the start tree on the session and the calls that may change files (lib/manager.mjs createAgentSession, #startTree, #guardCalls), the agent that binds its receipts to them and loads a crashed task (lib/agent.mjs #decided, #proved, the tool loop, the run start, load), judged by tests/verify-proof-receipts.mjs on the real Hub.",
+ "description": "The seams that give the agent its trees (plan task pod-18, docs/PROOF-RECEIPTS.md): the start tree on the session and the calls that may change files (lib/manager.mjs createAgentSession, #guardCalls), the agent that binds its receipts to them, judges the run against its real final tree and loads a crashed task (lib/agent.mjs #decided, #proved, the tool loop, the run start, #judgeFinalTree, load), judged by tests/verify-proof-receipts.mjs on the real Hub.",
  "mutations": [
   {
    "name": "PR-no-start-tree",
@@ -8,19 +8,19 @@
    "patches": [
     {
      "file": "lib/manager.mjs",
-     "old": "    session.proofStart = await this.#startTree(this.taskId, started);",
+     "old": "    session.proofStart = started?.tree ?? null;",
      "new": "    session.proofStart = null;"
     }
    ]
   },
   {
-   "name": "PR-start-any-tree",
-   "what": "the start tree is the ledger's first tree, not this run's",
+   "name": "PR-final-tree-ignored",
+   "what": "the run's final tree is not looked at",
    "patches": [
     {
-     "file": "lib/manager.mjs",
-     "old": "      const tree = entries.find((entry) => entry.seq === started.seq && entry.type === 'tree')?.record?.tree;",
-     "new": "      const tree = entries.find((entry) => entry.type === 'tree')?.record?.tree;"
+     "file": "lib/agent.mjs",
+     "old": "        try { await this.#judgeFinalTree(task, ended?.tree ?? null); } catch (judgeError) { this.log(this.#redact(judgeError.message)); }",
+     "new": ""
     }
    ]
   },
@@ -98,6 +98,61 @@
      "file": "lib/agent.mjs",
      "old": "          if (task.state === 'uncertain') task.progress = observeTree(task.progress, null);",
      "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PR-final-unknown-judges",
+   "what": "an unknown tree on either side is judged as a change",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (!final || !judged || final === judged) return;",
+     "new": "    if (final === judged) return;"
+    }
+   ]
+  },
+  {
+   "name": "PR-final-outcome-kept",
+   "what": "the verification outcome is not judged again",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    task.verificationOutcome = assessCompletionEvidence(task.goalPlan, task.progress);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PR-final-completion-kept",
+   "what": "the completion is not judged again",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    task.completionOutcome = classifyTaskCompletion(task.goalPlan, task.progress);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PR-final-no-warning",
+   "what": "the answer does not get the Hub's warning",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      this.#setFinalText(task, { ...task.finalParts, verificationNotice: warning });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PR-final-no-reason",
+   "what": "the event does not say the final tree changed",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      { status: task.status, reason: 'final_tree_changed' }, { missing: task.verificationOutcome.missing, freshness: task.verificationOutcome.freshness });",
+     "new": "      { status: task.status }, { missing: task.verificationOutcome.missing, freshness: task.verificationOutcome.freshness });"
     }
    ]
   }

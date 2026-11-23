@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
-import { callIdentity, createTaskProgress, observeTaskTool, observeTree, progressCheckpoint, receiptSummary } from './agent-progress.mjs';
+import { callIdentity, createTaskProgress, observeTaskTool, observeTree, progressCheckpoint, receiptSummary, treeKey } from './agent-progress.mjs';
 import { scannedCall } from './proof/service.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from './agent-autonomy.mjs';
 import { injectRepoMapIntoInstructions, resolveEffectiveContextBudget } from './context-compaction.mjs';
@@ -1566,13 +1566,43 @@ export class AgentRunner {
       // release a newer task's lock.
       if (this.activeTaskId === task.id) {
         // The end of this run in the proof ledger, whatever the status (a cancelled or failed task too), while the workspace is still the task's.
-        try { await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }
+        let ended = null;
+        try { ended = await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }
+        try { await this.#judgeFinalTree(task, ended?.tree ?? null); } catch (judgeError) { this.log(this.#redact(judgeError.message)); }
         try { this.manager.releaseTask(task.id); } catch (releaseError) { this.log(this.#redact(releaseError.message)); }
         this.activeTaskId = null; this.context = null;
       }
       context.history.clear(); context.session = null;
       context.done.resolve(this.#public(task));
     }
+  }
+
+  /**
+   * The run's real final tree (pod-18, docs/PROOF-RECEIPTS.md): the completion was judged against the latest tree the run knew, the tree after its last scanned
+   * call. A change made outside a scanned call after it (a process a command left running, a watcher, the person's own editor, an external tool the owner did not
+   * flag) shows only in the full snapshot ProofService.end() takes. When both trees are known and differ, that snapshot is the current tree: the receipts made on
+   * the other one are stale, the outcome of a completed task is judged again (missing evidence, freshness stale), the Hub's warning goes into its answer, and
+   * all of it is saved. The task's status stays. An unknown final tree changes nothing: it is no evidence that the files changed.
+   */
+  async #judgeFinalTree(task, finalTree) {
+    const final = treeKey(finalTree);
+    const judged = task.progress?.tree ?? null;
+    if (!final || !judged || final === judged) return;
+    task.progress = observeTree(task.progress, finalTree);
+    if (task.status !== 'completed') { await this.#persist(task); return; }
+    task.verificationOutcome = assessCompletionEvidence(task.goalPlan, task.progress);
+    task.completionOutcome = classifyTaskCompletion(task.goalPlan, task.progress);
+    if (task.verificationOutcome.ready) { await this.#persist(task); return; }
+    const warning = verificationWarning(task.verificationOutcome.missing);
+    if (task.finalParts) {
+      this.#setFinalText(task, { ...task.finalParts, verificationNotice: warning });
+      // The run and the dialogue keep the answer as it now reads.
+      if (task.runs?.length) task.runs.at(-1).finalText = task.finalText;
+      const said = task.dialogue?.findLast((entry) => entry.role === 'assistant' && entry.run === (task.runs?.length ?? 1));
+      if (said) said.text = task.finalText;
+    }
+    await this.#event(task, 'verification_unverified', 'Cây thư mục lúc kết thúc khác cây sau lời gọi cuối mà Hub đã ghi (một tiến trình còn chạy, trình soạn thảo hoặc công cụ không được quét đã sửa file): biên nhận không còn mới. ' + warning,
+      { status: task.status, reason: 'final_tree_changed' }, { missing: task.verificationOutcome.missing, freshness: task.verificationOutcome.freshness });
   }
 
   async cancel(id) {

@@ -7,8 +7,7 @@ import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { buildInternalCatalog, fingerprint } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
 import { externalToolName } from './permissions.mjs';
-import { ProofService, readLedgerEntries, scannedCall } from './proof/service.mjs';
-import { ledgerPath } from './proof/ledger.mjs';
+import { ProofService, scannedCall } from './proof/service.mjs';
 
 export const VERSION = '3.11.2';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
@@ -315,7 +314,8 @@ export class HubManager {
 
   /**
    * The end of a run of `taskId` in its proof ledger: the full final snapshot and task_end, for every status (a cancelled or failed task
-   * too). The runner calls it before releaseTask, while the workspace is still its own. Never throws.
+   * too). The runner calls it before releaseTask, while the workspace is still its own. Resolves with {seq, tree} (the run's final tree, which
+   * the runner judges its receipts against, pod-18) or null. Never throws.
    */
   async finishProof(taskId, { status, errorCode = null } = {}) {
     try { return (await this.proof?.end(taskId, { status, errorCode })) ?? null; }
@@ -352,22 +352,9 @@ export class HubManager {
     const started = await this.proofService()?.begin(this.taskId, { signal });
     signal?.throwIfAborted();
     const session = this.#createLocalSession();
-    // The run's start tree, for the receipts the runner binds to trees (pod-18, docs/PROOF-RECEIPTS.md): null when nothing was recorded.
-    session.proofStart = await this.#startTree(this.taskId, started);
+    // The run's start tree (the ids begin() recorded), for the receipts the runner binds to trees (pod-18, docs/PROOF-RECEIPTS.md): null when nothing was recorded.
+    session.proofStart = started?.tree ?? null;
     return session;
-  }
-
-  /**
-   * The ids of the tree a run started on: the `tree` record ProofService.begin wrote (at `started.seq`), read back from the task's ledger. Null when the run is not
-   * recorded (the service disabled, the ledger broken) or its snapshot failed. Never throws.
-   */
-  async #startTree(taskId, started) {
-    if (!started || !Number.isSafeInteger(started.seq)) return null;
-    try {
-      const { entries } = await readLedgerEntries(ledgerPath(this.proof.hubDir, taskId));
-      const tree = entries.find((entry) => entry.seq === started.seq && entry.type === 'tree')?.record?.tree;
-      return tree && typeof tree.tree === 'string' ? { status: tree.status, treeAlgorithm: tree.treeAlgorithm, objectFormat: tree.objectFormat, tree: tree.tree, rawTree: tree.rawTree ?? null } : null;
-    } catch (error) { this.log(`Sổ bằng chứng: không đọc được cây lúc bắt đầu của tác vụ (${error?.code ?? error?.message}).`); return null; }
   }
 
   /** The tools of the local backend live in this process; the external ones go through the shared McpClientManager. */

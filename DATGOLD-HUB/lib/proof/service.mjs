@@ -154,8 +154,9 @@ export class ProofService {
 
   /**
    * The start of a run of `taskId`: task_start when the ledger is new, the uncertain records of a run that died before, and the full snapshot
-   * of the run's start. Resolves with {run, resumed, seq} (seq of that snapshot's record), or null when nothing is recorded (the service is
-   * disabled, the ledger is broken or cannot be written). Never throws: a cancelled snapshot is recorded as failed, and the caller stops.
+   * of the run's start. Resolves with {run, resumed, seq, tree} (seq of that snapshot's record, tree its ids: what a runner binds its receipts to,
+   * docs/PROOF-RECEIPTS.md; a snapshot that failed has no id), or null when nothing is recorded (the service is disabled, the ledger is broken or
+   * cannot be written). Never throws: a cancelled snapshot is recorded as failed, and the caller stops.
    */
   async begin(taskId, { signal = null } = {}) {
     if (this.disabled || !(await this.#outside())) return null;
@@ -175,7 +176,7 @@ export class ProofService {
       if (!read.entries.length) await ledger.append('task_start', { format: SERVICE_FORMAT, taskId, workspace: this.root, granularity: GRANULARITY.calls, budgetMs: this.budget.meanScanMs });
       const { ref, ms } = await this.#scan({ full: true, signal });
       const entry = await ledger.append('tree', { event: run === 1 ? 'task_start' : 'run_start', run, callId: null, tool: null, category: null, tree: ref, scanMs: ms });
-      return { run, resumed: run > 1, seq: entry.seq };
+      return { run, resumed: run > 1, seq: entry.seq, tree: idsOf(ref) };
     } catch (error) { this.#halt(task, error); return null; }
   }
 
@@ -243,8 +244,9 @@ export class ProofService {
 
   /**
    * The end of the run of `taskId`, whatever its status (completed, failed, cancelled ...): waits (at most endWaitMs) for a call that is still
-   * running, records one that did not finish as uncertain, takes the full final snapshot and writes task_end. Resolves with {seq} of
-   * task_end, or null when this service has no such run. Never throws.
+   * running, records one that did not finish as uncertain, takes the full final snapshot and writes task_end. Resolves with {seq, tree}: the seq
+   * of task_end and the ids of the final tree (the run's real final tree, which a runner judges its receipts against: docs/PROOF-RECEIPTS.md),
+   * or null when this service has no such run. Never throws.
    */
   async end(taskId, { status = 'unknown', errorCode = null } = {}) {
     const task = this.task;
@@ -268,7 +270,7 @@ export class ProofService {
         format: SERVICE_FORMAT, run: task.run, status: String(status), errorCode: errorCode ?? null, granularity: task.granularity,
         calls: task.calls, scans: task.scans.length, meanScanMs: Math.round(meanOf(task.scans)),
       });
-      return { seq: entry.seq };
+      return { seq: entry.seq, tree: idsOf(ref) };
     } catch (error) {
       this.#halt(task, error);
       return null;

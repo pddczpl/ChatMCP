@@ -9,6 +9,8 @@ knowing about the service. Tree snapshots come from the pod-15 engine ([PROOF-TR
 No screen shows the ledger itself and no claim to users is made from it ([THREAT-MODEL.md](THREAT-MODEL.md) and [CLAIMS.md](CLAIMS.md) are
 unchanged). Since pod-18 the agent reads the trees the guard hands to `onProof`, the run's start tree (`proofStart` on the session) and
 `mayChangeFiles` of `onDecision`, and binds its receipts to them ([PROOF-RECEIPTS.md](PROOF-RECEIPTS.md)); the pack that cites the ledger is a later pod's.
+`begin()` resolves with `{run, resumed, seq, tree}` and `end()` with `{seq, tree}`: the ids of the start and final trees they recorded (a
+reference without an id when the snapshot failed), the trees the agent starts from and judges its receipts against at the end (pod-18).
 
 ## A run in the ledger
 

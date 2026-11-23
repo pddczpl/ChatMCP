@@ -1,6 +1,6 @@
 {
  "suite": "verify-proof-service.mjs",
- "description": "The proof service at the single guard seam (plan task pod-17, docs/PROOF-SERVICE.md): the categories that are scanned, the records of a run (task_start, tree, call, task_end) and the resumed chain, recovery after a crash, the overlap mark, the scan budget and the switch to checks-only, the end of a run while a call still runs, the Hub data folder inside the workspace (lib/proof/service.mjs), and the seams that call it: HubManager.createAgentSession, #guardCalls and its onProof, finishProof and recoverProof (lib/manager.mjs), the agent's onProof, #finish and load (lib/agent.mjs), BrowserRunner.finish and the side chat's manager (lib/concurrent-api-agent.mjs), judged by tests/verify-proof-service.mjs.",
+ "description": "The proof service at the single guard seam (plan task pod-17, docs/PROOF-SERVICE.md): the categories that are scanned, the records of a run (task_start, tree, call, task_end) and the resumed chain, the trees begin() and end() hand back (pod-18), recovery after a crash, the overlap mark, the scan budget and the switch to checks-only, the end of a run while a call still runs, the Hub data folder inside the workspace (lib/proof/service.mjs), and the seams that call it: HubManager.createAgentSession, #guardCalls and its onProof, finishProof and recoverProof (lib/manager.mjs), the agent's onProof, #finish and load (lib/agent.mjs), BrowserRunner.finish and the side chat's manager (lib/concurrent-api-agent.mjs), judged by tests/verify-proof-service.mjs.",
  "mutations": [
   {
    "name": "PS-external-always",
@@ -530,7 +530,7 @@
    "patches": [
     {
      "file": "lib/agent.mjs",
-     "old": "        try { await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }",
+     "old": "        try { ended = await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }",
      "new": ""
     }
    ]
@@ -609,6 +609,28 @@
      "file": "lib/proof/service.mjs",
      "old": "const fitName = (value) => (value.length > NAME_KEEP ?",
      "new": "const fitName = (value) => (value.length >= NAME_KEEP ?"
+    }
+   ]
+  },
+  {
+   "name": "PS-begin-no-tree",
+   "what": "begin() does not hand back the start tree (pod-18)",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      return { run, resumed: run > 1, seq: entry.seq, tree: idsOf(ref) };",
+     "new": "      return { run, resumed: run > 1, seq: entry.seq };"
+    }
+   ]
+  },
+  {
+   "name": "PS-end-no-tree",
+   "what": "end() does not hand back the final tree (pod-18)",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      return { seq: entry.seq, tree: idsOf(ref) };",
+     "new": "      return { seq: entry.seq };"
     }
    ]
   }
