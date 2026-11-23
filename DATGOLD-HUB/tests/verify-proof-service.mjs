@@ -161,6 +161,12 @@ try {
     assert.equal(start.workspace, repo);
     assert.equal(start.granularity, 'calls');
     assert.equal(start.budgetMs, 1500);
+    // begin() and end() hand back the tree they recorded, as the ids onProof gives for a call's trees (pod-18: the agent's start tree and final tree).
+    const ids = (ref) => ({ status: ref.status, treeAlgorithm: ref.treeAlgorithm, objectFormat: ref.objectFormat, tree: ref.tree, rawTree: ref.rawTree });
+    assert.deepEqual(begun.tree, ids(entries.find((entry) => entry.seq === begun.seq).record.tree), 'begin() returns the start tree it recorded at its seq');
+    assert.equal(entries.find((entry) => entry.seq === begun.seq).type, 'tree', '(the record at that seq is the start snapshot)');
+    assert.deepEqual(ended.tree, ids(entries.find((entry) => entry.type === 'tree' && entry.record.event === 'task_end').record.tree), 'end() returns the final tree it recorded');
+    assert.equal(ended.tree.tree, first.treeAfter.tree, 'the final tree is the tree the last change left');
     const startTree = entries[1].record;
     assert.equal(startTree.run, 1);
     assert.equal(startTree.tree.full, true, 'the task-start snapshot is a full one');
@@ -240,6 +246,17 @@ try {
     await new ProofService({ hubDir, root: repo }).begin(second);
     assert.deepEqual(typesOf(await ledgerOf(hubDir, second)), ['task_start', 'tree:task_start', 'tree:call_start', 'uncertain:call_interrupted', 'uncertain:run_interrupted', 'tree:run_start']);
     ok('a crash in the middle of a call: recover() writes call_interrupted (call id, tool, category, the seq of its call_start tree) and run_interrupted once; begin() of the next run does the same when nobody recovered');
+  }
+  {
+    // A start or end snapshot that failed is handed back as a reference without an id (pod-18: the agent's tree is unknown then, never a guess).
+    const repo = await makeRepo('blind');
+    const service = new ProofService({ hubDir: path.join(temp, 'blind-hub'), root: repo });
+    service.snapshotter = { snapshot: async () => { throw Object.assign(new Error('gone'), { code: 'root_unreadable' }); } };
+    const begun = await service.begin('task-blind');
+    assert.deepEqual([begun.run, begun.tree.status, begun.tree.tree, begun.tree.rawTree], [1, 'failed', null, null], 'begin(): a failed start snapshot, no tree id');
+    const ended = await service.end('task-blind', { status: 'completed' });
+    assert.deepEqual([ended.tree.status, ended.tree.tree], ['failed', null], 'end(): a failed final snapshot, no tree id');
+    ok('begin() and end() return the tree they recorded (the ids of the record at begin\'s seq, of the task_end record), and a reference without an id when the snapshot failed');
   }
   {
     // The Hub's data folder inside the workspace: every ledger write would change the tree it records. Refused (docs/PROOF-BASELINE.md).

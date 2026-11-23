@@ -202,6 +202,54 @@ try {
     checks += 1;
   });
 
+  await section('a change after the last scanned call (a process a command left running, the person\'s editor) shows in the final tree: the run ends stale', async () => {
+    // late.js starts a detached process and exits at once: the command's own trees are the same; the process writes notes.txt 1.5 s later, after the last
+    // scanned call. Only the full snapshot of the run's end (ProofService.end) sees it.
+    const LATE = "const { spawn } = require('child_process');\nspawn(process.execPath, ['-e', \"setTimeout(() => require('fs').appendFileSync('notes.txt', 'late\\\\n'), 1500)\"], { cwd: __dirname, detached: true, stdio: 'ignore' }).unref();\nconsole.log('started');\n";
+    const dir = await project('late-writer');
+    await fs.writeFile(path.join(dir, 'late.js'), LATE);
+    git(dir, ['add', 'late.js']);
+    git(dir, ['commit', '-q', '-m', 'late']);
+    const notes = path.join(dir, 'notes.txt');
+    const waitForLate = async () => {
+      for (let i = 0; i < 400 && !(await fs.readFile(notes, 'utf8')).includes('late'); i++) await sleep(25);
+      check((await fs.readFile(notes, 'utf8')).includes('late'), '(premise) the background process wrote notes.txt after the last scanned call');
+      return [say('Fixed add(), ran npm test, read the diff, started a helper.')];
+    };
+    const late = await run(manager, dir, [read, fix, test, diff, () => [tool('run_command', { command: 'node late.js', description: 'Start a helper' })], waitForLate]);
+    const [end] = trees(late.entries, 'task_end');
+    const calls = late.entries.filter((entry) => entry.type === 'call');
+    check(calls.at(-1).record.changed === false, '(premise) the command that started the process changed nothing while it ran');
+    check(end.tree !== calls.at(-1).record.treeAfter.tree, '(premise) the final tree differs from the tree after the last call');
+    const { view } = late;
+    equal(view.status, 'completed', 'the task status stays completed');
+    equal([view.verificationOutcome.ready, view.verificationOutcome.missing, view.verificationOutcome.freshness], [false, [MISSING.edit + STALE, MISSING.verify + STALE, MISSING.review + STALE], 'stale'],
+      'judged again against the final tree: every receipt is stale');
+    equal([view.completionOutcome.verification, view.completionOutcome.freshness], ['missing_evidence', 'stale'], 'the completion is missing evidence, stale');
+    equal(view.receiptFreshness, { tree: true, fresh: 0, stale: 5, unknown: 0 }, 'the receipts are kept, all stale');
+    equal(late.task.progress.tree, treeKey(end), 'the current tree is the final tree of the ledger');
+    check(/NOT independently verified/.test(view.finalText), 'the answer carries the Hub\'s warning');
+    check(view.events.some((event) => event.type === 'verification_unverified' && event.reason === 'final_tree_changed'), 'and an event says the final tree changed');
+    equal(view.objectiveReceipts, [], 'nothing can be accepted');
+    // The downgrade is saved: a Hub that loads the task again shows it.
+    const reloaded = new AgentRunner({ manager, provider: scripted([]), taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: () => {} });
+    await late.agent.shutdown();
+    await reloaded.load();
+    const again = reloaded.get(late.task.id);
+    equal([again.verificationOutcome.ready, again.completionOutcome.verification, again.completionOutcome.freshness, again.receiptFreshness.fresh], [false, 'missing_evidence', 'stale', 0], 'the downgrade was saved');
+    await reloaded.shutdown();
+
+    // The person edits a file in their own editor while the model writes its answer: the same.
+    const edited = await project('person-edits');
+    const typing = await run(manager, edited, [read, fix, test, diff, async () => { await fs.appendFile(path.join(edited, 'notes.txt'), 'typed by the person\n'); return done(); }]);
+    equal([typing.view.verificationOutcome.ready, typing.view.completionOutcome.freshness], [false, 'stale'], 'an edit made outside the Hub before the run ended: stale');
+    // And nothing changed after the last call: the classification stands (the control).
+    const quiet = await project('quiet');
+    const calm = await run(manager, quiet, [read, fix, test, diff, done]);
+    equal([calm.view.verificationOutcome.ready, calm.view.completionOutcome.freshness], [true, 'fresh'], 'no change after the last call: still fresh');
+    check(!calm.view.events.some((event) => event.reason === 'final_tree_changed'), 'and no event');
+  });
+
   await section('a check that changes the files it checks is no receipt (the strict pass rule)', async () => {
     const dir = await project('writing-check', { test: "const fs = require('fs');\nconst { add } = require('./calc.js');\nfs.appendFileSync('notes.txt', 'ran\\n');\nif (add(2, 3) !== 5) process.exit(1);\nconsole.log('OK 1 test');\n" });
     const { view, task } = await run(manager, dir, [read, fix, test, diff, done]);
