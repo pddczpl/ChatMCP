@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { acceptanceSha256, parseAcceptance } from '../../../lib/proof/acceptance.mjs';
 import { encodePackFile } from '../../../lib/proof/cli/check.mjs';
-import { ProofLedger, checkReceipt } from '../../../lib/proof/ledger.mjs';
+import { GENESIS, LEDGER_VERSION, ProofLedger, checkReceipt } from '../../../lib/proof/ledger.mjs';
 import { buildAgentChangeStatement } from '../../../lib/proof/pack.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -306,6 +306,21 @@ async function hostile() {
     limits: { maxOtherReceipts: 4, maxUncertain: 1 },
   });
   return encodePackFile({ statement, diff: Buffer.from(HOSTILE_DIFF), ledger, acceptance: Buffer.from(acceptanceText) });
+}
+
+/** The bytes of a pack with `count` receipts, too many for a Markdown report. Its ledger is chained here: no file, no fsync per line. */
+export function longPack(count) {
+  const tree = snapshot(hex('long'));
+  let prev = GENESIS;
+  const lines = Array.from({ length: count }, (_, index) => {
+    const [type, record] = receipt(`node step-${index}.mjs ${'x'.repeat(200)}`, {}, [tree, tree]);
+    const body = JSON.stringify({ v: LEDGER_VERSION, seq: index + 1, prev, ts: new Date(START + index * 1000).toISOString(), type, record });
+    prev = sha256(body);
+    return `${body.slice(0, -1)},"hash":"${prev}"}\n`;
+  });
+  const ledger = Buffer.from(lines.join(''));
+  const statement = buildAgentChangeStatement({ agent: { name: 'DatGold', version: '3.12.0' }, trees: { before: tree, after: tree }, diff: '', ledger });
+  return encodePackFile({ statement, diff: Buffer.alloc(0), ledger });
 }
 
 /** The bytes of a pack, made again (the committed file is what the suite renders). */

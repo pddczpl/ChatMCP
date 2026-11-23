@@ -132,7 +132,8 @@ around it. The page has no length cap. A policy in a `<meta>` cannot forbid that
 ## The same pack gives the same bytes
 
 The report depends on the source and the options only: no clock, no time zone, no locale (numbers are grouped by the dictionary's language,
-dates and times are in the pack's own form), no order of keys. LF line ends, UTF-8, one line end at the end.
+dates and times are in the pack's own form), no order of keys. LF line ends, UTF-8, one line end at the end. Which characters count as hidden follows the Unicode
+version of the Node.js that runs it, so a character assigned lately may be a marker with one version and not with another.
 
 ## Tests
 

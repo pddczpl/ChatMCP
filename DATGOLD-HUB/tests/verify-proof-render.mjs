@@ -36,7 +36,7 @@ import { DIFF_ROWS, diffStat } from '../lib/proof/render/diffstat.mjs';
 import { RenderError, VERDICTS, buildReport } from '../lib/proof/render/model.mjs';
 import { MD_MAX_CHARS, MD_MIN_CHARS, mdCode, mdText, renderMarkdown } from '../lib/proof/render/md.mjs';
 import { CSP, STYLE, htmlText, renderHtml } from '../lib/proof/render/html.mjs';
-import { HOSTILE, PACKS, REPORT_OPTIONS, buildPack, goldenFile, packFile } from './fixtures/proof-render/fixture.mjs';
+import { HOSTILE, PACKS, REPORT_OPTIONS, buildPack, goldenFile, longPack, packFile } from './fixtures/proof-render/fixture.mjs';
 
 const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Under the mutation runner the Hub is a copy without the repository around it; the runner says where it came from.
@@ -289,6 +289,7 @@ function readMd(body, label) {
   assert.equal(visible('⟦U+202E⟧'), '⟦U+27E6⟧U+202E⟦U+27E7⟧', 'a marker in the text itself cannot be taken for one of the report');
   assert.equal(visible('\u1FEF \u037E'), '⟦U+1FEF⟧ ⟦U+037E⟧', 'a character whose NFC form is a backtick or a semicolon');
   assert.equal(visible('\u0338x\u0338'), '⟦U+0338⟧x\u0338', 'a combining mark with nothing before it would join the markup before it');
+  assert.equal(visible('\uFFF9a\u0600'), '⟦U+FFF9⟧a⟦U+0600⟧', 'format characters that are not ignorable');
   assert.equal(visible('\uFDD0\uFFFE\u{1FFFE}'), '⟦U+FDD0⟧⟦U+FFFE⟧⟦U+1FFFE⟧', 'noncharacters');
   for (const plain of ['', 'npm test', 'a  b', 'ắ ằ ẳ ẵ ặ Đ đ ₫', 'Tiếng Việt'.normalize('NFD'), '😀 日本語 عربي', 'a\u0301', '<>&"\'`|\\']) assert.equal(visible(plain), plain, `${JSON.stringify(plain)} is shown as it is`);
   assert.notEqual(visible('⟦'), '⟦', 'the mark itself is written as a code point');
@@ -357,9 +358,9 @@ function readMd(body, label) {
   assert.equal(readRate(null), null);
   assert.equal(readRate(undefined), null);
   assert.deepEqual(readRate({ ...rate, rate: '25400.1234' }).rate, '25400.1234');
-  assert.equal(readRate({ ...rate, date: '2024-02-29' }).date, '2024-02-29', 'a leap day');
+  for (const date of ['2024-02-29', '2000-02-29']) assert.equal(readRate({ ...rate, date }).date, date, 'a leap day');
   for (const wrong of [{ rate: '0' }, { rate: '-1' }, { rate: '1e4' }, { rate: '25,400' }, { rate: '' }, { rate: 25400 }, { rate: '01' }, { rate: '1.23456' }, { rate: '100000000' }, { rate: '25400 ' }, { rate: '0.0000' },
-    { date: '2026-13-01' }, { date: '2026-02-30' }, { date: '2025-02-29' }, { date: '20-11-2026' }, { date: '' }, { date: null }, { date: '2026-11-20T00:00:00Z' }, { date: '2026-00-10' }, { date: '2026-04-31' },
+    { date: '2026-13-01' }, { date: '2026-02-30' }, { date: '2025-02-29' }, { date: '1900-02-29' }, { date: '2100-02-29' }, { date: '20-11-2026' }, { date: '' }, { date: null }, { date: '2026-11-20T00:00:00Z' }, { date: '2026-00-10' }, { date: '2026-04-31' },
     { source: '' }, { source: '   ' }, { source: 'x'.repeat(201) }, { source: null }, { extra: 1 }]) {
     assert.throws(() => readRate({ ...rate, ...wrong }), (error) => error instanceof RenderError && error.code === 'render_bad_input', JSON.stringify(wrong));
   }
@@ -415,7 +416,8 @@ function readMd(body, label) {
   assert.equal(stat(binary).binary, 1);
   for (const [label, patch] of Object.entries({
     'text before the first file': `hello\n${one()}`, 'a traditional diff': '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'text after a hunk': `${one()}garbage\n`, 'a hunk cut short': one('x', '@@ -1,2 +1,2 @@\n-a\n+b\n'),
-    'a hunk too long': one('x', '@@ -1 +1 @@\n-a\n+b\n+c\n'), 'a hunk line of another kind': one('x', '@@ -1 +1 @@\n-a\n*b\n'), 'names that differ': 'diff --git a/x b/y\nold mode 100644\nnew mode 100755\n',
+    'a hunk too long': one('x', '@@ -1 +1 @@\n-a\n+b\n+c\n'), 'a hunk line of another kind': one('x', '@@ -1 +1 @@\n-a\n*b\n+b\n'), 'more old lines than the header counts': one('x', '@@ -1 +1 @@\n-a\n-b\n+c\n'),
+    'more new lines than the header counts': one('x', '@@ -1 +1 @@\n+a\n+b\n-c\n'), 'no space between the names': 'diff --git a/x\tb/x\nold mode 100644\nnew mode 100755\n', 'two old names': `${head()}--- a/x\n*** b/x\n@@ -1 +1 @@\n-a\n+b\n`, 'names that differ': 'diff --git a/x b/y\nold mode 100644\nnew mode 100755\n',
     'the old name differs': `${head()}--- a/evil\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n`, 'the new name differs': `${head()}--- a/x\n+++ b/evil\n@@ -1 +1 @@\n-a\n+b\n`,
     'deleted without saying so': `${head()}--- a/x\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n`, 'added without saying so': `${head()}--- /dev/null\n+++ b/x\n@@ -0,0 +1 @@\n+a\n`,
     'added with an old name': `diff --git a/x b/x\nnew file mode 100644\n--- a/x\n+++ b/x\n@@ -0,0 +1 @@\n+a\n`, 'deleted with a new name': `diff --git a/x b/x\ndeleted file mode 100644\n--- a/x\n+++ b/x\n@@ -1 +0,0 @@\n-a\n`,
@@ -560,6 +562,18 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   assert.match(receipts, says('receipts.command_cut'), 'a command the ledger cut says so');
   assert.match(receipts, says('tree.changed'), 'a run that changed the tree says so');
   assert.match(sectionOf(checked, 'section.receipts'), /\| `kiem-thu` \(1\) \|/, 'the check a receipt is listed by');
+  // what a receipt may lack
+  const lacking = (fields) => sectionOf(md(statementAlone(variant('hostile', (p) => Object.assign(p.receipts.at(-1), fields)))), 'section.receipts').split('\n').find((line) => line.startsWith(`| ${READ.hostile.statement.predicate.receipts.at(-1).seq} |`));
+  const treeRef = (tree, extra = {}) => ({ treeAlgorithm: 'git-pinned-v1', objectFormat: 'sha1', tree, ...extra });
+  assert.match(lacking({ exit: null }), says('outcome.unknown'));
+  assert.match(lacking({ exit: -1 }), /exit `-1`/);
+  assert.match(lacking({ treeBefore: treeRef('a'.repeat(64), { objectFormat: 'sha256' }) }), says('tree.unknown'));
+  assert.match(lacking({ treeBefore: treeRef(null) }), new RegExp(`\\| ${EN['tree.none']} \\|`));
+  assert.match(lacking({ treeAfter: treeRef(null) }), says('tree.after_none'));
+  assert.match(lacking({ treeAfter: null }), says('tree.after_none'));
+  const noChecks = variant('hostile', (p) => { p.criteria = []; p.receipts = []; p.ledger.omittedReceipts = 0; p.ledger.checks = 0; });
+  assert.match(sectionOf(md(statementAlone(noChecks)), 'section.receipts'), says('receipts.none'));
+  assert.doesNotMatch(sectionOf(md(statementAlone(noChecks)), 'section.receipts'), /^\|/m, 'no empty table');
   const noReceipts = variant('hostile', (p) => { p.criteria = []; p.receipts = []; p.ledger.omittedReceipts = p.ledger.checks; });
   assert.match(sectionOf(md(statementAlone(noReceipts)), 'section.receipts'), says('receipts.omitted'));
   const noLedger = variant('hostile', (p) => {
@@ -588,6 +602,11 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   assert.match(diff, /Files: 5\. Lines added: 4\. Lines removed: 2\. Binary files: 1\./);
   assert.match(diff, /\| `src\/tính-tổng\.mjs` \|.*\| 2 \| 1 \|/);
   assert.match(diff, says('diff.binary'));
+  const wide = Buffer.from(Array.from({ length: DIFF_ROWS + 7 }, (_, i) => `diff --git a/f${i} b/f${i}\nold mode 100644\nnew mode 100755\n`).join(''));
+  const wideStatement = variant('evidenced', (p, statement) => { statement.subject.find(({ name }) => name === 'change.diff').digest.sha256 = sha256(wide); });
+  const wideDiff = html({ statement: wideStatement, files: { 'change.diff': wide } });
+  assert.ok(wideDiff.includes('Files: 2,007.') && wideDiff.includes('Files counted but not listed: 7.'), 'files beyond the list are counted');
+  assert.doesNotMatch(diff, says('diff.more'));
   const odd = Buffer.from('--- not a git diff\n');
   const oddStatement = variant('evidenced', (p, statement) => { statement.subject.find(({ name }) => name === 'change.diff').digest.sha256 = sha256(odd); });
   assert.match(sectionOf(md({ statement: oddStatement, files: { 'change.diff': odd } }), 'section.diff'), says('diff.unreadable'));
@@ -613,6 +632,9 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   assert.doesNotMatch(unlookedFlags, says('tamper.clean'), 'nobody looked is not "nothing found"');
   assert.doesNotMatch(unlookedFlags, says('tamper.lockfiles_none'), 'nor for the lockfiles');
   assert.match(sectionOf(checked, 'section.tamper'), says('tamper.lockfiles_none'));
+  const manyLocks = variant('evidenced', (p) => { p.lockfiles = Array.from({ length: 2000 }, (_, i) => ({ path: `l${i}`, status: 'unchanged', sha256Before: null, sha256After: null })); });
+  assert.match(sectionOf(md(statementAlone(manyLocks)), 'section.tamper'), /A pack lists at most 2,000 lockfiles/);
+  assert.doesNotMatch(flags, says('tamper.lockfiles_cut'));
   // modified somewhere, but on no criterion of the pack
   const elsewhere = variant('evidenced', (p) => { p.checkChanges.checksModified = true; });
   assert.match(sectionOf(md(statementAlone(elsewhere)), 'section.tamper'), says('tamper.modified_elsewhere'));
@@ -683,6 +705,10 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   assert.equal(verify.fenced.length, 3);
   assert.ok(sectionOf(checked, 'section.verify').includes(digest), 'the digest to compare');
   assert.ok(commands(md(sourceOf('hostile')))[2].endsWith('--base <commit|folder>'), 'a pack without a base commit');
+  const said = (name, options) => ['verify.name', 'verify.base'].map((key) => says(key).test(sectionOf(md(sourceOf(name), options), 'section.verify')));
+  assert.deepEqual(said('hostile', {}), [true, true], 'what to fill in');
+  assert.deepEqual(said('hostile', { packName: 'x.json' }), [false, true]);
+  assert.deepEqual(said('evidenced', { packName: 'x.json' }), [false, false], 'nothing to fill in');
   for (const name of [undefined, null, 'a b.json', '-x.json', '../x.json', 'x;rm -rf /.json', '```.json', '<b>.json', 'x\n.json', '', 'x'.repeat(200), 'é.json', '$(x).json', '.x']) {
     assert.ok(commands(md(sourceOf('evidenced'), name === undefined ? {} : { packName: name })).every((line) => line.includes('<pack>')), `${JSON.stringify(name)} is no name to paste into a command`);
   }
@@ -932,6 +958,15 @@ const PLACES = {
     assert.ok(least.text.length <= MD_MIN_CHARS && least.truncated, `the least cap still holds: ${least.text.length}`);
     readMd(least.text, 'the least cap');
   }
+  // a table that keeps no row is a sentence, not a head over nothing; the block after it still gets its rows
+  const wide = { ...report(sourceOf('evidenced')), sections: [{ id: 'cost', title: [text('T')], blocks: [
+    { type: 'table', head: [[text('head')]], rows: [[[text('y'.repeat(MD_MIN_CHARS))]]] }, { type: 'list', items: [[text('kept')], [text('z'.repeat(MD_MIN_CHARS))]] },
+  ] }] };
+  const narrow = renderMarkdown(wide, { maxChars: MD_MIN_CHARS });
+  assert.equal(narrow.truncated, true);
+  assert.ok(!narrow.text.includes('head') && narrow.text.includes('- kept\n'), narrow.text.slice(-400));
+  assert.equal(narrow.text.split(EN['md.rows_left'].replace('{n}', '1')).length - 1, 2, 'both blocks say that a row is left out');
+  assert.match(narrow.text, /: 2 rows are not shown/);
   // a long text is cut in Markdown only, and says so
   const long = variant('hostile', (p) => { p.receipts.at(-1).command = 'y'.repeat(2000); });
   assert.match(md(statementAlone(long)), /`y{300}` \(.*2,000.*\)/);
@@ -1006,6 +1041,13 @@ const PLACES = {
     assert.equal(human.status, 0);
     assert.ok(human.stdout.includes(path.join(SCRATCH, `human.${lang}.md`)) && human.stderr === '', human.stdout);
   }
+
+  // a report that had to be shortened says so in the answer too
+  fs.writeFileSync(path.join(SCRATCH, 'long.pack.json'), longPack(400));
+  const shortened = await ask(['verify', 'show', '--pack', 'long.pack.json']);
+  assert.deepEqual([shortened.code, shortened.data.truncated, shortened.data.verdict], ['report_printed', true, 'no_criteria']);
+  assert.ok(shortened.data.text.length <= MD_MAX_CHARS);
+  assert.equal((await ask(['verify', 'show', '--pack', 'long.pack.json', '--format', 'html'])).data.truncated, false);
 
   // a pack that does not verify renders nothing
   const bytes = fs.readFileSync(file);
