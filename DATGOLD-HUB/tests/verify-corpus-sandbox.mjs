@@ -152,6 +152,7 @@ const PRE_EMPT = await sourcePatch(async (dir) => {
   await fs.mkdir(path.join(dir, 'test', 'hidden'), { recursive: true });
   await fs.writeFile(path.join(dir, ...HIDDEN_PATH.split('/')), FAKE_HIDDEN);
 });
+const BLOCK_FOLDER = await sourcePatch((dir) => fs.writeFile(path.join(dir, 'test', 'hidden'), 'a file where the hidden tests need a folder\n'));
 
 // ---- the hidden tests and the tasks -------------------------------------------------------------------------------------------------
 const HIDDEN_TEST = [
@@ -217,6 +218,20 @@ const HIDDEN_TARBALL_TASK = await hiddenArchive('sum-tarball', [{ name: HIDDEN_P
 const TAR_TASK = await makeTask('sum-tarball', { hiddenSha: HIDDEN_TARBALL_TASK.sha, tarball: REPO_TAR });
 const EVIL = await hiddenArchive('sum-evil', [{ name: '../evil.test.mjs', data: HIDDEN_TEST }]);
 const EVIL_TASK = await makeTask('sum-evil', { hiddenSha: EVIL.sha });
+const LONG_HIDDEN_PATH = `test/hidden/${'h'.repeat(90)}/${'i'.repeat(90)}.test.mjs`;
+const LONG_HIDDEN = await hiddenArchive('sum-long-hidden', [{ name: LONG_HIDDEN_PATH, data: HIDDEN_TEST }]);
+const LONG_HIDDEN_TASK = await makeTask('sum-long-hidden', { hiddenSha: LONG_HIDDEN.sha });
+// passes in the first of the runs only: the protocol calls that flaky, never a pass
+const FLAKY_TEST = [
+  "import test from 'node:test';",
+  "import assert from 'node:assert/strict';",
+  "import { existsSync, writeFileSync } from 'node:fs';",
+  "const marker = new URL('../../node_modules/.flaky-ran', import.meta.url);",
+  "test('hidden: passes the first time only', () => { const first = !existsSync(marker); writeFileSync(marker, 'ran'); assert.ok(first); });",
+  '',
+].join('\n');
+const FLAKY = await hiddenArchive('sum-flaky', [{ name: 'test/hidden/flaky.test.mjs', data: FLAKY_TEST }]);
+const FLAKY_TASK = await makeTask('sum-flaky', { hiddenSha: FLAKY.sha });
 
 // ---- the scripted agents ------------------------------------------------------------------------------------------------------------
 const AGENTS = path.join(ROOT, 'agents');
@@ -448,8 +463,29 @@ try {
     const preEmpt = await score(PRE_EMPT);
     assert.equal(preEmpt.outcome, 'fail', 'the agent\'s own file at the hidden test\'s path was replaced');
     assert.deepEqual(preEmpt.overwritten, [HIDDEN_PATH]);
+    const blocked = await score(BLOCK_FOLDER);
+    assert.equal(blocked.outcome, 'fail');
+    assert.deepEqual(blocked.overwritten, ['test/hidden'], 'the file where the hidden tests need a folder was removed');
     nothingLeft('after the pre-empting patch');
-    ok('a diff that writes a file at a hidden test\'s path is overwritten by the hidden test, and the score lists the path');
+    ok('a diff that writes a file at a hidden test\'s path, or where the hidden tests need a folder, is overwritten by the hidden tests, and the score lists the path');
+
+    // ==== the other outcomes ===============================================================================================================
+    const flaky = await score(ORACLE, { task: FLAKY_TASK, hiddenArchive: FLAKY.file, runs: 3 });
+    assert.equal(flaky.outcome, 'flaky');
+    assert.equal(flaky.hiddenPass, false, 'flaky is not a pass');
+    assert.equal(flaky.passes, 1);
+    assert.deepEqual(flaky.runs.map((run) => run.pass), [true, false, false]);
+    const setupFailed = await score(ORACLE, { setup: ['node scripts/fail.mjs', 'node scripts/install.mjs'] });
+    assert.equal(setupFailed.outcome, 'setup_failed');
+    assert.equal(setupFailed.hiddenPass, false);
+    assert.deepEqual(setupFailed.setup.map((step) => [step.pass, step.exitCode]), [[false, 3]], 'setup stops at the first failing command');
+    assert.deepEqual(setupFailed.runs, []);
+    nothingLeft('after the flaky and setup-failed scores');
+    const manualOnly = { ...TASK, acceptance: { ...TASK.acceptance, criteria: [{ id: 'look', text: 'Look at it', manual: { inspect: [], note: 'look' } }] } };
+    await refused(score(ORACLE, { task: manualOnly }), 'no_checks', 'a task with manual criteria only');
+    const prefix = path.join(SANDBOX, '00000000', 'w').length;
+    await refused(score(ORACLE, { task: LONG_HIDDEN_TASK, hiddenArchive: LONG_HIDDEN.file, maxPath: prefix + 1 + DEEP.length + 10 }), 'path_too_long', 'a hidden test path over the budget');
+    ok('a hidden test that passes one run of three is the outcome flaky (not a pass); a failing clean install is setup_failed and stops at the first failing command; a task without a runnable check and a hidden path over the budget are refused');
   }
 
   // ==== the profile holds no credential of the real profile ===============================================================================
@@ -482,6 +518,8 @@ try {
       GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.extraheader', GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${MARK}`,
       DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/${MARK}`, KUBECONFIG: MARK, DOCKER_CONFIG: MARK, GOOGLE_APPLICATION_CREDENTIALS: MARK,
       HTTPS_PROXY: `http://user:${MARK}@proxy.invalid:8080`, NODE_OPTIONS: `--require ${MARK}`, DATGOLD_FIXTURE_VALUE: MARK, PSModulePath: MARK,
+      // an allow-listed name whose value holds a URL with a password: scrubbed before the allow-list is applied
+      TZ: `https://user:${MARK}@tz.invalid/`,
     };
     const EXPLICIT = 'explicit-vendor-credential-0123456789';
     const run = await runSandbox({
@@ -569,7 +607,7 @@ try {
 
   // ==== cleanup after a failure ===========================================================================================================
   {
-    const failed = await refused(runSandbox({ ...runOptions, setup: ['node scripts/fail.mjs'], agent: agent('observe.mjs', [DEEP]) }), 'setup_failed', 'a failing setup');
+    const failed = await refused(runSandbox({ ...runOptions, setup: ['node scripts/fail.mjs', 'node scripts/install.mjs'], agent: agent('observe.mjs', [DEEP]) }), 'setup_failed', 'a failing setup');
     assert.deepEqual(failed.setup.map((step) => [step.pass, step.exitCode]), [[false, 3]]);
     const dirty = await refused(runSandbox({ ...runOptions, setup: ['node scripts/dirty.mjs'], agent: agent('observe.mjs', [DEEP]) }), 'setup_changed_tree', 'a setup that writes a tracked path');
     assert.deepEqual(dirty.paths, ['stray.txt']);
