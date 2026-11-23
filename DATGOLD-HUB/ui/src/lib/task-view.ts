@@ -157,6 +157,8 @@ export interface ApprovalView {
   detail?: Record<string, unknown>;
   /** Who asked, when it is not an agent of the Hub: mcp:<client> for a local MCP client (the Hub's MCP server host). */
   requester?: string;
+  /** What the owner wrote with the answer to a plan request; only on an answered one. */
+  feedback?: string;
 }
 
 /** The tag of a request of a local MCP client, as the host wrote it (mcp:<client>, the client id being a-z 0-9 . _ -); anything else is no tag. */
@@ -175,5 +177,6 @@ export function normalizeApproval(raw: ApprovalRequest): ApprovalView {
     command: typeof detail?.command === 'string' ? detail.command : raw.command,
     preview: raw.preview, diff: raw.diff, expiresAt: raw.expiresAt, decision: raw.decision, detail,
     requester: requesterOf(raw),
+    ...(typeof raw.feedback === 'string' && raw.feedback.trim() ? { feedback: raw.feedback } : {}),
   };
 }

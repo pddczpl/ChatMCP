@@ -112,7 +112,7 @@ Màn hình trống có ba gợi ý: *Tìm hiểu dự án*, *Sửa lỗi*, *Vi�
 Mẹo:
 
 - Giao việc **nhỏ và kiểm chứng được**. "Sửa lỗi X và chạy test Y" tốt hơn "cải thiện dự án".
-- Với việc lớn, bảo agent "lập kế hoạch trước, chưa sửa" ở chế độ Chỉ đọc, đọc kế hoạch, rồi mới chuyển sang Review.
+- Với việc lớn, chọn **Kế hoạch** trong menu chế độ cạnh ô nhập (chỉ áp dụng cho cuộc hội thoại đó, không đổi chế độ chung). Agent chỉ đọc và đề xuất kế hoạch; thẻ duyệt cho bạn sửa kế hoạch, *Yêu cầu sửa* kèm phản hồi, hoặc duyệt để chạy ở *Review* hay *Tự động*. Tab **Tiến độ** sửa được kế hoạch bất cứ lúc nào. Không dùng được với kênh ChatGPT Web. Chi tiết: [PLAN-MODE.md](PLAN-MODE.md#the-page-ac-11).
 - Làm việc trên **nhánh riêng** và `git commit` trạng thái sạch trước khi giao việc, để luôn hoàn tác được bằng Git.
 - Dòng gợi ý dưới ô nhập cho biết điều gì đang chặn bạn (chưa chọn thư mục, chưa cấu hình AI…) và có nút bấm để sửa. Công cụ của dự án tự khởi động khi bạn giao việc.
 - **Đính kèm ảnh và tệp** (ghim giấy, hoặc dán ảnh vào ô nhập): một tin nhắn nhận tối đa 10 tệp, tổng 12 MB; mỗi ảnh tối đa 3,75 MB (ảnh lớn hơn được thu nhỏ trước khi gửi), mỗi tệp văn bản hay mã nguồn tối đa 200 KB. Muốn đưa tệp lớn hơn cho agent thì đừng đính kèm: **đặt tệp vào thư mục dự án rồi nhắn tên hoặc đường dẫn tệp trong tin nhắn**; agent đọc nó bằng công cụ file, từng phần nếu cần. Ảnh tính vào ngữ cảnh của model (Hub tính mỗi ảnh nhiều nhất 4.800 token, mức cao nhất một nhà cung cấp tính cho một ảnh): khi vượt ngân sách, Hub bỏ ảnh cũ khỏi yêu cầu gửi model và nói rõ điều đó trong tiến độ của tác vụ; hãy đặt đúng "Ngữ cảnh model" trong cấu hình để Hub biết mức thật thay vì dùng mức dè dặt 32.768 token.

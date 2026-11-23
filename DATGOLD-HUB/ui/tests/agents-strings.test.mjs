@@ -23,7 +23,9 @@ const FILES = [
   'components/ui/Toast.tsx', 'components/conversation/EmptyState.tsx',
   'components/layout/Header.tsx', 'components/layout/StatusBar.tsx', 'components/layout/FullAccessBanner.tsx', 'components/layout/GitWorkspacePicker.tsx',
   'components/conversation/ObjectiveAcceptancePanel.tsx', 'components/settings/AgentOptionsCard.tsx', 'lib/agent-options.ts',
-  'components/conversation/ResumeChip.tsx', 'lib/resume-chip.ts']);
+  'components/conversation/ResumeChip.tsx', 'lib/resume-chip.ts',
+  'components/approval/PlanApprovalCard.tsx', 'components/inspector/PlanTab.tsx', 'lib/plan-draft.ts', 'lib/plan-view.ts', 'store/usePlanDrafts.ts',
+  ...['PlanConflictBanner.tsx', 'PlanEditor.tsx', 'PlanSteps.tsx', 'PlanText.tsx', 'useFocusBack.ts', 'usePlan.ts'].map((name) => `components/plan/${name}`)]);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */

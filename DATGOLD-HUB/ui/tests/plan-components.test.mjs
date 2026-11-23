@@ -353,6 +353,25 @@ test('unsaved edits are not sent with a request for changes, and the card says s
   assert.doesNotMatch((await card({ bundle: asking })).root.text, /Your unsaved edits are not sent with it/);
 });
 
+test('Escape closes the feedback box, but not while a composition is being ended with it', async () => {
+  globalThis.__feedback = 'Words';
+  const shot = await card({ bundle: asking });
+  let stopped = 0;
+  const escape = (isComposing) => handler(shot, 'plan-feedback', 'onKeyDown')({ key: 'Escape', nativeEvent: { isComposing }, stopPropagation: () => { stopped += 1; } });
+  escape(true);
+  assert.equal(stopped, 0);
+  escape(false);
+  assert.equal(stopped, 1);
+});
+
+test('the Plan tab starts over for another conversation: what was being saved or had the focus in one is not the other one\'s', async () => {
+  const shot = await tab();
+  const inner = shot.elements.filter((element) => typeof element.type === 'function' && 'taskId' in (element.props ?? {}) && element.type.name === 'TaskPlan');
+  assert.equal(inner.length, 1);
+  assert.equal(inner[0].props.taskId, TASK);
+  assert.equal(inner[0].key, TASK, 'a conversation has a tab of its own');
+});
+
 test('a request for changes the Hub refuses keeps the words', async () => {
   globalThis.__feedback = 'Words';
   let answered = 0;
