@@ -272,8 +272,10 @@ const agentScripts = {
   ],
   'hang.mjs': [
     "import { spawn } from 'node:child_process';",
+    "import { writeFileSync } from 'node:fs';",
     "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
     'console.log(`pids ${process.pid} ${child.pid}`);',
+    "if (process.argv[2]) writeFileSync(process.argv[2], 'started');",
     'setInterval(() => {}, 1000);',
   ],
   'orphan.mjs': [
@@ -483,6 +485,7 @@ try {
     nothingLeft('after the flaky and setup-failed scores');
     const manualOnly = { ...TASK, acceptance: { ...TASK.acceptance, criteria: [{ id: 'look', text: 'Look at it', manual: { inspect: [], note: 'look' } }] } };
     await refused(score(ORACLE, { task: manualOnly }), 'no_checks', 'a task with manual criteria only');
+    await refused(score(ORACLE, { setup: 'node scripts/install.mjs' }), 'bad_argument', 'a setup that is not a list of commands');
     const prefix = path.join(SANDBOX, '00000000', 'w').length;
     await refused(score(ORACLE, { task: LONG_HIDDEN_TASK, hiddenArchive: LONG_HIDDEN.file, maxPath: prefix + 1 + DEEP.length + 10 }), 'path_too_long', 'a hidden test path over the budget');
     ok('a hidden test that passes one run of three is the outcome flaky (not a pass); a failing clean install is setup_failed and stops at the first failing command; a task without a runnable check and a hidden path over the budget are refused');
@@ -577,10 +580,10 @@ try {
 
   // ==== the process tree is killed ========================================================================================================
   {
-    const started = Date.now();
+    const begun = Date.now();
     const hang = await runSandbox({ ...runOptions, processTree: undefined, agent: agent('hang.mjs'), wallSeconds: 2 });
     assert.equal(hang.agent.timedOut, true);
-    assert.ok(hang.agent.wallMs >= 1900 && Date.now() - started < 60_000, `the limit stopped it: ${hang.agent.wallMs} ms`);
+    assert.ok(hang.agent.wallMs >= 1900 && Date.now() - begun < 60_000, `the limit stopped it: ${hang.agent.wallMs} ms`);
     assert.deepEqual(await gone(pidsOf(hang)), [], 'the agent and its child are gone');
     assert.equal(hang.cleanup.removed, true);
     nothingLeft('after the timed-out agent');
@@ -594,10 +597,17 @@ try {
     assert.equal(orphan.cleanup.removed, true);
     nothingLeft('after the agent that left a child behind');
 
+    // The cancel comes once the agent has started (it writes a file outside the run), not after a guessed delay that a slow runner's
+    // setup could outlast.
     const controller = new AbortController();
-    const stop = setTimeout(() => controller.abort(), 1500);
-    const cancelled = await runSandbox({ ...runOptions, processTree: undefined, agent: agent('hang.mjs'), wallSeconds: 120, signal: controller.signal });
-    clearTimeout(stop);
+    const started = path.join(ROOT, 'hang-started');
+    const watcher = (async () => {
+      const until = Date.now() + 60_000;
+      while (!existsSync(started) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
+      controller.abort();
+    })();
+    const cancelled = await runSandbox({ ...runOptions, processTree: undefined, agent: agent('hang.mjs', [started]), wallSeconds: 120, signal: controller.signal });
+    await watcher;
     assert.equal(cancelled.agent.cancelled, true);
     assert.equal(cancelled.agent.timedOut, false);
     assert.deepEqual(await gone(pidsOf(cancelled)), []);
@@ -706,7 +716,9 @@ try {
     for (const code of core.SANDBOX_CODES) assert.ok(doc.includes(`\`${code}\``), `corpus/SANDBOX.md names the code ${code}`);
     for (const code of tar.TAR_CODES) assert.ok(doc.includes(`\`${code}\``), `corpus/SANDBOX.md names the tar code ${code}`);
     assert.ok(readFileSync(path.join(CORPUS, 'README.md'), 'utf8').includes('(SANDBOX.md)'), 'corpus/README.md links SANDBOX.md');
-    assert.ok(readFileSync(path.join(HUB, '..', 'docs', 'INDEX.md'), 'utf8').includes('(../corpus/SANDBOX.md)'), 'docs/INDEX.md links corpus/SANDBOX.md');
+    // The mutation runner's copy holds the Hub and corpus/ only; in the repository docs/ stands beside them.
+    const index = path.join(HUB, '..', 'docs', 'INDEX.md');
+    if (existsSync(index)) assert.ok(readFileSync(index, 'utf8').includes('(../corpus/SANDBOX.md)'), 'docs/INDEX.md links corpus/SANDBOX.md');
     ok('corpus/SANDBOX.md says it is not an OS sandbox and names every profile variable, every inherited variable and every refusal code; the README and docs/INDEX.md link it');
   }
 } finally {

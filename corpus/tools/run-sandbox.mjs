@@ -92,7 +92,7 @@ export function checkRoot(root) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SandboxError('bad_argument', `the sandbox root must be an absolute path: ${JSON.stringify(root)}`);
   return path.resolve(root);
 }
-function checkCommands(commands) {
+export function checkCommands(commands) {
   if (!Array.isArray(commands) || commands.some((command) => typeof command !== 'string' || !command.trim())) throw new SandboxError('bad_argument', 'setup must be a list of commands');
   return commands;
 }

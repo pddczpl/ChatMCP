@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url';
 import { windowsProcessTree } from './hub-process.mjs';
 import { CorpusError, loadTask } from './load.mjs';
 import { PROTOCOL } from './protocol.mjs';
-import { checkRoot } from './run-sandbox.mjs';
+import { checkCommands, checkRoot } from './run-sandbox.mjs';
 import {
   SandboxError, applyToCheckout, buildBase, checkPathBudget, checkVariables, checkoutBase, defaultMaxPath, defaultSandboxRoot, inspectBase,
   makeProfile, makeRunFolder, openGit, profileEnvironment, reapTrees, removeRunFolder, runCommand, runSetup, sha256,
@@ -78,7 +78,7 @@ export async function scoreCheckout(options = {}) {
   if (!Number.isInteger(runs) || runs < 1 || runs > 20) throw new SandboxError('bad_argument', `runs must be a whole number from 1 to 20, not ${runs}`);
   if (typeof hiddenArchive !== 'string' || !hiddenArchive) throw new SandboxError('bad_argument', 'hiddenArchive must be the path of the hidden test archive');
   const extraEnv = checkVariables(options.extraEnv, 'extraEnv');
-  const setupCommands = options.setup ?? task.task.setup;
+  const setupCommands = checkCommands(options.setup ?? task.task.setup);
   const checks = scoringChecks(task);
   if (!checks.length) throw new SandboxError('no_checks', `${task.id}: the acceptance file has no check to run (manual criteria only)`);
   const context = await openGit({ exe: gitExe, env });
