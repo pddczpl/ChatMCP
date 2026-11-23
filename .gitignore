@@ -56,6 +56,9 @@ dist/
 !DATGOLD-HUB/web/dist/**
 build/
 bin/
+# the Hub's command line (chatmcp verify, docs/PROOF-CLI.md) is source, not .NET build output
+!DATGOLD-HUB/bin/
+!DATGOLD-HUB/bin/**
 obj/
 publish/
 coverage/
