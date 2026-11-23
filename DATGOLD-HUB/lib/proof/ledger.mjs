@@ -12,8 +12,8 @@
 //
 // Output is never stored: a check receipt holds the sha256 and the byte count of stdout and stderr and a redacted preview of at most
 // 2 KiB. Every string of every record is masked by maskSecrets (lib/permissions.mjs, the masker of the approval card) before it is
-// written, but for the digests and Git object ids of a check record, which its schema holds to hex. Nothing in the agent writes a
-// ledger yet: the wiring is pod-17's.
+// written, but for the digests and Git object ids of a check record and the tree ids of a tree or call record, which their schemas hold
+// to hex. The agent's ledger is written by the proof service at the guard seam (pod-17, lib/proof/service.mjs, docs/PROOF-SERVICE.md).
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
@@ -44,6 +44,12 @@ const STREAM_FIELDS = Object.freeze(['sha256', 'bytes', 'truncated', 'preview', 
 const TOOLCHAIN_FIELDS = Object.freeze(['node', 'python', 'dotnet', 'git']);
 const TREE_FIELDS = Object.freeze(['status', 'treeAlgorithm', 'objectFormat', 'tree', 'rawTree', 'full', 'engineReason', 'files', 'bytes',
   'limitations', 'takenAt', 'unbounded']);
+// The records of the proof service (pod-17, lib/proof/service.mjs, docs/PROOF-SERVICE.md): a tree snapshot with what it was taken for, and
+// one tool call with the trees around it. Closed like `check`, so that their tree ids can be kept whole and no field can carry output.
+const TREE_RECORD_FIELDS = Object.freeze(['event', 'run', 'callId', 'tool', 'category', 'tree', 'scanMs']);
+const CALL_FIELDS = Object.freeze(['run', 'callId', 'tool', 'category', 'outcome', 'treeBefore', 'treeAfter', 'changed', 'overlapped', 'scanMs', 'beforeSeq']);
+const WORD = /^[a-z][a-z0-9_]{0,31}$/;
+const NAME_CHARS = 256;
 const UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 const fault = (code, message) => Object.assign(new Error(message), { code });
@@ -94,6 +100,12 @@ function cutChars(text, maxChars) {
 // nothing. They are written as they are; the schema holds each of them to hex, so no text passes through them unmasked.
 const CHECK_DIGESTS = new Set([['commandSha256'], ['argsSha256'], ['stdout', 'sha256'], ['stderr', 'sha256'], ['treeBefore', 'tree'],
   ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));
+// The tree ids of the proof service's records, for the same reason; their schemas hold each of them to hex.
+const KEPT_WHOLE = Object.freeze({
+  check: CHECK_DIGESTS,
+  tree: new Set([['tree', 'tree'], ['tree', 'rawTree']].map((at) => JSON.stringify(at))),
+  call: new Set([['treeBefore', 'tree'], ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at))),
+});
 
 /** Every string of `value` masked, but for the strings at the paths `keep` names (JSON of the list of keys; nothing inside an array). */
 const maskDeep = (value, secrets, keep = null, at = []) => {
@@ -174,20 +186,57 @@ function checkProblem(record) {
   if (record.toolchain !== null && (!isPlainObject(record.toolchain) || !sameFields(record.toolchain, TOOLCHAIN_FIELDS)
     || TOOLCHAIN_FIELDS.some((name) => record.toolchain[name] !== null && typeof record.toolchain[name] !== 'string'))) return `toolchain is null or {${TOOLCHAIN_FIELDS.join(', ')}}`;
   for (const name of ['treeBefore', 'treeAfter']) {
-    const ref = record[name];
-    if (ref === null) continue;
-    if (!isPlainObject(ref) || !sameFields(ref, TREE_FIELDS)) return `${name} is null or a tree reference`;
-    for (const id of ['tree', 'rawTree']) if (ref[id] !== null && (typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))) return `${name}.${id} is null or a Git object id in hex`;
+    const problem = treeRefProblem(record[name], name);
+    if (problem) return problem;
   }
   if (!Number.isSafeInteger(record.durationMs) || record.durationMs < 0) return 'durationMs is a count';
   return null;
 }
 
-/** null when `record` is a valid record of `type`, else what is wrong. Only `check` has a schema of its own here. */
+/** null when `ref` is null or a tree reference (treeRef) whose two ids are null or hex, else what is wrong. */
+function treeRefProblem(ref, name) {
+  if (ref === null) return null;
+  if (!isPlainObject(ref) || !sameFields(ref, TREE_FIELDS)) return `${name} is null or a tree reference`;
+  for (const id of ['tree', 'rawTree']) if (ref[id] !== null && (typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))) return `${name}.${id} is null or a Git object id in hex`;
+  return null;
+}
+
+const nullableText = (value, max) => value === null || (typeof value === 'string' && value.length <= max);
+const count = (value) => Number.isSafeInteger(value) && value >= 0;
+const position = (value) => Number.isSafeInteger(value) && value >= 1;
+
+/** The schema of everything the two pod-17 records share: the run, the call (null for a snapshot of a run's start or end) and the scan time. */
+function callFieldsProblem(record) {
+  if (!position(record.run)) return 'run is a count from 1';
+  if (!nullableText(record.callId, NAME_CHARS) || !nullableText(record.tool, NAME_CHARS)) return `callId and tool are null or text of at most ${NAME_CHARS} characters`;
+  if (record.category !== null && (typeof record.category !== 'string' || !WORD.test(record.category))) return 'category is null or a word';
+  if (!count(record.scanMs)) return 'scanMs is a count of milliseconds';
+  return null;
+}
+
+function treeRecordProblem(record) {
+  if (!sameFields(record, TREE_RECORD_FIELDS)) return `a tree record has exactly the fields ${TREE_RECORD_FIELDS.join(', ')}`;
+  if (typeof record.event !== 'string' || !WORD.test(record.event)) return 'event is a word';
+  if (record.tree === null) return 'tree is a tree reference';
+  return callFieldsProblem(record) ?? treeRefProblem(record.tree, 'tree');
+}
+
+function callProblem(record) {
+  if (!sameFields(record, CALL_FIELDS)) return `a call record has exactly the fields ${CALL_FIELDS.join(', ')}`;
+  if (typeof record.outcome !== 'string' || !WORD.test(record.outcome)) return 'outcome is a word';
+  if (record.changed !== null && typeof record.changed !== 'boolean') return 'changed is a boolean or null';
+  if (typeof record.overlapped !== 'boolean') return 'overlapped is a boolean';
+  if (record.beforeSeq !== null && !position(record.beforeSeq)) return 'beforeSeq is null or a seq';
+  return callFieldsProblem(record) ?? treeRefProblem(record.treeBefore, 'treeBefore') ?? treeRefProblem(record.treeAfter, 'treeAfter');
+}
+
+const SCHEMAS = Object.freeze({ check: checkProblem, tree: treeRecordProblem, call: callProblem });
+
+/** null when `record` is a valid record of `type`, else what is wrong. `check`, `tree` and `call` have schemas of their own here. */
 export function validateRecord(type, record) {
   if (!RECORD_TYPES.includes(type)) return `unknown record type ${JSON.stringify(String(type).slice(0, 40))}`;
   if (!isPlainObject(record)) return 'a record is a JSON object';
-  return type === 'check' ? checkProblem(record) : null;
+  return SCHEMAS[type]?.(record) ?? null;
 }
 
 function lineProblem(line, expectedSeq, prev) {
@@ -281,7 +330,7 @@ export class ProofLedger {
     if (!isPlainObject(record)) throw fault('ledger_bad_record', 'a record is a JSON object');
     let copy;
     try { copy = JSON.parse(JSON.stringify(record)); } catch (error) { throw fault('ledger_bad_record', `the record is not JSON: ${error.message}`); }
-    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);
+    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);
     if (type === 'check') {
       // A secret the receipt's builder did not know can be longer once masked: the command stays within its 4,096 characters and the
       // preview within its 2 KiB.

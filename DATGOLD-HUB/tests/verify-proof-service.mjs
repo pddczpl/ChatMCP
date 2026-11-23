@@ -79,6 +79,19 @@ async function ledgerOf(hubDir, taskId) {
   return entries;
 }
 const typesOf = (entries) => entries.map((entry) => entry.type === 'tree' ? `tree:${entry.record.event}` : entry.type === 'uncertain' ? `uncertain:${entry.record.reason}` : entry.type);
+// What the scans cost on this machine, from the ledgers of the real-clock sections (printed at the end as one PROOF_SERVICE_COST line).
+const cost = { perCall: [], full: [] };
+const measure = (entries) => {
+  for (const { type, record } of entries) {
+    if (type === 'call') cost.perCall.push(record.scanMs);
+    else if (type === 'tree' && record.event !== 'call_start') cost.full.push(record.scanMs);
+  }
+};
+const summary = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  return { n: sorted.length, min: sorted[0], median: at(0.5), p95: at(0.95), max: sorted.at(-1) };
+};
 const callsOf = (entries) => entries.filter((entry) => entry.type === 'call');
 /** Every tree id a ledger holds (tree and rawTree of every tree reference). */
 const treeIdsOf = (entries) => entries.flatMap((entry) => {
@@ -311,7 +324,7 @@ try {
   // ----------------------------------------------------------------------------------------------------------- 2. the guard through a session
   {
     const { repo, data, hub } = await makeHub('guard');
-    const taskId = 'task-guard';
+    const taskId = randomUUID(); // the workflow timeline of the guard takes task ids of the agent's shape
     hub.acquireTask(taskId);
     const session = await hub.createAgentSession();
     let entries = await ledgerOf(data, taskId);
@@ -357,6 +370,7 @@ try {
     await hub.finishProof(taskId, { status: 'completed', errorCode: null });
     hub.releaseTask(taskId);
     entries = await ledgerOf(data, taskId);
+    measure(entries);
     assert.deepEqual(typesOf(entries).slice(-2), ['tree:task_end', 'task_end']);
     assert.equal(entries.at(-1).record.status, 'completed');
     ok('the guard: createAgentSession takes the task-start snapshot; an allowed write gets a call record and an awaited onProof (seq, call id, both trees, changed) and its result holds no tree id; a read, an invalid call and a refused call get none; an onProof that throws changes no result; finishProof writes the end');
@@ -404,6 +418,7 @@ try {
     const again = await settled(runner, started.id, 'the continued task');
     assert.equal(again.status, 'completed', again.error ?? '');
     entries = await ledgerOf(data, started.id);
+    measure(entries);
     assert.deepEqual(typesOf(entries).slice(6), ['tree:run_start', 'tree:call_start', 'call', 'tree:task_end', 'task_end']);
     assert.equal(entries.filter((entry) => entry.type === 'task_start').length, 1);
     assert.deepEqual([entries[6].record.run, entries.at(-1).record.run], [2, 2]);
@@ -493,10 +508,12 @@ try {
     const childTaskId = [...child.runner.tasks.keys()][0];
     assert.notEqual(child.manager.hubDirectory, hub.hubDirectory);
     const childEntries = await ledgerOf(child.manager.hubDirectory, childTaskId);
+    measure(childEntries);
     assert.deepEqual(typesOf(childEntries), ['task_start', 'tree:task_start', 'tree:call_start', 'call', 'tree:task_end', 'task_end']);
     assert.equal(childEntries[0].record.workspace, await fs.realpath(record.worktree), 'the child ledger is keyed by its worktree');
     assert.equal(callsOf(childEntries)[0].record.changed, true);
     const mainEntries = await ledgerOf(data, mainTask.id);
+    measure(mainEntries);
     assert.equal(callsOf(mainEntries).length, 1, 'the main ledger has its own write only');
     assert.deepEqual(new Set(callsOf(mainEntries).map((entry) => entry.record.callId)).intersection(new Set(callsOf(childEntries).map((entry) => entry.record.callId))).size, 0);
     assert.notEqual(callsOf(mainEntries)[0].record.treeAfter.tree, callsOf(childEntries)[0].record.treeAfter.tree);
@@ -531,6 +548,7 @@ try {
     await until(() => browser.context === null, 'the web task to finish');
     assert.equal(await fs.readFile(path.join(repo, 'web.txt'), 'utf8'), 'from the web\n');
     const entries = await ledgerOf(data, task.id);
+    measure(entries);
     assert.deepEqual(typesOf(entries), ['task_start', 'tree:task_start', 'tree:call_start', 'call', 'tree:task_end', 'task_end']);
     assert.equal(callsOf(entries)[0].record.changed, true);
     assert.equal(entries.at(-1).record.status, 'completed');
@@ -584,6 +602,7 @@ try {
     ok('kill -9 of a real Hub process in the middle of run_command: the ledger ends with the call_start tree; the restarted Hub appends uncertain call_interrupted (tool, category, call id, the seq of its call_start) and run_interrupted, and the chain verifies');
   }
 
+  console.log(`PROOF_SERVICE_COST ${JSON.stringify({ platform: process.platform, perCallMs: summary(cost.perCall), fullSnapshotMs: summary(cost.full) })}`);
   console.log(`PASS: proof service (${checks} checks)`);
 } finally {
   for (const cleanup of cleanups.reverse()) await cleanup();
