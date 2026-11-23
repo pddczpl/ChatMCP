@@ -125,7 +125,7 @@
     {
       "name": "MG-full-access-asks",
       "what": "Full Access asks about every external tool (the owner decided it runs them)",
-      "patches": [{ "file": "lib/permissions.mjs", "old": "if(this.executionPolicy==='full-access')return {run:", "new": "if(false)return {run:" }]
+      "patches": [{ "file": "lib/permissions.mjs", "old": "if(regime.fullAccess)return {run:", "new": "if(false)return {run:" }]
     },
     {
       "name": "MG-allow-asks",
@@ -170,7 +170,7 @@
     {
       "name": "MG-destructive-hint-after-full-access",
       "what": "the destructiveHint check is placed after the Full Access run: allow still asks, Full Access runs the destructive tool",
-      "patches": [{ "file": "lib/permissions.mjs", "old": "    if(verdict.destructive)return {};\n    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n", "new": "    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n    if(verdict.destructive)return {};\n" }]
+      "patches": [{ "file": "lib/permissions.mjs", "old": "    if(verdict.destructive)return {};\n    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(regime.fullAccess)return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n", "new": "    // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.\n    if(regime.fullAccess)return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};\n    if(verdict.destructive)return {};\n" }]
     },
     {
       "name": "MG-destructive-hint-needs-trust",

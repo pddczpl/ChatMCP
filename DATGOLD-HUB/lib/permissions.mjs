@@ -438,12 +438,15 @@ export const PLAN_LIMITS = Object.freeze({ planChars: 40_000, feedbackChars: 4_0
 const PLAN_TOOL = 'chatmcp.exit_plan_mode';
 // The tools that run a command: refused in plan mode even when the command reads (v1 does not depend on the command classifier).
 const PLAN_SHELL = /(?:start_process|spawn|execute_code|terminal|(?:^|[._-])command(?:[._-]|$)|shell|run_script|bash|powershell|tasks_run)/;
+// What the owner can choose for the execution of an approved plan (ac-10): the mode the task runs in afterwards (docs/PLAN-MODE.md).
+export const PLAN_EXECUTIONS = Object.freeze(['review', 'autonomous']);
 /**
  * The extra fields of an answer to an approval request (POST /api/studio/permissions/decide): the person's `feedback` (a bounded string;
- * blank is none) and an edited `plan` (a non-empty bounded string). Types and lengths are checked here, before any request is looked up;
+ * blank is none), an edited `plan` (a non-empty bounded string), the `execution` chosen for an approved plan (PLAN_EXECUTIONS) and the
+ * `revision` of the plan the answer is about (a whole number). Types and lengths are checked here, before any request is looked up;
  * which request may carry them is decide()'s business.
  */
-export function decisionExtras({ feedback, plan } = {}) {
+export function decisionExtras({ feedback, plan, execution, revision } = {}) {
   let note = null;
   if (feedback !== undefined && feedback !== null) {
     if (typeof feedback !== 'string' || feedback.length > PLAN_LIMITS.feedbackChars) throw error('bad_feedback', `feedback phải là văn bản tối đa ${PLAN_LIMITS.feedbackChars} ký tự.`, 400);
@@ -454,7 +457,9 @@ export function decisionExtras({ feedback, plan } = {}) {
     if (typeof plan !== 'string' || !plan.trim() || plan.length > PLAN_LIMITS.planChars) throw error('bad_plan', `plan phải là văn bản không rỗng, tối đa ${PLAN_LIMITS.planChars} ký tự.`, 400);
     text = plan;
   }
-  return { feedback: note, plan: text };
+  if (execution !== undefined && execution !== null && !PLAN_EXECUTIONS.includes(execution)) throw error('bad_execution', 'execution phải là review hoặc autonomous.', 400);
+  if (revision !== undefined && revision !== null && !(Number.isSafeInteger(revision) && revision >= 0)) throw error('bad_revision', 'revision phải là số nguyên không âm.', 400);
+  return { feedback: note, plan: text, execution: execution ?? null, revision: revision ?? null };
 }
 
 // An edit_file call with several edits: the owner is shown ALL of them, never only the first. `edits` lists the first 20 (400 characters of each side); old_string and new_string are
@@ -503,18 +508,35 @@ export class PermissionGate {
     this.taskPolicies=new Map();
   }
   /**
-   * Holds a task in plan mode ({planOnly: true}) or lets it go (anything else). The runner sets it when a plan-mode run starts or a Hub
-   * loads such a task; askPlanApproval clears it when the owner approves the plan. Returns the policy now in force, or null.
+   * Holds a task in plan mode ({planOnly: true}), gives it the mode the owner chose when approving its plan ({mode: 'review' | 'autonomous'},
+   * ac-10), or lets it go (anything else). The runner sets it when a plan-mode run starts or a Hub loads such a task, and puts the chosen mode
+   * back when a Hub loads the task or a run of it starts; askPlanApproval replaces the hold with the choice (or clears it) when the owner
+   * approves the plan. Returns the policy now in force, or null.
    */
   setTaskPolicy(taskId,policy){
     if(typeof taskId!=='string'||!taskId)throw error('missing_task','Thiếu mã tác vụ cho chính sách của tác vụ.',400);
-    if(policy?.planOnly!==true){this.taskPolicies.delete(taskId);return null;}
+    if(policy?.planOnly!==true){
+      if(!PLAN_EXECUTIONS.includes(policy?.mode)){this.taskPolicies.delete(taskId);return null;}
+      const chosen=Object.freeze({mode:policy.mode});
+      this.taskPolicies.set(taskId,chosen);
+      return chosen;
+    }
     const held=Object.freeze({planOnly:true});
     this.taskPolicies.set(taskId,held);
     return held;
   }
-  /** The policy of one task ({planOnly: true}) or null. */
+  /** The policy of one task ({planOnly: true} or {mode}) or null. */
   taskPolicy(taskId){return this.taskPolicies.get(taskId)??null;}
+  /**
+   * The mode and the Full Access of one task's calls. A task whose owner chose Review or Autonomous for its approved plan runs in exactly that
+   * mode, whatever the gate's mode, and not under Full Access (which runs what both would ask). Read Only, the strictest choice, still wins: its
+   * refusals (authorize, #externalDecision) come before every rule that reads this. Every other task follows the gate.
+   */
+  #regimeFor(taskId){
+    const chosen=this.taskPolicies.get(taskId)?.mode;
+    if(!PLAN_EXECUTIONS.includes(chosen))return {mode:this.mode,fullAccess:this.executionPolicy==='full-access'};
+    return {mode:chosen,fullAccess:false};
+  }
   /**
    * Why plan mode refuses this call, or null when it may go on to the ordinary rules. A plan-mode task runs the Hub's own read and checkpoint
    * calls (a local tool the gate knows, or a studio.* tool) and nothing else: no call of an external server (its readOnlyHint is the server's
@@ -649,7 +671,7 @@ export class PermissionGate {
    *   - so is a tool its server marks destructiveHint: true, from any server, trusted or not (the owner's decision of 2026-11-20);
    *   - Full Access runs it (the owner's decision of 2026-11-20); `allow` runs it; anything else is asked.
    */
-  #externalDecision(name,verdict,forceAsk){
+  #externalDecision(name,verdict,forceAsk,regime){
     const {server,tool,policy,readOnly}=verdict;
     const label=`${server}.${tool}`;
     if(!server)return {refuse:`Công cụ "${cut(name,200)}" không cho biết máy chủ MCP (tên phải có dạng máy_chủ.công_cụ) nên bị từ chối.`};
@@ -660,7 +682,7 @@ export class PermissionGate {
     if(forceAsk||verdict.irreversible||mustAskEvenInFullAccess(name,verdict))return {};
     if(verdict.destructive)return {};
     // What Read Only let through is a tool the owner allowed: it runs below, as `allow` does in every mode.
-    if(this.executionPolicy==='full-access')return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};
+    if(regime.fullAccess)return {run:'Full Access: user explicitly enabled unrestricted host tools',fullAccess:true};
     if(policy==='allow')return {run:`Chủ máy cho phép (allow) công cụ MCP ${label}`};
     return {};
   }
@@ -754,11 +776,13 @@ export class PermissionGate {
     // Plan mode, BEFORE every rule below that can let a call run (the owner's MCP rules, Full Access, the mode) or ask about it (a hook's
     // forceAsk): a plan-mode task is refused without a question whatever they say.
     const planned=this.#planRefusal(name,verdict,taskId);
+    // The mode and the Full Access of this task: the gate's, or the mode the owner chose when approving the task's plan (#regimeFor).
+    const regime=this.#regimeFor(taskId);
     if(planned!==null)return this.#refuse(name,args,verdict,taskId,'policy',planned);
     // A tool of an external server has rules of its own (#externalDecision) and no workspace path inspection: what a path means is the
     // server's business, and the owner reads the arguments on the card. A call that is neither refused nor run is asked like any other.
     if(category==='external'){
-      const decided=this.#externalDecision(name,verdict,forceAsk);
+      const decided=this.#externalDecision(name,verdict,forceAsk,regime);
       if(decided.refuse!==undefined)return this.#refuse(name,args,verdict,taskId,'policy',decided.refuse);
       if(decided.run!==undefined){
         if(decided.fullAccess)this.#emit({type:'full_access_tool',taskId,toolName:name,category});
@@ -774,7 +798,7 @@ export class PermissionGate {
     // This never elevates OS privileges, disables Windows ACLs, or grants admin.
     // It does NOT cover what cannot be taken back: deletion, history rewrites, git push, merging a pull request, creating or deleting
     // a release or repository. Those fall through to the ordinary approval below, in every mode.
-    const fullAccess=this.executionPolicy==='full-access';
+    const fullAccess=regime.fullAccess;
     if(fullAccess&&!forceAsk&&!mustAskEvenInFullAccess(name,verdict)){
       this.#emit({type:'full_access_tool',taskId,toolName:name,category});
       return {allowed:true,category,risk:verdict.risk,local:verdict.local,reason:'Full Access: user explicitly enabled unrestricted host tools'};
@@ -793,8 +817,8 @@ export class PermissionGate {
       if(verdict.local&&/(?:^|\.)git_push$/i.test(String(name)))
         return this.#refuse(name,args,verdict,taskId,'policy','Sandbox-only: git_push chạy Git trên máy host và gửi commit ra ngoài nên bị chặn. Chuyển sang host-review nếu muốn đẩy (mỗi lần đều hỏi).');
     }
-    if(!forceAsk&&(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous')))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
-    if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Chế độ Tự động: công cụ chưa phân loại bị từ chối. Chuyển sang Review nếu muốn được hỏi từng lần.'};
+    if(!forceAsk&&(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&regime.mode==='autonomous')))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
+    if(regime.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Chế độ Tự động: công cụ chưa phân loại bị từ chối. Chuyển sang Review nếu muốn được hỏi từng lần.'};
     return this.#question({name,args,verdict,taskId,signal,forceAsk,askReason});
   }
   /** The question to the owner, for a call that the rules above neither ran nor refused: refused at once where nobody can answer. */
@@ -830,14 +854,14 @@ export class PermissionGate {
     const {id}=request;
     return new Promise((resolve,reject)=>{
       // An expired request is over: the stop of its task that may follow must not record it once more as cancelled, so the listener goes with it.
-      const timer=setTimeout(()=>{signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,'expired');resolve({approved:false,expired:true,feedback:null,plan:null});},this.timeout);
+      const timer=setTimeout(()=>{signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,'expired');resolve({approved:false,expired:true,feedback:null,plan:null,revision:null,execution:null});},this.timeout);
       const aborted=()=>{clearTimeout(timer);this.requests.delete(id);this.#record(request,'cancelled');reject(signal.reason||error('cancelled','Tác vụ đã dừng.'));};
       if(signal)signal.addEventListener('abort',aborted,{once:true});
-      this.requests.set(id,{...request,resolve:(yes,{feedback=null,plan=null}={})=>{
+      this.requests.set(id,{...request,resolve:(yes,{feedback=null,plan=null,revision=null,execution=null}={})=>{
         clearTimeout(timer);signal?.removeEventListener('abort',aborted);this.requests.delete(id);
         // The person's feedback is kept with the decision (bounded and masked like every other text of the history).
         this.#record(feedback===null?request:{...request,feedback:maskSecrets(cut(feedback,500),this.manager?.secrets??[])},yes?'approved':'denied');
-        resolve({approved:yes,feedback,plan});
+        resolve({approved:yes,feedback,plan,revision,execution});
       },abort:aborted});
     });
   }
@@ -845,7 +869,10 @@ export class PermissionGate {
    * The approval of a plan-mode task's plan (the exit_plan_mode tool of lib/agent.mjs): a request of category `plan` on the approval stack, with
    * its expiry and its stop like any other, so the task shows `waiting_approval`. Only an approval clears the task's policy; a denial, an
    * expiry, a cancel, a stop (rejects) and a context where nobody can answer leave the task read-only. Resolves with {approved, status:
-   * 'approved' | 'denied' | 'expired' | 'unanswerable', feedback, plan} where `plan` is the text the person edited, or null.
+   * 'approved' | 'denied' | 'expired' | 'unanswerable', feedback, plan, revision, execution} where `plan` is the approved text the answer
+   * carried (the person's edit, or the plan as the Hub route read it), `revision` the revision of the plan the answer was about and `execution`
+   * the mode chosen for the task after the approval, each null when the answer did not say. An approval with an execution leaves that mode as
+   * the task's policy (setTaskPolicy({mode})).
    */
   async askPlanApproval({taskId,plan,revision=1,signal}={}){
     if(typeof taskId!=='string'||!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin duyệt kế hoạch.',400);
@@ -853,7 +880,7 @@ export class PermissionGate {
     if(typeof plan!=='string'||!plan.trim()||plan.length>PLAN_LIMITS.planChars)throw error('bad_plan',`Kế hoạch phải là văn bản không rỗng, tối đa ${PLAN_LIMITS.planChars} ký tự.`,400);
     if(!Number.isSafeInteger(revision)||revision<1)throw error('bad_revision','Số bản của kế hoạch không hợp lệ.',400);
     if(signal?.aborted)throw signal.reason||error('cancelled','Tác vụ đã dừng.');
-    if(!this.canAsk())return {approved:false,status:'unanswerable',feedback:null,plan:null};
+    if(!this.canAsk())return {approved:false,status:'unanswerable',feedback:null,plan:null,revision:null,execution:null};
     const shown=maskSecrets(plan,this.manager?.secrets??[]);
     const id=randomUUID();
     const askedAt=this.now();
@@ -864,10 +891,11 @@ export class PermissionGate {
     this.#emit({type:'approval_requested',...request});
     const answer=await promise;
     if(answer.approved){
-      this.taskPolicies.delete(taskId);
-      return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan};
+      // The hold ends; the mode the owner chose for the execution (if any) becomes the task's policy (#regimeFor).
+      this.setTaskPolicy(taskId,answer.execution===null?null:{mode:answer.execution});
+      return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan,revision:answer.revision,execution:answer.execution};
     }
-    return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null};
+    return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null,revision:answer.revision,execution:null};
   }
   #record(request,decision){
     // The audit trail keeps a bounded preview, never the full structured detail.
@@ -879,17 +907,20 @@ export class PermissionGate {
     this.#save();
   }
   /**
-   * The person's answer. `feedback` and an edited `plan` (decisionExtras) answer a plan request only, and an edited plan only approves it:
-   * anything else is refused and the request stays pending.
+   * The person's answer. `feedback`, an edited `plan`, the `execution` chosen and the `revision` answered (decisionExtras) answer a plan request
+   * only, and an edited plan and an execution only approve it: anything else is refused and the request stays pending. Whether `revision` is
+   * the plan's current one is checked by the Hub route that answers (hub.mjs), which reads the plan file; the gate passes it to the runner.
    */
   decide(id,approved,extras={}){
     const req=this.requests.get(id);
     if(!req)throw error('not_pending','Yêu cầu đã hết hạn hoặc không tồn tại.',404);
     if(typeof approved!=='boolean')throw error('bad_decision','approved phải là boolean.',400);
-    const {feedback,plan}=decisionExtras(extras??{});
+    const {feedback,plan,execution,revision}=decisionExtras(extras??{});
     if(feedback!==null&&req.category!=='plan')throw error('bad_feedback','Chỉ yêu cầu duyệt kế hoạch (category plan) nhận phản hồi (feedback).',400);
     if(plan!==null&&(req.category!=='plan'||approved!==true))throw error('bad_plan','Kế hoạch đã sửa chỉ đi kèm việc duyệt (approved: true) một yêu cầu duyệt kế hoạch.',400);
-    req.resolve(approved,{feedback,plan});
+    if(execution!==null&&(req.category!=='plan'||approved!==true))throw error('bad_execution','Cách thực hiện (execution) chỉ đi kèm việc duyệt (approved: true) một yêu cầu duyệt kế hoạch.',400);
+    if(revision!==null&&req.category!=='plan')throw error('bad_revision','Chỉ yêu cầu duyệt kế hoạch (category plan) nhận số bản (revision).',400);
+    req.resolve(approved,{feedback,plan,revision,execution});
     return {ok:true,id,approved};
   }
   cancelTask(taskId){for(const request of [...this.requests.values()])if(request.taskId===taskId)request.resolve(false);}

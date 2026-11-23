@@ -664,6 +664,8 @@ try {
     assert.equal((await post('/api/studio/permissions/decide', { id: childCard.id, approved: false, feedback: 'Child: smaller steps.' })).status, 200);
     await until(() => childOutput, 'the answer of the second chat');
     assert.match(childOutput, /Child: smaller steps\./);
+    const childPlan = await fetch(`${origin}/api/studio/plan?taskId=${childTask.id}`, { headers: auth }).then((response) => response.json());
+    assert.deepEqual([childPlan.revision, childPlan.updatedBy, childPlan.text], [1, 'agent', 'Child plan.'], 'the Hub route reads the plan of a second chat from the studio of that chat');
     assert.equal((await post('/api/studio/permissions/decide', { id: card.id, approved: false, feedback: 'Primary: name the files.' })).status, 200);
     await settled(runner, primary.id);
     assert.match(exitOutput, /Primary: name the files\./, 'the feedback sent over HTTP reaches the model');
@@ -832,6 +834,10 @@ try {
     const WRITE = ['local.write_file', { path: 'x.txt', content: 'x' }];
     // A command the analyser calls exec (category execute): asked in Review and Autonomous, run by Full Access.
     const COMMAND = ['local.run_command', { command: 'node -e "1"' }];
+    // A tool of an external server the owner set no rule for (asked, run by Full Access) and a tool nobody can classify (refused by Autonomous).
+    const EXTERNAL = ['fixture.read_notes', {}];
+    // (A name without a dot is an external tool without a server, refused everywhere; a local.* name that no tool has is classified by its name.)
+    const UNKNOWN = ['local.frobnicate', {}];
     assert.deepEqual(gate.setTaskPolicy('auto-1', { mode: 'autonomous' }), { mode: 'autonomous' });
     assert.deepEqual(gate.setTaskPolicy('rev-1', { mode: 'review' }), { mode: 'review' });
     assert.throws(() => { gate.taskPolicy('auto-1').mode = 'review'; }, TypeError, 'the policy object is frozen');
@@ -844,14 +850,15 @@ try {
       if (setting === 'full-access') gate.configure({ mode: 'full-access', confirmation: 'FULL ACCESS' });
       else gate.configure({ mode: setting, leaveFullAccess: true });
       table[setting] = {};
-      for (const task of ['auto-1', 'rev-1', 'other-1']) table[setting][task] = [await judged(task, ...WRITE), await judged(task, ...COMMAND)];
+      for (const task of ['auto-1', 'rev-1', 'other-1']) table[setting][task] = [await judged(task, ...WRITE), await judged(task, ...COMMAND), await judged(task, ...EXTERNAL), await judged(task, ...UNKNOWN)];
     }
     gate.configure({ mode: 'review', leaveFullAccess: true });
     assert.deepEqual(table, {
-      review: { 'auto-1': ['ran', 'asked'], 'rev-1': ['asked', 'asked'], 'other-1': ['asked', 'asked'] },
-      autonomous: { 'auto-1': ['ran', 'asked'], 'rev-1': ['asked', 'asked'], 'other-1': ['ran', 'asked'] },
-      'full-access': { 'auto-1': ['ran', 'asked'], 'rev-1': ['asked', 'asked'], 'other-1': ['ran', 'ran'] },
-      readonly: { 'auto-1': ['refused', 'refused'], 'rev-1': ['refused', 'refused'], 'other-1': ['refused', 'refused'] },
+      // [write, exec command, external tool without a rule, unclassified tool]
+      review: { 'auto-1': ['ran', 'asked', 'asked', 'refused'], 'rev-1': ['asked', 'asked', 'asked', 'asked'], 'other-1': ['asked', 'asked', 'asked', 'asked'] },
+      autonomous: { 'auto-1': ['ran', 'asked', 'asked', 'refused'], 'rev-1': ['asked', 'asked', 'asked', 'asked'], 'other-1': ['ran', 'asked', 'asked', 'refused'] },
+      'full-access': { 'auto-1': ['ran', 'asked', 'asked', 'refused'], 'rev-1': ['asked', 'asked', 'asked', 'asked'], 'other-1': ['ran', 'ran', 'ran', 'ran'] },
+      readonly: { 'auto-1': ['refused', 'refused', 'refused', 'refused'], 'rev-1': ['refused', 'refused', 'refused', 'refused'], 'other-1': ['refused', 'refused', 'refused', 'refused'] },
     }, 'the chosen mode of a task replaces the gate\'s mode and Full Access for that task only; Read Only wins');
     assert.equal(gate.mode, 'review');
 
@@ -916,7 +923,7 @@ try {
     gate.decide(card.id, true, { execution: 'autonomous' });
     const done = await settled(runner, task.id);
     assert.equal(done.status, 'completed', done.error ?? '');
-    assert.doesNotMatch(writeOutput, /isError|denied|từ chối/i, writeOutput);
+    assert.doesNotMatch(writeOutput, /"isError":true|denied|từ chối/i, writeOutput);
     assert.equal(await fs.readFile(path.join(repo, 'exec-auto.txt'), 'utf8'), 'auto\n', 'Autonomous: the write ran');
     assert.ok(!asked.some((event) => event.taskId === task.id && event.toolName === 'local.write_file'), 'and nobody was asked, though the gate is in Review');
     assert.equal(gate.mode, 'review');
@@ -937,6 +944,8 @@ try {
     const stackB = await makeStack('exec-b', { repo, data: dataB });
     assert.deepEqual(stackB.gate.taskPolicy(task.id), { mode: 'autonomous' }, 'the choice survives a restart');
     stackB.gate.setTaskPolicy(task.id, null);
+    // Were the choice not put back, the write would be asked: let such a question expire at once instead of holding the suite.
+    stackB.gate.timeout = 3000;
     stackB.model.script(turn(call('write_file', { path: 'exec-again.txt', content: 'again\n' })), final('Again.'));
     await stackB.pool.continue({ id: task.id, prompt: 'One more file.' });
     await settled(stackB.runner, task.id);
@@ -1040,7 +1049,11 @@ try {
     const cardA2 = await pendingOf(a.id, (item) => item.category === 'plan' && item.id !== cardA.id);
     assert.equal(cardA2.detail.revision, 4);
     assert.equal(cardA2.detail.plan, PLAN_A2);
-    const approveA = await post('/api/studio/plan/decide', { taskId: a.id, revision: 4, decision: 'approve', execution: 'autonomous' });
+    // The owner touches only the checklist before approving: the approval names the new revision, and counts as an edit.
+    const checklist = await post('/api/studio/plan/set', { taskId: a.id, title: 'Plan A (owner, final)', items: [{ text: 'Owner step', status: 'doing' }], baseRevision: 4 });
+    assert.deepEqual([checklist.status, checklist.json.revision, checklist.json.text], [200, 5, PLAN_A2]);
+    assert.equal((await post('/api/studio/plan/decide', { taskId: a.id, revision: 4, decision: 'approve', execution: 'autonomous' })).status, 409, 'the revision of the proposal is stale once the owner edited');
+    const approveA = await post('/api/studio/plan/decide', { taskId: a.id, revision: 5, decision: 'approve', execution: 'autonomous' });
     assert.equal(approveA.status, 200, approveA.text);
     await stopped(a.id);
     assert.equal(await fs.readFile(path.join(project, 'a.txt'), 'utf8'), 'A\n', 'Autonomous: the write ran');
@@ -1048,9 +1061,9 @@ try {
     assert.ok(!stateA.studio.permissions.recent.some((entry) => entry.taskId === a.id && entry.toolName === 'local.write_file'), 'without a question');
     assert.equal(stateA.studio.permissions.mode, 'review', 'the gate stays in Review');
     const approvedA = await hub.task(a.id);
-    assert.deepEqual([approvedA.planApproval.status, approvedA.planApproval.revision, approvedA.planApproval.editedByUser, approvedA.planApproval.execution, approvedA.planOnly], ['approved', 4, false, 'autonomous', false]);
+    assert.deepEqual([approvedA.planApproval.status, approvedA.planApproval.revision, approvedA.planApproval.editedByUser, approvedA.planApproval.execution, approvedA.planOnly], ['approved', 5, true, 'autonomous', false]);
     const planA = await planOf(a.id);
-    assert.deepEqual([planA.revision, planA.approvedRevision, planA.text], [4, 4, PLAN_A2]);
+    assert.deepEqual([planA.revision, planA.approvedRevision, planA.text, planA.title], [5, 5, PLAN_A2, 'Plan A (owner, final)']);
     assert.ok(Date.parse(planA.approvedAt) > 0);
 
     // ---- B: answered through the decide route with an edit and Review, under a gate in Autonomous
@@ -1060,19 +1073,22 @@ try {
     const b = startB.json.task;
     const cardB = await pendingOf(b.id, (item) => item.category === 'plan');
     assert.equal(cardB.detail.revision, 1);
-    const approveB = await post('/api/studio/permissions/decide', { id: cardB.id, approved: true, plan: EDITED_B, execution: 'review' });
+    assert.equal((await post('/api/studio/plan/set', { taskId: b.id, title: 'Plan B (owner)', items: [], baseRevision: 1 })).status, 200);
+    const staleB = await post('/api/studio/permissions/decide', { id: cardB.id, approved: true, execution: 'review' });
+    assert.deepEqual([staleB.status, staleB.json?.code, staleB.json?.revision], [409, 'plan_conflict', 2], 'the decide route holds a plan approval to the revision the request names, by default');
+    const approveB = await post('/api/studio/permissions/decide', { id: cardB.id, approved: true, plan: EDITED_B, execution: 'review', revision: 2 });
     assert.equal(approveB.status, 200, approveB.text);
     const writeB = await pendingOf(b.id, (item) => item.toolName === 'local.write_file');
     assert.equal((await post('/api/studio/permissions/decide', { id: writeB.id, approved: false })).status, 200);
     await stopped(b.id);
     await assert.rejects(fs.access(path.join(project, 'b.txt')), 'Review: the write was asked and, denied, not done');
     const approvedB = await hub.task(b.id);
-    assert.deepEqual([approvedB.planApproval.status, approvedB.planApproval.revision, approvedB.planApproval.editedByUser, approvedB.planApproval.execution], ['approved', 2, true, 'review']);
+    assert.deepEqual([approvedB.planApproval.status, approvedB.planApproval.revision, approvedB.planApproval.editedByUser, approvedB.planApproval.execution], ['approved', 3, true, 'review']);
     const planB = await planOf(b.id);
-    assert.deepEqual([planB.revision, planB.updatedBy, planB.text, planB.approvedRevision], [2, 'user', EDITED_B, 2], 'the edit of the answer is revision 2 of the plan, by the user');
-    assert.ok(mock.state.requests.some((request) => { const body = JSON.stringify(request.body); return body.includes('APPROVED PLAN (revision 2') && body.includes(EDITED_B); }), 'the model is given the edited plan under its revision');
+    assert.deepEqual([planB.revision, planB.updatedBy, planB.text, planB.approvedRevision], [3, 'user', EDITED_B, 3], 'the edit that came with the answer is revision 3 of the plan, by the user');
+    assert.ok(mock.state.requests.some((request) => { const body = JSON.stringify(request.body); return body.includes('APPROVED PLAN (revision 3') && body.includes(EDITED_B); }), 'the model is given the edited plan under its revision');
     assert.equal((await hub.state()).studio.permissions.mode, 'autonomous', 'the gate stays in Autonomous');
-    ok(`real Hub (port ${hub.port}): an edit raises the revision; a stale baseRevision and a stale decision are 409; request_changes needs feedback and the feedback is in the next provider request; the model's update_plan with a stale expected_revision gets plan_conflict and the plan file is byte for byte unchanged; Autonomous runs the write unasked under Review; an edit with the approval is revision 2 and Review asks the write under Autonomous`);
+    ok(`real Hub (port ${hub.port}): an edit raises the revision; a stale baseRevision and a stale decision are 409; request_changes needs feedback and the feedback is in the next provider request; the model's update_plan with a stale expected_revision gets plan_conflict and the plan file is byte for byte unchanged; an approval names the revision after the edit of the owner; Autonomous runs the write unasked under Review; the decide route refuses a stale approval, an edit with the approval is the next revision and Review asks the write under Autonomous`);
   }
 } finally {
   for (const cleanup of cleanups) { try { await cleanup(); } catch { /* best effort */ } }

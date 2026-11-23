@@ -220,7 +220,7 @@ export function ConversationView() {
   const handleDeny = async (id: string, reason?: string) => {
     setApproving(true);
     try {
-      await api.decidePermission(id, false);
+      await api.denyAction(id, reason);
       showToast(t('agents_conv_denied'), 'info');
     } catch (err: any) {
       showToast(err.message || t('agents_conv_deny_failed'), 'error');

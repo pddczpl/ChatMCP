@@ -879,6 +879,10 @@ export class ConcurrentApiAgent {
     }
     return null;
   }
+  /** The StudioWorkspace that holds the plan of a chat that runs here (its own state folder), or null for any other task (the Hub's own studio holds it). */
+  studioFor(id) {
+    return this.children.get(id)?.manager?.studio ?? null;
+  }
   pendingApprovals() {
     return [...this.children.values()].flatMap(x => x.manager.permissions?.state().pending || [])
       .concat([...this.readyAccessManagers.values()].flatMap(x => x.permissions?.state().pending || []));

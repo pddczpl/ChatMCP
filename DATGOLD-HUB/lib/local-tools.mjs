@@ -21,6 +21,7 @@ import { executePush, planPush, pushApprovalDetail, pushArgumentProblems, PUSH_L
 import { diffHunks } from './line-diff.mjs';
 import { FILE_CHANGE_TOOLS, buildApprovalGuard, buildChangePreview, guardMatches, hideKeyRow, keyLines } from './approval-preview.mjs';
 import { maskSecrets } from './permissions.mjs';
+import { planConflictText } from './studio-workspace.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { commandSha256 } from './proof/ledger.mjs';
 import { validateArguments } from './tool-schema.mjs';
@@ -726,15 +727,17 @@ export class LocalTools {
       run: (a, ctx) => this.#gitLog(a, ctx),
     });
     define('get_plan', {
-      description: 'Load the saved task plan (checklist) for this conversation.',
+      description: 'Load the saved task plan (checklist and plan text) for this conversation, with its revision number.',
       schema: obj({}), category: 'read', reason: 'Đọc kế hoạch', summary: () => 'Đọc kế hoạch',
       run: (a, ctx) => this.#plan('get', a, ctx),
     });
     define('update_plan', {
-      description: 'Save the task plan as a checklist. Use it for multi-step work and keep it current. Status: todo, doing, done, blocked; put the evidence (test output, file, command) in "evidence" before marking an item done.',
+      description: 'Save the task plan as a checklist. Use it for multi-step work and keep it current. Status: todo, doing, done, blocked; put the evidence (test output, file, command) in "evidence" before marking an item done. '
+        + 'The user can edit the plan too: pass expected_revision, the revision get_plan (or your last update_plan) returned. If the plan changed since, nothing is saved and you are told to call get_plan.',
       schema: obj({
         title: str('Short plan title.', { maxLength: 240 }),
         items: { type: 'array', maxItems: 100, items: obj({ text: str('Step description.', { maxLength: 500 }), status: str('Step status.', { enum: ['todo', 'doing', 'done', 'blocked'] }), evidence: str('Proof the step is done.', { maxLength: 600 }) }, ['text', 'status']) },
+        expected_revision: int('The revision of the plan you last read (get_plan) or wrote (update_plan).', { minimum: 0 }),
       }, ['items']),
       annotations: { readOnlyHint: false }, category: 'checkpoint', reason: 'Cập nhật kế hoạch', summary: () => 'Cập nhật kế hoạch',
       run: (a, ctx) => this.#plan('set', a, ctx),
@@ -1525,12 +1528,23 @@ export class LocalTools {
   }
 
   // ------------------------------------------------------------------ plan
+  // The model writes the plan as 'agent' (lib/studio-workspace.mjs plan()): with the revision it read, or none; an edit of the owner it has not
+  // read is never replaced, and the model is told how to go on (docs/PLAN-MODE.md, "The plan and its revision").
   async #plan(operation, args, { taskId }) {
-    const plan = await this.workspace.plan({ taskId, operation, title: args.title ?? '', items: args.items ?? [] });
+    let plan;
+    try {
+      plan = await this.workspace.plan({ taskId, operation, title: args.title ?? '', items: args.items ?? [], by: 'agent', expectedRevision: args.expected_revision ?? null });
+    } catch (error) {
+      if (error?.code !== 'plan_conflict') throw error;
+      return failure('plan_conflict', planConflictText(error, args.expected_revision ?? null), { executed: false, revision: error.revision, updatedBy: error.updatedBy });
+    }
     const marks = { todo: '[ ]', doing: '[~]', done: '[x]', blocked: '[!]' };
     const body = plan.items.map((item) => `${marks[item.status] ?? '[ ]'} ${item.text}${item.evidence ? ` — ${item.evidence}` : ''}`).join('\n');
     const done = plan.items.filter((item) => item.status === 'done').length;
-    return ok(`${plan.title ? `${plan.title}\n` : ''}${body || '(kế hoạch trống)'}${plan.items.length ? `\n${done}/${plan.items.length} bước hoàn tất.` : ''}`, { title: plan.title, items: plan.items, done, total: plan.items.length });
+    const revision = `Plan revision ${plan.revision}${plan.updatedBy ? ` (last written by the ${plan.updatedBy})` : ''}: pass expected_revision ${plan.revision} to update_plan.`;
+    const text = operation === 'get' && plan.text ? `\n\nPlan text:\n${plan.text}` : '';
+    return ok(`${plan.title ? `${plan.title}\n` : ''}${body || '(kế hoạch trống)'}${plan.items.length ? `\n${done}/${plan.items.length} bước hoàn tất.` : ''}\n${revision}${text}`,
+      { title: plan.title, items: plan.items, done, total: plan.items.length, revision: plan.revision, updatedBy: plan.updatedBy, approvedRevision: plan.approvedRevision, ...(operation === 'get' ? { text: plan.text } : {}) });
   }
 
   // ------------------------------------------------------------------ shell

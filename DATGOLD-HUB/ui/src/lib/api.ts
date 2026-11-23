@@ -86,6 +86,14 @@ export interface McpServerInput {
 export interface McpTestAnswer { ok: boolean; error: { code: string; message: string } | null; status: McpServerStatus | null }
 
 const UI_BUILD = '3.11.2-react-agent';
+
+// ---- the plan of a task and the answer to it (POST /api/studio/plan/set and /api/studio/plan/decide, P9 ac-10) --------------------------------
+export type PlanDecision = 'approve' | 'request_changes';
+export type PlanExecution = 'review' | 'autonomous';
+export interface PermissionDecisionExtras { feedback?: string; plan?: string; execution?: PlanExecution; revision?: number }
+export interface PlanDecisionAnswer { ok: true; taskId: string; id: string; decision: PlanDecision; revision: number; execution: PlanExecution | null }
+/** The fields of `value` that hold something: an optional field the caller did not give is not sent. */
+const definedOnly = (value: object) => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== null));
 let currentCsrfToken = '';
 
 export function setCsrfToken(token: string) {
@@ -212,8 +220,9 @@ export const api = {
   // copy of the state could be a few seconds behind the Hub); it never touches sandbox-only or host-review.
   configurePermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string; leaveFullAccess?: boolean }) =>
     request<any>('/api/studio/permissions/config', { method: 'POST', body: JSON.stringify(payload) }),
-  decidePermission: (id: string, approved: boolean) =>
-    request<any>('/api/studio/permissions/decide', { method: 'POST', body: JSON.stringify({ id, approved }) }),
+  // `extras` answer a plan request only (docs/PLAN-MODE.md): the owner's feedback (a denial's reason is one), an edited plan and the execution chosen with an approval. Nothing is sent that the caller did not give.
+  decidePermission: (id: string, approved: boolean, extras: PermissionDecisionExtras = {}) =>
+    request<any>('/api/studio/permissions/decide', { method: 'POST', body: JSON.stringify({ id, approved, ...definedOnly(extras) }) }),
     
   // Files
   getTree: (directory = '', limit = 350) =>
@@ -257,8 +266,12 @@ export const api = {
 
   // Plan
   getPlan: (taskId: string) => request<Plan>(`/api/studio/plan?taskId=${encodeURIComponent(taskId)}`),
-  savePlan: (taskId: string, title: string, items: any[]) =>
-    request<Plan>('/api/studio/plan/set', { method: 'POST', body: JSON.stringify({ taskId, title, items }) }),
+  // The owner's edit of a plan. `baseRevision` is the revision the page showed: the Hub answers 409 plan_conflict (with the revision it is at) when the plan has changed since; without it the edit is unconditional. `text` replaces the text of the plan; without it the text stays.
+  savePlan: (taskId: string, title: string, items: any[], baseRevision: number | null = null, text?: string) =>
+    request<Plan>('/api/studio/plan/set', { method: 'POST', body: JSON.stringify({ taskId, title, items, ...definedOnly({ baseRevision, text }) }) }),
+  // The owner's decision on the plan a task waits with: approve it (`execution`: Review or Autonomous for the task afterwards) or request changes with feedback. `revision` is the revision the page showed (409 plan_conflict when the plan has changed since).
+  decidePlan: (taskId: string, revision: number, decision: PlanDecision, extras: { feedback?: string; execution?: PlanExecution } = {}) =>
+    request<PlanDecisionAnswer>('/api/studio/plan/decide', { method: 'POST', body: JSON.stringify({ taskId, revision, decision, ...definedOnly(extras) }) }),
 
   // Coding workers: the Hub still runs them in their own Git worktrees, but this page no longer starts, reviews or merges them. It only shows the test commands a worker waits for the owner to allow.
   getCodingRuns: () => request<any>('/api/studio/coding'),
@@ -354,7 +367,7 @@ export const api = {
   setPermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string; leaveFullAccess?: boolean }) =>
     api.configurePermissions(payload),
   approveAction: (id: string) => api.decidePermission(id, true),
-  denyAction: (id: string, reason?: string) => api.decidePermission(id, false),
+  denyAction: (id: string, reason?: string) => api.decidePermission(id, false, reason ? { feedback: reason } : {}),
   testConnection: (opts?: any) => api.testAi(),
   updateAiConfig: (config: any) => api.saveAiConfig(config),
   /**

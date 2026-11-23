@@ -1,0 +1,391 @@
+{
+ "suite": "verify-plan-mode.mjs",
+ "description": "What the plan-mode suite must notice of the plan model v2 (P9 ac-10, docs/PLAN-MODE.md \"The plan and its revision\"): the revision, the writer and the approval record of StudioWorkspace.plan(); the conflict of a stale base and of a model write over the owner's; the lazy migration of an old plan file; the one step per task; the model's tools (update_plan, studio.plan_set, exit_plan_mode) and their conflict result; the execution choice of an approval on the gate and in the runner; and the Hub routes that hold an answer to the plan file. The route refusals before any plan is read are in plan-routes.json (verify-studio-http), the client of the page in plan-ui.json.",
+ "mutations": [
+  {
+   "name": "P1",
+   "what": "a write does not raise the revision",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "revision:current.revision+1,updatedBy:by,", "new": "revision:current.revision,updatedBy:by," }
+   ]
+  },
+  {
+   "name": "P2",
+   "what": "every write is recorded as the model's",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "revision:current.revision+1,updatedBy:by,", "new": "revision:current.revision+1,updatedBy:'agent'," }
+   ]
+  },
+  {
+   "name": "P3",
+   "what": "a stale base is not a conflict",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": ":base!==current.revision)throw planConflict(current);", "new": ":false)throw planConflict(current);" }
+   ]
+  },
+  {
+   "name": "P4",
+   "what": "a write of the model without a base replaces the owner's edit",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "if(base===null?(by==='agent'&&current.updatedBy==='user'):", "new": "if(base===null?false:" }
+   ]
+  },
+  {
+   "name": "P5",
+   "what": "a write of the owner without a base is a conflict too",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "if(base===null?(by==='agent'&&current.updatedBy==='user'):", "new": "if(base===null?(current.updatedBy==='user'):" }
+   ]
+  },
+  {
+   "name": "P6",
+   "what": "two plan steps of a task run at once (no lock)",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "const step=before.then(work);", "new": "const step=Promise.resolve().then(work);" }
+   ]
+  },
+  {
+   "name": "P7",
+   "what": "a read migrates an old plan file at once (not lazily)",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "if(operation==='get')return current;", "new": "if(operation==='get'){await writeJson(file,current);return current;}" }
+   ]
+  },
+  {
+   "name": "P8",
+   "what": "a stored revision that is not a whole number is taken as a number",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "revision: wholeRevision(plan?.revision) ? plan.revision : 0,", "new": "revision: Number(plan?.revision) || 0," }
+   ]
+  },
+  {
+   "name": "P9",
+   "what": "a checklist write without a text clears the text",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "...(text===undefined?{}:{text})};", "new": "text:text??''};" }
+   ]
+  },
+  {
+   "name": "P10",
+   "what": "a proposal replaces the checklist",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "const change=operation==='text'?{text}:", "new": "const change=operation==='text'?{text,title:'',items:[]}:" }
+   ]
+  },
+  {
+   "name": "P11",
+   "what": "an approval is counted as an edit (a new revision)",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "const approved={...current,approvedAt:this.now(),approvedRevision:revision};", "new": "const approved={...current,revision:current.revision+1,approvedAt:this.now(),approvedRevision:revision};" }
+   ]
+  },
+  {
+   "name": "P12",
+   "what": "an approval records no revision",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "const approved={...current,approvedAt:this.now(),approvedRevision:revision};", "new": "const approved={...current,approvedAt:this.now(),approvedRevision:null};" }
+   ]
+  },
+  {
+   "name": "P13",
+   "what": "a base that is not a whole number is not refused as such",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "if(writes&&expectedRevision!==null&&expectedRevision!==undefined&&!wholeRevision(expectedRevision))throw", "new": "if(false)throw" }
+   ]
+  },
+  {
+   "name": "P14",
+   "what": "a negative revision counts as a whole number",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "const wholeRevision = (value) => Number.isSafeInteger(value) && value >= 0;", "new": "const wholeRevision = (value) => Number.isSafeInteger(value);" }
+   ]
+  },
+  {
+   "name": "P15",
+   "what": "a proposal of any length is accepted",
+   "patches": [
+    { "file": "lib/studio-workspace.mjs", "old": "if(operation==='text'&&(typeof text!=='string'||!text.trim()||text.length>PLAN_TEXT_CHARS))throw", "new": "if(operation==='text'&&(typeof text!=='string'||!text.trim()))throw" }
+   ]
+  },
+  {
+   "name": "T1",
+   "what": "update_plan writes as the user",
+   "patches": [
+    { "file": "lib/local-tools.mjs", "old": "items: args.items ?? [], by: 'agent', expectedRevision: args.expected_revision ?? null });", "new": "items: args.items ?? [], by: 'user', expectedRevision: args.expected_revision ?? null });" }
+   ]
+  },
+  {
+   "name": "T2",
+   "what": "update_plan drops the revision the model read",
+   "patches": [
+    { "file": "lib/local-tools.mjs", "old": "items: args.items ?? [], by: 'agent', expectedRevision: args.expected_revision ?? null });", "new": "items: args.items ?? [], by: 'agent', expectedRevision: null });" }
+   ]
+  },
+  {
+   "name": "T3",
+   "what": "a conflict of update_plan reaches the model as a plain error (no revision, no way to go on)",
+   "patches": [
+    { "file": "lib/local-tools.mjs", "old": "      if (error?.code !== 'plan_conflict') throw error;\n      return failure('plan_conflict',", "new": "      throw error;\n      return failure('plan_conflict'," }
+   ]
+  },
+  {
+   "name": "T4",
+   "what": "get_plan and update_plan do not say the revision",
+   "patches": [
+    { "file": "lib/local-tools.mjs", "old": "bước hoàn tất.` : ''}\\n${revision}${text}`,", "new": "bước hoàn tất.` : ''}${text}`," }
+   ]
+  },
+  {
+   "name": "T5",
+   "what": "studio.plan_set drops the revision the model read",
+   "patches": [
+    { "file": "lib/studio-tools.mjs", "old": "by:'agent',expectedRevision:args.expected_revision??null}),", "new": "by:'agent',expectedRevision:null})," }
+   ]
+  },
+  {
+   "name": "E1",
+   "what": "the chosen mode of a task is ignored by the gate",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "const chosen=this.taskPolicies.get(taskId)?.mode;", "new": "const chosen=undefined;" }
+   ]
+  },
+  {
+   "name": "E2",
+   "what": "a task with a chosen mode stays under Full Access",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "return {mode:chosen,fullAccess:false};", "new": "return {mode:chosen,fullAccess:this.executionPolicy==='full-access'};" }
+   ]
+  },
+  {
+   "name": "E3",
+   "what": "the edit rule of Autonomous reads the gate's mode, not the task's",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "(category==='workspace_edit'&&regime.mode==='autonomous')", "new": "(category==='workspace_edit'&&this.mode==='autonomous')" }
+   ]
+  },
+  {
+   "name": "E4",
+   "what": "the refusal of an unclassified tool in Autonomous reads the gate's mode, not the task's",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(regime.mode==='autonomous'&&category==='unknown')", "new": "if(this.mode==='autonomous'&&category==='unknown')" }
+   ]
+  },
+  {
+   "name": "E5",
+   "what": "the Full Access of an external tool ignores the task's chosen mode",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(regime.fullAccess)return {run:", "new": "if(this.executionPolicy==='full-access')return {run:" }
+   ]
+  },
+  {
+   "name": "E6",
+   "what": "the Full Access of a local tool ignores the task's chosen mode",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "const fullAccess=regime.fullAccess;", "new": "const fullAccess=this.executionPolicy==='full-access';" }
+   ]
+  },
+  {
+   "name": "E7",
+   "what": "any mode (Full Access, Read Only) can be a task's policy",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(!PLAN_EXECUTIONS.includes(policy?.mode)){this.taskPolicies.delete(taskId);return null;}", "new": "if(!policy?.mode){this.taskPolicies.delete(taskId);return null;}" }
+   ]
+  },
+  {
+   "name": "E8",
+   "what": "an approval drops the execution choice",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "this.setTaskPolicy(taskId,answer.execution===null?null:{mode:answer.execution});", "new": "this.taskPolicies.delete(taskId);" }
+   ]
+  },
+  {
+   "name": "E9",
+   "what": "a denial carries an execution choice",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(execution!==null&&(req.category!=='plan'||approved!==true))throw", "new": "if(execution!==null&&req.category!=='plan')throw" }
+   ]
+  },
+  {
+   "name": "E10",
+   "what": "an ordinary request takes an execution choice",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(execution!==null&&(req.category!=='plan'||approved!==true))throw", "new": "if(execution!==null&&approved!==true)throw" }
+   ]
+  },
+  {
+   "name": "E11",
+   "what": "an ordinary request takes a revision",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "if(revision!==null&&req.category!=='plan')throw", "new": "if(false)throw" }
+   ]
+  },
+  {
+   "name": "E12",
+   "what": "any execution passes decisionExtras",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "&& !PLAN_EXECUTIONS.includes(execution)) throw error('bad_execution'", "new": "&& false) throw error('bad_execution'" }
+   ]
+  },
+  {
+   "name": "E13",
+   "what": "any revision passes decisionExtras",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "&& !(Number.isSafeInteger(revision) && revision >= 0)) throw error('bad_revision'", "new": "&& false) throw error('bad_revision'" }
+   ]
+  },
+  {
+   "name": "E14",
+   "what": "the answer of the owner loses its revision and its execution on the stack",
+   "patches": [
+    { "file": "lib/permissions.mjs", "old": "resolve({approved:yes,feedback,plan,revision,execution});", "new": "resolve({approved:yes,feedback,plan,revision:null,execution:null});" }
+   ]
+  },
+  {
+   "name": "R1",
+   "what": "the proposal is not a revision of the plan file (a counter of its own)",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "proposed = await studio.plan({ taskId: task.id, operation: 'text', text, by: 'agent', expectedRevision });", "new": "proposed = { revision: 1 };" }
+   ]
+  },
+  {
+   "name": "R2",
+   "what": "exit_plan_mode drops the revision the model read",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "operation: 'text', text, by: 'agent', expectedRevision });", "new": "operation: 'text', text, by: 'agent', expectedRevision: null });" }
+   ]
+  },
+  {
+   "name": "R3",
+   "what": "a conflict of exit_plan_mode reaches the model as a plain error",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "      if (error?.code !== 'plan_conflict') throw error;\n      return { isError: true, content: [{ type: 'text', text: planConflictText(", "new": "      throw error;\n      return { isError: true, content: [{ type: 'text', text: planConflictText(" }
+   ]
+  },
+  {
+   "name": "R4",
+   "what": "an approval records the proposal's revision, not the one approved",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "let approvedRevision = answer.revision ?? revision;", "new": "let approvedRevision = revision;" }
+   ]
+  },
+  {
+   "name": "R5",
+   "what": "an edit given to the gate directly is not saved as the owner's revision",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "if (answer.revision === null && answer.plan !== null && answer.plan !== text) approvedRevision =", "new": "if (false) approvedRevision =" }
+   ]
+  },
+  {
+   "name": "R6",
+   "what": "an edit of the checklist alone is not an edit (editedByUser read from the text only)",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "const editedByUser = approvedRevision !== revision;", "new": "const editedByUser = answer.plan !== null && answer.plan !== text;" }
+   ]
+  },
+  {
+   "name": "R7",
+   "what": "the approval is not recorded in the plan file",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "try { await studio.plan({ taskId: task.id, operation: 'approve', revision: approvedRevision }); }", "new": "try { void approvedRevision; }" }
+   ]
+  },
+  {
+   "name": "R8",
+   "what": "planApproval forgets the execution choice",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "revision: approvedRevision, editedByUser, execution };", "new": "revision: approvedRevision, editedByUser, execution: null };" }
+   ]
+  },
+  {
+   "name": "R9",
+   "what": "a Hub that loads an approved task does not put its chosen mode back on the gate",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "        else if (executionOf(task)) this.manager.permissions?.setTaskPolicy?.(task.id, { mode: executionOf(task) });\n", "new": "\n" }
+   ]
+  },
+  {
+   "name": "R10",
+   "what": "a later run of an approved task does not put its chosen mode back on the gate",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "on whichever gate runs it.\n    else if (executionOf(task))", "new": "on whichever gate runs it.\n    else if (false)" }
+   ]
+  },
+  {
+   "name": "R11",
+   "what": "a denial records the proposal's revision, not the one the owner answered",
+   "patches": [
+    { "file": "lib/agent.mjs", "old": "const answered = answer.revision ?? revision;", "new": "const answered = revision;" }
+   ]
+  },
+  {
+   "name": "H1",
+   "what": "the plan routes read every plan from the Hub's studio (a second chat's plan is not found)",
+   "patches": [
+    { "file": "hub.mjs", "old": "const planStudio = (taskId) => taskEngine?.api?.studioFor?.(taskId) ?? studio;", "new": "const planStudio = (taskId) => studio;" }
+   ]
+  },
+  {
+   "name": "H2",
+   "what": "an answer to a plan request is not held to the plan's revision",
+   "patches": [
+    { "file": "hub.mjs", "old": "if ((approved || revision !== null) && current.revision !== base) throw planConflict(current);", "new": "" }
+   ]
+  },
+  {
+   "name": "H3",
+   "what": "only an approval is held to the plan's revision (a stale request for changes goes through)",
+   "patches": [
+    { "file": "hub.mjs", "old": "if ((approved || revision !== null) && current.revision !== base) throw planConflict(current);", "new": "if (approved && current.revision !== base) throw planConflict(current);" }
+   ]
+  },
+  {
+   "name": "H4",
+   "what": "an edit that comes with an approval is not saved as the owner's revision",
+   "patches": [
+    { "file": "hub.mjs", "old": "if (approved && plan !== null && plan !== current.text) approvedPlan = await store.plan(", "new": "if (false) approvedPlan = await store.plan(" }
+   ]
+  },
+  {
+   "name": "H5",
+   "what": "the approved text is not passed to the gate",
+   "patches": [
+    { "file": "hub.mjs", "old": "const extras = approved ? { feedback, plan: approvedPlan.text, execution,", "new": "const extras = approved ? { feedback, plan: null, execution," }
+   ]
+  },
+  {
+   "name": "H6",
+   "what": "the decide route answers a plan request without the plan file",
+   "patches": [
+    { "file": "hub.mjs", "old": "const planRequest=pendingPlanRequests().find((item)=>item.id===payload.id);", "new": "const planRequest=null;" }
+   ]
+  },
+  {
+   "name": "H7",
+   "what": "the plan decision route drops the execution choice",
+   "patches": [
+    { "file": "hub.mjs", "old": "answered=await answerPlan(planRequest,approve,{feedback,plan:null,execution,revision:payload.revision});", "new": "answered=await answerPlan(planRequest,approve,{feedback,plan:null,execution:null,revision:payload.revision});" }
+   ]
+  },
+  {
+   "name": "H8",
+   "what": "the plan decision route does not name the revision the owner looked at",
+   "patches": [
+    { "file": "hub.mjs", "old": "answered=await answerPlan(planRequest,approve,{feedback,plan:null,execution,revision:payload.revision});", "new": "answered=await answerPlan(planRequest,approve,{feedback,plan:null,execution,revision:null});" }
+   ]
+  },
+  {
+   "name": "H9",
+   "what": "a conflict does not say the revision the plan is at",
+   "patches": [
+    { "file": "hub.mjs", "old": "code: 'plan_conflict', revision: error.revision, updatedBy: error.updatedBy });", "new": "code: 'plan_conflict' });" }
+   ]
+  },
+  {
+   "name": "H10",
+   "what": "the page's edit of a plan ignores baseRevision",
+   "patches": [
+    { "file": "hub.mjs", "old": "by:'user',expectedRevision:payload.baseRevision??null});", "new": "by:'user',expectedRevision:null});" }
+   ]
+  }
+ ]
+}

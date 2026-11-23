@@ -10,7 +10,7 @@ import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manag
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
 import { ATTACHMENT_BODY_LIMIT } from './lib/attachment-limits.mjs';
-import { EDITABLE_FILE_BYTES, EDITOR_BODY_LIMIT } from './lib/studio-workspace.mjs';
+import { EDITABLE_FILE_BYTES, EDITOR_BODY_LIMIT, planConflict } from './lib/studio-workspace.mjs';
 import { publicPresets } from './lib/provider-presets.mjs';
 import { modelInfo, modelInfoQuery, modelsList, modelsQuery } from './lib/model-info.mjs';
 import { createCatalogStore } from './lib/model-catalog-store.mjs';
@@ -49,7 +49,7 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/review/reject-created','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/mcp/server/upsert','/api/mcp/server/delete','/api/mcp/server/test','/api/mcp/server/launch-record','/api/mcp/server/approve-launch','/api/mcp/server/tool-review','/api/mcp/server/approve-tools','/api/mcp/server/tool-policy','/api/mcp/reload','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/review/reject-created','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/plan/decide','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/mcp/server/upsert','/api/mcp/server/delete','/api/mcp/server/test','/api/mcp/server/launch-record','/api/mcp/server/approve-launch','/api/mcp/server/tool-review','/api/mcp/server/approve-tools','/api/mcp/server/tool-policy','/api/mcp/reload','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
 export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/task-review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/api/mcp/servers','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
@@ -134,6 +134,30 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   const verification = manager.verification;
   const intelligence = manager.intelligence;
   const preview = manager.preview;
+  // ---- the plan of a task (P9 ac-10, docs/PLAN-MODE.md "The plan and its revision") ----------------------------------------------------
+  // A chat that runs beside the first (ConcurrentApiAgent) keeps its plan in a studio of its own; every other task's plan is in the Hub's.
+  const planStudio = (taskId) => taskEngine?.api?.studioFor?.(taskId) ?? studio;
+  // A conflict says which revision the plan is at, so that the page can read it again and answer on that revision.
+  const planConflictJson = (error) => ({ error: redact(String(error.message ?? '').split('\n')[0], manager.secrets ?? []), code: 'plan_conflict', revision: error.revision, updatedBy: error.updatedBy });
+  // The plan requests that wait, on the Hub's gate or on the gate of a chat that runs beside it.
+  const pendingPlanRequests = () => [...(gate?.state().pending ?? []), ...(taskEngine?.api?.pendingApprovals?.() ?? [])].filter((item) => item.category === 'plan');
+  /**
+   * An answer to a plan request, held against the plan file. An approval, and any answer that names a revision, must be about the revision the
+   * plan is at (`revision`; by default the one the request names): an owner's edit since the proposal makes it a 409 plan_conflict and the request
+   * stays pending. An edited plan that comes with an approval is saved first as the owner's revision. The gate then gets the approved text and
+   * its revision, so the model is given what the plan file holds under the number planApproval records.
+   */
+  async function answerPlan(request, approved, { feedback, plan, execution, revision }) {
+    const store = planStudio(request.taskId);
+    const current = await store.plan({ taskId: request.taskId });
+    const base = revision ?? request.detail?.revision ?? null;
+    if ((approved || revision !== null) && current.revision !== base) throw planConflict(current);
+    let approvedPlan = current;
+    if (approved && plan !== null && plan !== current.text) approvedPlan = await store.plan({ taskId: request.taskId, operation: 'text', text: plan, by: 'user', expectedRevision: current.revision });
+    // A denial passes what it was sent: the gate refuses an edited plan or an execution that comes with one (400, the request stays pending).
+    const extras = approved ? { feedback, plan: approvedPlan.text, execution, revision: approvedPlan.revision } : { feedback, plan, execution, revision };
+    return (gate?.state().pending || []).some((item) => item.id === request.id) ? gate.decide(request.id, approved, extras) : taskEngine?.api?.decidePermission?.(request.id, approved, extras);
+  }
   const hubStateDir = manager.hubDirectory ?? manager.stateDirectory ?? manager.stateDir ?? defaultDataDirectory();
   const aiProfiles = new AiProfiles({ stateDir: hubStateDir, keyStore: provider?.keyStore ?? provider?.protector ?? (provider?.protect && provider?.unprotect ? { encrypt: (t) => provider.protect(t), decrypt: (b) => provider.unprotect(b) } : null) });
   const profilesReady=aiProfiles.load().catch(error=>{
@@ -375,7 +399,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/coding/review':value=await coding.review({runId:pick('runId'),workerId:pick('workerId')||null});break;
           case '/api/studio/coding/checks': value=await coding.discoverWorkerChecks({workerId:pick('workerId')});break;
           case '/api/studio/workflow': value=await manager.workflow.state(pick('taskId'));break;
-          case '/api/studio/plan': value=await studio.plan({taskId:pick('taskId')});break;
+          case '/api/studio/plan': value=await planStudio(pick('taskId')).plan({taskId:pick('taskId')});break;
           default:return json(404,{error:'Không tìm thấy Studio endpoint.'});
         }
         return json(200,value);
@@ -513,8 +537,15 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
               // The feedback and the edited plan of an answer (plan mode, docs/PLAN-MODE.md) are checked here for type and length; the gate that holds
               // the request checks that it is a plan request. The Companion and the MCP host hold no plan request: an answer with either goes to none of them.
               const extras=decisionExtras(payload);
-              const plain=extras.feedback===null&&extras.plan===null;
-              result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
+              const plain=extras.feedback===null&&extras.plan===null&&extras.execution===null&&extras.revision===null;
+              // A plan request is answered against the plan file (answerPlan: the revision, an edit saved as the owner's revision).
+              const planRequest=pendingPlanRequests().find((item)=>item.id===payload.id);
+              if(planRequest){
+                if(typeof payload.approved!=='boolean')throw Object.assign(new Error('approved phải là boolean.'),{code:'bad_decision',statusCode:400});
+                try{result=await answerPlan(planRequest,payload.approved,extras);}
+                catch(error){if(error?.code==='plan_conflict')return json(409,planConflictJson(error));throw error;}
+              }
+              else result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
                 ? gate.decide(payload.id,payload.approved,extras)
                 : taskEngine?.api?.decidePermission?.(payload.id,payload.approved,extras)
                   || (plain?(browser?.decidePermission?.(payload.id,payload.approved)
@@ -555,7 +586,33 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Host language-server checks are not allowed in sandbox-only mode.'),{statusCode:403});
             result=await intelligence.engineHealth({probe:true});break;
           case '/api/studio/intelligence/lsp/start': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: language server chạy trên Windows host. Chuyển sang host-review nếu bạn chấp nhận chạy LSP trên host.'),{statusCode:403});result=await intelligence.lspStart({language:payload.language});break;
-          case '/api/studio/plan/set': result=await studio.plan({...payload,operation:'set'});break;
+          // The owner's edit of a plan: always as the user (the page cannot write as the model), from `baseRevision` when the page sends the
+          // revision it showed (another revision: 409 with the current one), unconditionally when it sends none.
+          case '/api/studio/plan/set': {
+            // A baseRevision that is not a whole number is refused by the plan itself (400 bad_revision), before anything is read.
+            try{result=await planStudio(payload.taskId).plan({taskId:payload.taskId,operation:'set',title:payload.title??'',items:payload.items??[],text:payload.text,by:'user',expectedRevision:payload.baseRevision??null});}
+            catch(error){if(error?.code==='plan_conflict')return json(409,planConflictJson(error));throw error;}
+            break;
+          }
+          // The owner's decision on the plan a task waits with (docs/PLAN-MODE.md): approve it, choosing how it is carried out (`execution`: the mode of
+          // the task afterwards), or request changes with feedback. `revision` is the revision the owner looked at; another one is 409.
+          case '/api/studio/plan/decide': {
+            if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(payload.taskId))throw Object.assign(new Error('Cần ID hội thoại hợp lệ.'),{code:'bad_task_id',statusCode:400});
+            if(!['approve','request_changes'].includes(payload.decision))throw Object.assign(new Error('decision phải là approve hoặc request_changes.'),{code:'bad_decision',statusCode:400});
+            if(!(Number.isSafeInteger(payload.revision)&&payload.revision>=0))throw Object.assign(new Error('revision (bản kế hoạch người dùng đang xem) phải là số nguyên không âm.'),{code:'bad_revision',statusCode:400});
+            const approve=payload.decision==='approve';
+            const {feedback,execution}=decisionExtras({feedback:payload.feedback,execution:payload.execution});
+            if(!approve&&feedback===null)throw Object.assign(new Error('Yêu cầu sửa kế hoạch cần phản hồi (feedback).'),{code:'feedback_required',statusCode:400});
+            if(!approve&&execution!==null)throw Object.assign(new Error('Cách thực hiện (execution) chỉ đi kèm việc duyệt kế hoạch.'),{code:'bad_execution',statusCode:400});
+            const planRequest=pendingPlanRequests().find((item)=>item.taskId===payload.taskId);
+            if(!planRequest)throw Object.assign(new Error('Tác vụ này không có kế hoạch nào đang chờ duyệt.'),{code:'no_plan_request',statusCode:404});
+            let answered;
+            try{answered=await answerPlan(planRequest,approve,{feedback,plan:null,execution,revision:payload.revision});}
+            catch(error){if(error?.code==='plan_conflict')return json(409,planConflictJson(error));throw error;}
+            if(!answered)throw Object.assign(new Error('Yêu cầu duyệt kế hoạch đã hết hạn hoặc không còn.'),{code:'not_pending',statusCode:404});
+            result={ok:true,taskId:payload.taskId,id:planRequest.id,decision:payload.decision,revision:payload.revision,execution};
+            break;
+          }
           case '/api/studio/verify/run': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi chạy kiểm thử thủ công.'),{statusCode:409});if(!verification)throw Object.assign(new Error('Bộ kiểm thử chưa khởi tạo.'),{statusCode:503});result=await verification.start(payload);break;
           case '/api/workspace/browse': result = await manager.browse({initialPath:payload.initialPath}); break;
           case '/api/workspaces/add': {

@@ -56,21 +56,21 @@
    "name": "G8",
    "what": "a policy that only looks like planOnly holds the task",
    "patches": [
-    { "file": "lib/permissions.mjs", "old": "if(policy?.planOnly!==true){this.taskPolicies.delete(taskId);return null;}", "new": "if(!policy?.planOnly){this.taskPolicies.delete(taskId);return null;}" }
+    { "file": "lib/permissions.mjs", "old": "if(policy?.planOnly!==true){", "new": "if(!policy?.planOnly){" }
    ]
   },
   {
    "name": "G9",
    "what": "an approval does not clear the policy",
    "patches": [
-    { "file": "lib/permissions.mjs", "old": "return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan};", "new": "this.taskPolicies.set(taskId,Object.freeze({planOnly:true}));return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan};" }
+    { "file": "lib/permissions.mjs", "old": "return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan,revision:answer.revision,execution:answer.execution};", "new": "this.taskPolicies.set(taskId,Object.freeze({planOnly:true}));return {approved:true,status:'approved',feedback:answer.feedback,plan:answer.plan,revision:answer.revision,execution:answer.execution};" }
    ]
   },
   {
    "name": "G10",
    "what": "a denial or an expiry clears the policy",
    "patches": [
-    { "file": "lib/permissions.mjs", "old": "return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null};", "new": "this.taskPolicies.delete(taskId);return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null};" }
+    { "file": "lib/permissions.mjs", "old": "return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null,revision:answer.revision,execution:null};", "new": "this.taskPolicies.delete(taskId);return {approved:false,status:answer.expired?'expired':'denied',feedback:answer.feedback,plan:null,revision:answer.revision,execution:null};" }
    ]
   },
   {
@@ -105,7 +105,7 @@
    "name": "G15",
    "what": "a plan approval is held where nobody can answer it",
    "patches": [
-    { "file": "lib/permissions.mjs", "old": "if(!this.canAsk())return {approved:false,status:'unanswerable',feedback:null,plan:null};", "new": "" }
+    { "file": "lib/permissions.mjs", "old": "if(!this.canAsk())return {approved:false,status:'unanswerable',feedback:null,plan:null,revision:null,execution:null};", "new": "" }
    ]
   },
   {
@@ -183,7 +183,7 @@
    "name": "R11",
    "what": "planApproval is not recorded on an approval",
    "patches": [
-    { "file": "lib/agent.mjs", "old": "task.planApproval = { status: 'approved', at, revision, editedByUser };", "new": "" }
+    { "file": "lib/agent.mjs", "old": "task.planApproval = { status: 'approved', at, revision: approvedRevision, editedByUser, execution };", "new": "" }
    ]
   },
   {

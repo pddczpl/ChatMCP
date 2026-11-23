@@ -756,6 +756,14 @@ export interface PlanItem {
 export interface Plan {
   title: string;
   items: PlanItem[];
+  // The plan model v2 of the Hub (P9 ac-10, docs/PLAN-MODE.md): the text exit_plan_mode proposed (or the owner's edit), one revision for the
+  // checklist and the text, who wrote last, and which revision was approved when. An old plan file is revision 0, written by nobody.
+  text: string;
+  revision: number;
+  updatedBy: 'agent' | 'user' | null;
+  updatedAt: string | null;
+  approvedAt: string | null;
+  approvedRevision: number | null;
 }
 
 export interface TreeEntry {
