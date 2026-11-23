@@ -301,7 +301,8 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   assert.deepEqual([readClaim('x'.repeat(1000), { pattern: xs }).marker, readClaim('x'.repeat(1001), { pattern: xs }).marker], ['DONE', null], 'a line of 1,000 characters is tested, a longer one is not');
   assert.equal(compileClaimMarker('a/b').claimMarker, 'a/b', 'the pattern is recorded as it was written');
   assert.equal(readClaim('a/b', { pattern: compileClaimMarker('a/b') }).pattern, 'a/b');
-  for (const bad of ['(', '', 'a'.repeat(201), '.*', 'x?', '\\', '[']) {
+  // the last two close the wrapper's group: ^(?:DONE)|(READY)$ would read "DONE, but not really" as DONE, ^(?:x)|(.+)$ any line at all
+  for (const bad of ['(', '', 'a'.repeat(201), '.*', 'x?', '\\', '[', 'DONE)|(READY', 'x)|(.+']) {
     assert.throws(() => compileClaimMarker(bad), (error) => error.code === 'bad_value' && error.detail.option === '--claim-marker', `--claim-marker ${JSON.stringify(bad.slice(0, 20))} is refused`);
   }
   // a pattern that backtracks without end is stopped, and the claim is then no claim
@@ -357,8 +358,10 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   assert.deepEqual([stream.recognized, stream.finalMessage, stream.cost.knownSubtotal, stream.model, stream.agentVersion], [true, 'second\nDONE', 2, 'm-1', '2.1.0']);
   const failed = read('claude', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true, errors: ['too many turns'], total_cost_usd: 0.1 }));
   assert.deepEqual([failed.recognized, failed.finalMessage, failed.isError, failed.cost.knownSubtotal], [true, null, true, 0.1], 'an error result has no final message');
+  // an array of messages (what some write for --output-format json --verbose) is not a documented shape: not read, even with a result in it
+  const verboseArray = JSON.stringify([{ type: 'system', subtype: 'init', model: 'm' }, { type: 'result', subtype: 'success', is_error: false, result: 'DONE', total_cost_usd: 1 }]);
   for (const [text, reason] of [['plain text\nDONE\n', 'not_json'], ['', 'empty'], [JSON.stringify({ type: 'assistant' }), 'no_result'], [`${JSON.stringify({ type: 'result', result: 'x' })}\nnot json`, 'not_json'],
-    ['[1,2]', 'no_result']]) {
+    ['[1,2]', 'no_result'], [verboseArray, 'no_result']]) {
     const got = read('claude', text);
     assert.deepEqual([got.recognized, got.reason, got.finalMessage, got.cost], [false, reason, null, null], `claude: ${JSON.stringify(text.slice(0, 30))} is not recognized (${reason})`);
   }
