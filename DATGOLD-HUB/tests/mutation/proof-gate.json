@@ -1,0 +1,1635 @@
+{
+ "suite": "verify-proof-gate.mjs",
+ "description": "The done-gate of Proof-of-Done (plan task pod-23, docs/PROOF-GATE.md), its rules: what a run of the owner's checks says, what it does to the outcome of a task, the notice and the host message, the acceptance file and the baseline a task is held to, the rounds and the reuse, what runs nothing, the receipts, the stall counters and the final text (lib/proof/gate.mjs, lib/agent-progress.mjs, lib/final-text.mjs). The wiring into the agent loop is in proof-gate-agent.json.",
+ "mutations": [
+ {
+  "name": "PG-last-attempt",
+  "what": "the first attempt of a check decides instead of the last",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  for (const attempt of report.attempts) last.set(`${attempt.criterionId}#${attempt.index}`, attempt);\n  const failing",
+    "new": "  for (const attempt of report.attempts) if (!last.has(`${attempt.criterionId}#${attempt.index}`)) last.set(`${attempt.criterionId}#${attempt.index}`, { ...attempt, passed: !attempt.treeChanged });\n  const failing"
+   }
+  ]
+ },
+ {
+  "name": "PG-error-not-failing",
+  "what": "a check that could not start is not a failure",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (check.error) return [{",
+    "new": "    if (check.error) return []; if (false) return [{"
+   }
+  ]
+ },
+ {
+  "name": "PG-failed-attempt-not-failing",
+  "what": "a failing attempt is left to the roll-up (a failing run that wrote files is only stale)",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "return attempt && !attempt.passed ? [{",
+    "new": "return attempt && !attempt.passed && attempt.treeChanged !== true ? [{"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-failing",
+  "what": "no attempt counts as a failure",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (failing.length) return say(GATE_STATUS.failed, 'checks_failed');",
+    "new": "  if (false) return say(GATE_STATUS.failed, 'checks_failed');"
+   }
+  ]
+ },
+ {
+  "name": "PG-edited-not-failed",
+  "what": "an edited acceptance file is not a failure",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (report.blocked === 'acceptance_edited') return say(GATE_STATUS.failed, 'acceptance_edited');",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-unknown-tree-passes",
+  "what": "without a final tree the checks pass",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (rows === null) return say(GATE_STATUS.unproven, 'tree_unknown');",
+    "new": "  if (rows === null) return say(GATE_STATUS.passed, null);"
+   }
+  ]
+ },
+ {
+  "name": "PG-open-ignored",
+  "what": "a criterion that is not evidenced passes",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (!open.length) return say(GATE_STATUS.passed, null);",
+    "new": "  return say(GATE_STATUS.passed, null);"
+   }
+  ]
+ },
+ {
+  "name": "PG-failed-before-reason",
+  "what": "a failure on the same tree before is not told apart",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (rows.some((row) => row.checks.some((check) => check.result === 'failed'))) return say(GATE_STATUS.unproven, 'failed_before_on_this_tree');",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-failed-before-passes",
+  "what": "a failure on the same tree before is a pass",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "return say(GATE_STATUS.unproven, 'failed_before_on_this_tree');",
+    "new": "return say(GATE_STATUS.passed, null);"
+   }
+  ]
+ },
+ {
+  "name": "PG-changes-unknown-reason",
+  "what": "an unknown change report is not told apart",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (open.every((row) => row.codes.length === 1 && row.codes[0] === 'check_changes_unknown')) return say(GATE_STATUS.unproven, 'check_changes_unknown');",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-modified-false",
+  "what": "modified checks are never seen in the roll-up",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const checksModified = modified ? true : unknown ? null : false;",
+    "new": "  const checksModified = unknown ? null : false;"
+   }
+  ]
+ },
+ {
+  "name": "PG-unknown-is-unmodified",
+  "what": "an unknown change report reads as not modified",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const checksModified = modified ? true : unknown ? null : false;",
+    "new": "  const checksModified = modified;"
+   }
+  ]
+ },
+ {
+  "name": "PG-modified-by-status-only",
+  "what": "modified checks of a failed criterion are not seen",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "(row) => row.status === 'checks_modified' || codesOf(row).includes('checks_modified')) ?? false;",
+    "new": "(row) => row.status === 'checks_modified') ?? false;"
+   }
+  ]
+ },
+ {
+  "name": "PG-manual-counts",
+  "what": "a manual criterion the owner has not accepted holds the gate",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const isChecks = (row) => row?.kind === 'checks';",
+    "new": "const isChecks = (row) => Boolean(row);"
+   }
+  ]
+ },
+ {
+  "name": "PG-modified-open",
+  "what": "a criterion with modified checks holds the gate",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "row.status !== 'evidenced' && row.status !== 'checks_modified')",
+    "new": "row.status !== 'evidenced')"
+   }
+  ]
+ },
+ {
+  "name": "PG-timeout-detail",
+  "what": "a time-out reads as no exit code",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (attempt.timedOut) return 'timed out';",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-signal-detail",
+  "what": "a signal reads as no exit code",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (attempt.signal !== null && attempt.signal !== undefined) return `ended by signal ${attempt.signal}`;",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-exit-zero-unknown",
+  "what": "an unknown exit code reads as a number",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "return Number.isInteger(attempt.exit) ? `exit ${attempt.exit}` : 'no exit code';",
+    "new": "return `exit ${attempt.exit}`;"
+   }
+  ]
+ },
+ {
+  "name": "PG-stale-never",
+  "what": "a pass on another tree stays a pass",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return { ...result, status: GATE_STATUS.stale, reason: 'final_tree_changed' };",
+    "new": "  return result;"
+   }
+  ]
+ },
+ {
+  "name": "PG-stale-failed",
+  "what": "a failure becomes stale too",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (!result || result.status !== GATE_STATUS.passed || !result.tree",
+    "new": "  if (!result || !result.tree"
+   }
+  ]
+ },
+ {
+  "name": "PG-stale-unknown-final",
+  "what": "an unknown final tree makes a pass stale",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "|| !result.tree || !finalKey || result.tree === finalKey)",
+    "new": "|| !result.tree || result.tree === finalKey)"
+   }
+  ]
+ },
+ {
+  "name": "PG-stale-mutates",
+  "what": "the judgment itself is changed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return { ...result, status: GATE_STATUS.stale, reason: 'final_tree_changed' };",
+    "new": "  return Object.assign(result, { status: GATE_STATUS.stale, reason: 'final_tree_changed' });"
+   }
+  ]
+ },
+ {
+  "name": "PG-clean-ignores-modified",
+  "what": "a pass with modified checks is clean",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const clean = (result) => result.status === GATE_STATUS.passed && result.checksModified !== true;",
+    "new": "const clean = (result) => result.status === GATE_STATUS.passed;"
+   }
+  ]
+ },
+ {
+  "name": "PG-judged-skipped",
+  "what": "a skipped gate judges the outcome",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const JUDGED = new Set([GATE_STATUS.passed, GATE_STATUS.failed, GATE_STATUS.unproven, GATE_STATUS.stale]);",
+    "new": "const JUDGED = new Set(Object.values(GATE_STATUS));"
+   }
+  ]
+ },
+ {
+  "name": "PG-failed-unverified",
+  "what": "a failed gate is only unverified",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "requirements: result.status === GATE_STATUS.failed ? 'failed' : 'unverified',",
+    "new": "requirements: 'unverified',"
+   }
+  ]
+ },
+ {
+  "name": "PG-unproven-keeps-requirements",
+  "what": "an unproven gate keeps the requirements of the plan",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "requirements: result.status === GATE_STATUS.failed ? 'failed' : 'unverified',",
+    "new": "requirements: result.status === GATE_STATUS.failed ? 'failed' : completion.requirements,"
+   }
+  ]
+ },
+ {
+  "name": "PG-verification-kept",
+  "what": "the verification of a failed gate stays what it was",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    verification: 'missing_evidence',\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-missing-checks-kept",
+  "what": "the gate is not among the missing checks",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    missingChecks: [...completion.missingChecks, gateMissing(result)],\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-clean-without-gate",
+  "what": "a clean pass does not say the gate passed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (clean(result)) return Object.freeze({ ...completion, ...gate });",
+    "new": "  if (clean(result)) return completion;"
+   }
+  ]
+ },
+ {
+  "name": "PG-not-frozen",
+  "what": "the outcome is not frozen",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return Object.freeze({\n    ...completion, ...gate,",
+    "new": "  return ({\n    ...completion, ...gate,"
+   }
+  ]
+ },
+ {
+  "name": "PG-verification-ready",
+  "what": "a failed gate leaves the verification ready",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return { ...verification, ready: false, missing:",
+    "new": "  return { ...verification, missing:"
+   }
+  ]
+ },
+ {
+  "name": "PG-verification-mutates",
+  "what": "the assessment it was given is changed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return { ...verification, ready: false, missing: [...verification.missing, missing],",
+    "new": "  verification.missing.push(missing);\n  return { ...verification, ready: false, missing: verification.missing,"
+   }
+  ]
+ },
+ {
+  "name": "PG-missing-edited",
+  "what": "an edited acceptance file reads as failing checks in what is missing",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    return result.reason === 'acceptance_edited'\n      ? `The owner's acceptance file",
+    "new": "    return false\n      ? `The owner's acceptance file"
+   }
+  ]
+ },
+ {
+  "name": "PG-index-label",
+  "what": "the second check of a criterion is not told apart",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const labelOf = (criterionId, index) => (index ? `${criterionId} #${index + 1}` : criterionId);",
+    "new": "const labelOf = (criterionId) => criterionId;"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-clean",
+  "what": "a clean pass has a notice",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "export function gateNotice(result) {\n  if (!judged(result) || clean(result)) return null;",
+    "new": "export function gateNotice(result) {\n  if (!judged(result)) return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-no-turn",
+  "what": "the notice does not say that no turn was left",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const rounds = result.stopped === 'no_turn_left'",
+    "new": "    const rounds = false"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-no-modified",
+  "what": "the notice of a failure does not say the checks were modified",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    return `This task is NOT done: ${what}. ${rounds}${modified}`;",
+    "new": "    return `This task is NOT done: ${what}. ${rounds}`;"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-unbounded",
+  "what": "every modification is listed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const kept = items.slice(0, shown).map(text);",
+    "new": "  const kept = items.map(text);"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-deleted",
+  "what": "a deleted acceptance file reads as edited",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "`${ACCEPTANCE_FILE} was ${result.edit?.deleted ? 'deleted' : 'edited'} during the task, so the owner's checks did not run (if",
+    "new": "`${ACCEPTANCE_FILE} was edited during the task, so the owner's checks did not run (if"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-unknown-reason",
+  "what": "a reason without a sentence reads as undefined",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const whyUnproven = (result) => (UNPROVEN[result.reason] ? UNPROVEN[result.reason](result) : oneLine(result.reason ?? 'unknown', 80));",
+    "new": "const whyUnproven = (result) => UNPROVEN[result.reason]?.(result) ?? 'unknown';"
+   }
+  ]
+ },
+ {
+  "name": "PG-clip-before-mask",
+  "what": "the output is cut before it is masked",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const shown = maskSecrets(String(text ?? ''), secrets).replace(ESCAPES,",
+    "new": "  const shown = maskSecrets(String(text ?? '').slice(-limit), secrets).replace(ESCAPES,"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-mask",
+  "what": "the output is not masked",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const shown = maskSecrets(String(text ?? ''), secrets).replace(ESCAPES,",
+    "new": "  const shown = String(text ?? '').replace(ESCAPES,"
+   }
+  ]
+ },
+ {
+  "name": "PG-head-kept",
+  "what": "the start of the output is kept instead of its end",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return `[${start} characters cut]\\n${shown.slice(start)}`;",
+    "new": "  return `[${start} characters cut]\\n${shown.slice(0, limit)}`;"
+   }
+  ]
+ },
+ {
+  "name": "PG-escapes-kept",
+  "what": "escape sequences reach the model",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": ".replace(ESCAPES, '')",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-controls-kept",
+  "what": "control characters reach the model",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": ".replace(CONTROL, '')",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-unmarked",
+  "what": "the lines of the output are not marked as data",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const marked = (text) => text.split('\\n').map((line) => `| ${line}`);",
+    "new": "const marked = (text) => text.split('\\n');"
+   }
+  ]
+ },
+ {
+  "name": "PG-message-unbounded",
+  "what": "the message is not cut",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (middle.length > space) middle =",
+    "new": "  if (false) middle ="
+   }
+  ]
+ },
+ {
+  "name": "PG-message-no-modified",
+  "what": "the host message does not carry the changes to the checks",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    ...(result.checksModified === true ? [\n      `Checks were",
+    "new": "    ...(false ? [\n      `Checks were"
+   }
+  ]
+ },
+ {
+  "name": "PG-message-edited",
+  "what": "the host message of an edited acceptance file lists failing checks",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (result.reason === 'acceptance_edited') {\n    body.push(",
+    "new": "  if (false) {\n    body.push("
+   }
+  ]
+ },
+ {
+  "name": "PG-message-all-details",
+  "what": "every failing check is shown whole",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const shown = details.slice(0, GATE_LIMITS.detailed);",
+    "new": "    const shown = details;"
+   }
+  ]
+ },
+ {
+  "name": "PG-message-rest",
+  "what": "the failing checks beyond the list are not counted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (rest.length > GATE_LIMITS.listed) body.push(",
+    "new": "    if (false) body.push("
+   }
+  ]
+ },
+ {
+  "name": "PG-gateable-any",
+  "what": "a manager that is not the local backend is gated",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "manager?.backend === 'local' && typeof",
+    "new": "typeof"
+   }
+  ]
+ },
+ {
+  "name": "PG-subagent-gated",
+  "what": "an agent another agent started is gated",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (manager.lifecycleAgent?.kind === 'subagent') {",
+    "new": "    if (false) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-subagent-silent",
+  "what": "a spawned agent that is not gated says nothing",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (trusted) await say('skipped', 'Tác nhân này",
+    "new": "      if (false) await say('skipped', 'Tác nhân này"
+   }
+  ]
+ },
+ {
+  "name": "PG-subagent-always-says",
+  "what": "a spawned agent speaks of a file nobody trusted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (trusted) await say('skipped', 'Tác nhân này",
+    "new": "      if (current) await say('skipped', 'Tác nhân này"
+   }
+  ]
+ },
+ {
+  "name": "PG-untrusted-baseline",
+  "what": "a baseline is taken for an untrusted file",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-untrusted-kept",
+  "what": "the bytes of an untrusted file are kept and the conversation is held to them",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);\n    run.armed = true;\n    if (keep) await this.#keep(directory, run.acceptance);",
+    "new": "    if (keep) await this.#keep(directory, run.acceptance);\n    if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);\n    run.armed = true;"
+   }
+  ]
+ },
+ {
+  "name": "PG-never-armed",
+  "what": "a run is never armed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    run.armed = true;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-untrusted-silent",
+  "what": "an untrusted file is not said",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    await say('untrusted', `${ACCEPTANCE_FILE} có trong dự án",
+    "new": "    if (false) await say('untrusted', `${ACCEPTANCE_FILE} có trong dự án"
+   }
+  ]
+ },
+ {
+  "name": "PG-untrusted-twice",
+  "what": "the notice of an untrusted file is repeated at the end",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    run.said.add('untrusted');\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-invalid-silent",
+  "what": "an invalid file is not said",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "        run.said.add('invalid');\n        await say('invalid',",
+    "new": "        run.said.add('invalid');\n        if (false) await say('invalid',"
+   }
+  ]
+ },
+ {
+  "name": "PG-adopt-untrusted",
+  "what": "a file the owner did not trust is adopted by the next run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem) {",
+    "new": "    } else if (current && sha256 !== saved.acceptanceSha256 && !problem) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-adopt-never",
+  "what": "a file the owner trusted meanwhile is not adopted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem) {",
+    "new": "    } else if (false) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-copy-unchecked",
+  "what": "an edited copy of the acceptance bytes is used",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      keep = !(kept && acceptanceSha256(kept) === saved.acceptanceSha256);",
+    "new": "      keep = !kept;"
+   }
+  ]
+ },
+ {
+  "name": "PG-copy-not-made-again",
+  "what": "a missing copy is not made again",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (keep) await this.#keep(directory, run.acceptance);",
+    "new": "    if (keep && !saved) await this.#keep(directory, run.acceptance);"
+   }
+  ]
+ },
+ {
+  "name": "PG-current-unchecked",
+  "what": "any file stands in for a lost copy",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      else if (sha256 === saved.acceptanceSha256) this.#hold(",
+    "new": "      else if (current) this.#hold("
+   }
+  ]
+ },
+ {
+  "name": "PG-no-copy",
+  "what": "the acceptance bytes are not kept",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      await writeFileAtomic(path.join(directory, ACCEPTANCE_COPY), bytes, { mode: 0o600 });",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-deleted-ends-gate",
+  "what": "a conversation whose acceptance file was deleted is not gated any more",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!saved && !current) return null;",
+    "new": "    if (!current) return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-anchor",
+  "what": "the saved baseline is loaded without its anchor",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "await this.deps.loadBaseline({ hubDir, root, id: saved.id, expectSha256: saved.sha256 });",
+    "new": "await this.deps.loadBaseline({ hubDir, root, id: saved.id });"
+   }
+  ]
+ },
+ {
+  "name": "PG-baseline-again",
+  "what": "every run takes a new baseline",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (saved?.id) {\n",
+    "new": "    if (false) {\n"
+   }
+  ]
+ },
+ {
+  "name": "PG-edited-baseline-replaced",
+  "what": "an edited baseline is replaced by a new one",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "        if (error?.code !== 'baseline_missing') {",
+    "new": "        if (false) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-readonly-baseline",
+  "what": "a Read Only run pays for a baseline",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "service.disabled || manager.permissions?.mode === 'readonly') return;",
+    "new": "service.disabled) return;"
+   }
+  ]
+ },
+ {
+  "name": "PG-disabled-baseline",
+  "what": "a Hub that records no tree takes a baseline",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!service || service.disabled || manager",
+    "new": "    if (!service || manager"
+   }
+  ]
+ },
+ {
+  "name": "PG-manual-baseline",
+  "what": "a file without checks pays for a baseline",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!run.checks) return run;\n    await this.#baseline",
+    "new": "    await this.#baseline"
+   }
+  ]
+ },
+ {
+  "name": "PG-baseline-no-timeout",
+  "what": "a baseline is waited for without a limit",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const timer = setTimeout(() => limit.abort(Object.assign(new Error('The baseline took too long.'), { code: 'baseline_timeout' })), this.baselineTimeoutMs);",
+    "new": "const timer = null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-baseline-timeout-name",
+  "what": "a baseline that took too long is not named so",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      failed = limit.signal.aborted ? 'baseline_timeout' : String(",
+    "new": "      failed = String("
+   }
+  ]
+ },
+ {
+  "name": "PG-baseline-no-stop",
+  "what": "a stop does not reach the baseline",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "signal: signal ? AbortSignal.any([signal, limit.signal]) : limit.signal });",
+    "new": "signal: limit.signal });"
+   }
+  ]
+ },
+ {
+  "name": "PG-baseline-swallows-stop",
+  "what": "a stop during the baseline is swallowed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    } catch (error) {\n      if (signal?.aborted) throw signal.reason;\n      failed =",
+    "new": "    } catch (error) {\n      failed ="
+   }
+  ]
+ },
+ {
+  "name": "PG-shared-baselines",
+  "what": "the gate's baselines share the folder of chatmcp verify",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "#hubDir() { return path.join(path.dirname(this.manager.acceptanceTrustStore().file), GATE_FOLDER); }",
+    "new": "#hubDir() { return path.dirname(path.dirname(this.manager.acceptanceTrustStore().file)); }"
+   }
+  ]
+ },
+ {
+  "name": "PG-begin-throws",
+  "what": "a gate that cannot begin fails the run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    try { return await this.#begin({ task, directory, signal, emit }); } catch (error) {\n      if (signal?.aborted) throw signal.reason;",
+    "new": "    try { return await this.#begin({ task, directory, signal, emit }); } catch (error) {\n      throw error;"
+   }
+  ]
+ },
+ {
+  "name": "PG-begin-silent",
+  "what": "a gate that cannot begin leaves the run ungated in silence",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      return { ...newRun(null), unusable: 'gate_error',",
+    "new": "      return null; return { ...newRun(null), unusable: 'gate_error',"
+   }
+  ]
+ },
+ {
+  "name": "PG-oversized-read",
+  "what": "a file over its limit is cut to it and read as valid",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const buffer = Buffer.alloc(ACCEPTANCE_MAX_BYTES + 1);",
+    "new": "    const buffer = Buffer.alloc(ACCEPTANCE_MAX_BYTES);"
+   }
+  ]
+ },
+ {
+  "name": "PG-saved-not-checked",
+  "what": "a saved baseline without an acceptance sha256 is read",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "|| typeof value.acceptanceSha256 !== 'string' || !HEX64.test(value.acceptanceSha256)) return null;",
+    "new": ") return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-retention",
+  "what": "the gate keeps as many baselines as chatmcp verify",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const GATE_RETENTION = Object.freeze({ maxPerWorkspace: 5 });",
+    "new": "const GATE_RETENTION = Object.freeze({});"
+   }
+  ]
+ },
+ {
+  "name": "PG-wait-unsaid",
+  "what": "a baseline that takes a while is not said",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "said = say('baseline', 'Cổng bằng chứng: đang lấy",
+    "new": "said = null && say('baseline', 'Cổng bằng chứng: đang lấy"
+   }
+  ]
+ },
+ {
+  "name": "PG-forget-any",
+  "what": "a saved id that is not one is removed as a path",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!saved?.id || !BASELINE_ID.test(saved.id) || typeof",
+    "new": "    if (!saved?.id || typeof"
+   }
+  ]
+ },
+ {
+  "name": "PG-forget-nothing",
+  "what": "the baseline of a deleted conversation stays",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    for (const name of [`${saved.id}.json`, `${saved.id}.git`]) await",
+    "new": "    for (const name of []) await"
+   }
+  ]
+ },
+ {
+  "name": "PG-forget-record-only",
+  "what": "the store of a deleted conversation stays",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "[`${saved.id}.json`, `${saved.id}.git`]",
+    "new": "[`${saved.id}.json`]"
+   }
+  ]
+ },
+ {
+  "name": "PG-forget-no-manager",
+  "what": "a manager without a trust list cannot delete a conversation",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": " || typeof this.manager.acceptanceTrustStore !== 'function') return;",
+    "new": ") return;"
+   }
+  ]
+ },
+ {
+  "name": "PG-rounds-three",
+  "what": "the agent is sent back twice",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "export const GATE_ROUNDS = 2;",
+    "new": "export const GATE_ROUNDS = 3;"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-count",
+  "what": "failures are not counted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (verdict.status === GATE_STATUS.failed) run.failures += 1;",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-passes-count",
+  "what": "a pass counts as a round",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (verdict.status === GATE_STATUS.failed) run.failures += 1;",
+    "new": "    run.failures += 1;"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-budget",
+  "what": "the agent is sent back when no turn is left",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      const sentBack = again && canGoOn() === true;",
+    "new": "      const sentBack = again;"
+   }
+  ]
+ },
+ {
+  "name": "PG-stopped-unsaid",
+  "what": "the record does not say that no turn was left",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (again && !sentBack) result.stopped = 'no_turn_left';",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-reuse-never",
+  "what": "the checks run again for every answer",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!last?.result.tree || !sameBytes(last.current, current)) return null;",
+    "new": "    return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-reuse-edited",
+  "what": "a pass is reused for an edited acceptance file",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!last?.result.tree || !sameBytes(last.current, current)) return null;",
+    "new": "    if (!last?.result.tree) return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-reuse-other-tree",
+  "what": "a pass is reused on another tree",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    return now?.status === 'ok' && treeKey(now) === last.result.tree ? last.result : null;",
+    "new": "    return now?.status === 'ok' ? last.result : null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-reuse-failure",
+  "what": "a first failure is reused instead of run again",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "!(last.result.status === GATE_STATUS.failed && run.failures >= GATE_ROUNDS)) return null;",
+    "new": "last.result.status !== GATE_STATUS.failed) return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-reuse-no-failure",
+  "what": "after the limit an unchanged tree is run again",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": " && !(last.result.status === GATE_STATUS.failed && run.failures >= GATE_ROUNDS)) return null;",
+    "new": ") return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-reuse-not-said",
+  "what": "a reused judgment does not say so",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "return done({ ...reused, reused: true, at: base.at }, run.last.observed);",
+    "new": "return done({ ...reused, at: base.at }, run.last.observed);"
+   }
+  ]
+ },
+ {
+  "name": "PG-readonly-runs",
+  "what": "Read Only runs the checks",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (manager.permissions?.mode === 'readonly') return 'readonly';\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-plan-runs",
+  "what": "plan mode runs the checks",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (planMode) return 'plan_mode';\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-sandbox-runs",
+  "what": "sandbox-only runs the checks on the host",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (manager.permissions?.executionPolicy === 'sandbox-only') return 'sandbox_only';\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-shell-disabled-runs",
+  "what": "a Hub whose shell is off runs the checks",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (manager.localTools?.shellDisabled || typeof",
+    "new": "    if (typeof"
+   }
+  ]
+ },
+ {
+  "name": "PG-untrusted-runs",
+  "what": "an untrusted file is asked of the runner",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!run.armed && (await run.trustStore.isTrusted(run.sha256)) !== true) return 'untrusted';\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-no-checks-runs",
+  "what": "a file without checks is run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!run.checks) return 'no_checks';\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-revoked-silent",
+  "what": "a trust taken back while the run goes on is a silent skip",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (!run.armed && (await run.trustStore",
+    "new": "    if ((await run.trustStore"
+   }
+  ]
+ },
+ {
+  "name": "PG-revoked-runs",
+  "what": "a trust taken back while the run goes on is not seen",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "!== true ? 'trust_revoked' : null;",
+    "new": "!== true ? null : null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-disabled-runs",
+  "what": "the checks run with the data folder inside the workspace",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "(!service ? 'proof_unavailable' : service.disabled || null);",
+    "new": "(!service ? 'proof_unavailable' : null);"
+   }
+  ]
+ },
+ {
+  "name": "PG-lost-runs",
+  "what": "the checks run without the bytes of the start",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const unusable = run.unusable ?? revoked",
+    "new": "    const unusable = (run.unusable === 'acceptance_lost' ? null : run.unusable) ?? revoked"
+   }
+  ]
+ },
+ {
+  "name": "PG-skip-repeats",
+  "what": "a skip is said at every answer",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (!run.said.has(skipped)) { run.said.add(skipped); await say(",
+    "new": "      { await say("
+   }
+  ]
+ },
+ {
+  "name": "PG-error-passes",
+  "what": "a runner that throws is a pass",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "const result = { ...base, status: GATE_STATUS.unproven, reason: 'gate_error',",
+    "new": "const result = { ...base, status: GATE_STATUS.passed, reason: 'gate_error',"
+   }
+  ]
+ },
+ {
+  "name": "PG-error-tree-kept",
+  "what": "after a runner that threw the old tree is still the current one",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      return done(result, { tree: null, checks: [] });",
+    "new": "      return done(result);"
+   }
+  ]
+ },
+ {
+  "name": "PG-stop-judged",
+  "what": "a stopped run is judged",
+  "equivalent": "review() asks the signal again after #passes, before anything is judged",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      signal?.throwIfAborted();\n      const verdict = judgeChecks(report);",
+    "new": "      const verdict = judgeChecks(report);"
+   }
+  ]
+ },
+ {
+  "name": "PG-stop-swallowed",
+  "what": "a stop during the checks reads as a gate error",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    } catch (error) {\n      if (signal?.aborted) throw signal.reason;\n      this.log(`Cổng bằng chứng: không chạy được",
+    "new": "    } catch (error) {\n      this.log(`Cổng bằng chứng: không chạy được"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-second-pass",
+  "what": "stale checks are not run once more",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (passes >= 2 || !settles) return",
+    "new": "      return"
+   }
+  ]
+ },
+ {
+  "name": "PG-third-pass",
+  "what": "stale checks are run a third time",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (passes >= 2 || !settles) return",
+    "new": "      if (passes >= 3 || !settles) return"
+   }
+  ]
+ },
+ {
+  "name": "PG-unreliable-again",
+  "what": "a check that changes the tree every time is run again",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": " && !report.checks.some((check) => check.unreliable);",
+    "new": ";"
+   }
+  ]
+ },
+ {
+  "name": "PG-failing-again",
+  "what": "a failure is run again within the round",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      const settles = verdict.status === GATE_STATUS.unproven && verdict.open",
+    "new": "      const settles = verdict.open"
+   }
+  ]
+ },
+ {
+  "name": "PG-signal-not-passed",
+  "what": "a stop does not reach the checks",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "snapshotter: service.snapshotter ?? null, toolchain: this.toolchain, signal,",
+    "new": "snapshotter: service.snapshotter ?? null, toolchain: this.toolchain,"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-current",
+  "what": "the workspace file is not compared",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "        baseline: run.acceptance, current, trustStore: run.trustStore,",
+    "new": "        baseline: run.acceptance, current: run.acceptance, trustStore: run.trustStore,"
+   }
+  ]
+ },
+ {
+  "name": "PG-baseline-is-current",
+  "what": "the checks come from the file as it is now",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "        baseline: run.acceptance, current, trustStore: run.trustStore,",
+    "new": "        baseline: current ?? run.acceptance, current, trustStore: run.trustStore,"
+   }
+  ]
+ },
+ {
+  "name": "PG-detector-failure-clean",
+  "what": "a detector that fails reads as nothing changed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      this.log(`Cổng bằng chứng: không so được các kiểm tra với lúc bắt đầu tác vụ (${error?.code ?? error?.message}).`);\n      return null;",
+    "new": "      return { format: 'chatmcp.check-changes/1', checks_modified: false, criteria: [], findings: [] };"
+   }
+  ]
+ },
+ {
+  "name": "PG-report-flag-ignored",
+  "what": "the flag of the report is not in the record",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      checksModified: changes ? changes.checks_modified === true : verdict.checksModified,",
+    "new": "      checksModified: verdict.checksModified === null ? null : false,"
+   }
+  ]
+ },
+ {
+  "name": "PG-unflagged-listed",
+  "what": "unflagged changes are listed as modifications",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "modifications: found.filter((item) => item.flagged).slice(",
+    "new": "modifications: found.slice("
+   }
+  ]
+ },
+ {
+  "name": "PG-no-test-changes",
+  "what": "unflagged changes of test files are not listed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      testChanges: found.filter((item) => !item.flagged &&",
+    "new": "      testChanges: found.filter((item) => false &&"
+   }
+  ]
+ },
+ {
+  "name": "PG-receipts-modified",
+  "what": "a pass with modified checks leaves receipts",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "checks: result.status === GATE_STATUS.passed && result.checksModified !== true ? this.#receipts(report) : [] };",
+    "new": "checks: result.status === GATE_STATUS.passed ? this.#receipts(report) : [] };"
+   }
+  ]
+ },
+ {
+  "name": "PG-receipts-failed",
+  "what": "a failed gate leaves receipts for its passing criteria",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "checks: result.status === GATE_STATUS.passed && result.checksModified !== true ? this.#receipts(report) : [] };",
+    "new": "checks: result.checksModified !== true ? this.#receipts(report) : [] };"
+   }
+  ]
+ },
+ {
+  "name": "PG-receipt-id",
+  "what": "a receipt is not named by its ledger line",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "({ id: attempt.hash.slice(0, 16) }));",
+    "new": "({ id: String(attempt.seq) }));"
+   }
+  ]
+ },
+ {
+  "name": "PG-details-unmasked",
+  "what": "the output in the message is not masked",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "        stdout: clipOutput(output?.stdout ?? '', secrets),",
+    "new": "        stdout: clipOutput(output?.stdout ?? '', []),"
+   }
+  ]
+ },
+ {
+  "name": "PG-command-unmasked",
+  "what": "the command in the record is not masked",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "command: oneLine(maskSecrets(specs.get(`${check.criterionId}#${check.index}`)?.run ?? '', secrets), GATE_LIMITS.commandChars),",
+    "new": "command: oneLine(specs.get(`${check.criterionId}#${check.index}`)?.run ?? '', GATE_LIMITS.commandChars),"
+   }
+  ]
+ },
+ {
+  "name": "PG-runner-secrets",
+  "what": "the runner does not get the registered secrets",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "secrets: () => shell.secrets?.() ?? [],",
+    "new": "secrets: () => [],"
+   }
+  ]
+ },
+ {
+  "name": "PG-runner-timeout",
+  "what": "the runner does not get the shell's time limit",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "        workspace: shell.workspace, maxTimeoutMs: shell.maxTimeoutMs, secrets",
+    "new": "        workspace: shell.workspace, secrets"
+   }
+  ]
+ },
+ {
+  "name": "PG-sent-back-unsaid",
+  "what": "the event does not say whether the agent was sent back",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "{ ...extra, sentBack }, detail);",
+    "new": "extra, detail);"
+   }
+  ]
+ },
+ {
+  "name": "PG-event-no-modified",
+  "what": "the event does not say the checks were modified",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "limit: GATE_ROUNDS, checksModified: result.checksModified };\n    const detail",
+    "new": "limit: GATE_ROUNDS };\n    const detail"
+   }
+  ]
+ },
+ {
+  "name": "PG-edit-unsaid",
+  "what": "the record does not say whether the file was deleted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "{ edit: { deleted: current === null } }",
+    "new": "{ edit: { deleted: false } }"
+   }
+  ]
+ },
+ {
+  "name": "PG-observe-no-tree",
+  "what": "the tree the gate saw is not the current tree",
+  "patches": [
+   {
+    "file": "lib/agent-progress.mjs",
+    "old": "  progress.tree = treeKey(tree);\n  for (const { id } of",
+    "new": "  for (const { id } of"
+   }
+  ]
+ },
+ {
+  "name": "PG-observe-no-receipts",
+  "what": "the passing checks leave no receipts",
+  "patches": [
+   {
+    "file": "lib/agent-progress.mjs",
+    "old": "  for (const { id } of progress.tree ? checks : []) {",
+    "new": "  for (const { id } of []) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-observe-treeless",
+  "what": "a receipt without a tree is added",
+  "patches": [
+   {
+    "file": "lib/agent-progress.mjs",
+    "old": "  for (const { id } of progress.tree ? checks : []) {",
+    "new": "  for (const { id } of checks) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-observe-duplicate",
+  "what": "the same check is added twice",
+  "patches": [
+   {
+    "file": "lib/agent-progress.mjs",
+    "old": "    if (record && !progress.receipts.some((item) => json(item) === json(record))) progress.receipts.push(record);",
+    "new": "    if (record) progress.receipts.push(record);"
+   }
+  ]
+ },
+ {
+  "name": "PG-restart-no-progress",
+  "what": "the stall counter is not started again",
+  "patches": [
+   {
+    "file": "lib/agent-progress.mjs",
+    "old": "  const progress = createTaskProgress(progressValue);\n  progress.noProgress = 0;\n",
+    "new": "  const progress = createTaskProgress(progressValue);\n"
+   }
+  ]
+ },
+ {
+  "name": "PG-restart-no-recovery",
+  "what": "the recovery attempts are not started again",
+  "patches": [
+   {
+    "file": "lib/agent-progress.mjs",
+    "old": "  progress.recoveryAttempts = 0;\n  return progress;",
+    "new": "  return progress;"
+   }
+  ]
+ },
+ {
+  "name": "PG-restart-clears-tree",
+  "what": "starting the counters again forgets the tree",
+  "patches": [
+   {
+    "file": "lib/agent-progress.mjs",
+    "old": "  progress.recoveryAttempts = 0;\n  return progress;",
+    "new": "  progress.recoveryAttempts = 0;\n  progress.tree = null;\n  return progress;"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-not-composed",
+  "what": "the notice is not in the final text",
+  "patches": [
+   {
+    "file": "lib/final-text.mjs",
+    "old": "(gateNotice ? GATE_NOTICE_MARK + gateNotice : '') + ",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-last",
+  "what": "the notice comes behind the hook note",
+  "patches": [
+   {
+    "file": "lib/final-text.mjs",
+    "old": "(gateNotice ? GATE_NOTICE_MARK + gateNotice : '') + (verificationNotice ? VERIFICATION_NOTICE_MARK + verificationNotice : '') + (hookNotice ? HOOK_NOTICE_MARK + hookNotice : '')",
+    "new": "(verificationNotice ? VERIFICATION_NOTICE_MARK + verificationNotice : '') + (hookNotice ? HOOK_NOTICE_MARK + hookNotice : '') + (gateNotice ? GATE_NOTICE_MARK + gateNotice : '')"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-not-recorded",
+  "what": "the record of the parts drops the notice",
+  "patches": [
+   {
+    "file": "lib/final-text.mjs",
+    "old": "const record = { words, ...(gateNotice ? { gateNotice } : {}), verificationNotice",
+    "new": "const record = { words, verificationNotice"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-malformed",
+  "what": "a malformed notice is a record",
+  "patches": [
+   {
+    "file": "lib/final-text.mjs",
+    "old": "  if (!notice(gateNotice)) return null;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-not-a-note",
+  "what": "the notice is not handed on as the Hub's note",
+  "patches": [
+   {
+    "file": "lib/final-text.mjs",
+    "old": "notes: [parts.gateNotice, parts.verificationNotice",
+    "new": "notes: [parts.verificationNotice"
+   }
+  ]
+ }
+ ]
+}

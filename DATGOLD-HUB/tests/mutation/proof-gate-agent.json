@@ -1,0 +1,391 @@
+{
+ "suite": "verify-proof-gate-agent.mjs",
+ "description": "The done-gate in the agent loop (plan task pod-23, docs/PROOF-GATE.md): where AgentRunner asks it, what it does with the judgment (the host message, the notice, the outcome, the receipts, the stall counters, a tree that changed afterwards, the owner's acceptance), the trust list a second chat is handed, and the two sides of the report on the changes to the checks (lib/agent.mjs, lib/manager.mjs, lib/concurrent-api-agent.mjs, lib/proof/gate.mjs). The rules of the gate are in proof-gate.json. Each mutation runs the whole suite (about a minute).",
+ "mutations": [
+ {
+  "name": "GA-no-begin",
+  "what": "the gate never begins",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "      context.gate = await this.doneGate.begin({ task, directory: this.#directory(task.id), signal: context.controller.signal, emit: this.#gateEvent(task) });\n",
+    "new": "      context.gate = null;\n"
+   }
+  ]
+ },
+ {
+  "name": "GA-not-sent-back",
+  "what": "a failed round does not send the agent back",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "          if (gated.action === 'continue') {\n",
+    "new": "          if (false) {\n"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-message",
+  "what": "the agent is sent back without the host message",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "            context.history.appendUser([{ type: 'input_text', text: this.#redact(gated.feedback) }], { kind: GATE_EVENT });\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-queued-ignored",
+  "what": "a message queued while the checks ran does not stop the judgment",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "          if (task.pendingMessages?.length) {\n            task.dialogue.push({ role: 'assistant', at: now(), text: answer, run: task.runs?.length ?? 1 });\n            continue;\n          }\n          // The owner's Stop",
+    "new": "          // The owner's Stop"
+   }
+  ]
+ },
+ {
+  "name": "GA-hooks-ungated",
+  "what": "the hooks judge the answer without the gate",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "            assess: () => ({ verification: gateVerification(assessCompletionEvidence(task.goalPlan, task.progress), gated.result), completion: gateCompletion(classifyTaskCompletion(task.goalPlan, task.progress), gated.result) }),",
+    "new": "            assess: () => ({ verification: assessCompletionEvidence(task.goalPlan, task.progress), completion: classifyTaskCompletion(task.goalPlan, task.progress) }),"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-notice",
+  "what": "the answer carries no notice",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "const parts = { words: answer, gateNotice: gateNotice(gated.result), verificationNotice: null,",
+    "new": "const parts = { words: answer, gateNotice: null, verificationNotice: null,"
+   }
+  ]
+ },
+ {
+  "name": "GA-not-recorded",
+  "what": "the judgment is not on the task",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "          task.proofGate = gated.result;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-said-twice",
+  "what": "the gate's line is said again in the verification notice",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "            if (missing.length) parts.verificationNotice = verificationWarning(missing);\n",
+    "new": "            parts.verificationNotice = warning;\n"
+   }
+  ]
+ },
+ {
+  "name": "GA-kept-over-runs",
+  "what": "the judgment of the last run stands in the next one",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    task.proofGate = null; // set when",
+    "new": "    // set when"
+   }
+  ]
+ },
+ {
+  "name": "GA-public-hidden",
+  "what": "the judgment is not in the public task",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "proofGate:!task.proofGate?null:summary?",
+    "new": "proofGate:true?null:summary?"
+   }
+  ]
+ },
+ {
+  "name": "GA-list-whole",
+  "what": "the list of tasks carries the whole judgment",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "summary?{status:task.proofGate.status,reason:task.proofGate.reason,checksModified:task.proofGate.checksModified}:task.proofGate,",
+    "new": "task.proofGate,"
+   }
+  ]
+ },
+ {
+  "name": "GA-acceptance-undoes",
+  "what": "the owner's acceptance of an objective undoes a failed gate",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    task.completionOutcome=gateCompletion(classifyTaskCompletion(task.goalPlan,task.progress),task.proofGate);",
+    "new": "    task.completionOutcome=classifyTaskCompletion(task.goalPlan,task.progress);"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-stale",
+  "what": "a run that ends on another tree keeps its pass",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    task.proofGate = staleGate(task.proofGate, final);\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-stale-verification",
+  "what": "a stale gate leaves the verification ready",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    task.verificationOutcome = gateVerification(evidence, task.proofGate);",
+    "new": "    task.verificationOutcome = evidence;"
+   }
+  ]
+ },
+ {
+  "name": "GA-stale-completion",
+  "what": "a stale gate is not in the outcome",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    task.completionOutcome = gateCompletion(classifyTaskCompletion(task.goalPlan, task.progress), task.proofGate);",
+    "new": "    task.completionOutcome = classifyTaskCompletion(task.goalPlan, task.progress);"
+   }
+  ]
+ },
+ {
+  "name": "GA-stale-notice",
+  "what": "a stale gate has no notice",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "{ ...task.finalParts, gateNotice: gateNotice(task.proofGate), verificationNotice:",
+    "new": "{ ...task.finalParts, verificationNotice:"
+   }
+  ]
+ },
+ {
+  "name": "GA-parts-no-notice",
+  "what": "the record of the parts drops the notice",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "hookNotice: parts.hookNotice ?? null, ...(parts.gateNotice ? { gateNotice: parts.gateNotice } : {}) };",
+    "new": "hookNotice: parts.hookNotice ?? null };"
+   }
+  ]
+ },
+ {
+  "name": "GA-plan-mode",
+  "what": "a task in plan mode is gated",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "run: context.gate, task, planMode: planOnly(task),",
+    "new": "run: context.gate, task, planMode: false,"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-stop",
+  "what": "a stop does not reach the checks",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "planMode: planOnly(task), signal: context.controller.signal, emit:",
+    "new": "planMode: planOnly(task), emit:"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-budget",
+  "what": "the agent is sent back when no turn is left",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "      canGoOn: () => this.#canTakeAnotherStep(context), onRun:",
+    "new": "      onRun:"
+   }
+  ]
+ },
+ {
+  "name": "GA-not-verifying",
+  "what": "the task does not show as verifying",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "onRun: () => { this.#advance(task, 'verifying', GATE_EVENT); },",
+    "new": "onRun: () => {},"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-observed",
+  "what": "what the gate saw is not noted",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    if (verdict.observed) {\n",
+    "new": "    if (false) {\n"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-plan-receipt",
+  "what": "the plan's verify phase gets no receipt",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "        task.goalPlan = updateGoalPlan(task.goalPlan, { kind: 'verify' });\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-reused-receipt",
+  "what": "a reused judgment counts as a second receipt of the plan",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "      if (verdict.observed.checks.length && !verdict.result.reused) {",
+    "new": "      if (verdict.observed.checks.length) {"
+   }
+  ]
+ },
+ {
+  "name": "GA-stall-kept",
+  "what": "the stall counters of before the round go on",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    if (verdict.action === 'continue') task.progress = restartStall(task.progress);\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-no-forget",
+  "what": "a deleted conversation leaves its baseline",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    await this.doneGate.forget(this.tasks.get(id));\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-own-trust",
+  "what": "a second chat reads the trust list of its own data folder",
+  "patches": [
+   {
+    "file": "lib/concurrent-api-agent.mjs",
+    "old": "    manager.acceptanceTrust = this.manager.acceptanceTrustStore?.() ?? null;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-trust-other",
+  "what": "the manager ignores the list it was handed",
+  "patches": [
+   {
+    "file": "lib/manager.mjs",
+    "old": "  acceptanceTrustStore() { return this.acceptanceTrust ??= createTrustStore(this.hubDirectory); }",
+    "new": "  acceptanceTrustStore() { return createTrustStore(this.hubDirectory); }"
+   }
+  ]
+ },
+ {
+  "name": "GA-baseline-own-acceptance",
+  "what": "the baseline's own acceptance file is compared",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const before = withAcceptance(await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store') }), acceptance, objectFormat);",
+    "new": "    const before = await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store') });"
+   }
+  ]
+ },
+ {
+  "name": "GA-final-own-acceptance",
+  "what": "the workspace's listing decides about the acceptance file",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const after = withAcceptance(await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env }), current, objectFormat);",
+    "new": "    const after = await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env });"
+   }
+  ]
+ },
+ {
+  "name": "GA-store-unread",
+  "what": "the old bytes of a Git workspace are not read",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (record.store) return storeSide(",
+    "new": "  if (false) return storeSide("
+   }
+  ]
+ },
+ {
+  "name": "GA-no-criteria",
+  "what": "the changes are attributed without the criteria",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "detectCheckChanges({ baseline: before, final: after, acceptance: parseAcceptance(acceptance) });",
+    "new": "detectCheckChanges({ baseline: before, final: after, acceptance: null });"
+   }
+  ]
+ },
+ {
+  "name": "GA-scratch-left",
+  "what": "the scratch folder of the report is left behind",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  } finally { await fs.rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() => {}); }",
+    "new": "  } finally { /* left */ }"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-baseline",
+  "what": "no baseline is taken",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      run.baseline = { id: taken.id, sha256: taken.sha256 };\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-acp-notice",
+  "what": "an editor does not see the notice",
+  "patches": [
+   {
+    "file": "lib/acp/event-map.mjs",
+    "old": "[parts.words, parts.gateNotice, parts.verificationNotice",
+    "new": "[parts.words, parts.verificationNotice"
+   }
+  ]
+ }
+ ]
+}
