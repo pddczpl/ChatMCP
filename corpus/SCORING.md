@@ -154,7 +154,8 @@ or a file name, and each names its pack by the sha256 of its bytes. So the same 
 names, in any folder, on any machine, time zone or locale; the suite recomputes in another process from copies of the packs under other
 names, with another time zone and locale. `score.mjs --check results.jsonl` recomputes the file from the packs and compares the bytes:
 exit 0 when they are identical, 1 with the first line that differs. `metrics.mjs` reads the lines strictly (canonical, the schema, no run
-twice, and every field consistent with what it derives from: `false_done` with `claimed_done` and `hidden_pass`, `claimed_done` with the
+twice, one task hash per task id (lines of two versions of a task, scored against two corpora, are never pooled), and every field
+consistent with what it derives from: `false_done` with `claimed_done` and `hidden_pass`, `claimed_done` with the
 marker, the outcome with the hidden passes), so a hand-edited line is refused rather than counted.
 
 ## Refusals
@@ -173,7 +174,7 @@ a pack names its file.
 | `proof_pack_invalid`, `proof_pack_other_acceptance`, `proof_pack_criteria` | the proof pack |
 | `unknown_task`, `duplicate_run` | a pack of a task the corpus does not hold; two packs of one run (task, control or agent, repeat) |
 | `corpus_invalid`, `packs_missing`, `unexpected_file`, `results_missing` | the command line: a corpus that does not load, no packs folder, a file there that is not `*.json`, no results file |
-| `not_canonical`, `bad_result`, `result_inconsistent`, `duplicate_run`, `protocol_mismatch`, `repeat_out_of_range` | `metrics.mjs` reading `results.jsonl` |
+| `not_canonical`, `bad_result`, `result_inconsistent`, `duplicate_run`, `task_changed`, `protocol_mismatch`, `repeat_out_of_range` | `metrics.mjs` reading `results.jsonl` |
 | `bad_count`, `bad_argument` | a Wilson interval of counts that are not 0 <= k <= n whole numbers; a function called with the wrong arguments |
 
 ## Command lines

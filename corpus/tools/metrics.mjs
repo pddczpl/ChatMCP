@@ -83,13 +83,15 @@ function checkLine(result, where) {
 
 /**
  * Reads results.jsonl: one result per line, each line canonical JSON followed by a line break (an empty text is no result), valid against
- * corpus/schema/result.schema.json, consistent (checkLine), and no run twice.
+ * corpus/schema/result.schema.json, consistent (checkLine), no run twice, and one task hash per task: the lines of two versions of a task
+ * (packs scored against two corpora) are never pooled.
  */
 export function readResults(text) {
   if (typeof text !== 'string') refuse('bad_argument', 'readResults takes the text of results.jsonl');
   if (text === '') return [];
   if (!text.endsWith('\n')) refuse('not_canonical', 'results.jsonl ends with a line break after its last line');
   const seen = new Set();
+  const taskHashes = new Map();
   return text.slice(0, -1).split('\n').map((line, index) => {
     const where = `line ${index + 1}`;
     if (line === '') refuse('not_canonical', `${where} is empty`);
@@ -107,6 +109,9 @@ export function readResults(text) {
     const key = resultKey(value);
     if (seen.has(key)) refuse('duplicate_run', `${where}: the run ${key.split('\u0000').filter(Boolean).join(' / ')} is there twice`);
     seen.add(key);
+    const hash = taskHashes.get(value.task) ?? value.task_sha256;
+    if (hash !== value.task_sha256) refuse('task_changed', `${where}: ${value.task} has the task hash ${value.task_sha256}, an earlier line ${hash}`);
+    taskHashes.set(value.task, hash);
     return value;
   });
 }
