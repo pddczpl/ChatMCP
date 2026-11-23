@@ -301,7 +301,7 @@ try {
   // ==== the strict tar reader ============================================================================================================
   {
     const read = (entries, options) => tar.readTar(tarBytes(entries, options));
-    const plain = read([{ name: 'src/', type: '5' }, { name: 'a.txt', data: 'A' }, { name: 'bin/x.sh', data: '#!', mode: 0o755 }, { name: './src/b.mjs', data: 'B' }]);
+    const plain = read([{ name: './', type: '5' }, { name: 'src/', type: '5' }, { name: 'a.txt', data: 'A' }, { name: 'bin/x.sh', data: '#!', mode: 0o755 }, { name: './src/b.mjs', data: 'B' }]);
     assert.deepEqual(plain.map((file) => [file.path, file.mode, file.data.toString('utf8')]), [['a.txt', '100644', 'A'], ['bin/x.sh', '100755', '#!'], ['src/b.mjs', '100644', 'B']]);
     assert.deepEqual(read([{ name: 'a.txt', data: 'A' }], { gzip: true }).map((file) => file.path), ['a.txt']);
     const long = `${'p'.repeat(60)}/${'q'.repeat(60)}/${'r'.repeat(90)}.txt`;
@@ -321,7 +321,7 @@ try {
       refuses([{ name, data: 'x' }], 'unsafe_path', JSON.stringify(name));
     }
     refuses([{ name: Buffer.from([0x61, 0xff, 0x62]), data: 'x' }], 'unsafe_path', 'a name that is not UTF-8');
-    refuses([{ name: '.', type: '5' }, { name: 'a', data: 'x' }], 'unsafe_path', 'the folder "."');
+    refuses([{ name: './', type: '5' }, { name: '.', data: 'x' }], 'unsafe_path', 'a file named "." (the root folder entry "./" itself is skipped)');
     for (const [type, what] of [['1', 'a hard link'], ['2', 'a symbolic link'], ['3', 'a character device'], ['4', 'a block device'], ['6', 'a FIFO'], ['7', 'a contiguous file'], ['K', 'a GNU long link name'], ['S', 'a sparse file']]) {
       refuses([{ name: 'a', type, data: '' }], 'unsupported_entry', what);
     }
@@ -632,22 +632,25 @@ try {
   {
     const SCORE = path.join(TOOLS, 'score-checkout.mjs');
     const RUN = path.join(TOOLS, 'run-sandbox.mjs');
-    const node = (args) => spawnSync(process.execPath, args, { cwd: ROOT, env: ENV, encoding: 'utf8', windowsHide: true, timeout: 180_000 });
+    const node = (args) => spawnSync(process.execPath, args, { cwd: ROOT, env: { ...ENV, FIXTURE_CLI_KEY: 'cli-credential-0123456789' }, encoding: 'utf8', windowsHide: true, timeout: 180_000 });
     const oracleFile = path.join(TASK.dir, 'oracle.patch');
     const scored = node([SCORE, '--task', TASK.dir, '--git-source', SOURCE, '--root', SANDBOX, '--hidden', HIDDEN.file, '--patch', oracleFile, '--runs', '1']);
     assert.equal(scored.status, 0, scored.stderr + scored.stdout);
     assert.equal(JSON.parse(scored.stdout).outcome, 'pass');
     const patchOut = path.join(ROOT, 'out', 'null.patch');
-    const ran = node([RUN, '--task', TASK.dir, '--git-source', SOURCE, '--root', SANDBOX, '--patch-out', patchOut, '--', process.execPath, path.join(AGENTS, 'observe.mjs'), DEEP]);
+    const ran = node([RUN, '--task', TASK.dir, '--git-source', SOURCE, '--root', SANDBOX, '--patch-out', patchOut, '--credential', 'FIXTURE_CLI_KEY', '--', process.execPath, path.join(AGENTS, 'observe.mjs'), DEEP]);
     assert.equal(ran.status, 0, ran.stderr + ran.stdout);
     const summary = JSON.parse(ran.stdout);
     assert.equal(summary.agent.exitCode, 0);
+    assert.deepEqual(summary.profile.credentials, ['FIXTURE_CLI_KEY'], 'a --credential is taken from the named variable');
+    assert.ok(!ran.stdout.includes('cli-credential-0123456789'), 'the run printed names a credential, never its value');
     assert.equal(summary.patchSha256, sha256(Buffer.alloc(0)));
     assert.equal(readFileSync(patchOut).length, 0);
     const nullScored = node([SCORE, '--task', TASK.dir, '--git-source', SOURCE, '--root', SANDBOX, '--hidden', HIDDEN.file, '--patch', patchOut, '--runs', '1']);
     assert.equal(nullScored.status, 1, nullScored.stderr);
     assert.equal(JSON.parse(nullScored.stdout).outcome, 'fail');
-    for (const args of [[SCORE], [SCORE, '--bogus'], [SCORE, '--task', TASK.dir, '--patch', oracleFile], [RUN], [RUN, '--task', TASK.dir, '--patch-out', patchOut], [RUN, '--task', TASK.dir, '--patch-out', patchOut, '--']]) {
+    for (const args of [[SCORE], [SCORE, '--bogus'], [SCORE, '--task', TASK.dir, '--patch', oracleFile], [RUN], [RUN, '--task', TASK.dir, '--patch-out', patchOut], [RUN, '--task', TASK.dir, '--patch-out', patchOut, '--'],
+      [RUN, '--task', TASK.dir, '--patch-out', patchOut, '--credential', 'FIXTURE_NOT_SET_ANYWHERE', '--', process.execPath]]) {
       assert.equal(node(args).status, 2, args.join(' '));
     }
     nothingLeft('after the command lines');
