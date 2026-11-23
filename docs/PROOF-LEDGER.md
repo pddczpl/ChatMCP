@@ -36,13 +36,15 @@ One line per record, UTF-8, LF only:
 (`ledger_bad_record`) and reported as `unknown_type` by `verifyChain`: a reader that cannot interpret a record cannot vouch for it, and a
 new type comes with a new `v`. A record is a JSON object (a value that is not JSON, such as a BigInt, is refused). Three types have a
 closed schema of their own here: `check` (below), and `tree` and `call`, the records of the proof service (pod-17,
-[PROOF-SERVICE.md](PROOF-SERVICE.md)); the fields of the five others belong to the pods that write them (pod-17's `task_start`,
+[PROOF-SERVICE.md](PROOF-SERVICE.md)). `call` has a second closed shape, told apart by `kind`: the run of an external agent that
+`chatmcp verify exec` wrapped (pod-26, [PROOF-CLI.md](PROOF-CLI.md), "exec"); a `call` with any other `kind` is refused. The fields of the five others belong to the pods that write them (pod-17's `task_start`,
 `task_end` and `uncertain` are described there). `uncertain` is also written by the ledger itself, after a torn last line (below).
 
 | Type | Exactly these fields |
 |---|---|
 | `tree` | `event` (a word: `task_start`, `run_start`, `call_start`, `task_end`), `run` (from 1), `callId` and `tool` (text of at most 256 characters, or null), `category` (a word or null), `tree` (a tree reference, below; never null), `scanMs` (a count) |
-| `call` | `run`, `callId`, `tool`, `category` as above, `outcome` (a word: `ok`, `error`, `threw`), `treeBefore` and `treeAfter` (a tree reference or null), `changed` (boolean or null), `overlapped` (boolean), `scanMs` (a count), `beforeSeq` (a seq or null) |
+| `call` | `run`, `callId`, `tool`, `category` as above, `outcome` (a word: `ok`, `error`, `threw`), `treeBefore` and `treeAfter` (a tree reference or null), `changed` (boolean or null), `overlapped` (boolean), `scanMs` (a count), `beforeSeq` (a seq or null); no `kind` |
+| `call`, `kind` `agent_exec` | `kind`, `format` (`chatmcp.verify-exec/1`), `command` (at most 4,096 characters), `commandTruncated`, `commandSha256` (64 hex), `shell` (`bash`, `sh`, `powershell`), `cwd` (at most 1,024 characters), `agent` `{name, version}` (1 to 256 characters each), `exit` (an integer or null), `signal` (null or at most 32 characters), `timedOut`, `interrupted`, `lingering`, `stuck` (booleans), `treeLeft` (boolean or null), `durationMs`, `timeoutMs` (counts), `stdout` and `stderr` `{sha256 (64 hex), bytes, logged (at most bytes), truncated}`, `claim` `{marker (DONE, BLOCKED or null), reason (the reason of BLOCKED, else null), rule (contract or claim-marker), pattern, line (null or at most 1,000 characters each, as the reason), markerTimedOut, from (stdout or adapter)}`, `adapter` (null or `{name (a word), version (from 1), checked (a date), recognized, reason (a word or null), isError (boolean or null), model, agentVersion (null or at most 256 characters)}`), `cost` (`"unknown"` or `{currency (three capital letters), knownSubtotal (0 to 1e9), complete}`), `costSource` (null, `adapter` or `option`) |
 
 A word is `[a-z][a-z0-9_]{0,31}`. A tree reference has exactly the fields of `treeRef` (below), with `tree` and `rawTree` null or a Git
 object id in hex (40 or 64 digits). No field of either type can hold a tool's arguments or output.
@@ -62,6 +64,7 @@ Which fields are masked:
 | `check` | `command`, `cwd`, `shell`, `stdout.preview`, `stderr.preview`, the `toolchain` versions, and every string of `treeBefore` and `treeAfter` but the two ids (`status`, `treeAlgorithm`, `objectFormat`, `engineReason`, `limitations`, `takenAt`, `unbounded`) | the digests `commandSha256`, `argsSha256`, `stdout.sha256`, `stderr.sha256`, and the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
 | `tree` | `callId`, `tool`, and every string of `tree` but its two ids | the words `event` and `category`, the Git object ids `tree.tree`, `tree.rawTree` |
 | `call` | `callId`, `tool`, and every string of `treeBefore` and `treeAfter` but the two ids | the words `category` and `outcome`, the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
+| `call`, `kind` `agent_exec` | `command`, `cwd`, `agent`, `signal`, `claim.reason`, `claim.pattern`, `claim.line`, `adapter.model`, `adapter.agentVersion` | the digests `commandSha256`, `stdout.sha256`, `stderr.sha256`, and the words its schema holds to fixed values: `kind`, `format`, `shell`, `claim.marker`, `claim.rule`, `claim.from`, `adapter.name`, `adapter.checked`, `adapter.reason`, `cost` (`"unknown"`), `cost.currency`, `costSource` |
 | the five other types | every string, at any depth | nothing |
 
 The digests and ids are hex that the Hub computed, not text. A registered secret may be as short as 4 characters, and a short one

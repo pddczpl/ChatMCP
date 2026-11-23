@@ -6,7 +6,7 @@
 //   4. its exit, its duration and the sha256 and size of each output stream are recorded, the streams are kept in the evidence folder;
 //   5. the claim is read from the end of its final message (the marker contract of lib/proof/marker.mjs, or --claim-marker), from its
 //      stdout or from what an adapter (lib/proof/adapters/index.mjs) found in its documented JSON output; the run and the claim are one
-//      `task_end` record of the session's ledger (the agent's task ends with its claim; the checks that verify it follow);
+//      `call` record of the session's ledger (exec's closed shape of it, kind agent_exec);
 //   6. the criteria: the trusted checks of the baseline's acceptance file, each recorded with recordCheck as `run` records one;
 //   7. the pack, as `pack` builds it.
 // The commands' shared steps (the workspace and state folder, the session start, the pack) come from commands.mjs as `steps`, so this
@@ -23,7 +23,7 @@ import { ShellRunner, killTree } from '../../shell-runner.mjs';
 import { processTreeLeft, windowsProcessTree } from '../../studio-terminal.mjs';
 import { ACCEPTANCE_FILE, ACCEPTANCE_LIMITS, acceptanceSha256, resolveAcceptance } from '../acceptance.mjs';
 import { ADAPTERS, readAgentOutput } from '../adapters/index.mjs';
-import { ProofLedger, ToolchainProbe, commandSha256, recordCheck } from '../ledger.mjs';
+import { COMMAND_CHARS, EXEC_CALL_FORMAT, EXEC_CALL_KIND, EXEC_CALL_TEXT, ProofLedger, ToolchainProbe, commandSha256, recordCheck } from '../ledger.mjs';
 import { finalLine, parseFinalMarker } from '../marker.mjs';
 import { TreeSnapshotter } from '../tree-snapshot.mjs';
 import { createTrustStore } from '../trust-store.mjs';
@@ -32,10 +32,10 @@ import { stop } from './codes.mjs';
 import { readAcceptance } from './session.mjs';
 
 /**
- * The format of the agent's `task_end` record in the session's ledger. Not a `call` record: that type has the closed schema of the proof
- * service's tool calls (pod-17, docs/PROOF-SERVICE.md). This format tells exec's `task_end` apart from the service's.
+ * The format of the agent's `call` record in the session's ledger: exec's own closed shape of `call` (kind agent_exec), beside the proof
+ * service's tool calls (pod-17); lib/proof/ledger.mjs holds both shapes.
  */
-export const EXEC_FORMAT = 'chatmcp.verify-exec/1';
+export const EXEC_FORMAT = EXEC_CALL_FORMAT;
 /** The claim is read from at most the last 64 KiB of the agent's stdout. */
 export const CLAIM_WINDOW_BYTES = 64 * 1024;
 /** Each output stream is kept in the evidence folder up to 16 MiB; its sha256 and its size cover every byte. */
@@ -48,7 +48,6 @@ export const CLAIM_MARKER_TIMEOUT_MS = 1000;
 export const INTERRUPT_GRACE_MS = 5000;
 const KILL_GRACE_MS = 4000;
 const LINGER_MS = 1500;
-const RECORD_COMMAND_CHARS = 4096;
 const SIGNALS = Object.freeze(['SIGINT', 'SIGTERM', 'SIGBREAK']);
 const PATCH_CODES = new Set(['not_a_repository', 'repository_unreadable', 'git_missing']);
 const SETTLED = new Set(['evidenced', 'owner_accepted']);
@@ -293,12 +292,14 @@ async function runAgent({ invocation, root, env, timeoutMs, interrupts, echo, lo
 }
 
 // --------------------------------------------------------------------------------------------------------------------------- the answer
-const maskDeep = (value) => {
-  if (typeof value === 'string') return maskSecrets(value, []);
-  if (Array.isArray(value)) return value.map(maskDeep);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskDeep(item)]));
-  return value;
+/** `text` cut to `max` UTF-16 units, never inside a surrogate pair. */
+const cutText = (text, max) => {
+  if (text.length <= max) return text;
+  const end = max - (/[\ud800-\udbff]/.test(text[max - 1]) ? 1 : 0);
+  return text.slice(0, end);
 };
+/** A free text of the record masked, then cut to its bound in the ledger's schema (masking can make a text longer); null stays null. */
+const fit = (text, max) => (text === null ? null : cutText(maskSecrets(text, []), max));
 
 /** The answer code of an exec, first match wins: Ctrl-C, the time limit, the agent's own failure, then its claim against the criteria. */
 export function outcomeOf(agent, claim, criteria) {
@@ -373,16 +374,20 @@ export async function execCommand(ctx, steps) {
       if (read.model) model = { provider: null, id: read.model, profileRevision: null };
     }
     if (options.costUsd !== null) [cost, costSource] = [{ currency: 'USD', knownSubtotal: options.costUsd, complete: true }, 'option'];
-    claim = { ...readClaim(message ?? claimText(run.out.window(), run.out.bytes), { pattern: options.claimMarker }), from: message === null ? 'stdout' : 'adapter' };
-    agent = { name: options.agent ?? options.adapter ?? 'unknown', version: options.agentVersion ?? adapter?.agentVersion ?? 'unknown' };
-    const record = maskDeep({
-      kind: 'agent_exec', format: EXEC_FORMAT, command: command.slice(0, RECORD_COMMAND_CHARS), commandTruncated: command.length > RECORD_COMMAND_CHARS, commandSha256: commandSha256(command),
+    const read = readClaim(message ?? claimText(run.out.window(), run.out.bytes), { pattern: options.claimMarker });
+    // the free texts are masked, then cut to the bounds of exec's shape of `call`; the digests and the fixed words are left as they are
+    claim = { ...read, reason: fit(read.reason, EXEC_CALL_TEXT.claim), pattern: fit(read.pattern, EXEC_CALL_TEXT.claim), line: fit(read.line, EXEC_CALL_TEXT.claim),
+      from: message === null ? 'stdout' : 'adapter' };
+    agent = { name: fit(options.agent ?? options.adapter ?? 'unknown', EXEC_CALL_TEXT.name), version: fit(options.agentVersion ?? adapter?.agentVersion ?? 'unknown', EXEC_CALL_TEXT.name) };
+    if (adapter) adapter = { ...adapter, model: fit(adapter.model, EXEC_CALL_TEXT.name), agentVersion: fit(adapter.agentVersion, EXEC_CALL_TEXT.name) };
+    const shownCommand = maskSecrets(command, []);
+    const record = {
+      kind: EXEC_CALL_KIND, format: EXEC_FORMAT, command: cutText(shownCommand, COMMAND_CHARS), commandTruncated: shownCommand.length > COMMAND_CHARS, commandSha256: commandSha256(command),
       shell: shell.name, cwd: '.', agent, exit: run.exit, signal: run.signal, timedOut: run.timedOut, interrupted: run.interrupted, lingering: run.lingering, stuck: run.stuck,
       treeLeft: run.treeLeft, durationMs: run.durationMs, timeoutMs: run.timeoutMs, stdout: run.out.summary(), stderr: run.err.summary(), claim, adapter,
       cost: cost ?? 'unknown', costSource,
-    });
-    claim = record.claim;
-    entry = await ledger.append('task_end', record);
+    };
+    entry = await ledger.append('call', record);
     // 6. the criteria, unless the person stopped exec
     if (!run.interrupted) {
       const acceptance = await resolveAcceptance({ baseline: session.acceptanceBytes, current: null, trustStore: createTrustStore(state.hubDir) });

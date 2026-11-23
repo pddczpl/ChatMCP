@@ -193,9 +193,9 @@ exec's own options come before `--`; every word after it belongs to the agent's 
      Windows anyway (Node puts it in a job closed with its parent). `agent.treeLeft` says whether anything was left (null when Windows
      could not list its processes); while exec still waits for the output pipes, the streams are let go 1.5 s after the root exited
      (`agent.lingering`).
-4. **The run is recorded** as the `task_end` record of the session's ledger (`kind` `agent_exec`, `format` `chatmcp.verify-exec/1`; the
-   agent's task ends with its claim, and the receipts of the checks that verify it follow; a `call` record has the closed schema of the
-   proof service's tool calls, [PROOF-SERVICE.md](PROOF-SERVICE.md), and the format tells this `task_end` apart from the service's): the
+4. **The run is recorded** as one `call` record of the session's ledger, in exec's own closed shape of `call` (`kind` `agent_exec`,
+   `format` `chatmcp.verify-exec/1`, beside the guard seam's tool calls of [PROOF-SERVICE.md](PROOF-SERVICE.md); the fields and their
+   bounds are in [PROOF-LEDGER.md](PROOF-LEDGER.md), "Record types"): the
    command (cut to 4,096 characters; `commandSha256` is of the whole command), the shell, the agent's name and version, the exit code,
    the signal, `timedOut`, `interrupted`, the duration, the time limit, `stdout` and `stderr` as `{sha256, bytes, logged, truncated}`,
    the claim, the adapter's reading and the cost. The ledger masks every string of it (the digests are hex and stay as they are); the
@@ -307,7 +307,7 @@ way to send one process a Ctrl-C, so a real console Ctrl-C on Windows is not tes
 
 #### What exec does not do
 
-- The claim is not a field of the agent-change predicate v0.1, whose schema is closed: it is in the ledger's `task_end` record, which the
+- The claim is not a field of the agent-change predicate v0.1, whose schema is closed: it is in the ledger's `call` record, which the
   pack binds through `ledger.lastHash`, and in exec's answer.
 - The agent runs as you, so it can read and rewrite the state folder: the integrity level stays the spec's `unconfined`. What exec records
   is tamper-evident, it is not tamper-proof.

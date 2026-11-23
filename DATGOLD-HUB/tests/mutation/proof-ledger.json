@@ -206,7 +206,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], keptFor(type, copy));",
      "new": "    const masked = copy;"
     }
    ]
@@ -217,8 +217,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
-     "new": "    const masked = maskDeep(copy, [], KEPT_WHOLE[type] ?? null);"
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], keptFor(type, copy));",
+     "new": "    const masked = maskDeep(copy, [], keptFor(type, copy));"
     }
    ]
   },
@@ -228,7 +228,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], keptFor(type, copy));",
      "new": "    const masked = maskDeep(copy, this.secrets() ?? [], null);"
     }
    ]
@@ -239,7 +239,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], keptFor(type, copy));",
      "new": "    const masked = maskDeep(copy, this.secrets() ?? [], CHECK_DIGESTS);"
     }
    ]
@@ -272,8 +272,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "['commandSha256']",
-     "new": "['-']"
+     "old": "const CHECK_DIGESTS = new Set([['commandSha256'], ",
+     "new": "const CHECK_DIGESTS = new Set([['-'], "
     }
    ]
   },
@@ -1033,6 +1033,193 @@
      "file": "lib/proof/ledger.mjs",
      "old": "const ids = (...names) => names.flatMap((name) => [[name, 'tree'], [name, 'rawTree']]);",
      "new": "const ids = (...names) => names.flatMap((name) => [[name, 'tree']]);"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-no-dispatch",
+   "what": "a call record with a kind is checked as a guard-seam call (exec's record is refused)",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (Object.hasOwn(record, 'kind')) return record.kind === EXEC_CALL_KIND ? execCallProblem(record) : `the kind of a call record is ${EXEC_CALL_KIND}, or it has none`;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-fields-open",
+   "what": "exec's call record takes fields it does not name",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (!sameFields(record, EXEC_CALL_FIELDS)) return `an exec call record has exactly the fields ${EXEC_CALL_FIELDS.join(', ')}`;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-format",
+   "what": "exec's call record takes any format",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (record.format !== EXEC_CALL_FORMAT) return `format is ${EXEC_CALL_FORMAT}`;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-command-long",
+   "what": "exec's command may be longer than 4,096 characters",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (!boundedText(record.command, COMMAND_CHARS))",
+     "new": "if (typeof record.command !== 'string')"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-command-hash",
+   "what": "exec's command hash may be any text",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (!isHex64(record.commandSha256)) return 'commandSha256 is 64 hex digits';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-shell",
+   "what": "exec's shell may be any value",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (!['bash', 'sh', 'powershell'].includes(record.shell))",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-agent-open",
+   "what": "exec's agent takes more fields than name and version",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "!sameFields(agent, ['name', 'version'])",
+     "new": "false"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-flags",
+   "what": "interrupted, lingering and stuck may be anything",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "for (const name of ['timedOut', 'interrupted', 'lingering', 'stuck'])",
+     "new": "for (const name of ['timedOut'])"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-stream-open",
+   "what": "a stream summary takes more fields (a preview of the output)",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "!sameFields(stream, EXEC_STREAM_FIELDS)",
+     "new": "false"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-logged",
+   "what": "a stream may say more was logged than written",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": " || stream.logged > stream.bytes",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-blocked-reason",
+   "what": "BLOCKED without a reason, or DONE with one, is taken",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if ((claim.marker === 'BLOCKED') !== (claim.reason !== null)) return 'claim.reason is the reason of BLOCKED, and null otherwise';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-claim-bound",
+   "what": "the claim's texts may be 2,000 characters",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (!nullableText(claim[name], EXEC_CALL_TEXT.claim))",
+     "new": "if (!nullableText(claim[name], 2000))"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-adapter-open",
+   "what": "the adapter takes more fields",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (!isPlainObject(adapter) || !sameFields(adapter, EXEC_ADAPTER_FIELDS))",
+     "new": "if (!isPlainObject(adapter))"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-cost-text",
+   "what": "the cost may be free text",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (cost !== 'unknown' && !(",
+     "new": "if (false && !("
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-cost-source",
+   "what": "the cost source may be anything",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "if (![null, 'adapter', 'option'].includes(record.costSource))",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-kept-off",
+   "what": "exec's record is masked like a guard call: its digests can be broken by a registered secret",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const keptFor = (type, record) => (type === 'call' && record?.kind === EXEC_CALL_KIND ? EXEC_CALL_KEPT : KEPT_WHOLE[type] ?? null);",
+     "new": "const keptFor = (type) => KEPT_WHOLE[type] ?? null;"
+    }
+   ]
+  },
+  {
+   "name": "PL-exec-kept-command-hash",
+   "what": "the command hash of exec's record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const EXEC_CALL_KEPT = kept([['kind'], ['format'], ['commandSha256'], ",
+     "new": "const EXEC_CALL_KEPT = kept([['kind'], ['format'], "
     }
    ]
   }
