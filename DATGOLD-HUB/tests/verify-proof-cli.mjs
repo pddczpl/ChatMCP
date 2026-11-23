@@ -35,7 +35,10 @@ import { AGENT_CHANGE_SCHEMA, canonicalJson, statementDigest, validateStatement 
 import { workspaceKey } from '../lib/proof/baseline.mjs';
 import { VERSION } from '../lib/manager.mjs';
 import { CLI_DATA_SCHEMAS, CLI_FORMAT, CLI_OUTPUT_SCHEMA, CODES, COMMANDS, EXIT, MESSAGES, joinCommand } from '../lib/proof/cli/index.mjs';
-import { commitAll, newRepo, write } from './support/proof-tree-fixtures.mjs';
+import zlib from 'node:zlib';
+import { blobId, findGit } from '../lib/proof/git-plumbing.mjs';
+import { storeSide } from '../lib/proof/cli/store-side.mjs';
+import { commitAll, git, newRepo, write } from './support/proof-tree-fixtures.mjs';
 import { powerShellChildEnvironment, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -247,6 +250,34 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
   ok('joinCommand: one word unchanged; several joined with bash/sh or PowerShell quoting; what PowerShell 5.1 would change is refused');
 }
 
+// ------------------------------------------------------------------------------------------------------------------------- 5c. the baseline store side
+{
+  // pack reads the baseline side of the check-changes report from the baseline's private store: a bare repository, like this one
+  const bare = folder('store');
+  git(bare, ['init', '-q', '--bare']);
+  const put = (text) => git(bare, ['hash-object', '-w', '--stdin'], { input: text }).stdout.trim();
+  const alpha = put('alpha\n'); // 6 bytes
+  const beta = put('beta-beta\n'); // 10 bytes
+  // a loose object written by hand under the id of other content: cat-file hands it out without checking it
+  const forgedId = blobId(Buffer.from('original\n'));
+  fs.mkdirSync(path.join(bare, 'objects', forgedId.slice(0, 2)), { recursive: true });
+  fs.writeFileSync(path.join(bare, 'objects', forgedId.slice(0, 2), forgedId.slice(2)), zlib.deflateSync(Buffer.from('blob 7\0forged\n')));
+  const entries = [
+    { path: 'a.txt', mode: '100644', oid: alpha }, { path: 'b.txt', mode: '100644', oid: beta }, { path: 'forged.txt', mode: '100644', oid: forgedId },
+    { path: 'sub', mode: '160000', oid: alpha }, { path: 'gone.txt', mode: '100644', oid: 'c'.repeat(40) },
+  ];
+  const side = await storeSide({ git: await findGit(), storeDir: bare, entries, objectFormat: 'sha1', scratch: folder('store-scratch') });
+  assert.equal(side.entries, entries, 'the rows are the manifest\'s');
+  const text = (map) => Object.fromEntries([...map].map(([file, value]) => [file, Buffer.isBuffer(value) ? value.toString('utf8') : value]));
+  assert.deepEqual(text(await side.read(['a.txt', 'b.txt', 'sub', 'gone.txt', 'nowhere.txt'])),
+    { 'a.txt': 'alpha\n', 'b.txt': 'beta-beta\n', sub: null, 'gone.txt': null, 'nowhere.txt': null }, 'blobs read, a submodule and what the store lacks are null');
+  assert.deepEqual(text(await side.read(['a.txt', 'b.txt'], { maxBytes: 6 })), { 'a.txt': 'alpha\n', 'b.txt': { skipped: 'too_large', size: 10 } }, 'maxBytes, its edge included');
+  assert.deepEqual(text(await side.read(['a.txt', 'b.txt'], { budget: 15 })), { 'a.txt': 'alpha\n', 'b.txt': { skipped: 'read_budget', size: 10 } }, 'the budget');
+  assert.deepEqual(text(await side.read(['a.txt', 'b.txt'], { budget: 16 })), { 'a.txt': 'alpha\n', 'b.txt': 'beta-beta\n' }, 'the budget, its edge included');
+  await assert.rejects(side.read(['a.txt', 'forged.txt']), (error) => error.code === 'store_object_mismatch' && error.detail.path === 'forged.txt', 'a blob that does not hash to its id');
+  ok('the baseline store side: blobs, null for a submodule and a missing object, maxBytes and the budget at their edges, a forged blob refused');
+}
+
 // ------------------------------------------------------------------------------------------------------------------------- 2. usage, help, version, languages
 {
   const plain = folder('usage');
@@ -267,6 +298,10 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
     [['verify', 'run', '--shell', 'cmd', '--', 'node', '-v'], 'bad_value'],
     [['verify', 'show', '--', 'x'], 'unexpected_argument'],
     [['verify', 'trust', '--sha256', 'abc'], 'bad_value'],
+    [['verify', 'init', '--print=1'], 'bad_value'],
+    [['verify', 'show', '--print'], 'unknown_option'],
+    [['verify', 'run', '--timeout', '0', '--', 'node', '-v'], 'bad_value'],
+    [['verify', 'pack', '--agent', ''], 'bad_value'],
     [['verify', 'show', '--workspace', path.join(plain, 'missing')], 'bad_workspace'],
     [['verify', 'show'], 'no_session'],
     [['verify', 'run', '--', 'node', '-v'], 'no_session'],
@@ -294,6 +329,10 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
   assert.match(humanUsage.stderr, /bogus/, 'and says what was wrong on stderr');
   const helpJson = await ask(['verify', '--help'], { cwd: plain });
   expectAnswer(helpJson, 0, 'help', 'chatmcp verify --help --json');
+  const helpVi = await cli(['verify', '--help', '--lang', 'vi'], { cwd: plain });
+  assert.equal(helpVi.status, 0);
+  assert.notEqual(helpVi.stdout, verifyHelp.stdout, 'the help in Vietnamese is not the English one');
+  assert.match(helpVi.stdout, /^Các lệnh:$/m, 'the Vietnamese help');
 
   // English and Vietnamese: the same answer but for the message and the language; global options before `verify` too
   const [en, vi, viFirst] = await Promise.all([
@@ -369,6 +408,7 @@ let plainFolder;
   const edited = fingerprint(plain);
   const again = await ask(['verify', 'init'], { cwd: plain });
   expectAnswer(again, 1, 'acceptance_exists', 'init when the file is there');
+  expectAnswer(await ask(['verify', 'init', '--print'], { cwd: plain }), 1, 'acceptance_exists', 'init --print when the file is there');
   assert.deepEqual(fingerprint(plain), edited, 'the owner\'s file is left as it is');
   // trust: preview, a wrong digest, the right one, revoke
   const bytes = fs.readFileSync(file);
@@ -417,8 +457,32 @@ let plainFolder;
   expectAnswer(pack, 4, 'not_a_repository', 'pack of a plain folder');
   const outside = await ask(['verify', 'run', '--cwd', '..', '--', 'node', '-v'], { cwd: plain });
   expectAnswer(outside, 2, 'bad_cwd', 'run --cwd outside the workspace');
+  expectAnswer(await ask(['verify', 'run', '--cwd', 'notes.txt', '--', 'node', '-v'], { cwd: plain }), 2, 'bad_cwd', 'run --cwd naming a file');
+  expectAnswer(await ask(['verify', 'run', '--cwd', 'missing', '--', 'node', '-v'], { cwd: plain }), 2, 'bad_cwd', 'run --cwd naming nothing');
   assert.deepEqual(fingerprint(plain), afterInit, 'snapshot, run, show and pack write nothing into the folder');
   ok('a plain folder: init --print, init (never overwrites), trust preview / wrong digest (3) / trust / revoke, snapshot, run, show; pack exit 4');
+}
+
+// ------------------------------------------------------------------------------------------------------------------------- 4b. odd acceptance files
+{
+  // .chatmcp is a link (a junction on Windows, which needs no privilege) to a folder outside the workspace
+  const away = folder('away');
+  write(away, 'acceptance.yml', 'version: 1\ncriteria:\n  - id: x\n    text: x\n    checks:\n      - run: node -v\n');
+  const awayBefore = fingerprint(away);
+  const linked = real(folder('linked'));
+  fs.symlinkSync(away, path.join(linked, '.chatmcp'), 'junction');
+  const linkedBefore = fingerprint(linked);
+  for (const args of [['verify', 'init'], ['verify', 'init', '--print'], ['verify', 'trust'], ['verify', 'snapshot']]) {
+    expectAnswer(await ask(args, { cwd: linked }), 4, 'acceptance_outside', `${args.join(' ')} through a link out of the workspace`);
+  }
+  assert.deepEqual(fingerprint(away), awayBefore, 'nothing was written through the link');
+  assert.deepEqual(fingerprint(linked), linkedBefore, 'nor into the workspace');
+  // a folder where the file should be
+  const odd = real(folder('odd'));
+  fs.mkdirSync(path.join(odd, '.chatmcp', 'acceptance.yml'), { recursive: true });
+  expectAnswer(await ask(['verify', 'trust'], { cwd: odd }), 1, 'acceptance_missing', 'trust of a folder named acceptance.yml');
+  expectAnswer(await ask(['verify', 'init'], { cwd: odd }), 1, 'acceptance_exists', 'init where a folder holds the name');
+  ok('odd acceptance files: .chatmcp linked out of the workspace is exit 4 for init, trust and snapshot (nothing written); a folder in its place is no file');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 5. a Git repository
@@ -483,6 +547,8 @@ const head = (repo) => fs.readFileSync(path.join(repo, '.git', fs.readFileSync(p
   assert.deepEqual(statement.predicate.criteria.map((criterion) => [criterion.id, criterion.status]), [['unit', 'evidenced']]);
   assert.equal(statement.subject[0].digest.gitTree, snap.data.tree, 'the before subject is the baseline tree');
   assert.notEqual(statement.subject[1].digest.gitTree, snap.data.tree, 'the after subject is the edited tree');
+  assert.equal(one.data.receipt.treeBefore, statement.subject[1].digest.gitTree, 'the receipt was taken on the tree the pack calls final');
+  assert.equal(one.data.receipt.treeAfter, one.data.receipt.treeBefore, 'and the check did not change it');
   assert.notEqual(statement.subject[2].digest.sha256, sha256(''), 'the diff subject is the hash of a patch that is not empty');
   assert.deepEqual(statement.predicate.agent, { name: 'some-agent', version: '9.9.9' });
   assert.equal(statement.predicate.baseCommit, head(repo), 'baseCommit is the commit the baseline was taken on');
@@ -520,7 +586,32 @@ const head = (repo) => fs.readFileSync(path.join(repo, '.git', fs.readFileSync(p
   expectAnswer(modified, 1, 'pack_unverified', 'pack after the check file was changed');
   assert.deepEqual(modified.data.criteria, [{ id: 'unit', status: 'checks_modified' }]);
   assert.equal(modified.data.statement.predicate.checkChanges.checksModified, true);
-  ok('a Git repository: snapshot, edit, run, pack exit 0 (evidenced, both schemas, canonical file); stale, untrusted and checks_modified exit 1; the repository never written');
+  // the criteria are the baseline's: an acceptance file rewritten (and trusted) after the snapshot does not replace them
+  const rewritten = 'version: 1\ncriteria:\n  - id: easier\n    text: Anything passes\n    checks:\n      - run: node -v\n';
+  write(repo, '.chatmcp/acceptance.yml', rewritten);
+  expectAnswer(await ask(['verify', 'trust', '--sha256', sha256(rewritten)], { cwd: repo }), 0, 'trusted', 'trust of the rewritten file');
+  expectAnswer(await ask(['verify', 'run', '--', 'node', '-v'], { cwd: repo }), 0, 'check_passed', 'run of the rewritten check');
+  const rewrittenPack = await ask(['verify', 'pack'], { cwd: repo });
+  expectAnswer(rewrittenPack, 1, 'pack_unverified', 'pack after the acceptance file was rewritten');
+  assert.deepEqual(rewrittenPack.data.criteria.map((criterion) => criterion.id), ['unit'], 'the criteria stay the baseline\'s');
+  assert.equal(rewrittenPack.data.statement.predicate.acceptance.edited, true, 'and the pack says the file was edited');
+  assert.equal(rewrittenPack.data.statement.predicate.acceptance.baselineSha256, acceptanceSha, 'the baseline file is the one of the snapshot');
+  ok('a Git repository: snapshot, edit, run, pack exit 0 (evidenced, both schemas, canonical file); stale, untrusted, checks_modified and a rewritten acceptance file exit 1; the repository never written');
+}
+
+// ------------------------------------------------------------------------------------------------------------------------- 5b. no acceptance file
+{
+  const repo = real(newRepo('no-acceptance'));
+  write(repo, 'a.txt', 'a\n');
+  commitAll(repo);
+  const snap = await ask(['verify', 'snapshot'], { cwd: repo });
+  expectAnswer(snap, 0, 'snapshot_taken', 'snapshot without an acceptance file');
+  assert.deepEqual(snap.data.acceptance, { present: false, sha256: null, trusted: false });
+  assert.equal(snap.data.paths.acceptanceCopy, null);
+  const pack = await ask(['verify', 'pack'], { cwd: repo });
+  expectAnswer(pack, 1, 'pack_unverified', 'a pack with no criterion is not a pass');
+  assert.deepEqual(pack.data.criteria, []);
+  ok('a repository without an acceptance file: snapshot works, the pack has no criterion and is exit 1');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 6. integrity
@@ -560,7 +651,50 @@ const head = (repo) => fs.readFileSync(path.join(repo, '.git', fs.readFileSync(p
   fs.appendFileSync(third.data.paths.acceptanceCopy, '# changed\n');
   expectAnswer(await ask(['verify', 'show'], { cwd: repo }), 3, 'session_edited', 'show of an edited session copy');
   expectAnswer(await ask(['verify', 'pack'], { cwd: repo }), 3, 'session_edited', 'pack of an edited session copy');
-  ok('integrity: an edited or deleted ledger, an edited baseline and an edited session copy are exit 3; run does not run on a broken ledger');
+  // a baseline record rewritten with its own sha256 recomputed passes alone, not against the anchor the ledger holds
+  const fourth = await ask(['verify', 'snapshot'], { cwd: repo });
+  const line = fs.readFileSync(fourth.data.paths.baseline, 'utf8');
+  const body = `${line.slice(0, line.indexOf(',"recordSha256":"'))}}`;
+  assert.equal(sha256(body), fourth.data.baselineSha256, '(premise) the record is its text and that text\'s sha256');
+  const forged = JSON.parse(body);
+  forged.snapshot.durationMs += 1;
+  const forgedBody = JSON.stringify(forged);
+  fs.writeFileSync(fourth.data.paths.baseline, `${forgedBody.slice(0, -1)},"recordSha256":"${sha256(forgedBody)}"}\n`);
+  expectAnswer(await ask(['verify', 'show'], { cwd: repo }), 3, 'baseline_mismatch', 'show of a re-hashed baseline');
+  expectAnswer(await ask(['verify', 'pack'], { cwd: repo }), 3, 'baseline_mismatch', 'pack of a re-hashed baseline');
+  // a torn last line (a write cut by a crash): show and pack refuse it, run repairs it the ledger's way and goes on
+  const fifth = await ask(['verify', 'snapshot'], { cwd: repo });
+  expectAnswer(await ask(['verify', 'run', '--', 'node', '-v'], { cwd: repo }), 0, 'check_passed', 'a receipt to tear');
+  fs.writeFileSync(fifth.data.paths.ledger, fs.readFileSync(fifth.data.paths.ledger).subarray(0, -1));
+  const torn = await ask(['verify', 'show'], { cwd: repo });
+  expectAnswer(torn, 3, 'ledger_broken', 'show of a torn ledger');
+  assert.deepEqual([torn.detail.reason, torn.detail.brokenAt], ['torn_tail', 2]);
+  expectAnswer(await ask(['verify', 'run', '--', 'node', '-v'], { cwd: repo }), 0, 'check_passed', 'run on a torn ledger');
+  const repaired = await ask(['verify', 'show'], { cwd: repo });
+  expectAnswer(repaired, 0, 'session_intact', 'show after the repair');
+  assert.deepEqual(repaired.data.receipts.map((receipt) => receipt.seq), [3], 'the torn receipt was replaced by an uncertain record');
+  assert.equal(repaired.data.ledger.records, 3);
+  // session.json that is not a session
+  fs.writeFileSync(fifth.data.paths.session, 'not json\n');
+  const pointer = await ask(['verify', 'show'], { cwd: repo });
+  expectAnswer(pointer, 3, 'session_broken', 'show with a broken session.json');
+  assert.equal(pointer.detail.why, 'session_file_not_json');
+  const pointTo = (fields) => fs.writeFileSync(fifth.data.paths.session, `${JSON.stringify({ format: 'chatmcp.verify-session/1', taskId: fifth.data.taskId, baselineId: fifth.data.baselineId, workspace: repo, ...fields })}\n`);
+  for (const [fields, why] of [[{ baselineId: fourth.data.baselineId }, 'session_file_not_a_session'], [{ format: 'chatmcp.verify-session/2' }, 'session_file_not_a_session'],
+    [{ taskId: `x${fifth.data.taskId}` }, 'session_file_not_a_session']]) {
+    pointTo(fields);
+    const answer = await ask(['verify', 'show'], { cwd: repo });
+    expectAnswer(answer, 3, 'session_broken', `show with a session.json that is not this session (${JSON.stringify(fields)})`);
+    assert.equal(answer.detail.why, why);
+  }
+  // the ledger of another session under this session's name: a whole chain, but its task_start is not this session's
+  pointTo({});
+  expectAnswer(await ask(['verify', 'show'], { cwd: repo }), 0, 'session_intact', '(premise) the session is whole again');
+  fs.copyFileSync(fourth.data.paths.ledger, fifth.data.paths.ledger);
+  const swapped = await ask(['verify', 'show'], { cwd: repo });
+  expectAnswer(swapped, 3, 'session_broken', 'show with the ledger of another session');
+  assert.equal(swapped.detail.why, 'ledger_does_not_start_this_session');
+  ok('integrity: an edited, deleted or torn ledger, an edited or re-hashed baseline, an edited session copy and a broken session.json are exit 3; run does not run on a broken ledger and repairs a torn one');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 7. environment
@@ -568,10 +702,13 @@ const head = (repo) => fs.readFileSync(path.join(repo, '.git', fs.readFileSync(p
   const repo = gitRepository('state-inside');
   const before = fingerprint(repo);
   const inside = { CHATMCP_STATE_DIR: path.join(repo, '.datgold-state') };
+  const insideState = path.join(STATE, 'inside');
+  fs.mkdirSync(insideState, { recursive: true });
   const answers = await Promise.all([
     ask(['verify', 'snapshot'], { cwd: repo, env: inside }),
     ask(['verify', 'trust', '--sha256', sha256(ACCEPTANCE)], { cwd: repo, env: inside }),
     ask(['verify', 'snapshot'], { cwd: path.join(STATE), env: { CHATMCP_STATE_DIR: STATE } }),
+    ask(['verify', 'snapshot'], { cwd: insideState, env: { CHATMCP_STATE_DIR: STATE } }),
   ]);
   for (const answer of answers) expectAnswer(answer, 4, 'state_inside_workspace', 'a state folder inside the workspace, or the workspace inside it');
   assert.deepEqual(fingerprint(repo), before, 'nothing was written into the repository');

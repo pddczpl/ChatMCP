@@ -52,6 +52,9 @@ async function session(ctx, state, options) {
   return loaded;
 }
 
+/** The session's baseline, checked against the anchor its ledger holds (baseline_edited, baseline_mismatch, baseline_missing, ...). */
+const anchoredBaseline = (state, root, loaded) => loadBaseline({ hubDir: state.hubDir, root, id: loaded.baselineId, expectSha256: loaded.anchor });
+
 const pathsOf = (state, loaded, baselineFile) => ({
   session: state.session, ledger: loaded.ledgerFile, baseline: baselineFile, acceptanceCopy: loaded.acceptanceBytes ? state.acceptanceCopy(loaded.taskId) : null,
 });
@@ -202,7 +205,7 @@ async function run(ctx) {
 async function show(ctx) {
   const { root, state, shim } = await place(ctx);
   const loaded = await session(ctx, state);
-  const baseline = await loadBaseline({ hubDir: state.hubDir, root, id: loaded.baselineId, expectSha256: loaded.anchor });
+  const baseline = await anchoredBaseline(state, root, loaded);
   const { record } = baseline;
   const store = createTrustStore(state.hubDir);
   const atStart = loaded.start.acceptance ?? {};
@@ -243,7 +246,7 @@ async function show(ctx) {
 async function pack(ctx) {
   const { root, state, shim } = await place(ctx);
   const loaded = await session(ctx, state);
-  const baseline = await loadBaseline({ hubDir: state.hubDir, root, id: loaded.baselineId, expectSha256: loaded.anchor });
+  const baseline = await anchoredBaseline(state, root, loaded);
   const { record } = baseline;
   const diff = await diffBaseline({ hubDir: state.hubDir, root, id: loaded.baselineId, expectSha256: loaded.anchor, env: ctx.env });
   if (diff.patch.status !== 'ok') throw stop(Object.hasOwn(CODES, diff.patch.reason) ? diff.patch.reason : 'baseline_objects_missing', { reason: diff.patch.reason });
