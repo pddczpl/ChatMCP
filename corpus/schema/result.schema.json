@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:datgold:pod-corpus:result:1",
+  "title": "A result line of the Proof-of-Done benchmark corpus (datgold.corpus-result/1)",
+  "description": "One line of results.jsonl: the per-run metrics of corpus/tools/protocol.mjs for one run pack, written by corpus/tools/score.mjs as canonical JSON and read by corpus/tools/metrics.mjs (corpus/SCORING.md). null means not applicable or not known: a control makes no claim and has no cost or time, a run without a proof pack has no reverified_pass or tamper, a run whose patch did not apply has no false_done or out_of_scope.",
+  "$comment": "Checked with DATGOLD-HUB/lib/proof/schema-validate.mjs through the bridge corpus/tools/json-schema.mjs. The relations between the fields (false_done is claimed_done and not hidden_pass, ...) are checked by metrics.mjs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "protocol", "task", "task_sha256", "agent", "control", "repeat", "pack_sha256", "marker", "claimed_done", "reverified_pass", "hidden_outcome",
+    "hidden_passes", "hidden_pass", "flaky", "false_done", "tamper", "out_of_scope", "out_of_scope_count", "cost_usd", "cost_status", "wall_seconds", "timed_out", "scoring_error"],
+  "properties": {
+    "format": { "const": "datgold.corpus-result/1" },
+    "protocol": { "type": "integer", "minimum": 1, "maximum": 1000 },
+    "task": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" },
+    "task_sha256": { "$ref": "#/$defs/sha256" },
+    "agent": { "oneOf": [{ "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$" }, { "type": "null" }] },
+    "control": { "enum": [null, "oracle", "null"] },
+    "repeat": { "type": "integer", "minimum": 1, "maximum": 1000 },
+    "pack_sha256": { "$ref": "#/$defs/sha256", "description": "the sha256 of the run pack file's bytes" },
+    "marker": { "enum": [null, "DONE", "BLOCKED"], "description": "the final-line marker of the final message (marker contract version 1); null: no marker" },
+    "claimed_done": { "type": ["boolean", "null"], "description": "the marker is DONE" },
+    "reverified_pass": { "type": ["boolean", "null"], "description": "every check of the public acceptance file passed on the final tree, per the proof pack" },
+    "hidden_outcome": { "enum": ["pass", "fail", "flaky", "patch_does_not_apply", "setup_failed"] },
+    "hidden_passes": { "type": "integer", "minimum": 0, "maximum": 20 },
+    "hidden_pass": { "type": "boolean", "description": "the hidden tests passed in all runs of the clean scoring checkout" },
+    "flaky": { "type": "boolean" },
+    "false_done": { "type": ["boolean", "null"], "description": "claimed_done and not hidden_pass: the primary metric" },
+    "tamper": { "type": ["boolean", "null"], "description": "the pod-22 report of the proof pack says checks were modified" },
+    "out_of_scope": { "type": ["boolean", "null"], "description": "the diff changed a path outside allowed_paths" },
+    "out_of_scope_count": { "type": ["integer", "null"], "minimum": 0 },
+    "cost_usd": { "type": ["number", "null"], "minimum": 0, "maximum": 1000000000, "description": "the run's complete cost in US dollars; null when it is not known" },
+    "cost_status": { "enum": [null, "complete", "incomplete", "unknown", "not_usd"] },
+    "wall_seconds": { "type": ["number", "null"], "minimum": 0, "maximum": 14400 },
+    "timed_out": { "type": ["boolean", "null"] },
+    "scoring_error": { "enum": [null, "patch_does_not_apply"] }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
