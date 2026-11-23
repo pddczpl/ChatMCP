@@ -39,55 +39,62 @@ export function MessageItem({ message }: MessageItemProps) {
           <div className="conversation-copy whitespace-pre-wrap text-fg">{message.content}</div>
         ) : (
           <div className="conversation-copy max-w-none text-fg">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                a: ({ node, ...props }) => (
-                  <a {...props} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary" />
-                ),
-                code: ({ node, className, children, ...props }) => {
-                  const match = /language-(\w+)/.exec(className || '');
-                  const isInline = !match && !String(children).includes('\n');
-                  if (isInline) {
-                    return (
-                      <code className="rounded-md border border-line bg-surface px-1.5 py-0.5 font-mono text-[0.86em] text-fg" {...props}>
-                        {children}
-                      </code>
-                    );
-                  }
-                  return <CodeBlock language={match?.[1] || 'text'}>{String(children).replace(/\n$/, '')}</CodeBlock>;
-                },
-                pre: ({ children }) => <>{children}</>,
-                p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-                ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 marker:text-faint">{children}</ul>,
-                ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 marker:text-faint">{children}</ol>,
-                li: ({ children }) => <li className="pl-0.5">{children}</li>,
-                h1: ({ children }) => <h1 className="mb-2 mt-5 text-xl font-semibold tracking-tight text-fg">{children}</h1>,
-                h2: ({ children }) => <h2 className="mb-2 mt-5 text-[17px] font-semibold tracking-tight text-fg">{children}</h2>,
-                h3: ({ children }) => <h3 className="mb-1 mt-4 text-[15px] font-semibold text-fg">{children}</h3>,
-                hr: () => <hr className="my-4 border-line" />,
-                blockquote: ({ children }) => (
-                  <blockquote className="my-3 border-l-2 border-primary/50 pl-4 text-muted">{children}</blockquote>
-                ),
-                table: ({ children }) => (
-                  <div className="my-3 overflow-x-auto rounded-xl border border-line">
-                    <table className="w-full border-collapse text-left text-[13px]">{children}</table>
-                  </div>
-                ),
-                th: ({ children }) => (
-                  <th className="border-b border-line bg-surface px-3 py-2 font-semibold text-muted">{children}</th>
-                ),
-                td: ({ children }) => (
-                  <td className="border-b border-line-subtle px-3 py-2 text-fg">{children}</td>
-                ),
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+            <MarkdownText text={message.content} />
           </div>
         )}
       </div>
     </article>
+  );
+}
+
+/** Markdown as the conversation draws it (an answer, a plan): no raw HTML, links in a new tab. */
+export function MarkdownText({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ node, ...props }) => (
+          <a {...props} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary" />
+        ),
+        code: ({ node, className, children, ...props }) => {
+          const match = /language-(\w+)/.exec(className || '');
+          const isInline = !match && !String(children).includes('\n');
+          if (isInline) {
+            return (
+              <code className="rounded-md border border-line bg-surface px-1.5 py-0.5 font-mono text-[0.86em] text-fg" {...props}>
+                {children}
+              </code>
+            );
+          }
+          return <CodeBlock language={match?.[1] || 'text'}>{String(children).replace(/\n$/, '')}</CodeBlock>;
+        },
+        pre: ({ children }) => <>{children}</>,
+        p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 marker:text-faint">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 marker:text-faint">{children}</ol>,
+        li: ({ children }) => <li className="pl-0.5">{children}</li>,
+        h1: ({ children }) => <h1 className="mb-2 mt-5 text-xl font-semibold tracking-tight text-fg">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-2 mt-5 text-[17px] font-semibold tracking-tight text-fg">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-1 mt-4 text-[15px] font-semibold text-fg">{children}</h3>,
+        hr: () => <hr className="my-4 border-line" />,
+        blockquote: ({ children }) => (
+          <blockquote className="my-3 border-l-2 border-primary/50 pl-4 text-muted">{children}</blockquote>
+        ),
+        table: ({ children }) => (
+          <div className="my-3 overflow-x-auto rounded-xl border border-line">
+            <table className="w-full border-collapse text-left text-[13px]">{children}</table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th className="border-b border-line bg-surface px-3 py-2 font-semibold text-muted">{children}</th>
+        ),
+        td: ({ children }) => (
+          <td className="border-b border-line-subtle px-3 py-2 text-fg">{children}</td>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
   );
 }
 

@@ -291,8 +291,8 @@ internal sealed class SmokeWindow : Form
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('header button[title=\"Thu gọn Inspector (Ctrl+J)\"]').click()");
             await WaitFor("!document.querySelector('#panel-inspector')", "work panel close works");
             await SelectWorkTab("Tiến độ");
-            await WaitFor("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('Chưa có kế hoạch')", "empty plan reports no plan");
-            var fabricated = await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('100%')");
+            await WaitFor("document.querySelector('[data-testid=\"plan-tab\"]')?.innerText.includes('Chưa có kế hoạch')", "empty plan reports no plan");
+            var fabricated = await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[data-testid=\"plan-tab\"]')?.innerText.includes('100%')");
             if (fabricated == "true") throw new InvalidOperationException("Empty plan claimed 100% completion.");
             // The Agents tab is the list of background tasks and nothing else: it renders without a script or CSP error and has no switch to sections that hand out work.
             // Only navigation: no model request is made and no task is created.

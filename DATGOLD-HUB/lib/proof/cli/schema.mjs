@@ -1,5 +1,6 @@
 // The JSON Schemas of what `chatmcp verify --json` prints (docs/PROOF-CLI.md, "JSON answers"): one envelope for every answer, and the
 // `data` of each command. They use only the keywords of ./../schema-validate.mjs, so the suite validates every answer it gets with them.
+import { VERDICTS } from '../render/model.mjs';
 import { CLI_FORMAT, CODES, COMMANDS, EXIT } from './codes.mjs';
 
 const HEX64 = '^[0-9a-f]{64}$';
@@ -67,13 +68,16 @@ export const CLI_DATA_SCHEMAS = deepFreeze({
       timedOut: flag, cancelled: flag, durationMs: count, passed: flag, stdout: stream, stderr: stream, treeBefore: nullable(gitId), treeAfter: nullable(gitId),
     }),
   }),
-  show: closed({
+  show: { oneOf: [closed({ // show --pack: a report
+    pack: closed({ file: text(), digest: hex64 }), format: { enum: ['md', 'html'] }, verdict: { enum: VERDICTS }, truncated: flag, out: nullable(text()), bytes: count, sha256: hex64,
+    text: { type: ['string', 'null'] }, // the whole report when no --out names a file
+  }), closed({
     taskId: text(160), baseline: baselineSummary,
     ledger: closed({ records: count, verified: flag, checks: count, lastHash: hex64 }),
     acceptance: closed({ baseline: acceptanceState, current: closed({ present: flag, sha256: nullable(hex64), trusted: flag, changed: flag }) }),
     receipts: list(closed({ seq: { type: 'integer', minimum: 1 }, ts: text(64), command: text(8192), cwd: text(), shell: text(32), exit: nullable({ type: 'integer' }), passed: flag, treeBefore: nullable(gitId) }), 50),
     receiptsOmitted: count, paths,
-  }),
+  })] },
   pack: closed({
     taskId: text(160), file: text(), packFile: text(), digest: hex64, statement: { type: 'object' },
     criteria: list(closed({ id: text(128), status: criterionStatus })),

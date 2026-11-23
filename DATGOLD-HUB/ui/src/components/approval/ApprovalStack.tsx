@@ -8,10 +8,12 @@ import { formatTime } from '@/lib/format';
 import { riskInfo } from '@/lib/tool-labels';
 import { cn } from '@/lib/utils';
 import type { ApprovalView } from '@/lib/task-view';
+import { planRequest } from '@/lib/plan-view';
 import { detailWithoutPreview, parseChangePreview } from '@/lib/change-preview';
 import { ChangePreview } from './ChangePreview';
 import { GitPushPreview } from './GitPushPreview';
 import { McpToolPreview } from './McpToolPreview';
+import { PlanApprovalCard } from './PlanApprovalCard';
 
 export type PendingApproval = ApprovalView;
 interface ApprovalStackProps {
@@ -19,6 +21,10 @@ interface ApprovalStackProps {
   onApprove: (id: string) => void | Promise<void>;
   onDeny: (id: string, reason?: string) => void | Promise<void>;
   busy?: boolean;
+  /** The permission mode in force, for the plan card. */
+  gateMode?: string;
+  /** The Hub took the answer to a plan. */
+  onPlanAnswered?: () => void;
 }
 const decisionKeys: Record<string, TranslationKey> = { approved: 'agents_apr_approved', denied: 'agents_apr_denied', expired: 'agents_apr_expired', cancelled: 'agents_apr_cancelled', blocked: 'agents_apr_blocked', policy: 'agents_apr_policy' };
 
@@ -28,7 +34,7 @@ const countdown = (ms: number) => {
 };
 
 /** What the agent wants to do, how risky it is, exactly what would change, and the two buttons. */
-export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalStackProps) {
+export function ApprovalStack({ approvals, onApprove, onDeny, busy, gateMode, onPlanAnswered }: ApprovalStackProps) {
   const { lang, t } = useTranslation();
   const [now, setNow] = useState(Date.now);
   const [confirmDeny, setConfirmDeny] = useState<string | null>(null);
@@ -44,13 +50,19 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
         const expiresAt = item.expiresAt ? Date.parse(item.expiresAt) : NaN;
         const expired = Number.isFinite(expiresAt) && expiresAt <= now;
         const decision = item.decision || (expired ? 'expired' : undefined);
+        // The plan of a plan-mode task has a card of its own: it is read, edited and answered with more than a yes or a no.
+        const plan = planRequest(item);
+        if (plan) {
+          return <PlanApprovalCard key={item.id} approval={item} request={plan} gateMode={gateMode} expired={expired} busy={busy} onAnswered={onPlanAnswered}
+            remaining={Number.isFinite(expiresAt) ? countdown(expiresAt - now) : null} />;
+        }
         const disabled = !!decision || busy;
         // The change as the Hub planned it replaces the crude diff of the two strings the model wrote; a request from an Hub that does not send it is drawn as before.
         const changes = parseChangePreview(item.detail);
         const diffs = !changes && item.oldContent !== undefined && item.newContent !== undefined ? diffLines(item.oldContent, item.newContent) : null;
         const risk = riskInfo(item.risk, lang);
         // A tool of an external MCP server (category external) has no row in the table of the Hub's own categories: it is named here, and its level stays high.
-        const riskLabel = item.risk === 'external' ? t('agents_apr_mcp_risk') : risk.label;
+        const riskLabel = item.risk === 'external' ? t('agents_apr_mcp_risk') : item.risk === 'plan' ? t('plan_card_label') : risk.label;
         const pending = !decision;
         return (
           <section key={item.id} aria-label={t('agents_apr_title', { tool: item.tool })} data-approval-id={item.id}
@@ -58,7 +70,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
             <header className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2.5', pending ? 'border-warning/30 bg-warning/[0.08]' : 'border-line-subtle bg-surface')}>
               <ShieldAlert className={cn('h-4 w-4 shrink-0', pending ? 'text-warning' : 'text-muted')} />
               <span className="text-[14px] font-semibold">{decision ? (decisionKeys[decision] ? t(decisionKeys[decision]) : decision) : t('agents_apr_request')}</span>
-              <Badge variant={risk.level === 'high' ? 'danger' : risk.level === 'medium' ? 'warning' : 'neutral'}>{risk.levelLabel}</Badge>
+              {item.risk !== 'plan' && <Badge variant={risk.level === 'high' ? 'danger' : risk.level === 'medium' ? 'warning' : 'neutral'}>{risk.levelLabel}</Badge>}
               {item.requester && <Badge variant="info" data-testid="approval-requester" title={t('agents_apr_client_title')}>{item.requester}</Badge>}
               {pending && Number.isFinite(expiresAt) && (
                 <span className="ml-auto text-[12px] tabular-nums text-muted" title={item.expiresAt ? `${t('agents_apr_expires_at')} ${formatTime(item.expiresAt, lang)}` : undefined}>
@@ -74,6 +86,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalSt
                 {item.requester && <p className="text-[13px] text-muted" data-testid="approval-requester-note">{t('agents_apr_client', { client: item.requester })}</p>}
                 <p className="text-[13px] text-muted">{t('agents_apr_risk')} <span className="font-medium text-fg">{riskLabel}</span> <code className="ml-1 text-[12px] text-faint">{item.risk}</code></p>
                 {item.reason && item.reason !== item.description && <p className="text-[13px] text-muted">{item.reason}</p>}
+                {item.feedback && <p className="whitespace-pre-wrap break-words text-[13px] text-fg">{t('plan_feedback', { text: item.feedback })}</p>}
                 {item.expiresAt && (
                   <p className="text-[12px] text-faint">{t('agents_apr_expires')} <time dateTime={item.expiresAt}>{formatTime(item.expiresAt, lang)}</time></p>
                 )}

@@ -1,4 +1,4 @@
-# Proof-of-Done: the `chatmcp verify` command line (P4 pod-24, P5 pod-26, pod-32)
+# Proof-of-Done: the `chatmcp verify` command line (P4 pod-24, P5 pod-26, pod-30, pod-32)
 
 `chatmcp verify` is the command line of Proof-of-Done: it takes a baseline of a workspace, records check receipts in a proof ledger,
 builds the proof pack of the change (an in-toto statement, [spec/agent-change-v0.1.md](spec/agent-change-v0.1.md), and the pack file that
@@ -14,7 +14,7 @@ without the Hub: every command wires a module that already does the work.
 | `exec` | the exec wrapper for any external agent (pod-26): `snapshot`, the agent, the marker reader of `lib/proof/marker.mjs` and the output adapters, `recordCheck` for each trusted check, `pack` |
 | `check` | the pack file (pod-32, `lib/proof/cli/check.mjs`): `validateStatement` and `statementDigest` of the spec (pod-29), `verifyChain` (pod-16), and with `--tree` the tree snapshots (pod-15) |
 | `reproduce` | the pack file, the trust store (pod-20), `git clone --shared` or a copy of a folder, `git apply`, and the check runner of [PROOF-CHECKS.md](PROOF-CHECKS.md) (pod-21, `runAcceptanceChecks`) |
-| `show` | `loadBaseline` (pod-25) and `verifyChain` (pod-16) |
+| `show` | `loadBaseline` (pod-25) and `verifyChain` (pod-16); with `--pack` the pack file (pod-32) and the renderers of [PROOF-RENDER.md](PROOF-RENDER.md) (pod-30, `lib/proof/render/`) |
 | `pack` | `diffBaseline` (pod-25), `detectCheckChanges` of [PROOF-TAMPER.md](PROOF-TAMPER.md) (pod-22) and `buildAgentChangeStatement` of the spec (pod-29) |
 
 **Status: a command line of its own.** The grammar, the exit codes, the JSON answers and both languages are fixed here; every command
@@ -49,6 +49,13 @@ chatmcp verify check change.pack.json                         # the schema, the 
 chatmcp verify trust --pack change.pack.json                  # shows the setup and the checks it would run: exit 1, not trusted yet
 chatmcp verify trust --pack change.pack.json --sha256 <sha256>
 chatmcp verify reproduce change.pack.json --base <commit>     # from the repository the change was made in, or --base <folder>
+```
+
+And a report of it for people, in Markdown or HTML ("`show`" below):
+
+```text
+chatmcp verify show --pack change.pack.json > comment.md                     # Markdown, at most 65,000 characters
+chatmcp verify show --pack change.pack.json --format html --lang vi --out report.html
 ```
 
 ## Grammar
@@ -89,7 +96,8 @@ Every answer has one code, and a code always has the same exit code (the table a
 scripts, TypeScript, Playwright, pytest, `dotnet test`, Cargo, Go, make; one manual criterion when nothing is found) and writes it. It runs
 nothing. It never overwrites: when the file is there, in any form, the answer is `acceptance_exists` (exit 1) and nothing changes.
 `--print` writes nothing and prints the file itself (without `--json`, stdout is exactly the file, ready to redirect). A `.chatmcp` that
-leads out of the workspace through a link is `acceptance_outside` (exit 4). This is **the only place the CLI writes into a workspace**.
+leads out of the workspace through a link is `acceptance_outside` (exit 4). This is **the only place the CLI writes into a workspace** on its
+own (`show --pack --out` writes the report to the file the person names).
 
 ### `trust`
 
@@ -490,6 +498,27 @@ acceptance file against the sha256 the ledger holds, and the baseline against th
 lists the baseline, the ledger, the last 50 receipts, and whether the acceptance file of the baseline and the one on disk now are trusted.
 It writes nothing and takes no snapshot.
 
+```text
+chatmcp verify show --pack <file> [--format md|html] [--lang en|vi] [--out <file>]
+                    [--vnd-rate <n> --vnd-rate-date <YYYY-MM-DD> --vnd-rate-source <text>]
+```
+
+`show --pack <file>` (plan task pod-30, `lib/proof/cli/report.mjs`) shows a **pack file** instead, as a report people read: what it says,
+and how it keeps the texts of a pack from being markup, is in [PROOF-RENDER.md](PROOF-RENDER.md). It needs no session, no state folder and
+no repository, and runs nothing.
+
+- The pack is checked whole first, as `check` checks it: a pack that does not verify renders **nothing** (its exit 3 code, stdout empty).
+- `--format` is `md` (the default: Markdown for a pull request comment, at most 65,000 characters) or `html` (one file). The language is
+  that of `--lang`.
+- Without `--out` (and without `--json`), stdout is exactly the report: `report_printed`. With `--json` it is `data.text`.
+- `--out <file>` (relative to the current folder) writes it there instead, never over anything that is there: `report_written`, else
+  `report_exists` (exit 1) and nothing changes. It is the one file of this command, in a folder that exists.
+- `--vnd-rate` with `--vnd-rate-date` and `--vnd-rate-source` adds the cost in Vietnamese dong at that rate, shown with its date and source;
+  one without the others is `missing_argument`. There is no built-in rate and none is fetched.
+- **Exit 0 says that the pack verifies and the report was made, not that its criteria are evidenced**: a report is wanted most when they are
+  not. `data.verdict` names the verdict; gate on `check`.
+- `--format`, `--out` and the rate without `--pack` are `missing_argument`: the session has no report (build a pack first).
+
 ### `pack`
 
 `chatmcp verify pack [--agent <name>] [--agent-version <version>]` builds the proof pack of the session:
@@ -558,7 +587,7 @@ pack's own validator (`lib/proof/schema-validate.mjs`). `data` per command:
 | `trust` | `{file, pack, sha256, trusted, approvedBy, at, checks: [{criterion, run, cwd}], manual, setup, trustCommand}`; `pack` is the pack file of `--pack`, else null |
 | `snapshot` | `{taskId, baselineId, baselineSha256, createdAt, treeAlgorithm, objectFormat, tree, files, bytes, repository, patchAvailable, patchReason, acceptance: {present, sha256, trusted}, paths}` |
 | `run` | `{taskId, command, shell, cwd, receipt: {seq, hash, commandSha256, argsSha256, exit, signal, timedOut, cancelled, durationMs, passed, stdout, stderr, treeBefore, treeAfter}}` |
-| `show` | `{taskId, baseline, ledger, acceptance: {baseline, current}, receipts, receiptsOmitted, paths}` |
+| `show` | `{taskId, baseline, ledger, acceptance: {baseline, current}, receipts, receiptsOmitted, paths}`; with `--pack` `{pack: {file, digest}, format, verdict, truncated, out, bytes, sha256, text}`: `bytes` and `sha256` are of the report, `truncated` whether the Markdown was shortened, `text` the report (null with `--out`) |
 | `pack` | `{taskId, file, packFile, digest, statement, criteria: [{id, status}], changes, receipts}`; `statement` validates against [agent-change-v0.1.schema.json](spec/agent-change-v0.1.schema.json) |
 | `check` | `{file, format, digest, subjects: {before, after, diff, commit}, treeAlgorithm, objectFormat, baseCommit, agent, acceptance: {sha256, trusted, edited}, criteria: [{id, status}], receipts, ledger: {records, lastHash}, files: [{name, sha256, bytes}], tree}`; `tree` is null without `--tree`, else `{treeAlgorithm, objectFormat, tree, matches}`; `acceptance.trusted` is the maker's trust, as the pack records it |
 | `reproduce` | `{pack: {file, digest}, base: {kind, value, folder, commit}, trees: {before, after, checks, checksOnPackTree}, treeAlgorithm, objectFormat, shell, setup: [{command, outcome, passed, durationMs, output}], passes, receipts: [{seq, criterion, index, command, cwd, status, reason, detail, pack, here}], notCompared: [{seq, why}], compared, reproduced, divergent, share, leftover}`; `pack` and `here` are outcomes (`exit 0`, `timed out`, `signal SIGKILL`), `share` is null when nothing was compared |
@@ -591,7 +620,8 @@ The CLI shares it with the Hub:
 | `proof/cli/<key>/tree-state/`, `shell/` | the snapshot engine's private index and objects, ShellRunner's script files |
 
 `<key>` is the workspace key of the baseline store (the sha256 of the workspace path). **The CLI never writes into the workspace**, but for
-`init` writing `.chatmcp/acceptance.yml` (the agent that `exec` runs writes where it likes; that is what is being verified): snapshots, receipts and packs are all in the state folder, and the repository's `.git` is only
+`init` writing `.chatmcp/acceptance.yml` and `show --pack --out` writing the report where the person says (the agent that `exec` runs writes
+where it likes; that is what is being verified): snapshots, receipts and packs are all in the state folder, and the repository's `.git` is only
 read (the suite compares every byte of the workspace, `.git` included, around every other command). A state folder inside the workspace,
 or a workspace inside the state folder, is refused with `state_inside_workspace` (exit 4) before anything is written: the snapshot would
 hold the state itself. `check` writes nothing (with `--tree`, only the snapshot's private index in `tree-state/`); `reproduce` writes
@@ -619,11 +649,14 @@ network, as may the setup and the checks `reproduce` runs once the person truste
 | `snapshot_taken` | 0 | `snapshot` started a session |
 | `check_passed` | 0 | `run`: the command exited 0 in time |
 | `session_intact` | 0 | `show`: the ledger and the baseline verify |
+| `report_printed` | 0 | `show --pack`: the pack verifies, and the report is on stdout (`data.text`) |
+| `report_written` | 0 | `show --pack --out`: the pack verifies, and the report is in the file (`data.out`) |
 | `pack_evidenced` | 0 | `pack`: every criterion is evidenced or owner-accepted |
 | `exec_evidenced` | 0 | `exec`: the agent claimed DONE, exited 0, and every criterion is evidenced or owner-accepted |
 | `pack_verified` | 0 | `check`: the pack verifies, and every criterion is evidenced or owner-accepted |
 | `reproduced` | 0 | `reproduce`: every compared receipt reproduced |
 | `acceptance_exists` | 1 | `init`: the file is there; nothing was written |
+| `report_exists` | 1 | `show --pack --out`: something is there already; nothing was written |
 | `acceptance_missing` | 1 | `trust`: no acceptance file, or not a regular file (with `--pack`: the pack has none) |
 | `acceptance_invalid` | 1 | the acceptance file does not read (`detail.line`, `detail.reason`) |
 | `not_trusted` | 1 | `trust`: the file is not trusted (`data.trustCommand`); `exec` and `reproduce`: nothing runs (`detail.trustCommand`; for reproduce also `detail.setup` and `detail.checks`) |
@@ -655,7 +688,7 @@ network, as may the setup and the checks `reproduce` runs once the person truste
 | `no_session` | 2 | `run`, `show` or `pack` before `snapshot` |
 | `unsafe_argument` | 2 | `run` or `exec` with `--shell powershell`: a word PowerShell 5.1 would change |
 | `bad_command` | 2 | the command text is too long for ShellRunner |
-| `missing_argument` | 2 | `check` or `reproduce` without a pack file, `reproduce` without `--base` |
+| `missing_argument` | 2 | `check` or `reproduce` without a pack file, `reproduce` without `--base`, `show` with an option of a report but without `--pack`, or with a part of a rate |
 | `bad_pack` | 2 | the pack file is not a file |
 | `bad_base` | 2 | `reproduce --base` is neither a folder nor a commit of the workspace's repository (`detail.why`) |
 | `sha256_mismatch` | 3 | `trust --sha256`: the file has another sha256 |
@@ -735,6 +768,9 @@ nothing to reproduce, each divergence reason in process, Ctrl-C (injected on eve
 cross-system fixture (`tests/fixtures/proof-reproduce/`, a pack made on Windows, checked and reproduced from a folder and from a commit
 on every CI system), and no network. Its name does not hold `proof-cli`, so the macOS job runs it in a step of its own. Its mutation
 list is `tests/mutation/proof-reproduce.json`.
+
+`DATGOLD-HUB/tests/verify-proof-render.mjs` is the suite of `show --pack` and of the renderers (pod-30, [PROOF-RENDER.md](PROOF-RENDER.md),
+"Tests"). Its mutation list is `tests/mutation/proof-render.json`.
 
 A `store_object_mismatch` cannot be reached through the CLI as it is: before a pack reads a baseline blob, `diffBaseline` has already
 hashed every old blob it uses again ([PROOF-BASELINE.md](PROOF-BASELINE.md)). The store side checks again in case that order changes; the

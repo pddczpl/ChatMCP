@@ -15,6 +15,13 @@ const unsafe = {
   vi: { double_quote: 'nó chứa dấu ngoặc kép', empty: 'nó rỗng', stop_parsing: 'đó là ký hiệu dừng phân tích của PowerShell', trailing_backslash: 'nó có khoảng trắng và kết thúc bằng dấu gạch ngược' },
 };
 
+/** The command line a command without one of its arguments should have had. */
+function needs({ command, argument }, pack, base) {
+  if (command === 'reproduce') return `reproduce ${pack} --base ${base}`;
+  if (command !== 'show') return `${command} ${pack}`;
+  return `show --pack ${pack}${argument === '--pack' ? '' : ' --vnd-rate 25400 --vnd-rate-date 2026-11-20 --vnd-rate-source <...>'}`;
+}
+
 export const MESSAGES = Object.freeze({
   help: { en: () => 'Usage of chatmcp verify.', vi: () => 'Cách dùng chatmcp verify.' },
   version: { en: (p) => `DatGold ${p.version}`, vi: (p) => `DatGold ${p.version}` },
@@ -46,6 +53,15 @@ export const MESSAGES = Object.freeze({
   session_intact: {
     en: (p) => `Proof session ${p.taskId}: the ledger and the baseline verify.`,
     vi: (p) => `Phiên bằng chứng ${p.taskId}: sổ cái và mốc đều khớp.`,
+  },
+  report_printed: { en: () => 'The report of the pack.', vi: () => 'Báo cáo của gói bằng chứng.' },
+  report_written: {
+    en: (p) => `Wrote the report to ${p.file} (verdict: ${p.verdict}).`,
+    vi: (p) => `Đã ghi báo cáo vào ${p.file} (kết luận: ${p.verdict}).`,
+  },
+  report_exists: {
+    en: (p) => `${p.file} already exists; show never writes over a file.`,
+    vi: (p) => `${p.file} đã có; show không bao giờ ghi đè một tệp.`,
   },
   pack_evidenced: {
     en: (p) => `Every criterion (${p.total}) is evidenced; the statement is in ${p.file}.`,
@@ -180,8 +196,8 @@ export const MESSAGES = Object.freeze({
     vi: (p) => `Lệnh dài quá ${p.max} ký tự hoặc chứa ký tự NUL.`,
   },
   missing_argument: {
-    en: (p) => `${p.command} needs ${p.argument}: chatmcp verify ${p.command === 'reproduce' ? 'reproduce <pack> --base <commit|folder>' : `${p.command} <pack>`}`,
-    vi: (p) => `${p.command} cần ${p.argument}: chatmcp verify ${p.command === 'reproduce' ? 'reproduce <gói> --base <commit|thư mục>' : `${p.command} <gói>`}`,
+    en: (p) => `${p.command} needs ${p.argument}: chatmcp verify ${needs(p, '<pack>', '<commit|folder>')}`,
+    vi: (p) => `${p.command} cần ${p.argument}: chatmcp verify ${needs(p, '<gói>', '<commit|thư mục>')}`,
   },
   bad_pack: { en: (p) => `The pack ${p.path} is not a file.`, vi: (p) => `Gói bằng chứng ${p.path} không phải một tệp.` },
   bad_base: {
@@ -331,6 +347,9 @@ Commands:
   reproduce <pack> --base <commit|folder>
                                      re-run the pack's trusted setup and checks on its base and patch; each receipt reproduced or divergent
   show                               the session: its baseline, ledger, receipts and acceptance trust
+  show --pack <file> [--format md|html] [--out <file>]
+       [--vnd-rate <n> --vnd-rate-date <YYYY-MM-DD> --vnd-rate-source <text>]
+                                     a pack file as a report to read, in Markdown or HTML (in the language of --lang)
   pack [--agent <name>] [--agent-version <version>]
                                      build the proof pack (an in-toto statement and the pack file) of the session
 
@@ -354,6 +373,9 @@ Các lệnh:
   reproduce <pack> --base <commit|folder>
                                      chạy lại phần setup và các lệnh kiểm tra được tin cậy trên mốc gốc và bản vá; mỗi biên nhận được tái lập hay lệch
   show                               phiên hiện tại: mốc, sổ cái, biên nhận và trạng thái tin cậy
+  show --pack <tệp> [--format md|html] [--out <tệp>]
+       [--vnd-rate <n> --vnd-rate-date <YYYY-MM-DD> --vnd-rate-source <nguồn>]
+                                     một tệp gói thành báo cáo để đọc, dạng Markdown hoặc HTML (theo ngôn ngữ của --lang)
   pack [--agent <tên>] [--agent-version <phiên bản>]
                                      tạo gói bằng chứng (một statement in-toto và tệp gói) của phiên
 

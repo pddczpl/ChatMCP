@@ -1,6 +1,6 @@
 {
  "suite": "ui-plan-api-for-mutation.mjs",
- "description": "What ui/tests/api.test.mjs must notice of the page's side of P9 ac-10: the reason of a denial and the extras of a plan answer reach the Hub (decidePermission, denyAction, and the deny handler of ConversationView, which used to drop the reason), the plan decision names the revision the page showed, an edit of the plan sends its baseRevision, and nothing is sent that the caller did not give.",
+ "description": "What ui/tests/api.test.mjs must notice of the page's side of P9 ac-10: the reason of a denial and the extras of a plan answer reach the Hub (decidePermission, denyAction, and the deny handler of ConversationView, which used to drop the reason), the plan decision names the revision the page showed, an edit of the plan sends its baseRevision, and nothing is sent that the caller did not give; and of ac-11: planMode goes with a start or a continue only when it was chosen.",
  "mutations": [
   {
    "name": "U1",
@@ -42,6 +42,34 @@
    "what": "the conversation screen drops the reason of a denial again",
    "patches": [
     { "file": "ui/src/components/conversation/ConversationView.tsx", "old": "await api.denyAction(id, reason);", "new": "await api.decidePermission(id, false);" }
+   ]
+  },
+  {
+   "name": "U7",
+   "what": "a conversation started in plan mode starts without it (P9 ac-11)",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "roleProfiles, ...(reasoningEffort ? { reasoningEffort } : {}), ...(planMode ? { planMode } : {}) }) })", "new": "roleProfiles, ...(reasoningEffort ? { reasoningEffort } : {}) }) })" }
+   ]
+  },
+  {
+   "name": "U8",
+   "what": "a conversation continued in plan mode continues without it (P9 ac-11)",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "prompt, attachments, ...(reasoningEffort ? { reasoningEffort } : {}), ...(planMode ? { planMode } : {}) })", "new": "prompt, attachments, ...(reasoningEffort ? { reasoningEffort } : {}) })" }
+   ]
+  },
+  {
+   "name": "U9",
+   "what": "planMode: false is sent, which asks the Hub to leave plan mode (P9 ac-11)",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "prompt, attachments, ...(reasoningEffort ? { reasoningEffort } : {}), ...(planMode ? { planMode } : {}) })", "new": "prompt, attachments, ...(reasoningEffort ? { reasoningEffort } : {}), planMode })" }
+   ]
+  },
+  {
+   "name": "U10",
+   "what": "a new conversation sends planMode: false (P9 ac-11)",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "roleProfiles, ...(reasoningEffort ? { reasoningEffort } : {}), ...(planMode ? { planMode } : {}) }) })", "new": "roleProfiles, ...(reasoningEffort ? { reasoningEffort } : {}), planMode }) })" }
    ]
   }
  ]

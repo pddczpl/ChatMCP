@@ -12,7 +12,7 @@ export const ui = fileURLToPath(new URL('../../', import.meta.url));
  * `options.rewrites`: [{ file, from, to }]: the source file whose path ends with `file` is read with `from` replaced by `to`, so that a test can
  * start a component in a state that only a click reaches (an open form, a typed value). A `from` that is not found fails the build: a rename
  * can not turn a rewrite into a silent no-op.
- * `options.recordJsx`: every element a component creates (its type and props) is pushed on globalThis.__chatmcpJsx, so that a test can take
+ * `options.recordJsx`: every element a component creates (its type, props and key) is pushed on globalThis.__chatmcpJsx, so that a test can take
  * the handler a component gave to a button or to a child and call it, which a server render never does.
  */
 export async function bundleTsx(contents, prefix = 'chatmcp-ui-', { rewrites = [], recordJsx = false } = {}) {
@@ -105,8 +105,8 @@ function jsxRecorderPlugin() {
           import * as real from ${JSON.stringify(real)};
           const log = () => (globalThis.__chatmcpJsx ??= []);
           export const Fragment = real.Fragment;
-          export function jsx(type, props, key) { log().push({ type, props }); return real.jsx(type, props, key); }
-          export function jsxs(type, props, key) { log().push({ type, props }); return real.jsxs(type, props, key); }
+          export function jsx(type, props, key) { log().push({ type, props, key }); return real.jsx(type, props, key); }
+          export function jsxs(type, props, key) { log().push({ type, props, key }); return real.jsxs(type, props, key); }
         `,
       }));
     },

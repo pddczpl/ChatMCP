@@ -1,9 +1,9 @@
-# Plan mode (P9 ac-9, ac-10)
+# Plan mode (P9 ac-9, ac-10, ac-11)
 
 A task the owner starts in **plan mode** reads the workspace and writes a plan, and nothing else, until the owner approves the plan.
-This document describes the backend: the per-task policy of `PermissionGate`, the `exit_plan_mode` tool, how plan mode is kept across
-follow-ups and restarts (ac-9); the plan model v2, its revision and the edit and decision routes, and the execution choice of an approval
-(ac-10); and what is not covered. The plan-mode UI (the composer toggle, the approval card, the editable Plan tab) is ac-11.
+This document describes the per-task policy of `PermissionGate`, the `exit_plan_mode` tool, how plan mode is kept across follow-ups and
+restarts (ac-9); the plan model v2, its revision and the edit and decision routes, and the execution choice of an approval (ac-10); the page:
+the composer's Plan entry, the approval card and the editable Plan tab (ac-11); and what is not covered.
 
 ## Starting it and keeping it
 
@@ -148,6 +148,61 @@ The choice is `planApproval.execution`, persisted with the task; the gate holds 
 Hub that loads the task puts it back before any run, and every later run of the task puts it back on the gate that runs it. A new plan
 (`planMode: true` on a follow-up) replaces it with the plan-mode hold; the next approval sets a new choice, or none.
 
+## The page (ac-11)
+
+The logic is in two pure modules, `ui/src/lib/plan-draft.ts` (the owner's draft) and `ui/src/lib/plan-view.ts` (the card, the composer, the
+banner); the components (`ui/src/components/plan/`, `approval/PlanApprovalCard.tsx`, `inspector/PlanTab.tsx`) draw them. The page uses the routes
+above and nothing else of the Hub.
+
+**The composer.** The mode menu has an entry *Plan* under "This conversation only". It is a flag of the conversation's next message (`planMode: true` on
+start or continue) and changes no permission mode; the chip then reads "Plan · Review". It is never sent as `false`. A conversation that is held
+shows it checked and locked (only an approval ends plan mode); while a run goes on outside plan mode it is off, because the Hub refuses the message
+(`plan_mode_running`). With the Browser Companion as the transport of the next message the entry is not there and nothing is sent. The flag goes back to
+off after a message and when another conversation is opened.
+
+**The approval card.** A pending request of category `plan` has a card of its own (a request that is not shaped like one, and an answered one, keep the
+ordinary card; an answered one shows the owner's feedback). It shows the **plan file** (`GET /api/studio/plan`), which is what the Hub gives the model on an
+approval, and not the request's masked copy; that copy is shown, and cannot be edited, until the file is read. The text is drawn as Markdown (no raw HTML) or
+as its source; a text with characters that cannot be seen is shown as its source, with those marked. Its answers:
+
+- *Approve and run in Review* / *Approve and run in Autonomous* send `plan/decide` with the revision on the card and the execution. Unsaved edits are
+  saved first (`plan/set` with `baseRevision`) and the revision that answered is approved; when the approval after the save is refused, the edit stays
+  saved and is no draft any more. Nothing is sent while the draft is in conflict, has a step with no words, or the plan has no text (the card says why).
+- *Request changes* opens a text box (non-blank, at most 4,000 characters, trimmed) and sends `plan/decide` with `request_changes`. Unsaved edits are not
+  sent with it, and the card says so.
+- A 409 `plan_conflict` answers nothing: the page reads the plan again and says that it changed. Any other refusal is the Hub's own sentence.
+
+The card says when the choice does not decide alone: Read Only still wins, and Full Access does not apply to the task after the approval (both read from
+the mode of the Hub's gate; a chat that runs beside another keeps the mode it was started with). After an answer the focus goes to the message box.
+
+**The draft.** What the owner types is a draft per task in a store of the page (`usePlanDrafts`), apart from the plan that is fetched every 2.5 s: a
+refetch, another tab and another conversation take nothing away (a reload of the page does: nothing is saved to disk). The Plan tab and the card of the same
+plan edit and show the same draft. Against a plan that moved on (`reconcile`):
+
+| The plan's new revision | The draft |
+|---|---|
+| has the same words (title, text, steps, order): the agent marked its steps | goes on, on the new revision, with the new marks; no question |
+| has other words, and the draft has no edits | becomes the new plan |
+| has other words, and the draft has edits | is a **conflict**: it stays as it is, the banner says who wrote which revision, and nothing can be saved or approved |
+
+A conflict is settled by the owner: *use the new revision* drops the draft; *keep my edits* puts the parts the owner changed (the title, the text, the
+whole list of steps) on the new revision and takes the parts they did not touch from it. Nothing is saved by the choice itself.
+
+**Evidence stays the agent's.** The status and the evidence of a step are shown and are no field. A step that is only moved keeps them; a step whose words the
+owner changes loses the evidence, and "done" (they were for the old words, and the editor says so); a step the owner adds has neither. So no edit of the owner can
+show evidence, or a check mark, on words the agent recorded none for.
+
+**The Plan tab** shows the revision, who wrote last, whether the approved revision is the current one, the text, the steps and the evidence, and *Edit plan*
+for a task of the Model API: add, delete, move and reword steps, the title and the text. The plan of a Companion task is only read. Dropping edits
+asks first.
+
+**The banner.** A held conversation has a line in every state (writing a plan, waiting for an answer, changes asked for, expired, nobody to ask), also while
+it runs and after it answered; an approved one has a line, with the execution, where there is a banner anyway.
+
+**Keyboard and screen reader.** Every control has a name and works with the keyboard. Enter in a step adds one under it; the focus goes to an added step,
+to the step in the place of a deleted one, and stays with a step that moves; what happened is said in a status region. Escape in the feedback box closes it
+and keeps the words. Closing an editor gives the focus back to the button that opened it.
+
 ## Restarts and resume
 
 A Hub that dies while a plan waits loses the request (it lived in that process). The next Hub loads the task as `paused` /
@@ -206,7 +261,13 @@ revision and Review asks a write under a gate in Autonomous. `tests/verify-studi
 `ui/tests/api.test.mjs` the page's client. Mutation lists: `tests/mutation/plan-model.json` (`verify-plan-mode`),
 `tests/mutation/plan-routes.json` (`verify-studio-http`), `tests/mutation/plan-ui.json` (`tests/ui-plan-api-for-mutation.mjs`).
 
-Not verified: the current UI only shows a plan request as a generic approval card (category `plan`, the detail as JSON); the card of ac-11,
-its reason box and the editable Plan tab are not built, so no page sends `execution`, `revision` or a deny reason yet (the client functions
-and the plumbing of `ConversationView` are in place and unit-tested). Two Hub processes that share a state folder are not serialized
-(the plan lock is per process). No real model was run.
+ac-11 adds `ui/tests/plan-draft.test.mjs` and `plan-view.test.mjs` (the pure modules; mutation list `tests/mutation/plan-view.json`, suite
+`tests/ui-plan-view-for-mutation.mjs`), `ui/tests/plan-components.test.mjs` (the real components, for requests of the real `PermissionGate`, in both languages,
+and what each button sends), two cases in `ui/tests/api.test.mjs` (`planMode`; `plan-ui.json`), and `ui/e2e/plan-mode.spec.mjs`: the production page, a
+real Hub and the scripted model (start in plan mode, edit a step and the text in the card, approve for Autonomous and the write runs; request changes, the
+feedback is in the model's next turn and a plan approved for Review asks before it writes; a draft that outlives the refetch and a tab, a conflict with another
+window, the keyboard; a plan that moved on behind the card: the Hub's 409; the Companion and a held follow-up; the English screen). The plan asked for browser scenarios in `tests/verify-react-ui.py`,
+which the repository no longer has (its successor is `ui/e2e`).
+
+Not verified: two Hub processes that share a state folder are not serialized (the plan lock is per process). No real model was run. The page was not
+tried in the WebView2 shell or with a screen reader (names, focus and status regions are asserted in Chromium).
