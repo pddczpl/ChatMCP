@@ -1,0 +1,270 @@
+{
+ "suite": "verify-agent-progress.mjs",
+ "description": "Receipts bound to the workspace tree (plan task pod-18, docs/PROOF-RECEIPTS.md) in lib/agent-progress.mjs: the tree key, fresh / stale / unknown, the receipts kept and their bounds, the four projections, the progress of an older version, the current tree after a call (its trees, a scanned call without trees, a call that never ran), a new run and its start tree, the count of checks that changed the files, and what the model is told; judged by tests/verify-agent-progress.mjs.",
+ "mutations": [
+  {
+   "name": "AP-key-any-algorithm",
+   "what": "two tree algorithms give the same key",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "const key = `${ids.treeAlgorithm}:${ids.objectFormat}:${ids.tree}`;",
+     "new": "const key = `git-pinned-v1:${ids.objectFormat}:${ids.tree}`;"
+    }
+   ]
+  },
+  {
+   "name": "AP-unknown-own-tree",
+   "what": "a receipt without a tree is judged stale, not unknown",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  if (!own || !current) return FRESHNESS.unknown;",
+     "new": "  if (!own && !current) return FRESHNESS.unknown;"
+    }
+   ]
+  },
+  {
+   "name": "AP-stale-is-fresh",
+   "what": "a receipt of another tree is fresh",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  return own === current ? FRESHNESS.fresh : FRESHNESS.stale;",
+     "new": "  return FRESHNESS.fresh;"
+    }
+   ]
+  },
+  {
+   "name": "AP-receipt-tree-raw",
+   "what": "a tree that is not a tree key is kept",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    tree: keyOf(value.tree),",
+     "new": "    tree: value.tree ?? null,"
+    }
+   ]
+  },
+  {
+   "name": "AP-unbounded",
+   "what": "every receipt of a kind is kept",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    if (counts[item.kind] <= RECEIPTS_PER_KIND) kept.unshift(item);",
+     "new": "    kept.unshift(item);"
+    }
+   ]
+  },
+  {
+   "name": "AP-bound-25",
+   "what": "25 receipts of a kind are kept",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "const RECEIPTS_PER_KIND = 24;",
+     "new": "const RECEIPTS_PER_KIND = 25;"
+    }
+   ]
+  },
+  {
+   "name": "AP-old-lists-keep-tree",
+   "what": "the lists of an older version keep a tree written in them",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "map((item) => receipt({ ...item, tree: null }, kind))",
+     "new": "map((item) => receipt(item, kind))"
+    }
+   ]
+  },
+  {
+   "name": "AP-old-lists-dropped",
+   "what": "the receipts of an older version are lost",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  return bounded(old.sort((x, y) => x.step - y.step));",
+     "new": "  return [];"
+    }
+   ]
+  },
+  {
+   "name": "AP-project-unknown",
+   "what": "a receipt of unknown freshness is projected as verified",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    progress[bucket] = progress.receipts.filter((item) => item.kind === kind && receiptFreshness(item, progress.tree) === FRESHNESS.fresh);",
+     "new": "    progress[bucket] = progress.receipts.filter((item) => item.kind === kind && receiptFreshness(item, progress.tree) !== FRESHNESS.stale);"
+    }
+   ]
+  },
+  {
+   "name": "AP-summary-tree-known",
+   "what": "the summary says the tree is known when it is not",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  const summary = { tree: current !== null, fresh: 0, stale: 0, unknown: 0 };",
+     "new": "  const summary = { tree: true, fresh: 0, stale: 0, unknown: 0 };"
+    }
+   ]
+  },
+  {
+   "name": "AP-newrun-keeps-tree",
+   "what": "a new run keeps the tree of the run before",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    tree: newRun ? null : keyOf(data.tree),",
+     "new": "    tree: keyOf(data.tree),"
+    }
+   ]
+  },
+  {
+   "name": "AP-saved-tree-dropped",
+   "what": "a reload forgets the current tree",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    tree: newRun ? null : keyOf(data.tree),",
+     "new": "    tree: null,"
+    }
+   ]
+  },
+  {
+   "name": "AP-observe-tree-keeps",
+   "what": "a start tree that failed leaves the tree known",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  progress.tree = treeKey(ids);",
+     "new": "  progress.tree = treeKey(ids) ?? progress.tree;"
+    }
+   ]
+  },
+  {
+   "name": "AP-proof-ignored",
+   "what": "a call's trees do not move the current tree",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    progress.tree = after;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "AP-proof-after-failed-keeps",
+   "what": "a call whose snapshot after failed leaves the tree known",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    progress.tree = after;",
+     "new": "    progress.tree = after ?? progress.tree;"
+    }
+   ]
+  },
+  {
+   "name": "AP-unscanned-unknown",
+   "what": "a read without trees makes the tree unknown",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  } else if (scanned === true && result?.executed !== false) {",
+     "new": "  } else if (result?.executed !== false) {"
+    }
+   ]
+  },
+  {
+   "name": "AP-not-run-unknown",
+   "what": "a call that never ran makes the tree unknown",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  } else if (scanned === true && result?.executed !== false) {",
+     "new": "  } else if (scanned === true) {"
+    }
+   ]
+  },
+  {
+   "name": "AP-checks-changed-any",
+   "what": "an edit that changed the tree is counted as a check that changed it",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    if (category === 'verifying' && before !== null && after !== null && before !== after) progress.checksChangedTree += 1;",
+     "new": "    if (before !== null && after !== null && before !== after) progress.checksChangedTree += 1;"
+    }
+   ]
+  },
+  {
+   "name": "AP-checks-changed-never",
+   "what": "a check that changed the tree is not counted",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "before !== after) progress.checksChangedTree += 1;",
+     "new": "before !== after) progress.checksChangedTree += 0;"
+    }
+   ]
+  },
+  {
+   "name": "AP-checks-changed-not-saved",
+   "what": "the count of checks that changed the files is not saved",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "    checksChangedTree: positive(data.checksChangedTree),",
+     "new": "    checksChangedTree: 0,"
+    }
+   ]
+  },
+  {
+   "name": "AP-more-own-tree",
+   "what": "the other files of a batch are not bound to its tree",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "map(item=>({...item,kind:'edit',step:verified.step,tree:verified.tree}))",
+     "new": "map(item=>({...item,kind:'edit',step:verified.step}))"
+    }
+   ]
+  },
+  {
+   "name": "AP-no-dedupe",
+   "what": "the same receipt observed again is kept twice",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "      if(!last || json(last)!==json(record))progress.receipts.push(record);",
+     "new": "      progress.receipts.push(record);"
+    }
+   ]
+  },
+  {
+   "name": "AP-no-project-after-call",
+   "what": "the projections are not made again after a call",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "  project(progress);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "AP-checkpoint-counts",
+   "what": "the model is told the stale count as the fresh one",
+   "patches": [
+    {
+     "file": "lib/agent-progress.mjs",
+     "old": "'Host receipts by the workspace tree they were made on: fresh on the latest tree: ' + summary.fresh",
+     "new": "'Host receipts by the workspace tree they were made on: fresh on the latest tree: ' + summary.stale"
+    }
+   ]
+  }
+ ]
+}

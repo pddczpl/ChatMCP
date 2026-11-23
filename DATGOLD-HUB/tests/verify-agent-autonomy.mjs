@@ -8,8 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { AgentRunner } from '../lib/agent.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
-import { createTaskProgress, observeTaskTool } from '../lib/agent-progress.mjs';
-import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from '../lib/agent-autonomy.mjs';
+import { createTaskProgress, observeTaskTool, treeKey } from '../lib/agent-progress.mjs';
+import { MISSING, decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from '../lib/agent-autonomy.mjs';
 
 const sha=(s)=>createHash('sha256').update(s).digest('hex');
 const call=(name,args={})=>({name:'mcp_call',arguments:JSON.stringify({name,arguments_json:JSON.stringify(args)})});
@@ -26,26 +26,55 @@ assert.deepEqual(plan.objectives[0].dependsOn,[]);
 if(plan.objectives.length>1)assert.deepEqual(plan.objectives[1].dependsOn,['objective-1']);
 assert.equal(updateGoalPlan(plan,{kind:'edit'}).objectives[0].status,'working','host receipt must not satisfy objective automatically');
 assert.equal(plan.phases[0].status,'working');
-assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[],verifiedChecks:[],gitReviews:[]}).ready,false);
-assert.equal(assessCompletionEvidence(null,{}).ready,true);
+// The completion is judged against the final tree (pod-18): a receipt counts only when it is fresh, i.e. made on the latest tree the Hub knows.
+const T=(c)=>({status:'ok',treeAlgorithm:'git-pinned-v1',objectFormat:'sha1',tree:c.repeat(40),rawTree:null});
+const K=(c)=>treeKey(T(c));
+const on=(c,receipts)=>({version:1,tree:c===null?null:K(c),receipts});
+const r=(kind,step,c)=>({kind,step,tree:c===null?null:K(c),...(kind==='edit'?{path:'src/a.js',sha256:'e'.repeat(64)}:{id:kind+'-'+step})});
+const STALE=' on the final tree: its receipts are stale (the files changed after them)';
+const UNKNOWN=' on the final tree: freshness unknown (the Hub has no tree to compare them with)';
+assert.deepEqual(MISSING,{edit:'No independently SHA-verified file edit',verify:'No verified successful project check',review:'No independently recorded Git diff review'});
+const none=assessCompletionEvidence(plan,on('a',[]));
+assert.deepEqual([none.ready,none.missing,none.freshness],[false,[MISSING.edit,MISSING.verify,MISSING.review],'missing'],'no receipt at all');
+const fresh=on('b',[r('inspect',1,'a'),r('edit',2,'b'),r('verify',3,'b'),r('review',4,'b')]);
+assert.deepEqual([assessCompletionEvidence(plan,fresh).ready,assessCompletionEvidence(plan,fresh).missing,assessCompletionEvidence(plan,fresh).freshness],[true,[],'fresh'],'edit, check and review on the final tree');
+// A later edit: the check and the diff were made on a tree that is gone.
+const later=on('c',[...fresh.receipts,r('edit',5,'c')]);
+assert.deepEqual([assessCompletionEvidence(plan,later).ready,assessCompletionEvidence(plan,later).missing,assessCompletionEvidence(plan,later).freshness],
+  [false,[MISSING.verify+STALE,MISSING.review+STALE],'stale'],'later repair makes the older passing check and diff stale');
+// A move after the passing check, with no edit receipt: nothing is fresh.
+assert.deepEqual(assessCompletionEvidence(plan,on('c',fresh.receipts)).missing,[MISSING.edit+STALE,MISSING.verify+STALE,MISSING.review+STALE]);
+// The Hub does not know the final tree (checks-only, the service disabled): unknown, never fresh.
+const blind=assessCompletionEvidence(plan,on(null,fresh.receipts));
+assert.deepEqual([blind.ready,blind.missing,blind.freshness],[false,[MISSING.edit+UNKNOWN,MISSING.verify+UNKNOWN,MISSING.review+UNKNOWN],'unknown'],'an unknown final tree certifies nothing');
+assert.deepEqual(assessCompletionEvidence(plan,on('b',[r('edit',2,'b'),r('verify',3,null),r('review',4,'a')])).missing,[MISSING.verify+UNKNOWN,MISSING.review+STALE],'per kind: a receipt without a tree is unknown, one of another tree stale');
+assert.equal(assessCompletionEvidence(plan,on('b',[r('edit',2,'b'),r('verify',3,null),r('review',4,'a')])).freshness,'unknown','unknown wins over stale: it could be fresh');
+assert.deepEqual(assessCompletionEvidence(plan,on('b',[r('edit',2,'b'),r('verify',3,'a'),r('verify',5,null),r('review',6,'b')])).missing,[MISSING.verify+UNKNOWN],'within one kind too: a stale check and one of unknown tree say unknown');
+assert.equal(assessCompletionEvidence(plan,on('b',[r('edit',2,'b'),r('verify',3,null),r('verify',6,'b'),r('review',4,'b')])).ready,true,'one fresh receipt of a kind is enough');
+// A task saved by an older version: its receipts have no tree.
+const old={version:1,verifiedFiles:[{kind:'edit',step:2,path:'a.js',sha256:'b'.repeat(64)}],verifiedChecks:[{kind:'verify',step:3,id:'check-a'}],gitReviews:[{kind:'review',step:4,id:'diff-a'}]};
+assert.deepEqual([assessCompletionEvidence(plan,old).ready,assessCompletionEvidence(plan,old).freshness],[false,'unknown'],'an old task: freshness unknown, not ready');
+assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[{kind:'edit',step:2,tree:K('b')}],verifiedChecks:[{kind:'verify',step:3,id:'x',tree:K('b')}],gitReviews:[{kind:'review',step:4,id:'y',tree:K('b')}],tree:K('b'),version:1}).ready,false,'the lists are projections: they are never read as receipts');
+// The final tree can be given: what pod-23's gate will judge against.
+assert.deepEqual([assessCompletionEvidence(plan,fresh,{tree:T('9')}).ready,assessCompletionEvidence(plan,fresh,{tree:T('9')}).freshness],[false,'stale']);
+assert.equal(assessCompletionEvidence(plan,fresh,{tree:{status:'failed'}}).freshness,'unknown');
+assert.equal(assessCompletionEvidence(plan,on('9',fresh.receipts),{tree:T('b')}).ready,true);
+assert.deepEqual([assessCompletionEvidence(null,{}).ready,assessCompletionEvidence(null,{}).freshness],[true,'not_applicable']);
 assert.equal(classifyTaskCompletion(null,{}).verification,'not_applicable','read-only simple tasks do not need test receipts');
+assert.equal(classifyTaskCompletion(null,{}).freshness,'not_applicable');
 assert.equal(classifyTaskCompletion(plan,{}).requirements,'unverified');
-assert.equal(classifyTaskCompletion(plan,{verifiedFiles:[{}],verifiedChecks:[{}],gitReviews:[{}]}).requirements,'unverified',
-  'generic receipt categories do not certify unrelated user objectives');
-assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[{}],verifiedChecks:[{}],gitReviews:[{}]}).ready,true);
-let stale=createTaskProgress();
-for(const [name,verified] of [
-  ['local.edit_file',{kind:'edit',path:'src/a.js',sha256:'b'.repeat(64),step:1}],
-  ['local.run_command',{kind:'verify',id:'check-a',step:2}],
-  ['local.git_diff',{kind:'review',id:'diff-a',step:3}],
-]){
-  stale=observeTaskTool(stale,{call:call(name,{path:'src/a.js'}),result:result('observed'),step:verified.step,verified}).progress;
-}
-assert.equal(assessCompletionEvidence(plan,stale).ready,true);
-stale=observeTaskTool(stale,{call:call('local.edit_file',{path:'src/a.js'}),result:result('new version'),step:4,
-  verified:{kind:'edit',path:'src/a.js',sha256:'c'.repeat(64),step:4}}).progress;
-assert.equal(assessCompletionEvidence(plan,stale).ready,false,'later repair invalidates older passing check and diff');
-assert.ok(assessCompletionEvidence(plan,stale).missing.length>=2);
+assert.deepEqual([classifyTaskCompletion(plan,fresh).requirements,classifyTaskCompletion(plan,fresh).verification,classifyTaskCompletion(plan,fresh).freshness],
+  ['unverified','evidence_present_not_objective_certified','fresh'],'generic receipt categories do not certify unrelated user objectives');
+assert.deepEqual([classifyTaskCompletion(plan,later).verification,classifyTaskCompletion(plan,later).freshness],['missing_evidence','stale']);
+assert.deepEqual([classifyTaskCompletion(plan,on('9',fresh.receipts),{tree:T('b')}).verification,classifyTaskCompletion(plan,on('9',fresh.receipts),{tree:T('b')}).freshness],['evidence_present_not_objective_certified','fresh'],'the final tree can be given to the completion too');
+assert.deepEqual([classifyTaskCompletion(plan,on(null,fresh.receipts)).verification,classifyTaskCompletion(plan,on(null,fresh.receipts)).freshness],['missing_evidence','unknown']);
+// What the model is told on a resume carries no tree: no receipt id (they hold a tree prefix), only kinds, steps, paths and freshness counts.
+const report=JSON.stringify(evidenceReport(fresh,plan));
+assert.ok(!report.includes('b'.repeat(12))&&!report.includes('a'.repeat(12)),'no tree id or prefix in the evidence report');
+assert.deepEqual(evidenceReport(fresh,plan).verifiedEvidence,{verifiedFiles:1,verifiedChecks:1,gitReviews:1,freshness:{tree:true,fresh:3,stale:1,unknown:0}});
+assert.match(recoveryInstructions({progress:fresh,plan,attempt:1}),/Fresh verified file changes: 1; fresh passing approved checks: 1\./,'the recovery text counts the fresh receipts of saved progress, not lists written in it');
+assert.match(recoveryInstructions({progress:{...later,verifiedChecks:[{kind:'verify',step:3,id:'x',tree:K('c')}]},plan,attempt:1}),/fresh passing approved checks: 0\./,'a list written in saved progress is not read');
+
 const updatedPlan=updateGoalPlan(plan,{kind:'edit'});
 assert.equal(updatedPlan.evidence.edit,1);
 assert.equal(plan.evidence.edit,0,'plan transition must not mutate previous snapshots');
@@ -87,6 +116,34 @@ assert.equal(await verifyHostEvidence({manager:backend,name:'local.edit_file',re
 assert.equal(await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('no-op',{kind:'execute',exitCode:0})}),null);
 assert.equal((await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('passed',{kind:'verify',exitCode:0})})).kind,'verify');
 assert.equal(await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('failed',{kind:'verify',exitCode:1})}),null);
+// The tree a receipt is bound to (pod-18). A check: its trees before and after must be the same tree, the one it is bound to; a check that changed the files it
+// checked is unreliable and is no receipt (the strict pass rule of docs/PROOF-CHECKS.md). Without both trees, or with a call that overlapped another one, its tree is unknown.
+{
+  const trees=(b,a,extra={})=>({treeBefore:b===null?{status:'failed'}:T(b),treeAfter:a===null?{status:'failed'}:T(a),overlapped:false,...extra});
+  const passing=result('passed',{kind:'verify',exitCode:0,timedOut:false,cancelled:false,truncated:{stdout:false,stderr:false}});
+  const check=(proof,extra={})=>verifyHostEvidence({manager:backend,name:'local.run_command',result:passing,step:3,proof,...extra});
+  assert.deepEqual([(await check(trees('a','a'))).kind,(await check(trees('a','a'))).tree],['verify',K('a')],'a check that left the tree is bound to it');
+  assert.equal(await check(trees('a','b')),null,'a check that changed the files it checked is unreliable: no receipt');
+  assert.equal((await check(trees('a','a',{overlapped:true}))).tree,null,'a check that ran beside another call: its tree is unknown');
+  assert.equal((await check(trees('a',null))).tree,null,'no tree after it: unknown');
+  assert.equal((await check(trees(null,'a'))).tree,null,'no tree before it: unknown');
+  assert.equal((await check(null,{tree:K('a')})).tree,null,'no trees at all (checks-only): unknown, whatever the tree before it was');
+  assert.equal(await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('cut',{kind:'verify',exitCode:0,truncated:{stdout:true,stderr:false}}),proof:trees('a','a')}),null,'a cut output is no receipt');
+  assert.equal(await verifyHostEvidence({manager:backend,name:'local.run_command',result:result('ran',{kind:'execute',exitCode:0}),proof:trees('a','a')}),null,'a command that is not a check is no receipt');
+  // An edit is bound to the tree after it.
+  await fs.writeFile(code,fixed);
+  const edit=(proof)=>verifyHostEvidence({manager:backend,name:'local.edit_file',result:signed,step:2,proof,tree:K('a')});
+  assert.equal((await edit(trees('a','b'))).tree,K('b'),'an edit: the tree after it');
+  assert.equal((await edit(null)).tree,null,'an edit without trees: unknown, not the tree before it');
+  assert.equal((await edit(trees('a','b',{overlapped:true}))).tree,null);
+  // A read is not scanned (it cannot change files): bound to the current tree, the latest the Hub knows.
+  const read=result('calc.js inspected',{path:'calc.js',sha256:sha(fixed)});
+  assert.equal((await verifyHostEvidence({manager:backend,name:'local.read_file',result:read,step:1,tree:K('b')})).tree,K('b'));
+  assert.equal((await verifyHostEvidence({manager:backend,name:'local.read_file',result:read,step:1,tree:null})).tree,null,'no current tree: unknown');
+  assert.equal((await verifyHostEvidence({manager:backend,name:'local.read_file',result:read,step:1,tree:K('b'),proof:trees('b','c')})).tree,null,'a read whose own trees differ: unknown');
+  assert.equal((await verifyHostEvidence({manager:backend,name:'local.read_file',result:read,step:1,tree:K('b'),proof:trees('c','c')})).tree,K('c'),'a read with trees of its own: that tree');
+  await fs.writeFile(code,initial);
+}
 // The review receipt is made from what the REAL local git_diff returns, on a real repository. (This test once fed the verifier {diff:'...'}, a field that no tool returns: the receipt was
 // never made in a real run, and every coding run ended with "No independently recorded Git diff review".)
 {
@@ -101,14 +158,14 @@ assert.equal(await verifyHostEvidence({manager:backend,name:'local.run_command',
   const state=path.join(root,'diff-state');
   const tools=new LocalTools({workspace:new StudioWorkspace({manager:{workspace:repo},directory:state}),stateDirectory:state});
   const diffOf=()=>tools.call('git_diff',{});
-  const receiptOf=(taken,manager=backend)=>verifyHostEvidence({manager,name:'local.git_diff',result:taken,step:7});
+  const receiptOf=(taken,manager=backend)=>verifyHostEvidence({manager,name:'local.git_diff',result:taken,step:7,tree:K('d')});
   assert.equal(await receiptOf(await diffOf()),null,'a clean tree has nothing to review');
   await fs.writeFile(path.join(repo,'calc.js'),fixed);
   const taken=await diffOf();
   assert.equal(taken.isError,false,taken.content[0].text);
   assert.match(taken.content[0].text,/\+export const add=\(a,b\)=>a\+b;/,'(premise) the real tool returned the change');
   const review=await receiptOf(taken);
-  assert.deepEqual([review?.kind,review?.step],['review',7],'the diff of a real change is a review receipt');
+  assert.deepEqual([review?.kind,review?.step,review?.tree],['review',7,K('d')],'the diff of a real change is a review receipt, on the current tree');
   assert.match(review.id,/^[a-f0-9]{16}$/);
   await fs.writeFile(path.join(repo,'calc.js'),'export const add=(a,b)=>b+a;\n');
   assert.notEqual((await receiptOf(await diffOf())).id,review.id,'another change is another diff, so another receipt');
@@ -138,12 +195,14 @@ const manager={
       if(operation==='set')savedPlan={title,items};return savedPlan;
     },
   },
+  // The proof service's trees (lib/proof/service.mjs), as the real manager gives them: the run's start tree on the session, a scanned call's trees through onProof.
   async createAgentSession(){return {
+    proofStart:T('1'),
     catalog:{tools:['read_file','edit_file','run_command'].map(name=>({
       name:'local.'+name,originalName:name,server:'local',inputSchema:{type:'object'}})),
       prompts:[],resources:[],resourceTemplates:[],servers:{}},
     async close(){},
-    async callTool(name,args,{onDecision}={}){
+    async callTool(name,args,{onDecision,onProof}={}){
       if(name==='local.read_file'){
         await onDecision?.({name,allowed:true,category:'read'});
         return result('calc.js inspected',{path:'calc.js',sha256:sha(await fs.readFile(code)),start:1,end:1});
@@ -151,10 +210,12 @@ const manager={
       if(name==='local.edit_file'){
         await onDecision?.({name,allowed:true,category:'workspace_edit'});
         const prev=sha(await fs.readFile(code));await fs.writeFile(code,fixed);
+        await onProof?.({tool:name,outcome:'ok',changed:true,overlapped:false,treeBefore:T('1'),treeAfter:T('2'),granularity:'calls'});
         return result('File updated',{path:'calc.js',previousSha:prev,sha256:sha(fixed)});
       }
       if(name==='local.run_command'){
-        await onDecision?.({name,allowed:true,category:'verify',kind:'verify'});
+        await onDecision?.({name,allowed:true,category:'execute',kind:'verify'});
+        await onProof?.({tool:name,outcome:'ok',changed:false,overlapped:false,treeBefore:T('2'),treeAfter:T('2'),granularity:'calls'});
         return result('PASS tests',{kind:'verify',exitCode:0,timedOut:false,cancelled:false,
           truncated:{stdout:false,stderr:false}});
       }
@@ -198,6 +259,9 @@ try{
   assert.equal(finished.usage.inputUsageReported,4);
   assert.equal(finished.usage.inputUsageMissing,0);
   assert.equal(finished.verificationOutcome.ready,false,'missing Git diff evidence is not silently certified');
+  assert.deepEqual(finished.verificationOutcome.missing,[MISSING.review],'the edit and the check are fresh on the final tree: only the review is missing');
+  assert.deepEqual([finished.progress.verifiedInspections.length,finished.progress.receipts.length],[0,3],'the read was made on the start tree, stale after the edit');
+  assert.equal(finished.completionOutcome.freshness,'missing');
   assert.equal(finished.status,'completed','execution answered normally');
   assert.equal(finished.completionOutcome.requirements,'unverified','answer is not requirement acceptance');
   assert.equal(finished.completionOutcome.verification,'missing_evidence');

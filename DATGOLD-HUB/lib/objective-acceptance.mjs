@@ -1,5 +1,9 @@
 // Owner-confirmed objective acceptance with first-party tool receipts.
 // Neither model narration nor user text can fabricate a receipt.
+// Receipts are bound to the tree they were made on (pod-18, docs/PROOF-RECEIPTS.md): only a receipt FRESH on the task's latest tree is offered or can be accepted, and an
+// acceptance counts only while the receipt it was made with is fresh. A receipt id carries the prefix of its tree, so an acceptance names the tree it was made on.
+import { FRESHNESS, createTaskProgress, receiptFreshness, treeKey } from './agent-progress.mjs';
+const TREE_PREFIX=12;
 const err=(code,message)=>Object.assign(new Error(message),{code,statusCode:409});
 export function objectiveReceiptId(record){
   if(!record||!['inspect','edit','verify','review'].includes(record.kind)||
@@ -7,19 +11,19 @@ export function objectiveReceiptId(record){
   const source=record.sha256||record.id;
   if(typeof source!=='string'||!(/^[a-f0-9]{64}$/i.test(source)||/^[a-zA-Z0-9_-]{1,40}$/.test(source)))
     return null;
-  return record.kind+':'+record.step+':'+source;
+  const tree=typeof record.tree==='string'?/:([0-9a-f]{40,64})$/.exec(record.tree)?.[1]:null;
+  return record.kind+':'+record.step+':'+source+(tree?'@'+tree.slice(0,TREE_PREFIX):'');
 }
-export function availableObjectiveReceipts(progress){
+/** The receipts that can be accepted: those fresh on `tree` (a tree reference's ids) when given, else on the latest tree the progress knows; in the order they were made. */
+export function availableObjectiveReceipts(progress,{tree}={}){
+  const p=createTaskProgress(progress);
+  const current=tree===undefined?p.tree:treeKey(tree);
   const all=[];
-  for(const [bucket,kind] of [
-    ['verifiedInspections','inspect'],['verifiedFiles','edit'],
-    ['verifiedChecks','verify'],['gitReviews','review']]){
-    for(const r of Array.isArray(progress?.[bucket])?progress[bucket]:[]){
-      const receiptId=objectiveReceiptId(r);
-      if(r.kind===kind&&receiptId)all.push({
-        receiptId,kind,step:r.step,...(r.path?{path:r.path}:{}),
-      });
-    }
+  for(const r of p.receipts){
+    const receiptId=objectiveReceiptId(r);
+    if(receiptId&&receiptFreshness(r,current)===FRESHNESS.fresh)all.push({
+      receiptId,kind:r.kind,step:r.step,...(r.path?{path:r.path}:{}),freshness:FRESHNESS.fresh,
+    });
   }
   return all;
 }
@@ -35,9 +39,9 @@ export function hasFreshCriterionEvidence(criterion,index,evidence,all){
     record.criterionIndex===index &&
     all.some(receipt=>receipt.kind===kind&&receipt.receiptId===record.receiptId)));
 }
-export function acceptedObjectiveIds(plan,progress){
+export function acceptedObjectiveIds(plan,progress,{tree}={}){
   if(!Array.isArray(plan?.objectives))return [];
-  const all=availableObjectiveReceipts(progress);
+  const all=availableObjectiveReceipts(progress,{tree});
   return plan.objectives.filter(o=>o.status==='verified' &&
     Array.isArray(o.acceptanceCriteria)&&o.acceptanceCriteria.length>0 &&
     o.acceptanceCriteria.every((criterion,i)=>
@@ -77,7 +81,7 @@ export function autoAcceptVerifiedChecks(plan,progress,{at=new Date().toISOStrin
   }
   return copy??plan;
 }
-export function acceptObjectiveCriterion(plan,progress,{objectiveId,criterionIndex,receiptId,confirmed}={}){
+export function acceptObjectiveCriterion(plan,progress,{objectiveId,criterionIndex,receiptId,confirmed,tree}={}){
   if(confirmed!==true)throw err('owner_confirmation_required','Owner confirmation is required.');
   if(!Array.isArray(plan?.objectives))throw err('acceptance_not_applicable','This task has no acceptance plan.');
   const index=plan.objectives.findIndex(o=>o.id===objectiveId);
@@ -86,10 +90,11 @@ export function acceptObjectiveCriterion(plan,progress,{objectiveId,criterionInd
   const target=plan.objectives[index],criterion=target.acceptanceCriteria?.[criterionIndex];
   const kind=acceptanceKind(criterion);
   if(!kind)throw err('invalid_criterion','Criterion cannot be independently mapped to a receipt.');
-  const receipts=availableObjectiveReceipts(progress);
+  // Fresh at accept time: judged now, against the latest tree the task knows (or the tree given), not when the receipt was made.
+  const receipts=availableObjectiveReceipts(progress,{tree});
   if(!receipts.some(r=>r.kind===kind&&r.receiptId===receiptId))
     throw err('stale_acceptance_receipt','Select a fresh first-party receipt for this criterion.');
-  const accepted=new Set(acceptedObjectiveIds(plan,progress));
+  const accepted=new Set(acceptedObjectiveIds(plan,progress,{tree}));
   if((target.dependsOn||[]).some(id=>!accepted.has(id)))
     throw err('objective_dependency_unverified','Accept predecessor objectives first.');
   const copy=structuredClone(plan),next=copy.objectives[index];

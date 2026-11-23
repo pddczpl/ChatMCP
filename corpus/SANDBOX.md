@@ -4,7 +4,8 @@ Plan task P7 pod-36. `tools/run-sandbox.mjs` runs one agent on one task in a fol
 `tools/score-checkout.mjs` scores a diff in a fresh checkout that never sees the agent's tree. They share `tools/sandbox-core.mjs` (the
 run folder, the base, the profile, the process trees) and `tools/tar.mjs` (the archive reader). **What exists today:** both tools, their
 command lines and their tests with scripted agents. **What does not exist yet:** the adapters that start a vendor's CLI (pod-37) and the
-scoring of a whole corpus with its report (pod-38, pod-39). No real agent and no model has been run through them.
+report (pod-39); the scoring of the runs and the metrics (pod-38) are in [SCORING.md](SCORING.md). No real agent and no model has been
+run through them.
 
 **This is not an OS sandbox.** The agent runs as the same user as the tools, with the same rights: it can read the real profile by its
 absolute path, reach the Windows Credential Manager, DPAPI-protected stores, an SSH or GPG agent and the network, see and signal other
@@ -188,12 +189,12 @@ anything the agent wrote outside its diff, or the part of its diff outside the t
 3. **The agent's diff** is applied with `git apply --index --binary`. A diff that does not apply is the **outcome
    `patch_does_not_apply`**: `hidden_pass` is false and nothing is installed or run. A diff written by `run-sandbox.mjs` was checked to
    apply to the base tree, so this outcome means the diff was changed after the run, made on another base, or is not a diff at all (`git
-   apply` also refuses a path into `.git` and a path through a link). The scoring (pod-38) reports it as a scoring error, apart from the
-   agent's failures, and never as a pass.
+   apply` also refuses a path into `.git` and a path through a link). The scoring ([SCORING.md](SCORING.md)) reports it as a scoring error,
+   apart from the agent's failures, and never as a pass.
 4. **Only the part of the diff inside `allowed_paths` is scored.** Every path the diff added, modified or deleted that no entry of the
    task's `allowed_paths` matches is put back to the base (an added file removed, a modified or deleted one restored, index and file)
    before anything runs, and listed in `outOfScope` as `{path, change: added | modified | deleted}` in code-unit order, for the
-   `out_of_scope` metric of pod-38. The entries are matched as the Hub matches `protected` globs (`globMatches` of
+   `out_of_scope` metric ([SCORING.md](SCORING.md)). The entries are matched as the Hub matches `protected` globs (`globMatches` of
    `DATGOLD-HUB/lib/glob-match.mjs` in path mode: `src/**` is everything under `src/`, a plain `src` is that one path). Without this, a
    diff could change the harness that judges it: the setup script, a package script a check runs (`npm test`), a public test, a
    `conftest.py`, a Makefile; the clean install could then write an ignored file, which reopens the hole the clean room closes. A diff

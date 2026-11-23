@@ -422,15 +422,17 @@ try {
     ok('the two example tasks under corpus/examples load (one git, one tarball source, both marked as examples); the CLI exits 0, 1 with the errors, 2 for a usage error');
   }
 
-  // ==== only the three bridge files cross into the Hub, and nothing reaches the network ====================================================
+  // ==== only the four bridge files cross into the Hub, and nothing reaches the network =====================================================
   {
     const problems = [];
     // acceptance-parser.mjs: the acceptance reader; hub-process.mjs (pod-36): the shell runner, the process tree and the pinned Git process;
-    // marker.mjs (pod-26): the marker contract and its reader, which chatmcp verify exec reads an agent's claim with too.
+    // marker.mjs (pod-26): the marker contract and its reader, which chatmcp verify exec reads an agent's claim with too; json-schema.mjs
+    // (pod-38): the JSON Schema validator of the proof pack, which checks the scoring's run packs and result lines.
     const bridges = new Map([
       ['acceptance-parser.mjs', new Set(['../../DATGOLD-HUB/lib/proof/acceptance.mjs', '../../DATGOLD-HUB/lib/proof/yaml-subset.mjs', '../../DATGOLD-HUB/lib/glob-match.mjs'])],
       ['hub-process.mjs', new Set(['../../DATGOLD-HUB/lib/shell-runner.mjs', '../../DATGOLD-HUB/lib/studio-terminal.mjs', '../../DATGOLD-HUB/lib/proof/git-plumbing.mjs'])],
       ['marker.mjs', new Set(['../../DATGOLD-HUB/lib/proof/marker.mjs'])],
+      ['json-schema.mjs', new Set(['../../DATGOLD-HUB/lib/proof/schema-validate.mjs'])],
     ]);
     const files = readdirSync(TOOLS).filter((name) => name.endsWith('.mjs'));
     for (const bridge of bridges.keys()) assert.ok(files.includes(bridge), `the bridge ${bridge} exists`);
@@ -449,13 +451,19 @@ try {
       if (/\bfetch\s*\(/.test(text)) problems.push(`${name}: calls fetch`);
       if (/['"](?:push|fetch|pull|clone|ls-remote|remote|submodule)['"]/.test(text)) problems.push(`${name}: names a Git command that talks to a remote`);
     }
-    expectNone(problems, 'corpus tools that reach past the three bridges or towards the network');
+    expectNone(problems, 'corpus tools that reach past the four bridges or towards the network');
     // the bridge passes the Hub's reader on as it is: the scoring and chatmcp verify exec read a claim with the same function
     const hubMarker = await import(pathToFileURL(path.join(HUB, 'lib', 'proof', 'marker.mjs')).href);
     for (const name of ['parseFinalMarker', 'finalLine', 'MARKER_CONTRACT', 'MARKER_CONTRACT_VERSION', 'BLOCKED_REASON_MAX']) {
       assert.ok(hubMarker[name] !== undefined && marker[name] === hubMarker[name], `corpus/tools/marker.mjs passes on ${name} of DATGOLD-HUB/lib/proof/marker.mjs`);
     }
-    ok(`the ${files.length} corpus tools import only node: modules, each other and, in three bridge files alone, the pod-20 acceptance parser, the Hub's process and pinned Git helpers and the marker reader; none can reach the network`);
+    // the fourth bridge passes the validator on as it is: run packs and result lines are checked by the code that checks proof packs
+    const hubSchema = await import(pathToFileURL(path.join(HUB, 'lib', 'proof', 'schema-validate.mjs')).href);
+    const jsonSchema = await importTool('json-schema.mjs');
+    for (const name of ['compileSchema', 'SchemaError', 'SUPPORTED_KEYWORDS']) {
+      assert.ok(hubSchema[name] !== undefined && jsonSchema[name] === hubSchema[name], `corpus/tools/json-schema.mjs passes on ${name} of DATGOLD-HUB/lib/proof/schema-validate.mjs`);
+    }
+    ok(`the ${files.length} corpus tools import only node: modules, each other and, in four bridge files alone, the pod-20 acceptance parser, the Hub's process and pinned Git helpers, the marker reader and the schema validator; none can reach the network`);
   }
 
   // ==== freeze ==========================================================================================================================

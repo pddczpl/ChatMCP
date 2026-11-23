@@ -30,7 +30,7 @@ import { validateStatement } from '../lib/proof/pack.mjs';
 import { verifyChain } from '../lib/proof/ledger.mjs';
 import { parseFinalMarker } from '../lib/proof/marker.mjs';
 import { CLI_DATA_SCHEMAS, CLI_FORMAT, CLI_OUTPUT_SCHEMA, CODES, EXIT, MESSAGES } from '../lib/proof/cli/index.mjs';
-import { CLAIM_WINDOW_BYTES, INTERRUPT_GRACE_MS, LOG_MAX_BYTES, StreamEvidence, claimText, outcomeOf, readClaim, runCriteria } from '../lib/proof/cli/exec.mjs';
+import { CLAIM_WINDOW_BYTES, INTERRUPT_GRACE_MS, LOG_MAX_BYTES, REAP_WAIT_MS, StreamEvidence, claimText, outcomeOf, reapTree, readClaim, runCriteria } from '../lib/proof/cli/exec.mjs';
 import { compileClaimMarker } from '../lib/proof/cli/args.mjs';
 import { ADAPTERS, ADAPTER_NAMES, readAgentOutput } from '../lib/proof/adapters/index.mjs';
 import { commitAll, newRepo, write } from './support/proof-tree-fixtures.mjs';
@@ -341,6 +341,56 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   ];
   for (const [agent, claim, statuses, code] of table) assert.equal(of(agent, claim, statuses), code, `${JSON.stringify(agent)} ${claim.marker} ${statuses.join(',')} -> ${code}`);
   ok(`the answer code of an exec, ${table.length} cases: Ctrl-C, the time limit, a failed agent, BLOCKED, no claim, then DONE against the criteria`);
+}
+{
+  // The sweep after the agent's root exited (reapTree), with the process group and the process table injected and a clock of its own.
+  // A process killed with its group stays a member of the group, and a row of the process table, until it has been reaped: on Linux the
+  // group still answered kill(-pgid, 0) right after its leader was waited for in 138 of 300 trials (WSL Ubuntu), and was gone within
+  // 11 ms in all of them. So what is still there right after the root exited is no leftover yet: only what is still there when the wait
+  // is over is one.
+  const clock = () => {
+    let time = 0;
+    return { now: () => time, pause: async (ms) => { time += ms; } };
+  };
+  const posix = (answers) => {
+    const calls = { probes: 0, kills: 0 };
+    return { calls, group: { alive: () => { calls.probes += 1; return answers.length ? answers.shift() : true; }, kill: () => { calls.kills += 1; } } };
+  };
+  assert.ok(REAP_WAIT_MS >= 1000 && REAP_WAIT_MS <= 3000, `the wait is a second or two (${REAP_WAIT_MS} ms)`);
+  // a group that is still dying when the root has exited: gone within the wait, so nothing was left
+  const dying = posix([true, true, true, false]);
+  const time1 = clock();
+  assert.equal(await reapTree({ pid: 4242, spawnedAt: 0, platform: 'linux', group: dying.group, ...time1 }), false, 'a group gone within the wait left nothing');
+  assert.deepEqual(dying.calls, { probes: 4, kills: 0 }, 'it was probed until it was gone and never killed again');
+  assert.ok(time1.now() < REAP_WAIT_MS, 'and the sweep stopped as soon as it was gone');
+  // a process that outlived the root: still there when the wait is over, so it is killed and the tree had something left
+  const outlived = posix([]);
+  const time2 = clock();
+  assert.equal(await reapTree({ pid: 4242, spawnedAt: 0, platform: 'darwin', group: outlived.group, ...time2 }), true, 'a group still there after the wait was left');
+  assert.equal(outlived.calls.kills, 1, 'and it is killed');
+  assert.ok(time2.now() >= REAP_WAIT_MS, `only after the wait (${time2.now()} ms)`);
+  // a group already gone: no wait at all
+  const gone = posix([false]);
+  const time3 = clock();
+  assert.equal(await reapTree({ pid: 4242, spawnedAt: 0, platform: 'linux', group: gone.group, ...time3 }), false);
+  assert.deepEqual([gone.calls, time3.now()], [{ probes: 1, kills: 0 }, 0], 'one probe, no wait');
+  // Windows: a descendant still listed while taskkill finishes is read again; one still listed when the wait is over is killed
+  const row = (pid, ppid, created) => ({ pid, ppid, created });
+  const tables = (lists) => {
+    const killed = [];
+    return { killed, table: { list: async () => (lists.length > 1 ? lists.shift() : lists[0]), kill: async (pid) => { killed.push(pid); return true; } } };
+  };
+  const finishing = tables([[row(500, 100, 10)], []]);
+  assert.equal(await reapTree({ pid: 100, spawnedAt: 0, platform: 'win32', table: finishing.table, ...clock() }), false, 'Windows: a descendant gone at the next read left nothing');
+  assert.deepEqual(finishing.killed, [], 'and was not killed again');
+  const stays = tables([[row(500, 100, 10), row(600, 500, 20), row(700, 1, 5)]]);
+  const time4 = clock();
+  assert.equal(await reapTree({ pid: 100, spawnedAt: 0, platform: 'win32', table: stays.table, ...time4 }), true, 'Windows: descendants still listed after the wait were left');
+  assert.deepEqual(stays.killed.sort(), [500, 600], 'they are killed, and only they (700 is not of the tree)');
+  assert.ok(time4.now() >= REAP_WAIT_MS);
+  assert.equal(await reapTree({ pid: 100, spawnedAt: 0, platform: 'win32', table: { list: async () => null, kill: async () => true }, ...clock() }), null, 'Windows: no process table, not known');
+  assert.equal(await reapTree({ pid: undefined, spawnedAt: 0, platform: 'linux', group: posix([]).group, ...clock() }), false, 'no pid (the shell never started): nothing');
+  ok('the sweep after the root exited: a killed group still being reaped, or a descendant taskkill has not finished, is no leftover; what is still there after the wait is, and is killed');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 3. the adapters

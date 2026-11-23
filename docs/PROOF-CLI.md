@@ -214,7 +214,7 @@ exec's own options come before `--`; every word after it belongs to the agent's 
      itself left (PowerShell's `Start-Process`) is found. A child that a Node program starts without `detached` ends with that program on
      Windows anyway (Node puts it in a job closed with its parent). `agent.treeLeft` says whether anything was left (null when Windows
      could not list its processes); while exec still waits for the output pipes, the streams are let go 1.5 s after the root exited
-     (`agent.lingering`).
+     (`agent.lingering`). Left means still there 2 s after the root exited: a killed process not yet reaped is not counted.
 4. **The run is recorded** as one `call` record of the session's ledger, in exec's own closed shape of `call` (`kind` `agent_exec`,
    `format` `chatmcp.verify-exec/1`, beside the guard seam's tool calls of [PROOF-SERVICE.md](PROOF-SERVICE.md); the fields and their
    bounds are in [PROOF-LEDGER.md](PROOF-LEDGER.md), "Record types"): the

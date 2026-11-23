@@ -16,6 +16,7 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
   const [selection,setSelection]=useState<Record<string,string>>({});
   const [saving,setSaving]=useState<string|null>(null);
   const receipts=task.objectiveReceipts||[];
+  const freshness=task.receiptFreshness;
   const objectives=task.goalPlan?.objectives||[];
   const completed=new Set(objectives.filter(x=>x.status==='verified').map(x=>x.id));
   if(!objectives.length)return null;
@@ -44,6 +45,8 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
       {t('agents_obj_summary',{done:completed.size,total:objectives.length})}
     </summary>
     <p className="mt-2 text-muted">{t('agents_obj_intro')}</p>
+    {/* Only fresh receipts are offered (pod-18): say how many are left out, and why, so an empty list is not a mystery. */}
+    {freshness&&(freshness.stale+freshness.unknown)>0&&<p data-testid="objective-freshness" className="mt-2 text-muted">{t('agents_obj_freshness',{stale:freshness.stale,unknown:freshness.unknown})}</p>}
     {objectives.some(o=>o.evidence?.some(e=>acceptedByHub(e)&&receipts.some(r=>r.receiptId===e.receiptId)))&&<p data-testid="objective-auto-note" className="mt-2 text-muted">{t('agents_obj_auto_note')}</p>}
     <div className="mt-2 flex items-center gap-2">
       <button type="button" data-testid="objective-accept-all" disabled={saving!==null||suggested.length===0}
