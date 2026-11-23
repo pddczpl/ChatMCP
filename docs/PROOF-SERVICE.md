@@ -5,9 +5,10 @@ every tool call passes: `HubManager.#guardCalls` (`lib/manager.mjs`). The agent,
 in its own `HubManager`) and a client of the MCP host all reach their tools through that seam, so all of them are recorded without
 knowing about the service. Tree snapshots come from the pod-15 engine ([PROOF-TREE.md](PROOF-TREE.md)).
 
-**Status: wired in, nothing reads it yet.** Every task now gets a ledger in `<Hub data folder>/proof/<taskId>.jsonl`. No screen shows it
-and no claim to users is made from it ([THREAT-MODEL.md](THREAT-MODEL.md) and [CLAIMS.md](CLAIMS.md) are unchanged); the receipts that
-bind to it and the pack that cites it are later pods'.
+**Status: wired in; the agent binds its receipts to its trees.** Every task now gets a ledger in `<Hub data folder>/proof/<taskId>.jsonl`.
+No screen shows the ledger itself and no claim to users is made from it ([THREAT-MODEL.md](THREAT-MODEL.md) and [CLAIMS.md](CLAIMS.md) are
+unchanged). Since pod-18 the agent reads the trees the guard hands to `onProof`, the run's start tree (`proofStart` on the session) and
+`mayChangeFiles` of `onDecision`, and binds its receipts to them ([PROOF-RECEIPTS.md](PROOF-RECEIPTS.md)); the pack that cites the ledger is a later pod's.
 
 ## A run in the ledger
 
