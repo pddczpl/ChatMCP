@@ -646,8 +646,8 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": " && receipt.treeBefore.tree === context.after.tree);",
-     "new": ");"
+     "old": " && ref.tree === context.after.tree;",
+     "new": ";"
     }
    ]
   },
@@ -712,8 +712,8 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": "if (current.length > passes) {",
-     "new": "if (passes === 0 && current.length > 0) {"
+     "old": "if (current.some((receipt) => !passed(receipt, expectExit))) {",
+     "new": "if (passes === 0 && current.some((receipt) => !passed(receipt, expectExit))) {"
     }
    ]
   },
@@ -1339,7 +1339,7 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": "if (!onFinal(receipt) || !ranOk(receipt)) add(path, 'passed_receipt'",
+     "old": "if (!onFinal(receipt) || !ranOk(receipt) || !leftFinal(receipt)) add(path, 'passed_receipt'",
      "new": "if (false) add(path, 'passed_receipt'"
     }
    ]
@@ -1350,8 +1350,8 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": "if (!onFinal(receipt) || !ranOk(receipt))",
-     "new": "if (!ranOk(receipt))"
+     "old": "if (!onFinal(receipt) || !ranOk(receipt) || !leftFinal(receipt))",
+     "new": "if (!ranOk(receipt) || !leftFinal(receipt))"
     }
    ]
   },
@@ -1361,8 +1361,19 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": "if (!onFinal(receipt) || !ranOk(receipt))",
-     "new": "if (!onFinal(receipt))"
+     "old": "if (!onFinal(receipt) || !ranOk(receipt) || !leftFinal(receipt))",
+     "new": "if (!onFinal(receipt) || !leftFinal(receipt))"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-passed-left",
+   "what": "a passed check may list a run that started on the final tree and changed it",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (!onFinal(receipt) || !ranOk(receipt) || !leftFinal(receipt))",
+     "new": "if (!onFinal(receipt) || !ranOk(receipt))"
     }
    ]
   },
@@ -1482,7 +1493,7 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": "if (onFinal(receipt)) add(path, 'stale_receipt'",
+     "old": "if (onFinal(receipt) && (!ranOk(receipt) || leftFinal(receipt))) add(path, 'stale_receipt'",
      "new": "if (false) add(path, 'stale_receipt'"
     }
    ]
@@ -1548,8 +1559,8 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": "named = matching.findLast((receipt) => sameTree(receipt.treeBefore, context.after));",
-     "new": "named = matching.at(-1);"
+     "old": "named = current.at(-1) ?? matching.findLast((receipt) => sameTree(receipt.treeBefore, context.after));",
+     "new": "named = current.at(-1) ?? matching.at(-1);"
     }
    ]
   },
@@ -1671,6 +1682,72 @@
      "file": "lib/proof/pack.mjs",
      "old": "  const errors = semanticErrors(statement);",
      "new": "  const errors = [];"
+    }
+   ]
+  },
+  {
+   "name": "PP-pass-ignores-after",
+   "what": "a passing run that changed the final tree counts as a pass",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const counted = current.filter((receipt) => passed(receipt, expectExit) && onFinal(receipt.treeAfter));",
+     "new": "const counted = current.filter((receipt) => passed(receipt, expectExit));"
+    }
+   ]
+  },
+  {
+   "name": "PP-failure-needs-after",
+   "what": "a failure on the final tree counts only when the run left the tree as it was",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (current.some((receipt) => !passed(receipt, expectExit))) {",
+     "new": "if (current.some((receipt) => !passed(receipt, expectExit) && onFinal(receipt.treeAfter))) {"
+    }
+   ]
+  },
+  {
+   "name": "PP-pool-current",
+   "what": "a passed check lists every run on the final tree, its uncounted passes too",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "const pool = result === 'failed' ? current : result === 'passed' || result === 'repeats_short' ? counted : matching;",
+     "new": "const pool = result === 'failed' ? current : result === 'passed' || result === 'repeats_short' ? current : matching;"
+    }
+   ]
+  },
+  {
+   "name": "PP-stale-named-other",
+   "what": "a stale check names its latest comparable run even when a run started on the final tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "named = current.at(-1) ?? matching.findLast(",
+     "new": "named = matching.findLast("
+    }
+   ]
+  },
+  {
+   "name": "PP-stale-detail",
+   "what": "the stale reason of a run that changed the final tree says it ran on another tree",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "detail: onFinal(named.treeBefore) ? 'ran on the final tree but did not leave it as it found it' :",
+     "new": "detail: false ? 'ran on the final tree but did not leave it as it found it' :"
+    }
+   ]
+  },
+  {
+   "name": "PP-rule-stale-unsettled",
+   "what": "a stale check may not list a passing run that started on the final tree and changed it",
+   "patches": [
+    {
+     "file": "lib/proof/pack.mjs",
+     "old": "if (onFinal(receipt) && (!ranOk(receipt) || leftFinal(receipt))) add(path, 'stale_receipt'",
+     "new": "if (onFinal(receipt)) add(path, 'stale_receipt'"
     }
    ]
   }

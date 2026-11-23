@@ -700,6 +700,57 @@ const matrix = buildAgentChangeStatement(matrixInput());
   assert.equal(long.predicate.receipts[0].commandSha256, sha256(longCommand), 'the hash is of the command as it ran');
   ok('limits: receipts per check and unreferenced receipts bounded and counted, uncertain events bounded, statuses from all receipts; a command masked longer is cut and marked');
 }
+{
+  // a run that changed the tree (pod-21, docs/PROOF-CHECKS.md): a pass counts only when the run started AND ended on the final tree; a
+  // failure that started on it counts whatever it did; the runs a passed check lists are its counted passes
+  const ids = ['toggle', 'prettier', 'rerun', 'settled', 'changed', 'changed-fail', 'after-unknown'];
+  const text = ['version: 1', 'criteria:', ...ids.flatMap((id) => [
+    `  - id: c-${id}`, `    text: "${id}"`, '    checks:', `      - run: "node ${id}.js"`]), ''].join('\n');
+  const hub = fresh('changed-hub');
+  const store = createTrustStore(hub);
+  await store.trust(acceptanceSha256(text), { approvedBy: 'owner', at: AT });
+  const changedLedger = ProofLedger.forTask(hub, 'changed', { now: () => new Date(AT) });
+  const append = (command, result, treeBefore, treeAfter) => changedLedger.append('check', checkReceipt({ command, result, treeBefore, treeAfter }));
+  // FINAL is the final tree (A), OTHER another tree (B)
+  await append('node toggle.js', runResult(), OTHER, FINAL); // 1: the toggle: B->A,
+  await append('node toggle.js', runResult(), FINAL, OTHER); // 2:   A->B (started on the final tree, exit 0, changed it),
+  await append('node toggle.js', runResult(), OTHER, FINAL); // 3:   B->A
+  await append('node prettier.js', runResult(), FINAL, OTHER); // 4: `prettier --write` fixed A into B; a later step put A back
+  await append('node rerun.js', runResult(), OTHER, FINAL); // 5: changed the tree on its first attempt,
+  await append('node rerun.js', runResult(), FINAL, FINAL); // 6:   then ran stable on the new final tree
+  await append('node settled.js', runResult(), FINAL, OTHER); // 7: passed, but changed the tree
+  await append('node settled.js', runResult(), FINAL, FINAL); // 8: the run that counts
+  await append('node settled.js', runResult(), OTHER, FINAL); // 9: started on another tree
+  await append('node changed.js', runResult(), FINAL, OTHER); // 10: the run on the final tree, changing it: the one the reason names
+  await append('node changed.js', runResult(), OTHER, FINAL); // 11: a later run on another tree
+  await append('node changed-fail.js', runResult({ exitCode: 1 }), FINAL, OTHER); // 12: a failure counts
+  await append('node after-unknown.js', runResult(), FINAL, null); // 13: no tree after it
+  const side = memorySide({ '.chatmcp/acceptance.yml': text, 'src/app.js': 'v1\n' });
+  const changes = await detectCheckChanges({ baseline: side, final: side, acceptance: parseAcceptance(text) });
+  const input = matrixInput({ acceptance: await resolveAcceptance({ baseline: text, current: text, trustStore: store }), checkChanges: changes, ledger: fs.readFileSync(changedLedger.file), ownerAcceptances: [] });
+  const statement = buildAgentChangeStatement(input);
+  valid(statement);
+  const row = (id) => criterionOf(statement, `c-${id}`).checks[0];
+  assert.deepEqual(ids.map((id) => `${row(id).result}/${row(id).passes}/${row(id).receipts.join(',')}`),
+    ['stale/0/1,2,3', 'stale/0/4', 'passed/1/6', 'passed/1/8', 'stale/0/10,11', 'failed/0/12', 'stale/0/13']);
+  assert.deepEqual(ids.map((id) => criterionOf(statement, `c-${id}`).status), ['stale', 'stale', 'evidenced', 'evidenced', 'stale', 'failed', 'stale'],
+    'the toggle and the reverted formatter are never evidenced; the check that changed the tree once and then ran stable on it is');
+  const detail = (id) => criterionOf(statement, `c-${id}`).reasons[0].detail;
+  for (const id of ['toggle', 'prettier', 'changed']) assert.equal(detail(id), 'ran on the final tree but did not leave it as it found it', `${id}: the reason names the run on the final tree`);
+  assert.equal(detail('changed-fail'), 'exit 1, expected 0');
+  // the same two cases forged as passed (the old rule's answer) are refused by validateStatement
+  for (const [id, seq] of [['toggle', 2], ['prettier', 4]]) {
+    const forged = clone(statement);
+    const criterion = forged.predicate.criteria.find((item) => item.id === `c-${id}`);
+    const at = forged.predicate.criteria.indexOf(criterion);
+    Object.assign(criterion.checks[0], { result: 'passed', passes: 1, receipts: [seq] });
+    Object.assign(criterion, { status: 'evidenced', reasons: [] });
+    const result = validateStatement(forged);
+    assert.equal(result.valid, false, `${id} forged as passed`);
+    assert.deepEqual(result.errors.map((error) => `${error.path} ${error.keyword}`), [`/predicate/criteria/${at}/checks/0/receipts/0 semantic:passed_receipt`]);
+  }
+  ok('a run that changed the tree: a toggling check and a formatter whose fix was reverted are stale, never evidenced, and forged as passed they are refused; a check that changed the tree once and then ran stable on it is evidenced; a failure on the final tree counts whatever it did; a passed check lists only its counted passes');
+}
 
 // =====================================================================================================================
 // 5. the full chain on real temporary Git repositories
@@ -939,7 +990,9 @@ async function finish(repo, ledger, { ownerAcceptances = [], secrets = [SECRET],
     ['repeats short with a failing receipt', (s) => { rec(s, 9).exit = 1; }, '/predicate/criteria/6/checks/0/receipts/0', 'semantic:passed_receipt'],
     ['a failed check listing no failing receipt', (s) => { rec(s, 3).exit = 0; }, '/predicate/criteria/1/checks/0/receipts', 'semantic:failed_receipt'],
     ['a failed check whose receipt ran on another tree', (s) => { rec(s, 3).treeBefore.tree = TREE_B; }, '/predicate/criteria/1/checks/0/receipts/0', 'semantic:failed_receipt'],
-    ['a stale check listing a run on the final tree', (s) => { rec(s, 6).treeBefore.tree = TREE_A; }, '/predicate/criteria/3/checks/0/receipts/0', 'semantic:stale_receipt'],
+    // A run that started on the final tree and changed it counts neither way (docs/PROOF-CHECKS.md), so the forged run here also ends on it.
+    ['a stale check listing a run on the final tree', (s) => { rec(s, 6).treeBefore.tree = TREE_A; rec(s, 6).treeAfter.tree = TREE_A; }, '/predicate/criteria/3/checks/0/receipts/0', 'semantic:stale_receipt'],
+    ['a passed check listing a run that changed the final tree', (s) => { rec(s, 2).treeAfter.tree = TREE_B; }, '/predicate/criteria/0/checks/0/receipts/0', 'semantic:passed_receipt'],
     ['a stale check without a run on a comparable tree', (s) => { rec(s, 6).treeBefore = null; }, '/predicate/criteria/3/checks/0/receipts', 'semantic:stale_receipt'],
     ['a tree_unknown check listing a run on a comparable tree', (s) => { rec(s, 7).treeBefore = { treeAlgorithm: 'git-pinned-v1', objectFormat: 'sha1', tree: TREE_B }; },
       '/predicate/criteria/4/checks/0/receipts/0', 'semantic:stale_receipt'],
