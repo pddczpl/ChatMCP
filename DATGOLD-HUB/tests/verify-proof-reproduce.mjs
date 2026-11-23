@@ -272,6 +272,7 @@ const GOOD_ACCEPTANCE = acceptanceOf([['unit', 'node test.mjs'], ['known-bug', '
 const good = await makePack('good', { acceptance: GOOD_ACCEPTANCE, before: ['node test.mjs'], after: ['node test.mjs', 'node fails.mjs', 'node -e "0"'] });
 let goodBytes;
 let tampered; // an honest pack whose checks were modified and whose other criterion failed (section 3), forged again in section 4
+let untrusted; // an honest pack of an untrusted file, one of its checks never run (section 3), forged again in section 4
 {
   const { repo, packFile, pack, statement } = good;
   expectAnswer(pack, 0, 'pack_evidenced', 'the pack of the good session');
@@ -356,7 +357,7 @@ let tampered; // an honest pack whose checks were modified and whose other crite
     acceptance: acceptanceOf([['unit', 'node test.mjs'], ['bug', 'node fails.mjs']]), change: { ...FIX, 'test.mjs': `${PROJECT['test.mjs']}// the agent was here\n` },
     after: ['node test.mjs', 'node fails.mjs'],
   });
-  const untrusted = await makePack('untrusted', { acceptance: acceptanceOf([['unit', 'node test.mjs'], ['manual-free', 'node -e "0"']], ['node setup.mjs', 'node -e "1"']), after: ['node test.mjs'], trust: false });
+  untrusted = await makePack('untrusted', { acceptance: acceptanceOf([['unit', 'node test.mjs'], ['manual-free', 'node -e "0"']], ['node setup.mjs', 'node -e "1"']), after: ['node test.mjs'], trust: false });
   const statuses = [];
   for (const made of [tampered, untrusted]) {
     const answer = await ask(['verify', 'check', made.packFile]);
@@ -371,7 +372,7 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
 
 /**
  * A pack whose ledger gains one more `check` record (appended with the ledger's own code, so its chain verifies): the last passing run of
- * `command` again, on the same final tree, with exit 1. The statement's ledger summary is updated to the new chain; its criteria and
+ * `command` (or its last run) again, on the same final tree, with `exit`. The statement's ledger summary is updated to the new chain; its criteria and
  * receipts are left as they were, and the pack is encoded again with its digest. Every hash in it holds; only the roll-up does not.
  */
 async function failureAppended(bytes, command, exit = 1) {
@@ -379,8 +380,9 @@ async function failureAppended(bytes, command, exit = 1) {
   const scratchLedger = path.join(folder('forged-ledger'), 'ledger.jsonl');
   fs.writeFileSync(scratchLedger, files['ledger.jsonl']);
   const entries = files['ledger.jsonl'].toString('utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  const passing = entries.findLast((entry) => entry.type === 'check' && entry.record.command === command && entry.record.exit === 0);
-  assert.ok(passing, `a passing run of ${command} to copy`);
+  const runs = entries.filter((entry) => entry.type === 'check' && entry.record.command === command);
+  const passing = runs.findLast((entry) => entry.record.exit === 0) ?? runs.at(-1);
+  assert.ok(passing, `a run of ${command} to copy`);
   const ledger = new ProofLedger({ file: scratchLedger, now: () => new Date() });
   await ledger.append('check', { ...passing.record, exit });
   const ledgerBytes = fs.readFileSync(scratchLedger);
@@ -526,6 +528,9 @@ function reencoded(bytes, edit, { acceptance } = {}) {
     ['a reason the roll-up does not give', reencoded(tamperedBytes, (copy) => { copy.predicate.criteria[1].reasons.push({ code: 'acceptance_untrusted', check: null, detail: null }); }), 'bug', null, 'reasons'],
     ['a criterion renamed', reencoded(goodBytes, (copy) => { copy.predicate.criteria[0].id = 'unit-renamed'; }), null, null, 'criteria'],
     ['a check left out', reencoded(two, (copy) => { copy.predicate.criteria[0].checks.pop(); }), 'two', null, 'checks'],
+    // a second failure on the final tree: the statement still lists only the first, not the run its check_failed reason names (the latest)
+    ['the run the reason names left out', await failureAppended(two, 'node fails.mjs'), 'two', 0, 'receipts'],
+    ['a check in another folder', reencoded(fs.readFileSync(untrusted.packFile), (copy) => { copy.predicate.criteria[1].checks[0].cwd = 'src'; }), 'manual-free', 0, 'cwd'],
     ['an acceptance file that does not read', reencoded(goodBytes, (copy) => { copy.predicate.acceptance.baselineSha256 = sha256('version: 2\n'); }, { acceptance: Buffer.from('version: 2\n') }), null, null, 'acceptance'],
   ];
   for (const [label, forgedPack, criterion, check, field] of parts) {
