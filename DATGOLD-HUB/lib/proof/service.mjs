@@ -60,7 +60,6 @@ const inside = (parent, child) => {
 };
 const caseKey = (file) => (process.platform === 'win32' ? file.toLowerCase() : file);
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
-const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
 const meanOf = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0);
 const comparable = (before, after) => Boolean(before?.tree && after?.tree && before.treeAlgorithm === after.treeAlgorithm && before.objectFormat === after.objectFormat);
 /** What a caller is told of a tree reference: its ids and what they can be compared by. */
@@ -154,7 +153,6 @@ export class ProofService {
    */
   async begin(taskId, { signal = null } = {}) {
     if (this.disabled || !(await this.#outside())) return null;
-    if (this.task?.id === taskId) return { run: this.task.run, resumed: this.task.run > 1, seq: null };
     let ledger;
     let read;
     try {
@@ -242,8 +240,13 @@ export class ProofService {
   async end(taskId, { status = 'unknown', errorCode = null } = {}) {
     const task = this.task;
     if (!task || task.id !== taskId) return null;
-    this.task = null;
-    if (task.pending.size) await Promise.race([Promise.allSettled([...task.pending].map((token) => token.done.promise)), delay(this.endWaitMs)]);
+    this.task = null; // from here no new call of this run is scanned
+    if (task.pending.size) {
+      let timer;
+      const waited = new Promise((resolve) => { timer = setTimeout(resolve, this.endWaitMs); });
+      await Promise.race([Promise.allSettled([...task.pending].map((token) => token.done.promise)), waited]);
+      clearTimeout(timer);
+    }
     if (task.halted) return null;
     try {
       for (const token of [...task.pending]) {

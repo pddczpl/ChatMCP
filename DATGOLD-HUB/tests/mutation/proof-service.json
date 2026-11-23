@@ -1,0 +1,572 @@
+{
+ "suite": "verify-proof-service.mjs",
+ "description": "The proof service at the single guard seam (plan task pod-17, docs/PROOF-SERVICE.md): the categories that are scanned, the records of a run (task_start, tree, call, task_end) and the resumed chain, recovery after a crash, the overlap mark, the scan budget and the switch to checks-only, the end of a run while a call still runs, the Hub data folder inside the workspace (lib/proof/service.mjs), and the seams that call it: HubManager.createAgentSession, #guardCalls and its onProof, finishProof and recoverProof (lib/manager.mjs), the agent's onProof, #finish and load (lib/agent.mjs), BrowserRunner.finish and the side chat's manager (lib/concurrent-api-agent.mjs), judged by tests/verify-proof-service.mjs.",
+ "mutations": [
+  {
+   "name": "PS-external-always",
+   "what": "every allowed external call is scanned, flagged touchesWorkspace or not",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "  if (category === 'external') return touchesWorkspace === true;",
+     "new": "  if (category === 'external') return true;"
+    }
+   ]
+  },
+  {
+   "name": "PS-unknown-not-scanned",
+   "what": "calls of category unknown are not scanned",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "export const SCANNED_CATEGORIES = Object.freeze(['workspace_edit', 'dangerous', 'execute', 'unknown']);",
+     "new": "export const SCANNED_CATEGORIES = Object.freeze(['workspace_edit', 'dangerous', 'execute']);"
+    }
+   ]
+  },
+  {
+   "name": "PS-budget-at-or-over",
+   "what": "a mean of exactly 1,500 ms switches to checks-only",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    if (!(mean > this.budget.meanScanMs)) return;",
+     "new": "    if (!(mean >= this.budget.meanScanMs)) return;"
+    }
+   ]
+  },
+  {
+   "name": "PS-budget-waits-longer",
+   "what": "the decision waits for one scan more than minScans",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "task.scans.length < this.budget.minScans) return;",
+     "new": "task.scans.length <= this.budget.minScans) return;"
+    }
+   ]
+  },
+  {
+   "name": "PS-budget-no-switch",
+   "what": "the budget is recorded but the granularity stays calls",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    task.granularity = GRANULARITY.checksOnly;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-budget-not-recorded",
+   "what": "the switch to checks-only is not recorded in the ledger",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    await task.ledger.append('uncertain', { reason: UNCERTAIN_REASONS.checksOnly,",
+     "new": "    void ({ reason: UNCERTAIN_REASONS.checksOnly,"
+    }
+   ]
+  },
+  {
+   "name": "PS-full-scan-in-mean",
+   "what": "the full snapshot of a run's start counts in the mean",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      const { ref, ms } = await this.#scan({ full: true, signal });",
+     "new": "      const { ref, ms } = await this.#scan({ full: true, signal }); task.scans.push(ms);"
+    }
+   ]
+  },
+  {
+   "name": "PS-start-cached",
+   "what": "the snapshot of a run's start is a cached one",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      const { ref, ms } = await this.#scan({ full: true, signal });",
+     "new": "      const { ref, ms } = await this.#scan({ full: false, signal });"
+    }
+   ]
+  },
+  {
+   "name": "PS-end-cached",
+   "what": "the final snapshot is a cached one",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      const { ref, ms } = await this.#scan({ full: true });",
+     "new": "      const { ref, ms } = await this.#scan({});"
+    }
+   ]
+  },
+  {
+   "name": "PS-second-task-start",
+   "what": "a resumed run writes task_start again",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      if (!read.entries.length) await ledger.append('task_start',",
+     "new": "      if (true) await ledger.append('task_start',"
+    }
+   ]
+  },
+  {
+   "name": "PS-run-event",
+   "what": "every run starts with the event task_start",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "event: run === 1 ? 'task_start' : 'run_start'",
+     "new": "event: 'task_start'"
+    }
+   ]
+  },
+  {
+   "name": "PS-run-count",
+   "what": "the run number is counted wrong",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "record.event === 'run_start')).length + 1;",
+     "new": "record.event === 'run_start')).length + 2;"
+    }
+   ]
+  },
+  {
+   "name": "PS-no-recovery-in-begin",
+   "what": "begin() does not write what a run that died left out",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      await appendAll(ledger, 'uncertain', recoveryRecords(read.entries));",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-recover-no-call",
+   "what": "recovery does not record the call that was interrupted",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      records.push({ reason: UNCERTAIN_REASONS.callInterrupted,",
+     "new": "      void ({ reason: UNCERTAIN_REASONS.callInterrupted,"
+    }
+   ]
+  },
+  {
+   "name": "PS-recover-finished-call-open",
+   "what": "a call with its record counts as interrupted",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    else if (type === 'call') run.open.delete(record.callId);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-recover-twice",
+   "what": "a call already recorded as interrupted is recorded again",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    else if (type === 'uncertain' && [UNCERTAIN_REASONS.callInterrupted, UNCERTAIN_REASONS.callUnfinished].includes(record.reason)) run.open.delete(record.callId);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-recover-ignores-task-end",
+   "what": "a run that ended with task_end counts as interrupted",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    else if (type === 'task_end' || (type === 'uncertain' && record.reason === UNCERTAIN_REASONS.runInterrupted)) run.ended = true;",
+     "new": "    else if (type === 'uncertain' && record.reason === UNCERTAIN_REASONS.runInterrupted) run.ended = true;"
+    }
+   ]
+  },
+  {
+   "name": "PS-recover-ended-runs",
+   "what": "runs that ended are recovered too",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    if (run.ended) continue;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-any-task",
+   "what": "a call of another task is recorded in the active task's ledger",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "if (!task || task.id !== taskId || task.halted ||",
+     "new": "if (!task || task.halted ||"
+    }
+   ]
+  },
+  {
+   "name": "PS-halted-scans",
+   "what": "a ledger that failed is still scanned for",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "task.id !== taskId || task.halted || task.granularity",
+     "new": "task.id !== taskId || task.granularity"
+    }
+   ]
+  },
+  {
+   "name": "PS-granularity-ignored",
+   "what": "calls are scanned after the switch to checks-only",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": " || task.granularity !== GRANULARITY.calls || ",
+     "new": " || "
+    }
+   ]
+  },
+  {
+   "name": "PS-category-ignored",
+   "what": "a call of any category is scanned",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": " || !scannedCall({ category, touchesWorkspace })) return null;",
+     "new": ") return null;"
+    }
+   ]
+  },
+  {
+   "name": "PS-overlap-one-side",
+   "what": "only the later of two overlapping calls is marked",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    if (peers.size) { token.overlapped = true; for (const peer of peers) peer.overlapped = true; }",
+     "new": "    if (peers.size) { token.overlapped = true; }"
+    }
+   ]
+  },
+  {
+   "name": "PS-overlap-never",
+   "what": "overlapping calls are not marked",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    if (peers.size) { token.overlapped = true; for (const peer of peers) peer.overlapped = true; }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-in-flight-kept",
+   "what": "a finished call stays in flight for its workspace",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    inFlight.get(caseKey(this.root))?.delete(token);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-changed-inverted",
+   "what": "changed says the opposite",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "token.before.tree !== ref.tree : null;",
+     "new": "token.before.tree === ref.tree : null;"
+    }
+   ]
+  },
+  {
+   "name": "PS-comparable-always",
+   "what": "trees without an id, or of another algorithm, are compared",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "const comparable = (before, after) => Boolean(before?.tree && after?.tree && before.treeAlgorithm === after.treeAlgorithm && before.objectFormat === after.objectFormat);",
+     "new": "const comparable = () => true;"
+    }
+   ]
+  },
+  {
+   "name": "PS-late-result-written",
+   "what": "the result of a call end() gave up on is written after task_end",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      if (token.orphaned || task.halted) return null;",
+     "new": "      if (task.halted) return null;"
+    },
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      if (token.orphaned) return null;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-end-no-wait",
+   "what": "end() does not wait for a call that is still running",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      await Promise.race([Promise.allSettled([...task.pending].map((token) => token.done.promise)), waited]);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-end-unfinished-unrecorded",
+   "what": "a call that outlasts the wait is not recorded",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "        await task.ledger.append('uncertain', { reason: UNCERTAIN_REASONS.callUnfinished,",
+     "new": "        void ({ reason: UNCERTAIN_REASONS.callUnfinished,"
+    }
+   ]
+  },
+  {
+   "name": "PS-end-keeps-task",
+   "what": "the run stays active after its end",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    this.task = null; // from here no new call of this run is scanned",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-end-status",
+   "what": "task_end always says completed",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "status: String(status), errorCode: errorCode ?? null,",
+     "new": "status: 'completed', errorCode: errorCode ?? null,"
+    }
+   ]
+  },
+  {
+   "name": "PS-end-halted-ignored",
+   "what": "end() takes a snapshot for a ledger that failed",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    if (task.halted) return null;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PS-inside-allowed",
+   "what": "a Hub data folder inside the workspace is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    this.disabled = inside(this.root, this.hubDir) ? 'state_inside_workspace' : null;",
+     "new": "    this.disabled = null;"
+    }
+   ]
+  },
+  {
+   "name": "PS-inside-by-path-only",
+   "what": "a data folder that is inside the workspace only on disk (a junction) is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "    if (this.disabled || !(await this.#outside())) return null;",
+     "new": "    if (this.disabled) return null;"
+    }
+   ]
+  },
+  {
+   "name": "PS-no-secrets",
+   "what": "the ledger of a task is not given the registered secrets",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "      ledger = ProofLedger.forTask(this.hubDir, taskId, { secrets: this.secrets });",
+     "new": "      ledger = ProofLedger.forTask(this.hubDir, taskId, {});"
+    }
+   ]
+  },
+  {
+   "name": "PM-no-begin",
+   "what": "createAgentSession does not begin the run in the ledger",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "    await this.proofService()?.begin(this.taskId, { signal });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PM-no-before",
+   "what": "the guard records no call",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "      const proof = await this.#proofBefore(name, decision, binding, toolUseId, options.signal);",
+     "new": "      const proof = null;"
+    }
+   ]
+  },
+  {
+   "name": "PM-onproof-not-awaited",
+   "what": "the guard does not wait for onProof",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "    try { await onProof(info); }",
+     "new": "    try { void onProof(info); }"
+    }
+   ]
+  },
+  {
+   "name": "PM-onproof-throws-out",
+   "what": "an onProof that throws makes the call throw",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "    catch (error) { this.log(`Sổ bằng chứng: bên gọi không lưu được bằng chứng của ${info.tool} (${error?.message ?? error}).`); }",
+     "new": "    catch (error) { throw error; }"
+    }
+   ]
+  },
+  {
+   "name": "PM-outcome-always-ok",
+   "what": "a call that reported an error is recorded as ok",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "      await this.#proofAfter(proof, result?.isError === true ? 'error' : 'ok', onProof);",
+     "new": "      await this.#proofAfter(proof, 'ok', onProof);"
+    }
+   ]
+  },
+  {
+   "name": "PM-threw-unrecorded",
+   "what": "a call that threw gets no record",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "        await this.#proofAfter(proof, 'threw', onProof);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PM-finish-nothing",
+   "what": "finishProof writes no end",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "    try { return (await this.proof?.end(taskId, { status, errorCode })) ?? null; }",
+     "new": "    try { return null; }"
+    }
+   ]
+  },
+  {
+   "name": "PM-recover-nothing",
+   "what": "recoverProof writes nothing",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "    try { return await ProofService.recover({ hubDir: this.hubDirectory, taskId, secrets: () => this.secrets }); }",
+     "new": "    try { return 0; }"
+    }
+   ]
+  },
+  {
+   "name": "PM-no-options",
+   "what": "the manager's proofOptions do not reach its service",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "log: (line) => this.log(line), ...(this.proofOptions ?? {}) });",
+     "new": "log: (line) => this.log(line) });"
+    }
+   ]
+  },
+  {
+   "name": "PA-no-onproof",
+   "what": "the agent does not ask for the proof of its calls",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": ", onProof: (info) => this.#proved(context, info) }), context.controller.signal);",
+     "new": " }), context.controller.signal);"
+    }
+   ]
+  },
+  {
+   "name": "PA-proof-without-call",
+   "what": "the proof line does not name the model's call",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "callId: task.pendingCall?.callId ?? null, guardCallId: info.callId,",
+     "new": "callId: null, guardCallId: info.callId,"
+    }
+   ]
+  },
+  {
+   "name": "PA-no-final-snapshot",
+   "what": "the agent's end of a run writes no end to the ledger",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "        try { await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PA-no-recovery-on-load",
+   "what": "a task the Hub died in is not recovered when the Hub starts again",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "          try { await this.manager.recoverProof?.(task.id); } catch (proofError) { this.log(this.#redact(proofError.message)); }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PB-no-final-snapshot",
+   "what": "the Companion's end of task writes no end to the ledger",
+   "patches": [
+    {
+     "file": "lib/browser-runner.mjs",
+     "old": "          try { await owned.finishProof?.(task.id, { status, errorCode: task.errorCode ?? null }); }",
+     "new": "          try { }"
+    }
+   ]
+  },
+  {
+   "name": "PC-child-without-options",
+   "what": "a side chat's manager is not given the Hub's proof options",
+   "patches": [
+    {
+     "file": "lib/concurrent-api-agent.mjs",
+     "old": "    manager.proofOptions = this.manager.proofOptions ?? null;",
+     "new": ""
+    }
+   ]
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 {
  "suite": "verify-proof-ledger.mjs",
- "description": "The proof ledger of Proof-of-Done (plan task pod-16, docs/PROOF-LEDGER.md): the chain and verifyChain, the torn-tail repair, appends in turn, masking, the check receipt and its schema, the toolchain probe and recordCheck (lib/proof/ledger.mjs), and the command and output hashes of ShellRunner, run_command, tasks_run/tasks_status, test_run and build_run, judged by tests/verify-proof-ledger.mjs.",
+ "description": "The proof ledger of Proof-of-Done (plan task pod-16, docs/PROOF-LEDGER.md): the chain and verifyChain, the torn-tail repair, appends in turn, masking, the check receipt and its schema, the toolchain probe and recordCheck (lib/proof/ledger.mjs), and the command and output hashes of ShellRunner, run_command, tasks_run/tasks_status, test_run and build_run, and the closed schemas of the tree and call records of pod-17 and their tree ids kept whole, judged by tests/verify-proof-ledger.mjs.",
  "mutations": [
   {
    "name": "PL-no-hash-check",
@@ -206,7 +206,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
      "new": "    const masked = copy;"
     }
    ]
@@ -217,8 +217,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
-     "new": "    const masked = maskDeep(copy, [], type === 'check' ? CHECK_DIGESTS : null);"
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
+     "new": "    const masked = maskDeep(copy, [], KEPT_WHOLE[type] ?? null);"
     }
    ]
   },
@@ -228,7 +228,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
      "new": "    const masked = maskDeep(copy, this.secrets() ?? [], null);"
     }
    ]
@@ -239,7 +239,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], type === 'check' ? CHECK_DIGESTS : null);",
+     "old": "    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);",
      "new": "    const masked = maskDeep(copy, this.secrets() ?? [], CHECK_DIGESTS);"
     }
    ]
@@ -316,8 +316,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "['treeBefore', 'tree']",
-     "new": "['-']"
+     "old": "['stderr', 'sha256'], ['treeBefore', 'tree'],",
+     "new": "['stderr', 'sha256'], ['-'],"
     }
    ]
   },
@@ -327,8 +327,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "['treeBefore', 'rawTree']",
-     "new": "['-']"
+     "old": "  ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));",
+     "new": "  ['-'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));"
     }
    ]
   },
@@ -338,8 +338,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "['treeAfter', 'tree']",
-     "new": "['-']"
+     "old": "['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));",
+     "new": "['-'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));"
     }
    ]
   },
@@ -349,8 +349,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "['treeAfter', 'rawTree']",
-     "new": "['-']"
+     "old": "['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));",
+     "new": "['-']].map((at) => JSON.stringify(at)));"
     }
    ]
   },
@@ -371,7 +371,7 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    for (const id of ['tree', 'rawTree']) if (ref[id] !== null && (typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))) return `${name}.${id} is null or a Git object id in hex`;",
+     "old": "  for (const id of ['tree', 'rawTree']) if (ref[id] !== null && (typeof ref[id] !== 'string' || !TREE_ID.test(ref[id]))) return `${name}.${id} is null or a Git object id in hex`;",
      "new": ""
     }
    ]
@@ -382,8 +382,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "    for (const id of ['tree', 'rawTree']) if",
-     "new": "    for (const id of ['tree']) if"
+     "old": "  for (const id of ['tree', 'rawTree']) if",
+     "new": "  for (const id of ['tree']) if"
     }
    ]
   },
@@ -780,6 +780,226 @@
      "file": "lib/workflow-extensions.mjs",
      "old": "commandSha256:commandSha256(choice.command),",
      "new": "commandSha256:commandSha256(runner),"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-schema-off",
+   "what": "a tree record is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const SCHEMAS = Object.freeze({ check: checkProblem, tree: treeRecordProblem, call: callProblem });",
+     "new": "const SCHEMAS = Object.freeze({ check: checkProblem, call: callProblem });"
+    }
+   ]
+  },
+  {
+   "name": "PL-call-schema-off",
+   "what": "a call record is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const SCHEMAS = Object.freeze({ check: checkProblem, tree: treeRecordProblem, call: callProblem });",
+     "new": "const SCHEMAS = Object.freeze({ check: checkProblem, tree: treeRecordProblem });"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-ids-masked",
+   "what": "a registered secret inside the tree id of a tree record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  tree: new Set([['tree', 'tree'], ['tree', 'rawTree']].map((at) => JSON.stringify(at))),",
+     "new": "  tree: new Set(),"
+    }
+   ]
+  },
+  {
+   "name": "PL-call-ids-masked",
+   "what": "a registered secret inside a tree id of a call record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  call: new Set([['treeBefore', 'tree'], ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at))),",
+     "new": "  call: new Set(),"
+    }
+   ]
+  },
+  {
+   "name": "PL-word-any",
+   "what": "an event, outcome or category may be any text",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const WORD = /^[a-z][a-z0-9_]{0,31}$/;",
+     "new": "const WORD = /^.{0,64}$/;"
+    }
+   ]
+  },
+  {
+   "name": "PL-name-unbounded",
+   "what": "a tool name or call id may be of any length",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const NAME_CHARS = 256;",
+     "new": "const NAME_CHARS = 1e6;"
+    }
+   ]
+  },
+  {
+   "name": "PL-run-unchecked",
+   "what": "run 0 or text passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (!position(record.run)) return 'run is a count from 1';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-names-unchecked",
+   "what": "a call id or tool that is not text passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const nullableText = (value, max) => value === null || (typeof value === 'string' && value.length <= max);",
+     "new": "const nullableText = () => true;"
+    }
+   ]
+  },
+  {
+   "name": "PL-category-unchecked",
+   "what": "a category of any kind passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (record.category !== null && (typeof record.category !== 'string' || !WORD.test(record.category))) return 'category is null or a word';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-scan-unchecked",
+   "what": "a negative or fractional scan time passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (!count(record.scanMs)) return 'scanMs is a count of milliseconds';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-may-be-null",
+   "what": "a tree record without a tree passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (record.tree === null) return 'tree is a tree reference';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-event-unchecked",
+   "what": "an event of any kind passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (typeof record.event !== 'string' || !WORD.test(record.event)) return 'event is a word';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-outcome-unchecked",
+   "what": "an outcome of any kind passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (typeof record.outcome !== 'string' || !WORD.test(record.outcome)) return 'outcome is a word';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-changed-unchecked",
+   "what": "changed may be text",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (record.changed !== null && typeof record.changed !== 'boolean') return 'changed is a boolean or null';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-overlapped-unchecked",
+   "what": "overlapped may be null",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (typeof record.overlapped !== 'boolean') return 'overlapped is a boolean';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-before-seq-unchecked",
+   "what": "beforeSeq 0 passes",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (record.beforeSeq !== null && !position(record.beforeSeq)) return 'beforeSeq is null or a seq';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-call-trees-unchecked",
+   "what": "the trees of a call record are not checked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  return callFieldsProblem(record) ?? treeRefProblem(record.treeBefore, 'treeBefore') ?? treeRefProblem(record.treeAfter, 'treeAfter');",
+     "new": "  return callFieldsProblem(record);"
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-ref-unchecked",
+   "what": "the tree of a tree record is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  return callFieldsProblem(record) ?? treeRefProblem(record.tree, 'tree');",
+     "new": "  return callFieldsProblem(record);"
+    }
+   ]
+  },
+  {
+   "name": "PL-call-open",
+   "what": "a call record may carry other fields",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (!sameFields(record, CALL_FIELDS)) return `a call record has exactly the fields ${CALL_FIELDS.join(', ')}`;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-record-open",
+   "what": "a tree record may carry other fields",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  if (!sameFields(record, TREE_RECORD_FIELDS)) return `a tree record has exactly the fields ${TREE_RECORD_FIELDS.join(', ')}`;",
+     "new": ""
     }
    ]
   }

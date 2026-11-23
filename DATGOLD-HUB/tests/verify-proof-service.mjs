@@ -202,21 +202,33 @@ try {
     const taskId = 'task-crash-1';
     const before = new ProofService({ hubDir, root: repo });
     await before.begin(taskId);
+    assert.ok(await before.afterCall(await before.beforeCall({ taskId, callId: 'call-done', name: 'local.write_file', category: 'workspace_edit' }), { outcome: 'ok' }));
     const open = await before.beforeCall({ taskId, callId: 'call-open', name: 'local.run_command', category: 'execute' });
     assert.ok(open);
     // (the process dies here)
-    assert.equal(await ProofService.recover({ hubDir, taskId }), 2, 'two uncertain records: the call and the run');
+    assert.equal(await ProofService.recover({ hubDir, taskId }), 2, 'two uncertain records: the open call and the run (the finished call has its record)');
     assert.equal(await ProofService.recover({ hubDir, taskId }), 0, 'recovering again writes nothing');
     assert.equal(await ProofService.recover({ hubDir, taskId: 'task-never-seen' }), 0, 'no ledger, nothing to recover');
     let entries = await ledgerOf(hubDir, taskId);
-    assert.deepEqual(typesOf(entries), ['task_start', 'tree:task_start', 'tree:call_start', 'uncertain:call_interrupted', 'uncertain:run_interrupted']);
-    assert.deepEqual(entries[3].record, { reason: UNCERTAIN_REASONS.callInterrupted, run: 1, callId: 'call-open', tool: 'local.run_command', category: 'execute', treeSeq: 3 });
-    assert.deepEqual(entries[4].record, { reason: UNCERTAIN_REASONS.runInterrupted, run: 1 });
+    assert.deepEqual(typesOf(entries), ['task_start', 'tree:task_start', 'tree:call_start', 'call', 'tree:call_start', 'uncertain:call_interrupted', 'uncertain:run_interrupted']);
+    assert.deepEqual(entries[5].record, { reason: UNCERTAIN_REASONS.callInterrupted, run: 1, callId: 'call-open', tool: 'local.run_command', category: 'execute', treeSeq: 5 });
+    assert.deepEqual(entries[6].record, { reason: UNCERTAIN_REASONS.runInterrupted, run: 1 });
     const after = new ProofService({ hubDir, root: repo });
     const next = await after.begin(taskId);
     assert.deepEqual([next.run, next.resumed], [2, true]);
     entries = await ledgerOf(hubDir, taskId);
-    assert.deepEqual(typesOf(entries).slice(5), ['tree:run_start'], 'the next run adds no uncertain record a second time');
+    assert.deepEqual(typesOf(entries).slice(7), ['tree:run_start'], 'the next run adds no uncertain record a second time');
+    await after.end(taskId, { status: 'completed' });
+    assert.equal(await ProofService.recover({ hubDir, taskId }), 0, 'a ledger whose runs all ended lacks nothing');
+    // A recovery that died after its call_interrupted record: only the run's record is still missing.
+    const { ProofLedger } = await import('../lib/proof/ledger.mjs');
+    const half = ProofLedger.forTask(hubDir, 'task-crash-half');
+    const ref = entries[1].record.tree;
+    await half.append('tree', { event: 'task_start', run: 1, callId: null, tool: null, category: null, tree: ref, scanMs: 1 });
+    await half.append('tree', { event: 'call_start', run: 1, callId: 'c1', tool: 'local.write_file', category: 'workspace_edit', tree: ref, scanMs: 1 });
+    await half.append('uncertain', { reason: UNCERTAIN_REASONS.callInterrupted, run: 1, callId: 'c1', tool: 'local.write_file', category: 'workspace_edit', treeSeq: 2 });
+    assert.equal(await ProofService.recover({ hubDir, taskId: 'task-crash-half' }), 1);
+    assert.deepEqual(typesOf(await ledgerOf(hubDir, 'task-crash-half')), ['tree:task_start', 'tree:call_start', 'uncertain:call_interrupted', 'uncertain:run_interrupted']);
 
     // Without an explicit recover(): begin() of the next run writes the uncertain records first.
     const second = 'task-crash-2';
@@ -240,7 +252,85 @@ try {
     await assert.rejects(fs.stat(path.join(repo, '.hub-state', 'proof')), { code: 'ENOENT' }, 'nothing was written');
     const beside = new ProofService({ hubDir: `${repo}-hub`, root: repo });
     assert.equal(beside.disabled, null, 'a folder whose name only starts like the workspace is outside it');
-    ok('a Hub data folder inside the workspace (or the workspace itself) disables the service; nothing is written');
+    // Through a link: the path names a folder outside, the disk puts it inside (a junction needs no privilege on Windows).
+    await fs.mkdir(path.join(repo, 'linked-state'), { recursive: true });
+    const link = path.join(temp, 'inside-link');
+    await fs.symlink(path.join(repo, 'linked-state'), link, process.platform === 'win32' ? 'junction' : 'dir');
+    const linked = new ProofService({ hubDir: path.join(link, 'hub'), root: repo });
+    assert.equal(linked.disabled, null, '(premise) the path alone looks outside');
+    assert.equal(await linked.begin('task-linked'), null);
+    assert.equal(linked.disabled, 'state_inside_workspace', 'resolved on disk, it is inside');
+    await assert.rejects(fs.stat(path.join(repo, 'linked-state', 'hub')), { code: 'ENOENT' });
+    ok('a Hub data folder inside the workspace (the workspace itself, or through a junction) disables the service; nothing is written');
+  }
+  {
+    // Two calls at once on one workspace: both records say overlapped. A snapshot that fails: changed is null. A call still running when the
+    // task ends: end() waits for it; one that outlasts the wait is recorded as unfinished and its late result is not written after task_end.
+    const repo = await makeRepo('edges');
+    const hubDir = path.join(temp, 'edges-hub');
+    const service = new ProofService({ hubDir, root: repo, endWaitMs: 400 });
+    const taskId = 'task-edges';
+    await service.begin(taskId);
+    const a = await service.beforeCall({ taskId, callId: 'call-a', name: 'local.write_file', category: 'workspace_edit' });
+    const b = await service.beforeCall({ taskId, callId: 'call-b', name: 'local.write_file', category: 'workspace_edit' });
+    const [infoA, infoB] = [await service.afterCall(a, { outcome: 'ok' }), await service.afterCall(b, { outcome: 'ok' })];
+    assert.deepEqual([infoA.overlapped, infoB.overlapped], [true, true], 'both overlapping calls are marked');
+    const lone = await service.afterCall(await service.beforeCall({ taskId, callId: 'call-c', name: 'local.write_file', category: 'workspace_edit' }), { outcome: 'ok' });
+    assert.equal(lone.overlapped, false, 'a call after them is not');
+    const real = service.snapshotter;
+    service.snapshotter = { snapshot: async () => { throw Object.assign(new Error('gone'), { code: 'root_unreadable' }); } };
+    const failed = await service.afterCall(await service.beforeCall({ taskId, callId: 'call-d', name: 'local.write_file', category: 'workspace_edit' }), { outcome: 'error' });
+    assert.deepEqual([failed.changed, failed.treeBefore.status, failed.treeAfter.status, failed.treeAfter.tree], [null, 'failed', 'failed', null], 'a failed snapshot: no tree, changed null');
+    service.snapshotter = real;
+    const half = await service.afterCall(await service.beforeCall({ taskId, callId: 'call-e', name: 'local.write_file', category: 'workspace_edit' }).then((token) => { service.snapshotter = { snapshot: async () => ({ status: 'failed', engineReason: 'x' }) }; return token; }), { outcome: 'ok' });
+    assert.equal(half.changed, null, 'a tree before and no tree after cannot be compared');
+    service.snapshotter = real;
+    // end() while a call runs: it waits, the call's record comes first
+    const running = await service.beforeCall({ taskId, callId: 'call-f', name: 'local.run_command', category: 'execute' });
+    const ending = service.end(taskId, { status: 'cancelled', errorCode: 'user_cancelled' });
+    await delay(100);
+    assert.ok(await service.afterCall(running, { outcome: 'threw' }), 'the call that ran on is recorded');
+    await ending;
+    let entries = await ledgerOf(hubDir, taskId);
+    assert.deepEqual(typesOf(entries).slice(-3), ['call', 'tree:task_end', 'task_end']);
+    assert.deepEqual([entries.at(-3).record.callId, entries.at(-3).record.outcome, entries.at(-1).record.status], ['call-f', 'threw', 'cancelled']);
+    // a call that outlasts the wait
+    await service.begin(taskId);
+    const stuck = await service.beforeCall({ taskId, callId: 'call-g', name: 'local.run_command', category: 'execute' });
+    await service.end(taskId, { status: 'cancelled' });
+    assert.equal(await service.afterCall(stuck, { outcome: 'ok' }), null, 'its late result is not written');
+    entries = await ledgerOf(hubDir, taskId);
+    assert.deepEqual(typesOf(entries).slice(-4), ['tree:call_start', 'uncertain:call_unfinished_at_end', 'tree:task_end', 'task_end']);
+    assert.deepEqual(entries.at(-3).record, { reason: UNCERTAIN_REASONS.callUnfinished, run: 2, callId: 'call-g', tool: 'local.run_command', category: 'execute', treeSeq: entries.at(-4).seq });
+    ok('overlapping calls on one workspace are both marked; a failed snapshot gives a tree reference without an id and changed null; end() waits for a running call (its record before task_end) and records one that outlasts the wait as call_unfinished_at_end, its late result not written');
+  }
+  {
+    // A ledger that breaks during a task (someone edited it): the service stops writing to it, takes no more snapshots, and the calls still run.
+    const repo = await makeRepo('broken');
+    const hubDir = path.join(temp, 'broken-hub');
+    const lines = [];
+    const service = new ProofService({ hubDir, root: repo, log: (line) => lines.push(line) });
+    const taskId = 'task-broken';
+    await service.begin(taskId);
+    const file = ledgerPath(hubDir, taskId);
+    const bytes = Buffer.from(await fs.readFile(file));
+    bytes[10] ^= 0x01;
+    await fs.writeFile(file, bytes);
+    const later = new Date(Date.now() + 60_000);
+    await fs.utimes(file, later, later);
+    let scans = 0;
+    const real = service.snapshotter;
+    service.snapshotter = { snapshot: async (options) => { scans += 1; return real.snapshot(options); } };
+    assert.equal(await service.beforeCall({ taskId, callId: 'call-1', name: 'local.write_file', category: 'workspace_edit' }), null, 'the append failed: no token');
+    assert.equal(scans, 1);
+    assert.equal(await service.beforeCall({ taskId, callId: 'call-2', name: 'local.write_file', category: 'workspace_edit' }), null);
+    assert.equal(scans, 1, 'no snapshot is taken for a ledger that failed');
+    assert.equal(await service.end(taskId, { status: 'completed' }), null);
+    assert.equal(scans, 1);
+    assert.equal(lines.length, 1, 'one line in the Hub log');
+    assert.match(lines[0], /ledger_broken/);
+    assert.equal(await new ProofService({ hubDir, root: repo }).begin(taskId), null, 'a broken ledger is not begun again');
+    ok('a ledger broken during a task: one log line, no more snapshots or appends for it, the next run is not begun on it');
   }
   {
     // A registered secret that occurs inside a tree id: the ids of tree and call records are kept whole, the other strings are masked.
@@ -365,6 +455,23 @@ try {
     assert.notEqual(kept.isError, true, 'an onProof that throws changes no result: the call has run');
     assert.equal(await fs.readFile(path.join(repo, 'guard2.txt'), 'utf8'), 'two\n');
     assert.equal(callsOf(await ledgerOf(data, taskId)).length, 2);
+    let failedProof = null;
+    const failedEdit = await session.callTool('local.edit_file', { path: 'guard.txt', old_string: 'text that is not there', new_string: 'x' }, { onProof: (info) => { failedProof = info; } });
+    assert.equal(failedEdit.isError, true, '(premise) the edit reports an error');
+    assert.deepEqual([failedProof?.outcome, failedProof?.changed], ['error', false], 'a call that reported an error is recorded with outcome error');
+    assert.equal(callsOf(await ledgerOf(data, taskId)).at(-1).record.outcome, 'error');
+    // A tool that changes a file and then throws (a lost transport): the error travels on, the call record says threw and changed.
+    const original = hub.localTools.call.bind(hub.localTools);
+    hub.localTools.call = async (name, args, options) => {
+      const done = await original(name, args, options);
+      if (args?.path === 'boom.txt') throw new Error('the transport was lost after the write');
+      return done;
+    };
+    let thrownProof = null;
+    await assert.rejects(session.callTool('local.write_file', { path: 'boom.txt', content: 'boom\n' }, { onProof: (info) => { thrownProof = info; } }), /transport was lost/);
+    hub.localTools.call = original;
+    assert.deepEqual([thrownProof?.outcome, thrownProof?.changed], ['threw', true], 'a call that threw is recorded, with what it changed before');
+    assert.equal(callsOf(await ledgerOf(data, taskId)).at(-1).record.outcome, 'threw');
 
     await session.close();
     await hub.finishProof(taskId, { status: 'completed', errorCode: null });
@@ -465,6 +572,7 @@ try {
     assert.deepEqual(types.slice(-2), ['tree:task_end', 'task_end'], 'the cancelled task got its final snapshot');
     assert.ok(types.indexOf('call') > 2 && types.indexOf('call') < types.length - 2, 'the stopped command has its call record before the end');
     assert.deepEqual([entries.at(-1).record.status, entries.at(-1).record.errorCode], ['cancelled', 'user_cancelled']);
+    assert.ok(['error', 'threw'].includes(callsOf(entries)[0].record.outcome), 'the stopped command did not end as ok');
     assert.equal(entries.at(-2).record.tree.full, true);
     await runner.shutdown();
     ok('a task cancelled while its command runs: the command gets its call record, then the full final snapshot and task_end (cancelled, user_cancelled)');
@@ -473,6 +581,9 @@ try {
   // -------------------------------------------------------------------------------------------------------------------------- 5. a side chat
   {
     const { data, hub } = await makeHub('side');
+    // Two-second scans (a clock the Hub hands to its children too): each chat switches to checks-only after its first write.
+    let sideClock = 0;
+    hub.proofOptions = { clock: () => (sideClock += 2000) };
     const CHILD_TAG = '[second chat]';
     let release;
     const held = new Promise((resolve) => { release = resolve; });
@@ -508,13 +619,12 @@ try {
     const childTaskId = [...child.runner.tasks.keys()][0];
     assert.notEqual(child.manager.hubDirectory, hub.hubDirectory);
     const childEntries = await ledgerOf(child.manager.hubDirectory, childTaskId);
-    measure(childEntries);
-    assert.deepEqual(typesOf(childEntries), ['task_start', 'tree:task_start', 'tree:call_start', 'call', 'tree:task_end', 'task_end']);
+    assert.deepEqual(typesOf(childEntries), ['task_start', 'tree:task_start', 'tree:call_start', 'call', 'uncertain:checks_only', 'tree:task_end', 'task_end'], 'the child got the Hub\'s proof options');
     assert.equal(childEntries[0].record.workspace, await fs.realpath(record.worktree), 'the child ledger is keyed by its worktree');
     assert.equal(callsOf(childEntries)[0].record.changed, true);
     const mainEntries = await ledgerOf(data, mainTask.id);
-    measure(mainEntries);
     assert.equal(callsOf(mainEntries).length, 1, 'the main ledger has its own write only');
+    assert.ok(typesOf(mainEntries).includes('uncertain:checks_only'));
     assert.deepEqual(new Set(callsOf(mainEntries).map((entry) => entry.record.callId)).intersection(new Set(callsOf(childEntries).map((entry) => entry.record.callId))).size, 0);
     assert.notEqual(callsOf(mainEntries)[0].record.treeAfter.tree, callsOf(childEntries)[0].record.treeAfter.tree);
     const mainFolder = (await fs.readdir(path.join(data, 'proof'))).filter((name) => name.endsWith('.jsonl'));
