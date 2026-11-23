@@ -258,6 +258,7 @@ async function hostile() {
     ['task_start', { note: 'fixture' }],
     ['permission', { decision: 'blocked' }], ['permission', { decision: 'expired' }], ['permission', { decision: 'cancelled' }], ['permission', { decision: HOSTILE.script }],
     ['uncertain', { reason: 'torn_tail' }], ['uncertain', { reason: HOSTILE.script }],
+    receipt('git status', { exitCode: 0 }, [before, before]),
     receipt(RUN.xss, { exitCode: 1, durationMs: 1_234_567 }, [after, after]),
     receipt(RUN.attr, { exitCode: 0 }, [other, other]),
     receipt(RUN.link, { exitCode: 0 }, [after, after]),
@@ -302,7 +303,7 @@ async function hostile() {
       { criterionId: 'moved', treeAlgorithm: after.treeAlgorithm, tree: other.tree, by: HOSTILE.script, at: '2026-11-23T09:31:00Z' },
     ],
     cost: { currency: 'USD', knownSubtotal: 0.0000125, complete: false },
-    limits: { maxOtherReceipts: 3, maxUncertain: 1 },
+    limits: { maxOtherReceipts: 4, maxUncertain: 1 },
   });
   return encodePackFile({ statement, diff: Buffer.from(HOSTILE_DIFF), ledger, acceptance: Buffer.from(acceptanceText) });
 }

@@ -20,6 +20,7 @@ import { CODES, SESSION_FORMAT, stop } from './codes.mjs';
 import { joinCommand } from './args.mjs';
 import { checkCommand, encodePackFile, readPackBytes, readPackFile } from './check.mjs';
 import { execCommand } from './exec.mjs';
+import { reportCommand } from './report.mjs';
 import { reproduceCommand } from './reproduce.mjs';
 import { usage } from './messages.mjs';
 import { hubDirOf, loadSession, readAcceptance, resolveWorkspace, stateOf, workspaceShim, writeAtomic, writeSession } from './session.mjs';
@@ -237,6 +238,7 @@ async function run(ctx) {
 
 // ------------------------------------------------------------------------------------------------------------------------------ show
 async function show(ctx) {
+  if (ctx.args.options.pack !== null) return reportCommand(ctx); // a pack file as a report (./report.mjs, pod-30): no session, no workspace
   const { root, state, shim } = await place(ctx);
   const loaded = await session(ctx, state);
   const baseline = await anchoredBaseline(state, root, loaded);

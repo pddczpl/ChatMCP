@@ -29,6 +29,10 @@ DATGOLD-HUB/tests/fixtures/skills/** -text
 # The proof packs made by real CLI sessions (docs/PROOF-CLI.md, "The pack file"): canonical JSON checked byte for byte on every system.
 DATGOLD-HUB/tests/fixtures/proof-reproduce/*.pack.json -text
 
+# The proof packs the report renderers are tested with, and the golden reports made of them (docs/PROOF-RENDER.md): compared byte for byte.
+DATGOLD-HUB/tests/fixtures/proof-render/*.pack.json -text
+DATGOLD-HUB/tests/fixtures/proof-render/golden/** -text
+
 # The pinned copy of the official ACP JSON Schema: SOURCE.json holds its SHA-256, so no checkout may convert its line ends (core.autocrlf on a Windows runner would break the hash).
 # It is data copied from the SDK, not code written here: GitHub collapses its diff.
 DATGOLD-HUB/lib/acp/schema/** -text

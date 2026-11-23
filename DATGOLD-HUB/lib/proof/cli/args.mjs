@@ -1,6 +1,7 @@
 // The command line of `chatmcp verify` (docs/PROOF-CLI.md, "Grammar"): the words before `--` are options, the command and (for check and
 // reproduce) the pack file, the words after `--` are the command `run` runs. Nothing here touches a file.
 import { ADAPTER_NAMES } from '../adapters/index.mjs';
+import { RATE_RULES } from '../render/text.mjs';
 import { COMMANDS, stop } from './codes.mjs';
 
 const GLOBAL = new Set(['--json', '--lang', '--workspace', '--help', '--version']);
@@ -13,12 +14,12 @@ const OWN = Object.freeze({
   exec: ['--shell', '--timeout', '--claim-marker', '--cost-usd', '--adapter', '--agent', '--agent-version'],
   check: ['--tree'],
   reproduce: ['--base'],
-  show: [],
+  show: ['--pack', '--format', '--out', '--vnd-rate', '--vnd-rate-date', '--vnd-rate-source'],
   pack: ['--agent', '--agent-version'],
 });
 /** The options that take a value; the others are flags. */
 const VALUED = new Set(['--lang', '--workspace', '--sha256', '--shell', '--cwd', '--timeout', '--agent', '--agent-version', '--claim-marker', '--cost-usd', '--adapter',
-  '--pack', '--base']);
+  '--pack', '--base', '--format', '--out', '--vnd-rate', '--vnd-rate-date', '--vnd-rate-source']);
 const KNOWN = new Set([...GLOBAL, ...Object.values(OWN).flat()]);
 /** The commands that take the words after `--`. */
 const TAKES_WORDS = new Set(['run', 'exec']);
@@ -26,6 +27,8 @@ const TAKES_WORDS = new Set(['run', 'exec']);
 const TAKES_PACK = new Set(['check', 'reproduce']);
 
 export const LANGS = Object.freeze(['en', 'vi']);
+/** The formats of a report (show --pack). */
+export const FORMATS = Object.freeze(['md', 'html']);
 export const SHELLS = Object.freeze(['bash', 'sh', 'powershell', 'pwsh']);
 export const MAX_TIMEOUT_SECONDS = 900;
 /** exec's --timeout: the agent's whole run, from 1 second to a day, an hour when it is not given. */
@@ -70,6 +73,31 @@ function readAgent(options, read) {
     if (value !== undefined && (!value.trim() || value.length > 200)) throw stop('bad_value', { option, value, expected: '1 to 200 characters' });
     read[key] = value ?? null;
   }
+}
+
+/**
+ * The options of show: {pack, format, out, vnd}. Without --pack it shows the session and takes none of the others. The rate is whole (the
+ * rate, its day and its source) or not there: none is built in.
+ */
+function readShow(options) {
+  const pack = options['--pack'];
+  if (pack === undefined) {
+    if (OWN.show.some((name) => Object.hasOwn(options, name))) throw stop('missing_argument', { command: 'show', argument: '--pack' });
+    return { pack: null, format: null, out: null, vnd: null };
+  }
+  if (pack === '') throw stop('bad_value', { option: '--pack', value: '', expected: 'a pack file' });
+  const format = options['--format'] ?? 'md';
+  if (!FORMATS.includes(format)) throw stop('bad_value', { option: '--format', value: format, expected: FORMATS.join(' or ') });
+  const out = options['--out'] ?? null;
+  if (out === '') throw stop('bad_value', { option: '--out', value: '', expected: 'a file' });
+  const parts = Object.keys(RATE_RULES).map((name) => ({ name, option: name === 'rate' ? '--vnd-rate' : `--vnd-rate-${name}` }));
+  if (!parts.some(({ option }) => Object.hasOwn(options, option))) return { pack, format, out, vnd: null };
+  for (const { name, option } of parts) {
+    const value = options[option];
+    if (value === undefined) throw stop('missing_argument', { command: 'show', argument: option });
+    if (!RATE_RULES[name].holds(value)) throw stop('bad_value', { option, value, expected: RATE_RULES[name].expected });
+  }
+  return { pack, format, out, vnd: Object.fromEntries(parts.map(({ name, option }) => [name, options[option]])) };
 }
 
 /** The language asked for, read before anything else so that every later answer is in it; an unreadable --lang answers in English. */
@@ -150,6 +178,7 @@ export function parseArgs(argv) {
     read.pack = options['--pack'] ?? null;
   }
   if (command === 'check') read.tree = options['--tree'] === true;
+  if (command === 'show') Object.assign(read, readShow(options));
   if (command === 'reproduce') {
     const value = options['--base'];
     if (value === undefined) throw stop('missing_argument', { command, argument: '--base' });

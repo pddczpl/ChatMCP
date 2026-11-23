@@ -31,10 +31,10 @@ import { compileSchema } from '../lib/proof/schema-validate.mjs';
 import { readPackFile } from '../lib/proof/cli/check.mjs';
 import { CLI_DATA_SCHEMAS, CLI_OUTPUT_SCHEMA, CODES, EXIT, main } from '../lib/proof/cli/index.mjs';
 import { DICTIONARY, LANGS, code, text, translate } from '../lib/proof/render/i18n.mjs';
-import { cutText, formatBytes, formatDecimal, formatDuration, formatInteger, readRate, shortId, visible, vndOf } from '../lib/proof/render/text.mjs';
+import { cutText, formatDecimal, formatDuration, formatInteger, readRate, shortId, visible, vndOf } from '../lib/proof/render/text.mjs';
 import { DIFF_ROWS, diffStat } from '../lib/proof/render/diffstat.mjs';
 import { RenderError, VERDICTS, buildReport } from '../lib/proof/render/model.mjs';
-import { MD_MAX_CHARS, mdCode, mdText, renderMarkdown } from '../lib/proof/render/md.mjs';
+import { MD_MAX_CHARS, MD_MIN_CHARS, mdCode, mdText, renderMarkdown } from '../lib/proof/render/md.mjs';
 import { CSP, STYLE, htmlText, renderHtml } from '../lib/proof/render/html.mjs';
 import { HOSTILE, PACKS, REPORT_OPTIONS, buildPack, goldenFile, packFile } from './fixtures/proof-render/fixture.mjs';
 
@@ -78,9 +78,9 @@ const HIDDEN = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F
 const VOID = new Set(['meta']);
 const TAGS = {
   html: ['lang'], head: [], meta: ['charset', 'http-equiv', 'content', 'name'], title: [], style: [], body: [], header: [], main: [], section: ['id'], h1: [], h2: [],
-  p: ['class'], ul: [], li: [], table: ['class'], thead: [], tbody: [], tr: [], th: ['scope'], td: [], code: ['title'], pre: [], strong: [], span: ['class'], div: ['class'],
+  p: ['class'], ul: [], li: [], table: ['class'], thead: [], tbody: [], tr: [], th: ['scope'], td: [], code: ['class', 'title'], pre: [], strong: [], span: ['class'], div: ['class'],
 };
-const CLASSES = new Set(['verdict pass', 'verdict warn', 'verdict fail', 'note', 'scroll', 'facts', 'chip evidenced', 'chip owner_accepted', 'chip unverified', 'chip failed', 'chip stale', 'chip checks_modified',
+const CLASSES = new Set(['verdict pass', 'verdict warn', 'verdict fail', 'note', 'scroll', 'facts', 'wide', 'word', 'chip evidenced', 'chip owner_accepted', 'chip unverified', 'chip failed', 'chip stale', 'chip checks_modified',
   ...CHECK_RESULTS.map((result) => `chip ${result}`)]);
 const unescapeHtml = (value) => value.replace(/&(amp|lt|gt|quot|#39);/g, (_, name) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[name]);
 
@@ -350,8 +350,6 @@ function readMd(body, label) {
   assert.equal(formatDuration(1000, 'en'), '1.000 s');
   assert.equal(formatDuration(61_007, 'en'), '61.007 s');
   assert.equal(formatDuration(1_234_567, 'vi'), '1.234,567 s');
-  assert.equal(formatBytes(0, 'en'), '0 bytes');
-  assert.equal(formatBytes(5_678_901, 'vi'), '5.678.901 byte');
 
   // the rate: only what the caller gives, whole
   const rate = { rate: '25400', date: '2026-11-20', source: 'Vietcombank' };
@@ -368,12 +366,12 @@ function readMd(body, label) {
   for (const missing of ['rate', 'date', 'source']) { const partial = { ...rate }; delete partial[missing]; assert.throws(() => readRate(partial), RenderError, `a rate without its ${missing}`); }
   for (const wrong of ['25400', 25400, [], true]) assert.throws(() => readRate(wrong), RenderError, JSON.stringify(wrong));
   // whole dong, exact, half up; never a float product
-  for (const [usd, per, en] of [[1, '25400', '25,400'], [1234.5678, '25400', '31,358,022'], [0.1, '25400', '2,540'], [0.00005, '10000', '1'], [0.00004999, '10000', '< 1'], [0, '25400', '0'],
-    [1.5, '1', '2'], [2.5, '1', '3'], [1e9, '99999999.9999', '99,999,999,999,900,000'], [1.005, '100', '101'], [8.115, '100', '812'], [1e-7, '25400.5', '< 1']]) {
+  for (const [usd, per, en] of [[1, '25400', '25,400'], [1234.5678, '25400', '31,358,022'], [0.1, '25400', '2,540'], [0.00005, '10000', '1'], [0.00004999, '10000', null], [0, '25400', '0'],
+    [1.5, '1', '2'], [2.5, '1', '3'], [1e9, '99999999.9999', '99,999,999,999,900,000'], [1.005, '100', '101'], [8.115, '100', '812'], [1e-7, '25400.5', null]]) {
     assert.equal(vndOf(usd, per, 'en'), en, `${usd} x ${per}`);
   }
   assert.equal(vndOf(1234.5678, '25400', 'vi'), '31.358.022');
-  ok('integers, decimals, durations and bytes without a locale; a rate only whole (rate, date, source); dong exact and half up');
+  ok('integers, decimals and durations without a locale; a rate only whole (rate, date, source); dong exact and half up');
 }
 
 // =====================================================================================================================
@@ -425,8 +423,9 @@ function readMd(body, label) {
     'no last line end': one().slice(0, -1), 'a bad escape': 'diff --git "a/\\q" "b/\\q"\nold mode 100644\nnew mode 100755\n', 'a quoted name that does not end': 'diff --git "a/x b/x\nold mode 100644\nnew mode 100755\n',
     'a binary block without its data': `${head('b')}GIT binary patch\nliteral 3\n\n`, 'a binary block that does not end': `${head('b')}GIT binary patch\nliteral 3\nKcmb<$WdZ;I0001u0000\n`,
     'a binary block with other data': `${head('b')}GIT binary patch\nliteral 3\n+++ b/x\n\n`, 'a binary patch without a block': `${head('b')}GIT binary patch\n`, 'a binary patch and hunks': `${binary}@@ -1 +1 @@\n-a\n+b\n`,
-    'a hunk header that is not one': one('x', '@@ -a +b @@\n-a\n+b\n'), 'no names at all': 'diff --git\n', 'both added and deleted': 'diff --git a/x b/x\nnew file mode 100644\ndeleted file mode 100644\n', 'a name with another prefix': 'diff --git c/x d/x\nold mode 1\n',
-    'names with no hunk': `${head()}--- a/x\n+++ b/x\n`, 'a note outside a hunk': `${head()}\\ No newline at end of file\n`, 'a negative hunk': one('x', '@@ --1 +1 @@\n-a\n+b\n'), 'an octal escape over a byte': 'diff --git "a/\\777" "b/\\777"\nold mode 1\n',
+    'a hunk header that is not one': one('x', '@@ -a +b @@\n-a\n+b\n'), 'no names at all': 'diff --git\n', 'both added and deleted': 'diff --git a/x b/x\nnew file mode 100644\ndeleted file mode 100644\n', 'a name with another prefix': 'diff --git c/x d/x\nold mode 100644\nnew mode 100755\n',
+    'names with no hunk': `${head()}--- a/x\n+++ b/x\n`, 'a note outside a hunk': `${head()}\\ No newline at end of file\n`, 'a negative hunk': one('x', '@@ --1 +1 @@\n-a\n+b\n'), 'an octal escape over a byte': 'diff --git "a/\\777" "b/\\777"\nold mode 100644\nnew mode 100755\n', 'a name nobody could read': one('x'.repeat(20_000)),
+    'a quoted name nobody could read': `diff --git "a/${'\\303'.repeat(6000)}" "b/${'\\303'.repeat(6000)}"\nold mode 100644\nnew mode 100755\n`,
   })) assert.equal(stat(patch), null, `${label} has no counts`);
   // many files: the totals count all of them, the rows are the first
   const many = stat(Array.from({ length: DIFF_ROWS + 5 }, (_, i) => one(`f${i}`)).join(''));
@@ -461,7 +460,11 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   const tones = { evidenced: 'pass', accepted: 'pass', failed: 'fail', checks_modified: 'fail', not_evidenced: 'warn', no_criteria: 'warn' };
   const example = { evidenced: keep('ok'), accepted: keep('accepted'), failed: keep('xss'), checks_modified: keep('link'), not_evidenced: keep('look'), no_criteria: keep() };
   for (const kind of VERDICTS) {
-    assert.match(html(statementAlone(example[kind])), new RegExp(`<p class="verdict ${tones[kind]}">`), `${kind} is shown as ${tones[kind]}`);
+    const whole = { ...READ.hostile, statement: example[kind], packChecked: true }; // (the files are the ones the variant names)
+    assert.match(html(whole), new RegExp(`<p class="verdict ${tones[kind]}">`), `${kind} is shown as ${tones[kind]}`);
+    // a statement that nobody checked is never shown as a pass
+    assert.match(html(statementAlone(example[kind])), new RegExp(`<p class="verdict ${tones[kind] === 'pass' ? 'warn' : tones[kind]}">`), `${kind} of a statement alone`);
+    assert.equal(md(statementAlone(example[kind])).split('\n')[2].includes('\u2705'), false, `${kind} of a statement alone has no check mark`);
     assert.match(md(statementAlone(example[kind])).split('\n').slice(0, 4).join('\n'), says(`verdict.${kind}`), `${kind} opens the report`);
   }
   assert.match(md(statementAlone(READ.hostile.statement)), /1 of 11 criteria failed/);
@@ -485,6 +488,7 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
     nothing: null, 'no statement': {}, 'a statement that does not validate': { statement: { ...READ.evidenced.statement, extra: 1 } }, 'another patch': { statement: READ.evidenced.statement, files: { 'change.diff': Buffer.from('x') } },
     'another acceptance file': { statement: READ.evidenced.statement, files: { 'change.diff': READ.evidenced.files['change.diff'], 'acceptance.yml': Buffer.from('x') } },
     'a patch that is no bytes': { statement: READ.evidenced.statement, files: { 'change.diff': 'text' } },
+    'a checked pack without its patch': { ...READ.evidenced, files: {}, packChecked: true }, 'a checked pack without its ledger': { ...READ.evidenced, entries: undefined, packChecked: true },
   })) assert.throws(() => buildReport(source, { lang: 'en' }), (error) => error instanceof RenderError && error.code === 'render_bad_input', label);
   for (const [label, options] of Object.entries({ 'no language': {}, 'another language': { lang: 'fr' }, 'an unknown option': { lang: 'en', x: 1 }, 'half a rate': { lang: 'en', vnd: { rate: '1' } }, 'a name that is no text': { lang: 'en', packName: 7 } })) {
     assert.throws(() => buildReport(sourceOf('evidenced'), options), (error) => error instanceof RenderError, label);
@@ -493,6 +497,23 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   const broken = Buffer.from('not an acceptance file\n');
   const reworded = variant('evidenced', (p) => { p.acceptance.baselineSha256 = sha256(broken); });
   assert.match(sectionOf(md({ statement: reworded, files: { 'acceptance.yml': broken } }), 'section.criteria'), says('criteria.no_texts'));
+
+  // what the pack's statement masks, the texts read from its files are masked by too
+  const token = `ghp_${'a1B2c3D4e5'.repeat(4)}`;
+  const withSecret = Buffer.from([
+    'version: 1', 'criteria:', '  - id: look', `    text: "the key is ${token}"`, '    manual:', '      inspect:', `        - "docs/${token}.md"`, `      note: "use ${token} here"`, '',
+  ].join('\n'));
+  const secretPatch = Buffer.from(`diff --git a/${token}.txt b/${token}.txt\nold mode 100644\nnew mode 100755\n`);
+  const secretStatement = variant('hostile', (p, statement) => {
+    p.criteria = p.criteria.filter(({ id }) => id === 'look');
+    p.acceptance.baselineSha256 = sha256(withSecret);
+    statement.subject.find(({ name }) => name === 'change.diff').digest.sha256 = sha256(secretPatch);
+  });
+  for (const render of [md, html]) {
+    const masked = render({ statement: secretStatement, files: { 'acceptance.yml': withSecret, 'change.diff': secretPatch } });
+    assert.ok(masked.includes('the key is ') && masked.includes('docs/') && masked.includes('use '), '(premise) the texts are shown');
+    assert.ok(!masked.includes(token) && !masked.includes(token.slice(0, 20)), 'a secret in a text of the acceptance file or in a path of the patch is masked');
+  }
 
   // every section, in order, in both languages and both formats
   for (const name of PACKS) {
@@ -522,23 +543,23 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   assert.match(sectionOf(checked, 'section.criteria'), /`Xem ở cỡ chữ 200 %`/, 'and the note');
   assert.match(sectionOf(md(statementAlone(keep())), 'section.criteria'), says('criteria.none'));
   const cut = variant('hostile', (p) => { p.criteria = p.criteria.filter(({ id }) => id === 'link'); p.criteria[0].omittedReasons = 12; });
-  assert.match(sectionOf(md(statementAlone(cut)), 'section.criteria'), /12 more findings/);
+  assert.match(sectionOf(md(statementAlone(cut)), 'section.criteria'), /`link`: findings the pack counts but does not list: 12\./);
 
   // the receipts
   const receipts = sectionOf(hostileBody, 'section.receipts');
   const { after } = READ.hostile.statement.subject.reduce((all, { name, digest }) => ({ ...all, [name.split('-').at(-1)]: digest.gitTree }), {});
   assert.ok(receipts.includes(`\`${after.slice(0, 12)}\``), 'short tree ids');
   assert.ok(!receipts.includes(after), 'not the whole one');
-  assert.ok(html(sourceOf('hostile')).includes(`<code title="${after}">${after.slice(0, 12)}</code>`), 'the whole one behind it, in HTML');
-  for (const key of ['tree.final', 'tree.other', 'tree.none', 'outcome.timed_out', 'outcome.cancelled', 'outcome.signal']) assert.match(receipts, says(key), key);
+  assert.ok(html(sourceOf('hostile')).includes(`<code class="word" title="${after}">${after.slice(0, 12)}</code>`), 'the whole one behind it, in HTML');
+  for (const key of ['tree.final', 'tree.other', 'tree.unknown', 'tree.none', 'outcome.timed_out', 'outcome.cancelled', 'outcome.signal']) assert.match(receipts, says(key), key);
   assert.match(receipts, /1,234\.567 s/);
   assert.match(sectionOf(md(sourceOf('hostile'), { lang: 'vi' }), 'section.receipts', 'vi'), /1\.234,567 s/);
-  assert.match(receipts, /exit 2/);
+  assert.match(receipts, /exit `2`/);
   assert.match(receipts, says('receipts.omitted'));
   assert.doesNotMatch(sectionOf(checked, 'section.receipts'), says('receipts.omitted'));
   assert.match(receipts, says('receipts.command_cut'), 'a command the ledger cut says so');
   assert.match(receipts, says('tree.changed'), 'a run that changed the tree says so');
-  assert.match(sectionOf(checked, 'section.receipts'), /\| `kiem-thu` #1 \|/, 'the check a receipt is listed by');
+  assert.match(sectionOf(checked, 'section.receipts'), /\| `kiem-thu` \(1\) \|/, 'the check a receipt is listed by');
   const noReceipts = variant('hostile', (p) => { p.criteria = []; p.receipts = []; p.ledger.omittedReceipts = p.ledger.checks; });
   assert.match(sectionOf(md(statementAlone(noReceipts)), 'section.receipts'), says('receipts.omitted'));
   const noLedger = variant('hostile', (p) => {
@@ -556,11 +577,15 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   });
   assert.match(sectionOf(md(statementAlone(brokenLedger)), 'section.integrity'), says('ledger.broken'));
   assert.match(sectionOf(md(statementAlone(brokenLedger)), 'section.integrity'), says('ledger.hash_mismatch'));
+  const brokenSomewhere = clone(brokenLedger);
+  Object.assign(brokenSomewhere.predicate.ledger, { brokenAt: null, reason: null });
+  assert.match(sectionOf(md(statementAlone(brokenSomewhere)), 'section.integrity'), says('ledger.broken_somewhere'));
+  for (const id of ['receipts', 'permissions', 'uncertain']) assert.match(sectionOf(md(statementAlone(brokenLedger)), `section.${id}`), says('ledger.prefix'), `${id}: only the verified part`);
 
   // the diff
   const diff = sectionOf(checked, 'section.diff');
   assert.match(diff, says('diff.total'));
-  assert.match(diff, /5 files.*4 lines added.*2 removed/);
+  assert.match(diff, /Files: 5\. Lines added: 4\. Lines removed: 2\. Binary files: 1\./);
   assert.match(diff, /\| `src\/tính-tổng\.mjs` \|.*\| 2 \| 1 \|/);
   assert.match(diff, says('diff.binary'));
   const odd = Buffer.from('--- not a git diff\n');
@@ -612,7 +637,7 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   assert.doesNotMatch(sectionOf(checked, 'section.egress'), /^\||outbound/m);
   const outbound = [...READ.evidenced.entries, { seq: 99, type: 'outbound', record: {} }, { seq: 100, type: 'outbound', record: {} }];
   assert.match(sectionOf(md({ ...sourceOf('evidenced'), entries: outbound }), 'section.egress'), says('egress.unread'));
-  assert.match(sectionOf(md({ ...sourceOf('evidenced'), entries: outbound }), 'section.egress'), /2 outbound records/);
+  assert.match(sectionOf(md({ ...sourceOf('evidenced'), entries: outbound }), 'section.egress'), /Outbound records in the ledger of this pack: 2\./);
 
   // the cost
   const costOf = (cost, options = {}) => sectionOf(md(statementAlone(variant('evidenced', (p) => { p.cost = cost; })), options), 'section.cost', options.lang ?? 'en');
@@ -632,7 +657,7 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   const incomplete = costOf({ currency: 'USD', knownSubtotal: 0.0000125, complete: false }, { vnd });
   assert.match(incomplete, says('cost.incomplete'));
   assert.match(incomplete, /0\.0000125 USD/);
-  assert.match(incomplete, /< 1 VND|\\< 1 VND/);
+  assert.match(incomplete, says('cost.vnd_small'));
   assert.doesNotMatch(incomplete, says('cost.complete'));
   const euro = costOf({ currency: 'EUR', knownSubtotal: 2, complete: true }, { vnd });
   assert.match(euro, /2 EUR/);
@@ -853,7 +878,7 @@ const PLACES = {
   assert.doesNotMatch(small.text, says('md.truncated'));
   // as much as a statement can hold: 100 criteria of 20 checks, long hostile commands, a thousand other receipts, 500 uncertain events
   const big = variant('hostile', (p) => {
-    const long = `${HOSTILE.controls}${HOSTILE.tableLine}${'`|\\'.repeat(2600)}`.slice(0, 8192);
+    const long = `${HOSTILE.controls}${HOSTILE.tableLine}${'`|\\'.repeat(2600)}`.slice(0, 3000);
     const unrun = p.criteria.find(({ id }) => id === 'unrun');
     const link = p.criteria.find(({ id }) => id === 'link');
     const other = p.receipts.at(-1);
@@ -887,16 +912,26 @@ const PLACES = {
     assert.ok(!page.includes(DICTIONARY[lang]['md.truncated'].split('{')[0]));
   }
   // a lower cap, at its edge: the whole report when it just fits, one character less and it is cut
-  const whole = md(sourceOf('hostile'));
-  assert.equal(renderMarkdown(report(sourceOf('hostile')), { maxChars: whole.length }).text, whole);
-  const less = renderMarkdown(report(sourceOf('hostile')), { maxChars: whole.length - 1 });
+  const middle = statementAlone(variant('hostile', (p) => { const last = p.receipts.at(-1); p.receipts = [...p.receipts, ...Array.from({ length: 200 }, (_, i) => ({ ...clone(last), seq: 1000 + i, command: `n${i}` }))]; }));
+  const whole = md(middle);
+  assert.ok(whole.length > MD_MIN_CHARS && whole.length < MD_MAX_CHARS, `(premise) ${whole.length} characters`);
+  assert.equal(renderMarkdown(report(middle), { maxChars: whole.length }).text, whole);
+  const less = renderMarkdown(report(middle), { maxChars: whole.length - 1 });
   assert.equal(less.truncated, true);
-  assert.ok(less.text.length < whole.length);
+  assert.ok(less.text.length < whole.length && less.text.length > whole.length - 600, 'no more is left out than has to be');
   readMd(less.text, 'one character less');
-  for (const maxChars of [0, 11_999, MD_MAX_CHARS + 1, 1.5, '65000', NaN]) assert.throws(() => renderMarkdown(report(sourceOf('evidenced')), { maxChars }), RenderError, `maxChars ${maxChars}`);
-  const least = renderMarkdown(buildReport(statementAlone(big), { lang: 'vi' }), { maxChars: 12_000 });
-  assert.ok(least.text.length <= 12_000 && least.truncated, 'the least cap still holds');
-  readMd(least.text, 'the least cap');
+  for (const maxChars of [0, MD_MIN_CHARS - 1, MD_MAX_CHARS + 1, 30_000.5, '65000', NaN]) assert.throws(() => renderMarkdown(report(sourceOf('evidenced')), { maxChars }), RenderError, `maxChars ${maxChars}`);
+  // the least cap holds with every text that always stays at its longest
+  const widest = '\u{E0041}';
+  const full = clone(big);
+  Object.assign(full.predicate.agent, { name: widest.repeat(50), version: widest.repeat(32) });
+  Object.assign(full.predicate.model, { provider: widest.repeat(100), id: widest.repeat(100), profileRevision: widest.repeat(100) });
+  Object.assign(full.predicate.cost, { knownSubtotal: 5e-324 });
+  for (const lang of LANGS) {
+    const least = renderMarkdown(buildReport(statementAlone(full), { lang, vnd: { rate: '25400', date: '2026-11-20', source: widest.repeat(100) } }), { maxChars: MD_MIN_CHARS });
+    assert.ok(least.text.length <= MD_MIN_CHARS && least.truncated, `the least cap still holds: ${least.text.length}`);
+    readMd(least.text, 'the least cap');
+  }
   // a long text is cut in Markdown only, and says so
   const long = variant('hostile', (p) => { p.receipts.at(-1).command = 'y'.repeat(2000); });
   assert.match(md(statementAlone(long)), /`y{300}` \(.*2,000.*\)/);
