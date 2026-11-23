@@ -161,7 +161,9 @@ the agent exits, and after every setup command and check, what they left behind 
 - POSIX: the process group of each started process is sent `SIGKILL`.
 - Windows: the process table is read (`Get-CimInstance Win32_Process`) and every process whose parent chain leads to a process the tools
   started is killed with its tree, a few rounds; a pid is only trusted together with its creation time (`processTreeLeft` of
-  `DATGOLD-HUB/lib/studio-terminal.mjs`), because Windows keeps the parent pid of an orphan and pids are reused.
+  `DATGOLD-HUB/lib/studio-terminal.mjs`), because Windows keeps the parent pid of an orphan and pids are reused. (A child that a Node
+  program starts without `detached` is in Node's job object and dies with Node on its own; the sweep is for the rest: a detached child,
+  or one started by a program that is not Node.)
 
 `cleanup.leftovers` lists the pids still alive after the last round (`null` when the process table could not be read). Not reached: on
 POSIX, a process that left the group (`setsid`); on Windows, a process whose parent **and** grandparent exited before the table was read

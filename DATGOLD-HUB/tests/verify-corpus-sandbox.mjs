@@ -278,9 +278,11 @@ const agentScripts = {
     "if (process.argv[2]) writeFileSync(process.argv[2], 'started');",
     'setInterval(() => {}, 1000);',
   ],
+  // On Windows Node puts a child it starts without `detached` in a job object that kills it when Node exits, so only a detached child
+  // outlives the agent there (as one started by a program that is not Node would); on POSIX `detached` would leave the process group.
   'orphan.mjs': [
     "import { spawn } from 'node:child_process';",
-    "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', cwd: process.cwd() });",
+    "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', cwd: process.cwd(), detached: process.platform === 'win32', windowsHide: true });",
     'child.unref();',
     'console.log(`pids ${process.pid} ${child.pid}`);',
     "console.log('DONE');",
@@ -525,9 +527,11 @@ try {
       TZ: `https://user:${MARK}@tz.invalid/`,
     };
     const EXPLICIT = 'explicit-vendor-credential-0123456789';
+    const EXPLICIT_PLAIN = 'explicit-login-value-9876543210';
     const run = await runSandbox({
       ...runOptions, env: realEnv,
-      agent: { ...agent('profile.mjs'), credentials: { FAKE_VENDOR_API_KEY: EXPLICIT }, env: { FIXTURE_AGENT_SETTING: 'on' }, seed: { 'claude/settings.json': '{"theme":"dark"}\n' } },
+      // FIXTURE_LOGIN_VALUE has no secret-looking word, so the shell runner's own scrub would let it through: only the profile keeps it from setup
+      agent: { ...agent('profile.mjs'), credentials: { FAKE_VENDOR_API_KEY: EXPLICIT, FIXTURE_LOGIN_VALUE: EXPLICIT_PLAIN }, env: { FIXTURE_AGENT_SETTING: 'on' }, seed: { 'claude/settings.json': '{"theme":"dark"}\n' } },
     });
     assert.equal(run.agent.exitCode, 0, run.agent.stderr);
     const seen = report(run);
@@ -548,6 +552,7 @@ try {
       assert.ok(!Object.keys(seen.env).some((key) => key.toUpperCase() === name.toUpperCase() && seen.env[key].includes(MARK)), `${name} is left out`);
     }
     assert.equal(seen.env.FAKE_VENDOR_API_KEY, EXPLICIT, 'the credential the caller names reaches the agent');
+    assert.equal(seen.env.FIXTURE_LOGIN_VALUE, EXPLICIT_PLAIN, 'so does one whose name looks like no secret');
     assert.equal(seen.env.FIXTURE_AGENT_SETTING, 'on');
     assert.ok(seen.env.PATH ?? seen.env.Path, 'PATH is inherited');
     const files = Object.fromEntries(Object.entries(seen.files).map(([file, text]) => [path.relative(runDir, file).split(path.sep).join('/'), text]));
@@ -556,10 +561,11 @@ try {
     assert.ok(!JSON.stringify(files).includes(MARK));
     assert.equal(seen.helper, '', 'no Git credential helper');
     assert.equal(seen.email, 'agent@corpus.datgold.invalid', 'the seeded Git identity');
-    assert.ok(Array.isArray(seen.setupEnv) && !seen.setupEnv.includes('FAKE_VENDOR_API_KEY') && !seen.setupEnv.includes('FIXTURE_AGENT_SETTING'), 'setup gets neither the credential nor the agent\'s variables');
-    assert.deepEqual(run.profile.credentials, ['FAKE_VENDOR_API_KEY']);
+    assert.ok(Array.isArray(seen.setupEnv), 'setup recorded its variables');
+    for (const name of ['FAKE_VENDOR_API_KEY', 'FIXTURE_LOGIN_VALUE', 'FIXTURE_AGENT_SETTING']) assert.ok(!seen.setupEnv.includes(name), `setup does not get ${name}`);
+    assert.deepEqual(run.profile.credentials, ['FAKE_VENDOR_API_KEY', 'FIXTURE_LOGIN_VALUE']);
     assert.deepEqual(run.profile.seeded, ['claude/settings.json']);
-    assert.ok(!JSON.stringify({ ...run, agent: null, patch: null }).includes(EXPLICIT), 'the run record names the credential, never its value');
+    for (const value of [EXPLICIT, EXPLICIT_PLAIN]) assert.ok(!JSON.stringify({ ...run, agent: null, patch: null }).includes(value), 'the run record names the credential, never its value');
     for (const name of core.PROFILE_VARIABLES.map((entry) => entry.name)) assert.ok(run.profile.variables.includes(name), `the record lists ${name}`);
     nothingLeft('after the profile run');
     ok('the agent\'s HOME, APPDATA, LOCALAPPDATA, XDG folders, CODEX_HOME, CLAUDE_CONFIG_DIR and TEMP are fresh folders of the run; no variable, file, Git helper or identity of a real profile full of fake credentials reaches it; only the credential the caller names does, and setup never sees it');
