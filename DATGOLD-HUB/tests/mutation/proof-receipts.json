@@ -1,0 +1,105 @@
+{
+ "suite": "verify-proof-receipts.mjs",
+ "description": "The seams that give the agent its trees (plan task pod-18, docs/PROOF-RECEIPTS.md): the start tree on the session and the calls that may change files (lib/manager.mjs createAgentSession, #startTree, #guardCalls), the agent that binds its receipts to them and loads a crashed task (lib/agent.mjs #decided, #proved, the tool loop, the run start, load), judged by tests/verify-proof-receipts.mjs on the real Hub.",
+ "mutations": [
+  {
+   "name": "PR-no-start-tree",
+   "what": "the session carries no start tree",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "    session.proofStart = await this.#startTree(this.taskId, started);",
+     "new": "    session.proofStart = null;"
+    }
+   ]
+  },
+  {
+   "name": "PR-start-any-tree",
+   "what": "the start tree is the ledger's first tree, not this run's",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "      const tree = entries.find((entry) => entry.seq === started.seq && entry.type === 'tree')?.record?.tree;",
+     "new": "      const tree = entries.find((entry) => entry.type === 'tree')?.record?.tree;"
+    }
+   ]
+  },
+  {
+   "name": "PR-may-change-all",
+   "what": "every call is said to change files",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "      const mayChangeFiles = scannedCall({ category: decision.category ?? null, touchesWorkspace: this.#touchesWorkspace(name, decision) });",
+     "new": "      const mayChangeFiles = true;"
+    }
+   ]
+  },
+  {
+   "name": "PR-workflow-no-proof",
+   "what": "the timeline is not given the trees",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "        proof: proofInfo, mayChangeFiles,",
+     "new": "        proof: null, mayChangeFiles,"
+    }
+   ]
+  },
+  {
+   "name": "PR-agent-no-start-tree",
+   "what": "the agent ignores the start tree",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      task.progress = observeTree(task.progress, context.session.proofStart ?? null);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PR-agent-no-proofs",
+   "what": "the agent keeps no trees of a call",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (task.pendingCall?.callId) this.#callTrees(context, task.pendingCall.callId).proofs.push(info);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PR-agent-never-scanned",
+   "what": "the agent takes no call for one that may change files",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "        this.#callTrees(context, call.callId).scanned = typeof info.mayChangeFiles === 'boolean' ? info.mayChangeFiles : scannedCall({ category: info.category });",
+     "new": "        this.#callTrees(context, call.callId).scanned = false;"
+    }
+   ]
+  },
+  {
+   "name": "PR-agent-no-current-tree",
+   "what": "a read is not bound to the current tree",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "verifyHostEvidence({manager:this.manager,name:actualName,result,step:task.steps,proof,tree:task.progress.tree});",
+     "new": "verifyHostEvidence({manager:this.manager,name:actualName,result,step:task.steps,proof,tree:null});"
+    }
+   ]
+  },
+  {
+   "name": "PR-load-crash-keeps-tree",
+   "what": "a task whose call was running when the Hub died keeps its tree",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "          if (task.state === 'uncertain') task.progress = observeTree(task.progress, null);",
+     "new": ""
+    }
+   ]
+  }
+ ]
+}

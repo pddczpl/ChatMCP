@@ -1,0 +1,72 @@
+{
+ "suite": "verify-objective-acceptance.mjs",
+ "description": "Owner acceptance against receipts fresh on the final tree (plan task pod-18, docs/PROOF-RECEIPTS.md) in lib/objective-acceptance.mjs: the tree prefix of a receipt id, only fresh receipts offered, accepted and counted, the tree given by the caller; judged by tests/verify-objective-acceptance.mjs.",
+ "mutations": [
+  {
+   "name": "OA-id-no-tree",
+   "what": "a receipt id does not carry its tree",
+   "patches": [
+    {
+     "file": "lib/objective-acceptance.mjs",
+     "old": "  return record.kind+':'+record.step+':'+source+(tree?'@'+tree.slice(0,TREE_PREFIX):'');",
+     "new": "  return record.kind+':'+record.step+':'+source;"
+    }
+   ]
+  },
+  {
+   "name": "OA-offer-unknown",
+   "what": "a receipt of unknown freshness is offered",
+   "patches": [
+    {
+     "file": "lib/objective-acceptance.mjs",
+     "old": "    if(receiptId&&receiptFreshness(r,current)===FRESHNESS.fresh)all.push({",
+     "new": "    if(receiptId&&receiptFreshness(r,current)!==FRESHNESS.stale)all.push({"
+    }
+   ]
+  },
+  {
+   "name": "OA-offer-all",
+   "what": "every receipt is offered",
+   "patches": [
+    {
+     "file": "lib/objective-acceptance.mjs",
+     "old": "    if(receiptId&&receiptFreshness(r,current)===FRESHNESS.fresh)all.push({",
+     "new": "    if(receiptId)all.push({"
+    }
+   ]
+  },
+  {
+   "name": "OA-tree-ignored",
+   "what": "the tree given is ignored",
+   "patches": [
+    {
+     "file": "lib/objective-acceptance.mjs",
+     "old": "  const current=tree===undefined?p.tree:treeKey(tree);",
+     "new": "  const current=p.tree;"
+    }
+   ]
+  },
+  {
+   "name": "OA-accept-tree-dropped",
+   "what": "an acceptance ignores the tree given",
+   "patches": [
+    {
+     "file": "lib/objective-acceptance.mjs",
+     "old": "  const receipts=availableObjectiveReceipts(progress,{tree});",
+     "new": "  const receipts=availableObjectiveReceipts(progress);"
+    }
+   ]
+  },
+  {
+   "name": "OA-accepted-tree-dropped",
+   "what": "the accepted objectives ignore the tree given",
+   "patches": [
+    {
+     "file": "lib/objective-acceptance.mjs",
+     "old": "  const all=availableObjectiveReceipts(progress,{tree});",
+     "new": "  const all=availableObjectiveReceipts(progress);"
+    }
+   ]
+  }
+ ]
+}

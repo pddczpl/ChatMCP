@@ -1,0 +1,127 @@
+{
+ "suite": "verify-studio-core.mjs",
+ "description": "The timeline's computed `verified` (plan task pod-18, docs/PROOF-RECEIPTS.md) in lib/studio-workflow.mjs: a passing check fresh on the latest tree, the tree after a call and a call without trees, a check that changed the files or ran beside another call, a check that is not scanned, a call that threw, a timeline of an older version; judged by tests/verify-studio-core.mjs.",
+ "mutations": [
+  {
+   "name": "SW-sticky",
+   "what": "any pass verifies, fresh or not",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "  if (seen.has(FRESHNESS.fresh)) return { verified: true, freshness: FRESHNESS.fresh };",
+     "new": "  if (passes.length) return { verified: true, freshness: FRESHNESS.fresh };"
+    }
+   ]
+  },
+  {
+   "name": "SW-none",
+   "what": "a timeline without a check is of unknown freshness",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "  if (!(data?.checksObserved > 0)) return { verified: false, freshness: 'none' };",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "SW-stale-over-unknown",
+   "what": "stale is said when a pass is of unknown tree",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": " seen.has(FRESHNESS.stale) && !seen.has(FRESHNESS.unknown) ? FRESHNESS.stale : FRESHNESS.unknown };",
+     "new": " seen.has(FRESHNESS.stale) ? FRESHNESS.stale : FRESHNESS.unknown };"
+    }
+   ]
+  },
+  {
+   "name": "SW-proof-ignored",
+   "what": "a call's trees do not move the tree",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "    if(proof)data.tree=treeKey(proof.treeAfter);",
+     "new": "    if(proof)data.tree=data.tree;"
+    }
+   ]
+  },
+  {
+   "name": "SW-unscanned-unknown",
+   "what": "a call that cannot change files makes the tree unknown",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "    else if(mayChangeFiles===true)data.tree=null;",
+     "new": "    else data.tree=null;"
+    }
+   ]
+  },
+  {
+   "name": "SW-no-trees-keeps",
+   "what": "a call that may change files and has no trees leaves the tree known",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "    else if(mayChangeFiles===true)data.tree=null;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "SW-changed-pass",
+   "what": "a check that changed the files it checked is a pass",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "          if(!changed){",
+     "new": "          if(true){"
+    }
+   ]
+  },
+  {
+   "name": "SW-overlapped-pass",
+   "what": "a check beside another call is a pass of its tree",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "            const tree=proof?(proof.overlapped!==true&&before!==null?after:null):(mayChangeFiles===true?null:current);",
+     "new": "            const tree=proof?(before!==null?after:null):(mayChangeFiles===true?null:current);"
+    }
+   ]
+  },
+  {
+   "name": "SW-unscanned-check-unbound",
+   "what": "a check that is not scanned is not bound to the latest tree",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "            const tree=proof?(proof.overlapped!==true&&before!==null?after:null):(mayChangeFiles===true?null:current);",
+     "new": "            const tree=proof?(proof.overlapped!==true&&before!==null?after:null):null;"
+    }
+   ]
+  },
+  {
+   "name": "SW-error-pass",
+   "what": "a call in error counts as a pass",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "      if(!isError){",
+     "new": "      if(true){"
+    }
+   ]
+  },
+  {
+   "name": "SW-notetree-noop",
+   "what": "a call that threw leaves the tree",
+   "patches": [
+    {
+     "file": "lib/studio-workflow.mjs",
+     "old": "    this.#observeTree(data,observed);",
+     "new": ""
+    }
+   ]
+  }
+ ]
+}

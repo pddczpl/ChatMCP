@@ -409,8 +409,8 @@
    "patches": [
     {
      "file": "lib/manager.mjs",
-     "old": "    await this.proofService()?.begin(this.taskId, { signal });",
-     "new": ""
+     "old": "    const started = await this.proofService()?.begin(this.taskId, { signal });",
+     "new": "    const started = null;"
     }
    ]
   },
@@ -453,8 +453,8 @@
    "patches": [
     {
      "file": "lib/manager.mjs",
-     "old": "      await this.#proofAfter(proof, result?.isError === true ? 'error' : 'ok', onProof);",
-     "new": "      await this.#proofAfter(proof, 'ok', onProof);"
+     "old": "      const proofInfo = await this.#proofAfter(proof, result?.isError === true ? 'error' : 'ok', onProof);",
+     "new": "      const proofInfo = await this.#proofAfter(proof, 'ok', onProof);"
     }
    ]
   },
@@ -464,8 +464,8 @@
    "patches": [
     {
      "file": "lib/manager.mjs",
-     "old": "        await this.#proofAfter(proof, 'threw', onProof);",
-     "new": ""
+     "old": "        const proofInfo = await this.#proofAfter(proof, 'threw', onProof);",
+     "new": "        const proofInfo = null;"
     }
    ]
   },

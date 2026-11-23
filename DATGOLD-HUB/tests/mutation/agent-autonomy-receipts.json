@@ -1,0 +1,193 @@
+{
+ "suite": "verify-agent-autonomy.mjs",
+ "description": "The tree a receipt is bound to and the completion judged against the final tree (plan task pod-18, docs/PROOF-RECEIPTS.md) in lib/agent-autonomy.mjs: verifyHostEvidence (a check whose trees differ is no receipt, an overlapped or tree-less call is unknown, an edit on the tree after it, a read on the current tree), assessCompletionEvidence (fresh / unknown / stale / missing per kind, the words, the final tree given), classifyTaskCompletion, the evidence report the model reads and the recovery text; judged by tests/verify-agent-autonomy.mjs.",
+ "mutations": [
+  {
+   "name": "AA-steady-overlapped",
+   "what": "a call beside another one is bound to its tree",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const steady=proof&&proof.overlapped!==true&&before!==null&&before===after?after:null;",
+     "new": "  const steady=proof&&before!==null&&before===after?after:null;"
+    }
+   ]
+  },
+  {
+   "name": "AA-steady-no-before",
+   "what": "a call without a tree before it is bound to the tree after it",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const steady=proof&&proof.overlapped!==true&&before!==null&&before===after?after:null;",
+     "new": "  const steady=proof&&proof.overlapped!==true&&after!==null?after:null;"
+    }
+   ]
+  },
+  {
+   "name": "AA-read-current-with-trees",
+   "what": "a read with trees of its own is bound to the current tree",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const seen=proof?steady:(typeof tree==='string'?tree:null);",
+     "new": "  const seen=typeof tree==='string'?tree:null;"
+    }
+   ]
+  },
+  {
+   "name": "AA-read-unbound",
+   "what": "a read without trees is not bound to the current tree",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const seen=proof?steady:(typeof tree==='string'?tree:null);",
+     "new": "  const seen=proof?steady:null;"
+    }
+   ]
+  },
+  {
+   "name": "AA-edit-overlapped",
+   "what": "an edit beside another call is bound to the tree after it",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const written=proof&&proof.overlapped!==true?after:null;",
+     "new": "  const written=proof?after:null;"
+    }
+   ]
+  },
+  {
+   "name": "AA-edit-current",
+   "what": "an edit without trees is bound to the tree before it",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const written=proof&&proof.overlapped!==true?after:null;",
+     "new": "  const written=proof&&proof.overlapped!==true?after:tree;"
+    }
+   ]
+  },
+  {
+   "name": "AA-check-changed-kept",
+   "what": "a check that changed the files it checked is a receipt",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "    if(before!==null&&after!==null&&before!==after)return null;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "AA-check-current",
+   "what": "a check without trees is bound to the tree before it",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "    return {kind:'verify',id:hash(nameStr+'\\0'+meta.cwd+'\\0'+step).slice(0,16),step,tree:steady};",
+     "new": "    return {kind:'verify',id:hash(nameStr+'\\0'+meta.cwd+'\\0'+step).slice(0,16),step,tree:steady??tree};"
+    }
+   ]
+  },
+  {
+   "name": "AA-assess-unknown-fresh",
+   "what": "a receipt of unknown freshness counts",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "    const state=seen.has(FRESHNESS.fresh)?FRESHNESS.fresh:",
+     "new": "    const state=seen.has(FRESHNESS.fresh)||seen.has(FRESHNESS.unknown)?FRESHNESS.fresh:"
+    }
+   ]
+  },
+  {
+   "name": "AA-assess-stale-first",
+   "what": "stale is said before unknown for a kind",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "seen.has(FRESHNESS.unknown)?FRESHNESS.unknown:seen.has(FRESHNESS.stale)?FRESHNESS.stale:'missing';",
+     "new": "seen.has(FRESHNESS.stale)?FRESHNESS.stale:seen.has(FRESHNESS.unknown)?FRESHNESS.unknown:'missing';"
+    }
+   ]
+  },
+  {
+   "name": "AA-assess-tree-ignored",
+   "what": "the final tree given is ignored",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const current=tree===undefined?p.tree:treeKey(tree);",
+     "new": "  const current=p.tree;"
+    }
+   ]
+  },
+  {
+   "name": "AA-freshness-order",
+   "what": "the whole judgment says stale before unknown",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "['unknown','stale','missing'].find(",
+     "new": "['stale','unknown','missing'].find("
+    }
+   ]
+  },
+  {
+   "name": "AA-missing-no-reason",
+   "what": "what is missing does not say stale or unknown",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "    if(state!==FRESHNESS.fresh)missing.push(MISSING[kind]+(NOT_FRESH[state]??''));",
+     "new": "    if(state!==FRESHNESS.fresh)missing.push(MISSING[kind]);"
+    }
+   ]
+  },
+  {
+   "name": "AA-classify-tree-dropped",
+   "what": "the completion ignores the final tree given",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "  const categories=assessCompletionEvidence(plan,progress,{tree});",
+     "new": "  const categories=assessCompletionEvidence(plan,progress);"
+    }
+   ]
+  },
+  {
+   "name": "AA-classify-freshness",
+   "what": "the completion always says fresh",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "    freshness:categories.freshness,",
+     "new": "    freshness:'fresh',"
+    }
+   ]
+  },
+  {
+   "name": "AA-report-ids",
+   "what": "the evidence report the model reads carries receipt ids (and their tree prefix)",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "    objectiveReceipts:availableObjectiveReceipts(p).map(({kind,step,path})=>({kind,step,...(path?{path}:{})})),",
+     "new": "    objectiveReceipts:availableObjectiveReceipts(p),"
+    }
+   ]
+  },
+  {
+   "name": "AA-recovery-raw",
+   "what": "the recovery text reads the raw progress",
+   "patches": [
+    {
+     "file": "lib/agent-autonomy.mjs",
+     "old": "    'Fresh verified file changes: '+p.verifiedFiles.length+",
+     "new": "    'Fresh verified file changes: '+(progress?.verifiedFiles?.length||0)+"
+    }
+   ]
+  }
+ ]
+}
