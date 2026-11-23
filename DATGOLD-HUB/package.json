@@ -5,6 +5,13 @@
   "license": "Apache-2.0",
   "description": "Local coding agent - no CDN runtime dependency",
   "type": "module",
+  "bin": {
+    "chatmcp": "bin/chatmcp.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/"
+  ],
   "scripts": {
     "test": "node tests/run-all.mjs",
     "test:ui": "node tests/run-all.mjs --python --filter ui",
