@@ -17,7 +17,8 @@ made to a workspace, and what is known about each acceptance criterion of the ta
 changed predicate gets a new version and a new type URL. Nothing here is final.
 
 **Not wired yet.** Nothing in the agent or the Hub calls the builder today. Later plan tasks build on it: pod-30 renders a pack as
-Markdown and HTML, pod-31 adds cost per criterion, pod-32 verifies a pack (check and reproduce), and pod-33 stores packs in the Hub and
+Markdown and HTML, pod-31 adds cost per criterion, pod-32 verifies a pack (check and reproduce; the pack file that carries a statement
+with the patch, the ledger and the acceptance file it names is described in [PROOF-CLI.md](../PROOF-CLI.md), "The pack file"), and pod-33 stores packs in the Hub and
 calls the builder at the end of a task. Until pod-33 lands, a pack exists only when code builds one.
 
 **Unsigned.** A v0.1 statement is not signed and not wrapped in a DSSE envelope; signing (DSSE) comes in a later version. Its canonical

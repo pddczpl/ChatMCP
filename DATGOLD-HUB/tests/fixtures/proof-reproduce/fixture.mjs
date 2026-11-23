@@ -98,7 +98,7 @@ function makePack() {
     if (result.status !== 0 && !label.allow?.includes(result.status)) throw new Error(`${label.name}: exit ${result.status}\n${result.stdout}\n${result.stderr}`);
     return result.stdout;
   };
-  const cli = (args, allow = [0]) => JSON.parse(run(process.execPath, [bin, 'verify', ...args, '--json'], { name: `chatmcp verify ${args.join(' ')}`, allow }));
+  const cli = (args, allow = [0]) => JSON.parse(run(process.execPath, [bin, 'verify', '--json', ...args], { name: `chatmcp verify ${args.join(' ')}`, allow }));
   try {
     fs.mkdirSync(repo);
     writeFiles(repo, BASE);
@@ -113,7 +113,7 @@ function makePack() {
     cli(['run', '--', 'node test.mjs'], [1]); // before the fix, on the base tree: a receipt of another tree
     applyChange(repo);
     cli(['run', '--', 'node test.mjs']);
-    cli(['run', '--', 'node lint.mjs']);
+    cli(['run', '--', 'node lint.mjs'], [1]); // `run` passes exit 0 only; the pack holds it to the criterion's `expect: exit: 3`
     const pack = cli(['pack', '--agent', 'fixture-agent', '--agent-version', '1']);
     const target = path.join(HERE, `${process.platform}.pack.json`);
     fs.copyFileSync(pack.data.packFile, target);

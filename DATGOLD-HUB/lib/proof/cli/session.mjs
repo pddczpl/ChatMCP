@@ -4,8 +4,8 @@
 //   <state>/proof/<taskId>.jsonl          the ledger of a session (lib/proof/ledger.mjs), its first record the session's task_start
 //   <state>/proof/trusted-acceptance.json the trust store (lib/proof/trust-store.mjs)
 //   <state>/proof/cli/<key>/              session.json (which session is current), the raw bytes of the acceptance file at the snapshot,
-//                                         the last statement of each session, exec's evidence folder of each session (<taskId>.exec/),
-//                                         the snapshot and shell scratch folders
+//                                         the last statement and pack file of each session, exec's evidence folder of each session
+//                                         (<taskId>.exec/), the snapshot and shell scratch folders
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -51,6 +51,12 @@ const within = (outer, inner) => {
 };
 
 /**
+ * The state folder's root alone (where the trust store lives), for the commands that never snapshot or write the workspace (trust --pack,
+ * reproduce): they keep no state of the workspace, so the containment rule of stateOf does not apply to them.
+ */
+export const hubDirOf = (env) => realOrPlanned(defaultDataDirectory(env));
+
+/**
  * The state folder of the CLI for `root`. Refuses (state_inside_workspace) a state folder inside the workspace or a workspace inside the
  * state folder: the snapshot would then hold the state itself, and the CLI would write into the workspace.
  */
@@ -67,6 +73,8 @@ export async function stateOf(root, env) {
     studio: path.join(folder, 'studio'),
     acceptanceCopy: (taskId) => path.join(folder, `${taskId}.acceptance.yml`),
     statement: (taskId) => path.join(folder, `${taskId}.statement.json`),
+    // the pack file beside it: the statement with the patch, the ledger and the acceptance file it names (./check.mjs)
+    packFile: (taskId) => path.join(folder, `${taskId}.pack.json`),
     // exec's evidence of the agent's run: stdout.log and stderr.log (lib/proof/cli/exec.mjs)
     evidence: (taskId) => path.join(folder, `${taskId}.exec`),
   };

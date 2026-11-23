@@ -205,7 +205,7 @@ async function reapTree(child, spawnedAt, platform) {
 }
 
 /** Ctrl-C (SIGINT), SIGTERM and Ctrl-Break while exec runs the agent and the checks: counted, and the running step is told. */
-class Interrupts {
+export class Interrupts {
   constructor(signals) {
     this.signals = signals;
     this.count = 0;
@@ -418,7 +418,7 @@ export async function execCommand(ctx, steps) {
     taskId: session.taskId, baselineId: session.base.id, command: maskSecrets(command.slice(0, 8192), []), commandTruncated: command.length > 8192, shell: shell.name,
     agent: agentData, claim, adapter, cost: cost ?? 'unknown', costSource, record: { seq: entry.seq, hash: entry.hash },
     checks: criteriaRun.results, criteria, checksModified: packed ? packed.statement.predicate.checkChanges.checksModified : null,
-    pack: packed ? { file: packed.file, digest: packed.digest, receipts: packed.statement.predicate.receipts.length, changes: packed.changes } : null,
+    pack: packed ? { file: packed.file, packFile: packed.packFile, digest: packed.digest, receipts: packed.statement.predicate.receipts.length, changes: packed.changes } : null,
     statement: packed?.statement ?? null,
     paths: { session: state.session, ledger: session.ledgerFile, baseline: session.base.file, acceptanceCopy: session.acceptanceBytes ? state.acceptanceCopy(session.taskId) : null, evidence, stdoutLog: logs.stdout, stderrLog: logs.stderr },
   };

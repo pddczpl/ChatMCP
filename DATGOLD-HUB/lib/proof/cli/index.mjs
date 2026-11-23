@@ -5,7 +5,7 @@ import { languageOf, parseArgs } from './args.mjs';
 import { messageOf } from './messages.mjs';
 import { COMMAND_TABLE } from './commands.mjs';
 
-export { CLI_FORMAT, CODES, COMMANDS, EXIT, NOT_BUILT, SESSION_FORMAT } from './codes.mjs';
+export { CLI_FORMAT, CODES, COMMANDS, EXIT, SESSION_FORMAT } from './codes.mjs';
 export { MESSAGES, usage } from './messages.mjs';
 export { CLI_DATA_SCHEMAS, CLI_OUTPUT_SCHEMA } from './schema.mjs';
 export { compileClaimMarker, joinCommand, parseArgs } from './args.mjs';

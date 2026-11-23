@@ -16,11 +16,13 @@ import { buildAgentChangeStatement, canonicalJson, statementDigest } from '../pa
 import { detectCheckChanges, workTreeSide } from '../tamper.mjs';
 import { TreeSnapshotter } from '../tree-snapshot.mjs';
 import { createTrustStore } from '../trust-store.mjs';
-import { CODES, NOT_BUILT, SESSION_FORMAT, stop } from './codes.mjs';
+import { CODES, SESSION_FORMAT, stop } from './codes.mjs';
 import { joinCommand } from './args.mjs';
+import { checkCommand, encodePackFile, readPackBytes, readPackFile } from './check.mjs';
 import { execCommand } from './exec.mjs';
+import { reproduceCommand } from './reproduce.mjs';
 import { usage } from './messages.mjs';
-import { loadSession, readAcceptance, resolveWorkspace, stateOf, workspaceShim, writeAtomic, writeSession } from './session.mjs';
+import { hubDirOf, loadSession, readAcceptance, resolveWorkspace, stateOf, workspaceShim, writeAtomic, writeSession } from './session.mjs';
 import { storeSide } from './store-side.mjs';
 
 /** Who an approval made through the CLI is recorded as (no user name: the approval stays on this machine, its author is the person at it). */
@@ -39,13 +41,26 @@ function parsedOrStop(bytes) {
 const checksOf = (parsed) => ({
   checks: parsed.criteria.flatMap((criterion) => (criterion.checks ?? []).map((check) => ({ criterion: criterion.id, run: check.run, cwd: check.cwd ?? '.' }))),
   manual: parsed.criteria.filter((criterion) => criterion.manual).map((criterion) => criterion.id),
+  setup: parsed.reproduce.setup,
 });
+
+/** The acceptance file of a pack (trust --pack), as readAcceptance gives a workspace's: the pack is checked whole first (pod-32). */
+async function packAcceptance(file) {
+  const bytes = readPackFile(await readPackBytes(file)).files['acceptance.yml'];
+  return bytes ? { state: 'present', exists: true, bytes } : { state: 'missing', exists: false };
+}
 
 /** The workspace and the state folder of a command that keeps state; `ctx.root` is set for the answer. */
 async function place(ctx) {
   ctx.root = await resolveWorkspace(ctx.args.workspace, ctx.cwd);
   const state = await stateOf(ctx.root, ctx.env);
   return { root: ctx.root, state, shim: workspaceShim(ctx.root, state) };
+}
+
+/** The workspace and the state folder's root of a command that never snapshots or writes the workspace (trust --pack, reproduce). */
+async function placeOutside(ctx) {
+  ctx.root = await resolveWorkspace(ctx.args.workspace, ctx.cwd);
+  return { root: ctx.root, hubDir: await hubDirOf(ctx.env) };
 }
 
 async function session(ctx, state, options) {
@@ -98,16 +113,17 @@ async function init(ctx) {
 
 // ------------------------------------------------------------------------------------------------------------------------------ trust
 async function trust(ctx) {
-  const { state, shim } = await place(ctx);
   const { sha256: asked, revoke } = ctx.args.options;
-  const found = await readAcceptance(shim);
+  const pack = ctx.args.options.pack ? path.resolve(ctx.cwd, ctx.args.options.pack) : null;
+  const placed = pack ? await placeOutside(ctx) : await place(ctx);
+  const found = pack ? await packAcceptance(pack) : await readAcceptance(placed.shim);
   if (found.state === 'outside') throw stop('acceptance_outside');
-  const store = createTrustStore(state.hubDir);
-  const base = { file: ACCEPTANCE_FILE, approvedBy: null, at: null, trustCommand: null };
+  const store = createTrustStore(placed.hubDir ?? placed.state.hubDir);
+  const base = { file: ACCEPTANCE_FILE, pack, approvedBy: null, at: null, trustCommand: null };
   if (revoke) {
     if (found.state !== 'present' && !asked) throw stop('acceptance_missing', { file: ACCEPTANCE_FILE });
     const digest = asked ?? acceptanceSha256(found.bytes);
-    let listed = { checks: [], manual: [] };
+    let listed = { checks: [], manual: [], setup: [] };
     if (found.state === 'present' && acceptanceSha256(found.bytes) === digest) { try { listed = checksOf(parseAcceptance(found.bytes)); } catch { /* revoking needs no readable file */ } }
     const removed = await store.revoke(digest);
     return { code: removed ? 'revoked' : 'already_untrusted', data: { ...base, sha256: digest, trusted: false, ...listed }, params: { sha256: digest } };
@@ -115,9 +131,10 @@ async function trust(ctx) {
   if (found.state !== 'present') throw stop('acceptance_missing', { file: ACCEPTANCE_FILE });
   const listed = checksOf(parsedOrStop(found.bytes));
   const sha256 = acceptanceSha256(found.bytes);
-  const where = ctx.args.workspace ? ` --workspace ${JSON.stringify(ctx.root)}` : '';
+  const where = pack ? ` --pack ${JSON.stringify(pack)}` : ctx.args.workspace ? ` --workspace ${JSON.stringify(ctx.root)}` : '';
   const trustCommand = `chatmcp verify trust --sha256 ${sha256}${where}`;
   const lines = listed.checks.map((check) => `  ${check.criterion}: ${check.run}${check.cwd === '.' ? '' : ` (cwd ${check.cwd})`}`);
+  lines.unshift(...listed.setup.map((command) => `  setup: ${command}`));
   if (asked) {
     if (asked !== sha256) throw stop('sha256_mismatch', { expected: asked, actual: sha256 });
     const entry = await store.trust(sha256, { approvedBy: APPROVED_BY, at: ctx.now() });
@@ -302,21 +319,26 @@ async function buildPack(ctx, { root, state, shim, agent, model = null, cost = n
     },
     diff: diff.patchBytes, acceptance, checkChanges, ledger: loaded.ledgerBytes, ownerAcceptances: [], cost, secrets: [],
   });
+  // the pack file (./check.mjs): the statement with the bytes it names, for someone without this state folder; encoded before anything
+  // is written, so a pack over its limit leaves neither file
+  const packBytes = encodePackFile({ statement, diff: diff.patchBytes, ledger: loaded.ledgerBytes, acceptance: loaded.acceptanceBytes });
   const file = state.statement(loaded.taskId);
   await writeAtomic(file, `${canonicalJson(statement)}\n`);
+  const packFile = state.packFile(loaded.taskId);
+  await writeAtomic(packFile, packBytes);
   const criteria = statement.predicate.criteria.map((criterion) => ({ id: criterion.id, status: criterion.status }));
-  return { loaded, statement, file, digest: statementDigest(statement), criteria, changes: diff.counts };
+  return { loaded, statement, file, packFile, digest: statementDigest(statement), criteria, changes: diff.counts };
 }
 
 async function pack(ctx) {
   const { root, state, shim } = await place(ctx);
-  const { loaded, statement, file, digest, criteria, changes } = await buildPack(ctx, { root, state, shim, agent: { name: ctx.args.options.agent, version: ctx.args.options.agentVersion } });
+  const { loaded, statement, file, packFile, digest, criteria, changes } = await buildPack(ctx, { root, state, shim, agent: { name: ctx.args.options.agent, version: ctx.args.options.agentVersion } });
   const evidenced = criteria.filter((criterion) => criterion.status === 'evidenced' || criterion.status === 'owner_accepted').length;
   return {
     code: criteria.length > 0 && evidenced === criteria.length ? 'pack_evidenced' : 'pack_unverified',
-    data: { taskId: loaded.taskId, file, digest, statement, criteria, changes, receipts: statement.predicate.receipts.length },
+    data: { taskId: loaded.taskId, file, packFile, digest, statement, criteria, changes, receipts: statement.predicate.receipts.length },
     params: { file, total: criteria.length, notEvidenced: criteria.length - evidenced },
-    lines: criteria.map((criterion) => `  ${criterion.id}: ${criterion.status}`),
+    lines: [...criteria.map((criterion) => `  ${criterion.id}: ${criterion.status}`), `  pack file: ${packFile}`],
   };
 }
 
@@ -324,9 +346,9 @@ async function pack(ctx) {
 /** chatmcp verify exec (./exec.mjs), handed the steps it shares with the other commands. */
 const exec = (ctx) => execCommand(ctx, { place, parsedOrStop, resolveShell, startSession, buildPack });
 
-// ------------------------------------------------------------------------------------------------------------------------------ not built yet
-function notBuilt(ctx) {
-  throw stop('not_built', { command: ctx.args.command, plannedIn: NOT_BUILT[ctx.args.command] });
-}
+// ------------------------------------------------------------------------------------------------------------------------------ check, reproduce
+/** chatmcp verify check and reproduce (./check.mjs, ./reproduce.mjs, pod-32): a pack file, verified and reproduced by a third party. */
+const check = (ctx) => checkCommand(ctx, { place });
+const reproduce = (ctx) => reproduceCommand(ctx, { placeOutside, parsedOrStop, resolveShell });
 
-export const COMMAND_TABLE = Object.freeze({ help, version, init, trust, snapshot, run, exec, check: notBuilt, show, pack });
+export const COMMAND_TABLE = Object.freeze({ help, version, init, trust, snapshot, run, exec, check, reproduce, show, pack });

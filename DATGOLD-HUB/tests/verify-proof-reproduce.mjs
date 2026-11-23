@@ -130,7 +130,7 @@ function answerOf(result, label) {
   assert.equal(EXIT[answer.outcome], answer.exitCode, `${where}\nthe outcome ${answer.outcome} is exit ${EXIT[answer.outcome]}`);
   return answer;
 }
-const withJson = (args) => [...args, '--json'];
+const withJson = (args) => { const at = args.indexOf('--'); return at < 0 ? [...args, '--json'] : [...args.slice(0, at), '--json', ...args.slice(at)]; };
 const ask = async (args, options = {}) => answerOf(await cli(withJson(args), options), `chatmcp ${args.join(' ')}`);
 const expectAnswer = (answer, exitCode, code, label) => {
   assert.equal(answer.code, code, `${label}: code ${answer.code} (${answer.message}), expected ${code}\n${JSON.stringify(answer.detail ?? answer.data?.receipts ?? null).slice(0, 2000)}`);
@@ -374,9 +374,10 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
   const parsed = JSON.parse(text);
   const variant = (label, bytes) => { const file = path.join(folder('tampered'), `${label}.pack.json`); fs.writeFileSync(file, bytes); return file; };
   const swapAt = (index) => { const bytes = Buffer.from(goodBytes); bytes[index] = bytes[index] === 0x41 ? 0x42 : 0x41; return bytes; };
+  const swapHex = (index) => { const bytes = Buffer.from(goodBytes); bytes[index] = bytes[index] === 0x61 ? 0x62 : 0x61; return bytes; };
   const cases = [
     ['statement', swapAt(text.indexOf('"agent":{"name":"unknown"') + 18), 'pack_digest_mismatch', null],
-    ['digest', swapAt(text.indexOf(parsed.statementDigest) + 5), 'pack_digest_mismatch', null],
+    ['digest', swapHex(text.indexOf(parsed.statementDigest) + 5), 'pack_digest_mismatch', null],
     ['patch', swapAt(text.indexOf(parsed.files['change.diff'].base64) + 12), 'pack_file_mismatch', null],
     ['ledger', swapAt(text.indexOf(parsed.files['ledger.jsonl'].base64) + 40), 'pack_file_mismatch', null],
     ['acceptance', swapAt(text.indexOf(parsed.files['acceptance.yml'].base64) + 8), 'pack_file_mismatch', null],
@@ -387,6 +388,7 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
     ['pretty', Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`), 'pack_unreadable', 'not_canonical'],
     ['statement-only', Buffer.from(`${canonicalJson(parsed.statement)}\n`), 'pack_unreadable', 'statement_only'],
     ['not-json', Buffer.from('{"format":'), 'pack_unreadable', 'not_json'],
+    ['byte-order-mark', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), goodBytes]), 'pack_unreadable', 'not_json'],
   ];
   for (const [label, bytes, code, why] of cases) {
     const answer = await ask(['verify', 'check', variant(label, bytes)]);
@@ -409,21 +411,45 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
     copy.statementDigest = statementDigest(copy.statement);
     return Buffer.from(`${canonicalJson(copy)}\n`);
   };
-  const refusal = (bytes) => { try { readPackFile(bytes); } catch (error) { return error; } return null; };
+  const refusal = (bytes, maxBytes) => { try { readPackFile(bytes, maxBytes ? { maxBytes } : undefined); } catch (error) { return error; } return null; };
+  // a ledger with one line changed and the chain after it recomputed would need the statement's summary changed too; a ledger whose
+  // line was changed alone, its file entry made to match, breaks the chain
+  const ledgerLines = Buffer.from(parsed.files['ledger.jsonl'].base64, 'base64').toString('utf8').split('\n');
+  ledgerLines[1] = ledgerLines[1].replace('"cwd":"."', '"cwd":"x"');
+  const brokenLedger = Buffer.from(ledgerLines.join('\n'));
+  const attach = (copy, name, bytes) => { copy.files[name] = { sha256: sha256(bytes), bytes: bytes.length, base64: bytes.toString('base64') }; };
   const forged = [
-    ['a receipt\'s duration', (copy) => { copy.statement.predicate.receipts[0].durationMs += 1; }, 'pack_ledger_broken', 'receipt'],
-    ['a receipt\'s hash', (copy) => { copy.statement.predicate.receipts[1].hash = 'f'.repeat(64); }, 'pack_ledger_broken', 'receipt'],
-    ['the ledger summary', (copy) => { copy.statement.predicate.ledger.lastHash = 'a'.repeat(64); }, 'pack_ledger_broken', 'summary'],
-    ['the patch subject', (copy) => { copy.statement.subject[2].digest.sha256 = sha256('another patch'); }, 'pack_file_mismatch', 'subject'],
-    ['the acceptance file', (copy) => { delete copy.files['acceptance.yml']; }, 'pack_file_mismatch', 'presence'],
-    ['the acceptance hash', (copy) => { copy.statement.predicate.acceptance.baselineSha256 = sha256('x'); }, 'pack_file_mismatch', 'statement'],
-    ['a receipt the statement contradicts', (copy) => { copy.statement.predicate.criteria[1].checks[0].result = 'failed'; }, 'pack_invalid', null],
+    ['a receipt\'s duration', (copy) => { copy.statement.predicate.receipts[0].durationMs += 1; }, 'pack_ledger_broken', 'receipt', 'durationMs'],
+    ['a receipt\'s time', (copy) => { copy.statement.predicate.receipts[0].ts = '2000-01-01T00:00:00.000Z'; }, 'pack_ledger_broken', 'receipt', 'ts'],
+    ['a receipt\'s hash', (copy) => { copy.statement.predicate.receipts[1].hash = 'f'.repeat(64); }, 'pack_ledger_broken', 'receipt', 'hash'],
+    ['a receipt of another record', (copy) => { copy.statement.predicate.receipts[0].seq = 1; }, 'pack_ledger_broken', 'receipt', 'type'],
+    ['the ledger summary', (copy) => { copy.statement.predicate.ledger.lastHash = 'a'.repeat(64); }, 'pack_ledger_broken', 'summary', 'lastHash'],
+    ['the count of check records', (copy) => { copy.statement.predicate.ledger.checks += 1; copy.statement.predicate.ledger.omittedReceipts += 1; }, 'pack_ledger_broken', 'summary', 'checks'],
+    ['the receipts left out', (copy) => { copy.statement.predicate.ledger.omittedReceipts += 1; }, 'pack_ledger_broken', 'summary', 'omittedReceipts'],
+    ['a ledger line', (copy) => { attach(copy, 'ledger.jsonl', brokenLedger); }, 'pack_ledger_broken', 'chain', null],
+    ['the patch subject', (copy) => { copy.statement.subject[2].digest.sha256 = sha256('another patch'); }, 'pack_file_mismatch', 'subject', null],
+    ['the acceptance file', (copy) => { delete copy.files['acceptance.yml']; }, 'pack_file_mismatch', 'presence', null],
+    ['the acceptance hash', (copy) => { copy.statement.predicate.acceptance.baselineSha256 = sha256('x'); }, 'pack_file_mismatch', 'statement', null],
+    ['a receipt the statement contradicts', (copy) => { copy.statement.predicate.criteria[1].checks[0].result = 'failed'; }, 'pack_invalid', null, null],
   ];
-  for (const [label, edit, code, why] of forged) {
+  for (const [label, edit, code, why, field] of forged) {
     const error = refusal(remade(edit));
     assert.equal(error?.code, code, `${label}: ${error?.code} ${JSON.stringify(error?.detail)}`);
     if (why) assert.equal(error.detail.why, why, `${label}: why`);
+    if (field) assert.equal(error.detail.field, field, `${label}: field`);
   }
+  // base64 that decodes to the same bytes but is not the one form Node writes (a padding bit set) is refused, without any digest change
+  const padded = PACK_FILE_NAMES.find((name) => parsed.files[name].base64.endsWith('='));
+  const loose = structuredClone(parsed);
+  const b64 = loose.files[padded].base64;
+  const at = b64.replace(/=+$/, '').length - 1;
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  loose.files[padded].base64 = `${b64.slice(0, at)}${alphabet[alphabet.indexOf(b64[at]) + 1]}${b64.slice(at + 1)}`;
+  assert.deepEqual(Buffer.from(loose.files[padded].base64, 'base64'), Buffer.from(b64, 'base64'), 'the same bytes');
+  const looseError = refusal(Buffer.from(`${canonicalJson(loose)}\n`));
+  assert.deepEqual([looseError?.code, looseError?.detail?.why], ['pack_file_mismatch', 'base64'], `base64 of ${padded} with a padding bit set`);
+  // a reader can be held to a smaller limit; the CLI's is PACK_FILE_MAX_BYTES
+  assert.deepEqual([refusal(goodBytes, 100)?.code, refusal(goodBytes, 100)?.detail?.why], ['pack_unreadable', 'too_large']);
   const consistent = remade((copy) => { copy.statement.predicate.agent.name = 'someone else'; });
   assert.equal(readPackFile(consistent).statement.predicate.agent.name, 'someone else', 'a pack re-made consistently verifies: a pack is not signed');
   // encodePackFile refuses a pack over its limit
@@ -523,9 +549,18 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
   const dashed = await ask(['verify', 'reproduce', packFile, '--base=--upload-pack=x'], { cwd: repo, env: third });
   expectAnswer(dashed, 2, 'bad_value', 'a base that reads as an option');
   assert.equal(dashed.detail.option, '--base');
+  // a temporary folder inside the base folder, or inside the repository a base commit comes from, is refused before anything is made
+  const baseBefore = fingerprint(base);
+  const repoBefore = fingerprint(repo);
+  const insideBase = await ask(['verify', 'reproduce', packFile, '--base', base], { env: { ...third, TMP: path.join(base, 'tmp'), TEMP: path.join(base, 'tmp'), TMPDIR: path.join(base, 'tmp') } });
+  expectAnswer(insideBase, 4, 'state_inside_workspace', 'a temporary folder inside the base folder');
+  assert.equal(insideBase.detail.workspace, base);
+  const insideRepo = await ask(['verify', 'reproduce', packFile, '--base', 'HEAD'], { cwd: repo, env: { ...third, TMP: path.join(repo, 'tmp'), TEMP: path.join(repo, 'tmp'), TMPDIR: path.join(repo, 'tmp') } });
+  expectAnswer(insideRepo, 4, 'state_inside_workspace', 'a temporary folder inside the repository of the base commit');
+  assert.deepEqual([fingerprint(base), fingerprint(repo)], [baseBefore, repoBefore], 'neither is written');
   assert.deepEqual(ran(), [], 'nothing ran');
   assert.deepEqual(leftovers(), [], 'no temporary worktree is left');
-  ok('reproduce refuses a base that is not the pack\'s before tree (exit 1) and a base that is neither a folder nor a commit (exit 2); nothing runs, nothing is left');
+  ok('reproduce refuses a base that is not the pack\'s before tree (exit 1), a base that is neither a folder nor a commit (exit 2), a temporary folder inside the base (exit 4); nothing runs, nothing is left');
 }
 {
   // a pack re-made around another patch (it verifies: packs are not signed) does not reproduce: the patch does not apply, or gives another tree
@@ -593,6 +628,9 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
   const none = await makePack('no-acceptance', { acceptance: null, setup: false });
   const empty = await ask(['verify', 'reproduce', none.packFile, '--base', none.base], { env: third });
   expectAnswer(empty, 1, 'nothing_to_reproduce', 'a pack without an acceptance file');
+  const noCriteria = await ask(['verify', 'check', none.packFile]);
+  expectAnswer(noCriteria, 1, 'pack_not_evidenced', 'check of a pack without criteria');
+  assert.deepEqual([noCriteria.data.criteria, noCriteria.data.files.map((file) => file.name)], [[], ['change.diff', 'ledger.jsonl']], 'no criterion, no acceptance file in the pack');
   const staleOnly = await makePack('stale-only', { acceptance: acceptanceOf([['unit', 'node test.mjs']]), before: ['node test.mjs'] });
   const nothing = await ask(['verify', 'reproduce', staleOnly.packFile, '--base', staleOnly.base], { env: third });
   expectAnswer(nothing, 1, 'nothing_to_reproduce', 'a pack whose receipts all ran on another tree');
@@ -620,7 +658,7 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
   assert.deepEqual(verdict({ attempts: [attempt({ exit: 2, toolchain: { node: '24.1.0', python: '3.12.0', dotnet: null, git: '2.50.0' } })] }), ['divergent', 'exit_differs'], 'a tool the pack did not see is no mismatch');
   assert.deepEqual(verdict({ attempts: [attempt({ exit: null, signal: 'SIGKILL' })] }), ['divergent', 'exit_differs']);
   assert.equal(verdictOf({ ...base, attempts: [attempt({ exit: 7 })] }).detail, 'exit 0 in the pack, exit 7 here');
-  assert.deepEqual(variablesNamed('node a.mjs "$HOME_URL" ${API_BASE} $env:DB_NAME $1 $? "$@" \\$NOT_THIS'), ['HOME_URL', 'API_BASE', 'DB_NAME']);
+  assert.deepEqual(variablesNamed('node a.mjs "$HOME_URL" ${API_BASE} $env:DB_NAME $Env:REGION $1 $? "$@" $_ \\$NOT_THIS $HOME_URL'), ['HOME_URL', 'API_BASE', 'DB_NAME', 'REGION']);
   assert.deepEqual(variablesNamed('npm test'), []);
   ok(`the divergence reasons one by one: ${REPRODUCE_REASONS.join(', ')}; the variables a command names`);
 }
@@ -629,7 +667,8 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
 {
   // the maker ran the slow check once with a short time limit: the pack has one receipt of it on its final tree
   const mark = path.join(SCRATCH, 'slow-started');
-  const acceptance = acceptanceOf([['slow', 'node slow.mjs']], []);
+  // the check's own time limit (30 s) bounds the run should the interrupt be lost
+  const acceptance = 'version: 1\ncriteria:\n  - id: slow\n    text: slow\n    checks:\n      - run: node slow.mjs\n        timeout: 30\n';
   const timed = await makePack('slow', { acceptance, setup: false });
   const runSlow = await ask(['verify', 'run', '--timeout', '2', '--', 'node slow.mjs'], { cwd: timed.repo, env: { PROOF_SLOW_MARK: mark } });
   expectAnswer(runSlow, 1, 'check_failed', 'the slow check, cut by its time limit');
