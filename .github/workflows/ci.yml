@@ -69,7 +69,7 @@ jobs:
         run: python -m unittest discover -s ../scripts/tests -p test_release_source.py -v
       - name: Syntax check
         run: |
-          for f in hub.mjs lib/*.mjs lib/acp/*.mjs lib/mcp/*.mjs lib/proof/*.mjs tests/*.mjs tests/support/*.mjs; do node --check "$f"; done
+          for f in hub.mjs bin/*.mjs lib/*.mjs lib/acp/*.mjs lib/mcp/*.mjs lib/proof/*.mjs lib/proof/cli/*.mjs tests/*.mjs tests/support/*.mjs; do node --check "$f"; done
       # The ACP suites (docs/ACP.md) need the official client library and the schema checker, which are kept in a folder of their own so that they never reach the Hub
       # (tests/acp-tools/package.json: devDependencies only, one lock file). A suite that cannot find them is skipped, and --no-skip below turns a skip into a failure.
       - name: Install the ACP test tools
@@ -105,7 +105,8 @@ jobs:
 
   proof-tree-macos:
     # Gate G4 of P4 wants the tree snapshot engine (docs/PROOF-TREE.md) measured on all three systems. The full Hub suite does not run on
-    # macOS; this job runs only the three proof-tree suites there (case-insensitive APFS, Apple Git, symlinks allowed).
+    # macOS; this job runs only the three proof-tree suites there (case-insensitive APFS, Apple Git, symlinks allowed), and the suite of the
+    # chatmcp verify CLI (docs/PROOF-CLI.md), whose plan wants it spawned on every CI system (bash 3.2, /bin/sh and pwsh of the runner).
     name: Proof tree suites (macos-latest, Node 24)
     runs-on: macos-latest
     timeout-minutes: 20
@@ -120,6 +121,9 @@ jobs:
           node-version: '24'
       - name: Run the proof tree suites
         run: node tests/run-all.mjs --no-skip all --retry-failed-once --filter proof-tree --json test-results/summary.json
+      - name: Run the proof CLI suite
+        if: ${{ !cancelled() }}
+        run: node tests/run-all.mjs --no-skip all --retry-failed-once --filter proof-cli --json test-results/summary-proof-cli.json
       - name: Upload test summary
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -127,6 +131,7 @@ jobs:
           name: proof-tree-summary-macos
           path: |
             DATGOLD-HUB/test-results/summary.json
+            DATGOLD-HUB/test-results/summary-proof-cli.json
             DATGOLD-HUB/test-results/proof-tree-budget-*.json
           if-no-files-found: ignore
 
