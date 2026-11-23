@@ -6,8 +6,9 @@ run through the official CLIs of several coding agents, to measure how often an 
 CLI adapters (pod-37), the scoring (pod-38), the report (pod-39) and the 20 real tasks (pod-40, pod-41).
 
 **What exists today:** the task format and its JSON Schema, the loader and validator, the marker contract and its parser, the freeze
-that writes `preregistration.json` and tags the commit, and two example tasks. **What does not exist yet:** real tasks (`tasks/` is
-created by pod-40), anything that runs an agent or scores a run.
+that writes `preregistration.json` and tags the commit, two example tasks, and (pod-36) the run sandbox and the clean-room scoring
+checkout, described in [SANDBOX.md](SANDBOX.md). **What does not exist yet:** real tasks (`tasks/` is created by pod-40), the adapters
+that start a vendor's CLI in the sandbox (pod-37), the scoring of a whole corpus and its report (pod-38, pod-39).
 
 - [Layout](#layout)
 - [The task format](#the-task-format)
@@ -25,13 +26,19 @@ created by pod-40), anything that runs an agent or scores a run.
 ```text
 corpus/
   README.md                    this page
+  SANDBOX.md                   the run sandbox and the clean-room scoring checkout (pod-36)
   schema/task.schema.json      the JSON Schema of task.yml
   tools/load.mjs               loader and validator (library and CLI)
   tools/freeze.mjs             pre-registration: preregistration.json and a local annotated tag
   tools/marker.mjs             the marker contract and parseFinalMarker()
   tools/protocol.mjs           the pre-registered protocol: metrics, repeats, thresholds, the kill rule
   tools/schema-check.mjs       the checker of the schema subset (no dependency)
-  tools/acceptance-parser.mjs  the only import from DatGold: the acceptance file reader (see "Splitting out the corpus")
+  tools/acceptance-parser.mjs  a bridge into DatGold: the acceptance file reader (see "Splitting out the corpus")
+  tools/run-sandbox.mjs        one agent run in a folder of its own: the baseline commit, a fresh profile, setup, the agent, its diff
+  tools/score-checkout.mjs     the score of a diff in a fresh checkout: the diff applied, a clean install, the hidden tests copied in
+  tools/sandbox-core.mjs       what the two share: the run folder, the base, the profile, the process trees
+  tools/tar.mjs                the strict reader of the repository tarball and the hidden test archive
+  tools/hub-process.mjs        the other bridge into DatGold: the shell runner, the process tree and the pinned Git process
   examples/tasks/<id>/         two example tasks, a corpus of their own
   examples/freeze-config.json  an example of the --config file of freeze
   tasks/<id>/                  the real tasks (none yet)
@@ -198,8 +205,9 @@ tools use a few synthetic bytes written to a temporary folder; no real archive e
 - A tag is only evidence once it is published; a local tag can be deleted and made again with a later time. Its time comes from the
   machine's clock.
 - Hidden archives are verified by hash at freeze time; keeping them private until publication is up to the owner.
-- The loader checks the text of `allowed_paths`; whether an agent's changes stay inside them, and whether the oracle patch passes and the
-  null agent fails, is checked when the tasks run (pod-36, pod-38), not here.
+- The loader checks the text of `allowed_paths`. `tools/score-checkout.mjs` (pod-36, [SANDBOX.md](SANDBOX.md)) scores only the part of
+  an agent's diff inside them, puts the rest back to the base and lists it (`outOfScope`), and checks that the oracle patch passes and the
+  null agent fails; reporting `out_of_scope` per run is the scoring's job (pod-38).
 - Agent versions are what the config file says; freeze does not run the vendor CLIs to check them.
 
 ## Relation to PoD-24
@@ -213,13 +221,19 @@ through each vendor's official CLI, frozen and published. The two share the fals
 The plan puts this corpus in a separate public repository (Apache-2.0). **Creating or publishing that repository, and pushing any tag, is
 the owner's decision, still pending.** Until then the tooling lives here, ready to be split:
 
-- The only code it takes from DatGold is the acceptance reader, imported in one file, `tools/acceptance-parser.mjs`, from
-  `DATGOLD-HUB/lib/proof/acceptance.mjs` and `DATGOLD-HUB/lib/proof/yaml-subset.mjs`. A test checks that no other corpus tool imports
-  anything outside `corpus/tools` but `node:` modules.
-- **The vendoring plan:** copy `acceptance.mjs`, `yaml-subset.mjs` and `lib/project-check-discovery.mjs` (which `acceptance.mjs` imports for
-  its proposal helper) byte for byte to `vendor/datgold/` in the new repository, record each file's sha256 and the DatGold commit they came
-  from in `vendor/datgold/SOURCE.json` with a test that checks them, change the two paths in `tools/acceptance-parser.mjs`, and copy
-  `.gitattributes`' `-text` rule. Updating the vendored reader is then a reviewed change of its own.
+- The code it takes from DatGold comes through two bridge files and nowhere else: `tools/acceptance-parser.mjs` (the acceptance reader,
+  from `DATGOLD-HUB/lib/proof/acceptance.mjs` and `DATGOLD-HUB/lib/proof/yaml-subset.mjs`, and `globMatches` from `DATGOLD-HUB/lib/glob-match.mjs`,
+  which matches `allowed_paths` as the Hub matches `protected`) and `tools/hub-process.mjs` (pod-36: `killTree`,
+  `scrubEnv`, `BoundedCapture` and `ShellRunner` from `DATGOLD-HUB/lib/shell-runner.mjs`, `processTreeLeft` and `windowsProcessTree`
+  from `DATGOLD-HUB/lib/studio-terminal.mjs`, `runGit`, `pinnedArgs`, `pinnedEnv` and `treeId` from
+  `DATGOLD-HUB/lib/proof/git-plumbing.mjs`). A test checks that no other corpus tool imports anything outside `corpus/tools` but `node:`
+  modules, and that each bridge imports only its own files.
+- **The vendoring plan:** copy `acceptance.mjs`, `yaml-subset.mjs`, `lib/glob-match.mjs` and `lib/project-check-discovery.mjs` (which `acceptance.mjs` imports for
+  its proposal helper), and for the second bridge `shell-runner.mjs`, `studio-terminal.mjs` and `proof/git-plumbing.mjs` with what they
+  import (`powershell-environment.mjs`, `runtime.mjs`, `studio-sandbox.mjs`), byte for byte to `vendor/datgold/` in the new repository,
+  record each file's sha256 and the DatGold commit they came from in `vendor/datgold/SOURCE.json` with a test that checks them, change
+  the paths in the two bridge files, and copy `.gitattributes`' `-text` rule. Updating the vendored code is then a reviewed change of
+  its own.
 - In the new repository the corpus root is the repository root (freeze records the path `.`), and the tests move with the tools.
 
 ## Tests
@@ -229,4 +243,5 @@ are not markers), the schema, valid tasks, more than 80 malformed ones each refu
 boundary, and freeze in temporary Git
 repositories: byte-identical output across runs, clones and paths, the tag, and every refusal. `DATGOLD-HUB/tests/mutation/corpus-tools.json`
 breaks the tools one change at a time to show that the suite notices (`node tests/mutation/run-mutations.mjs tests/mutation/corpus-tools.json`
-from `DATGOLD-HUB`).
+from `DATGOLD-HUB`). The run sandbox and the scoring checkout have their own suite, `DATGOLD-HUB/tests/verify-corpus-sandbox.mjs`, and
+mutation list, `DATGOLD-HUB/tests/mutation/corpus-sandbox.json` (see [SANDBOX.md](SANDBOX.md), "Tests").
