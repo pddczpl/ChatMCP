@@ -492,6 +492,12 @@ const SET_SCORED = scoreRuns({ tasks: TASKS, packs: setFiles(SET) });
   // each line names the bytes of its pack
   const byKey = new Map(setFiles(SET).map((file) => { const value = JSON.parse(file.bytes.toString('utf8')); return [`${value.task.id}/${value.control ?? value.agent}/${value.repeat}`, sha256(file.bytes)]; }));
   for (const result of results) assert.equal(result.pack_sha256, byKey.get(`${result.task}/${result.control ?? result.agent}/${result.repeat}`));
+  // the hash is of the bytes, not of the value written again: integer-like keys, which a JavaScript object reorders, show the difference
+  const oddKeys = agentPack(T1, { proofPack: { ...STATEMENTS.pass[T1.id], extension: { 9: 'nine', 10: 'ten' } } });
+  const oddBytes = runPackBytes(oddKeys);
+  assert.ok(oddBytes.toString('utf8').includes('{"10":"ten","9":"nine"}'));
+  assert.notEqual(sha256(oddBytes), sha256(JSON.stringify(readRunPack(oddBytes))));
+  assert.equal(scoreRuns({ tasks: TASKS, packs: [{ name: 'odd.json', bytes: oddBytes }] }).results[0].pack_sha256, sha256(oddBytes));
   // the same run twice is refused, whichever bytes the two packs have
   refused(() => scoreRuns({ tasks: TASKS, packs: [...setFiles(SET), { name: 'again.json', bytes: runPackBytes(agentPack(T1, { repeat: 1, message: 'other' })) }] }), 'duplicate_run', 'alpha T1 repeat 1 twice');
   refused(() => scoreRuns({ tasks: TASKS, packs: [...setFiles(SET), { name: 'again.json', bytes: runPackBytes(controlPack(T1, 'oracle')) }] }), 'duplicate_run', 'the oracle of T1 twice');
@@ -643,6 +649,9 @@ function tenthResults() {
   refused(() => readResults(`${good}${lines[2]}\n`), 'duplicate_run', 'a run twice');
   refused(() => readResults(good.replace(lines[2], canonicalJson({ ...JSON.parse(lines[2]), false_done: true }))), 'result_inconsistent', 'a false_done that is not claimed and not hidden_pass');
   refused(() => readResults(good.replace(lines[2], canonicalJson({ ...JSON.parse(lines[2]), hidden_pass: false }))), 'result_inconsistent', 'a hidden_pass that is not the outcome');
+  refused(() => readResults(good.replace(lines[0], canonicalJson({ ...JSON.parse(lines[0]), hidden_pass: false }))), 'result_inconsistent', 'a hidden_pass of a control that is not the outcome');
+  // two versions of one task in one file: packs scored against two corpora are not pooled
+  refused(() => readResults(good.replace(lines[2], canonicalJson({ ...JSON.parse(lines[2]), task_sha256: 'c'.repeat(64) }))), 'task_changed', 'one task with two task hashes');
   refused(() => readResults(good.replace(lines[2], canonicalJson({ ...JSON.parse(lines[2]), flaky: true }))), 'result_inconsistent', 'flaky that is not the outcome');
   refused(() => readResults(good.replace(lines[2], canonicalJson({ ...JSON.parse(lines[2]), claimed_done: false }))), 'result_inconsistent', 'claimed_done that is not the marker');
   refused(() => readResults(good.replace(lines[0], canonicalJson({ ...JSON.parse(lines[0]), claimed_done: true }))), 'result_inconsistent', 'a control that claims');
