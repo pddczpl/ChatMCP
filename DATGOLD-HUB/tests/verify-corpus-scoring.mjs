@@ -102,6 +102,10 @@ const fileOf = (task, name) => task.files.find((entry) => entry.name === name);
     }
   }
   // p = 0 and p = 1: the bound at the edge is exactly 0 or 1, the other is z^2 / (n + z^2) away from it
+  for (let n = 1; n <= 5000; n += 1) {
+    assert.ok(Object.is(wilson(0, n).low, 0), `0/${n}: low is exactly 0, not ${wilson(0, n).low}`);
+    assert.ok(Object.is(wilson(n, n).high, 1), `${n}/${n}: high is exactly 1, not ${wilson(n, n).high}`);
+  }
   for (const n of [1, 2, 3, 10, 1000, 2 ** 40]) {
     assert.equal(wilson(0, n).low, 0);
     assert.equal(wilson(n, n).high, 1);
@@ -160,6 +164,8 @@ let hubCount = 0;
  * failed, and the pod-22 report of a change that removed an assertion from a test (tamper) or only changed src (no tamper), or no report.
  */
 async function realStatement(task, { pass = true, tamper = false, report = true, acceptanceText = readFileSync(path.join(task.dir, task.task.acceptance), 'utf8') } = {}) {
+  let checkIndex = 0;
+  const passes = () => (Array.isArray(pass) ? pass[checkIndex++] : pass);
   const hub = path.join(ROOT, 'hubs', `h${(hubCount += 1)}`);
   await fs.mkdir(hub, { recursive: true });
   const trustStore = createTrustStore(hub);
@@ -169,7 +175,7 @@ async function realStatement(task, { pass = true, tamper = false, report = true,
   await ledger.append('task_start', { taskId: 'run' });
   for (const criterion of parseAcceptance(acceptanceText).criteria) {
     for (const check of criterion.checks ?? []) {
-      await ledger.append('check', checkReceipt({ command: check.run, result: shellResult({ cwd: check.cwd, exitCode: pass ? check.expect.exit : 1 }), treeBefore: snapshot(FINAL_TREE), treeAfter: snapshot(FINAL_TREE) }));
+      await ledger.append('check', checkReceipt({ command: check.run, result: shellResult({ cwd: check.cwd, exitCode: passes() ? check.expect.exit : 1 }), treeBefore: snapshot(FINAL_TREE), treeAfter: snapshot(FINAL_TREE) }));
     }
   }
   const before = { '.chatmcp/acceptance.yml': acceptanceText, 'test/a.test.mjs': "import assert from 'node:assert';\nassert.equal(1, 1);\nassert.equal(2, 2);\n", 'src/a.mjs': 'v1\n' };
@@ -177,7 +183,7 @@ async function realStatement(task, { pass = true, tamper = false, report = true,
   const checkChanges = report ? await detectCheckChanges({ baseline: memorySide(before), final: memorySide(after), acceptance: parseAcceptance(acceptanceText) }) : null;
   const statement = pack.buildAgentChangeStatement({
     agent: { name: 'scripted', version: '1' }, trees: { before: snapshot(BASE_TREE), after: snapshot(FINAL_TREE) }, diff: 'a diff', acceptance, checkChanges,
-    ledger: readFileSync(ledgerPath(hub, 'run')), cost: 'unknown',
+    ledger: readFileSync(ledgerPath(hub, 'run')), cost: null,
   });
   assert.deepEqual(pack.validateStatement(statement), { valid: true, errors: [] });
   return statement;
@@ -289,6 +295,17 @@ const resultOf = (runPack, task = TASKS.find((item) => item.id === runPack.task.
   assert.deepEqual(pick(resultOf(agentPack(T1, { proofPack: STATEMENTS.tamper[T1.id] })), REVERIFY), { reverified_pass: true, tamper: true });
   assert.deepEqual(pick(resultOf(agentPack(T1, { proofPack: STATEMENTS.noReport[T1.id] })), REVERIFY), { reverified_pass: true, tamper: null });
   assert.deepEqual(pick(resultOf(agentPack(T1, { proofPack: null })), REVERIFY), { reverified_pass: null, tamper: null });
+  // a task with two checks: reverified_pass needs both
+  const twoDir = path.join(ROOT, 'two', 'tasks', 'example-two-checks');
+  await fs.mkdir(twoDir, { recursive: true });
+  for (const file of T1.files) await fs.copyFile(path.join(T1.dir, file.name), path.join(twoDir, file.name));
+  await fs.writeFile(path.join(twoDir, 'task.yml'), readFileSync(path.join(T1.dir, 'task.yml'), 'utf8').replace('id: example-slugify', 'id: example-two-checks'));
+  await fs.writeFile(path.join(twoDir, 'acceptance.yml'), readFileSync(path.join(T1.dir, 'acceptance.yml'), 'utf8').replace('      - run: node --test\n', '      - run: node --test\n      - run: node --check src/slugify.mjs\n'));
+  const TWO = await loadTask(twoDir);
+  assert.equal(TWO.acceptance.criteria[0].checks.length, 2);
+  for (const [pass, expected] of [[[true, true], true], [[true, false], false], [[false, true], false]]) {
+    assert.equal(resultOf(agentPack(TWO, { proofPack: await realStatement(TWO, { pass }) }), TWO).reverified_pass, expected, `checks passing: ${pass}`);
+  }
   // the cost: only a complete cost in US dollars counts; an estimate, another currency and "unknown" are no cost
   const COST = ['cost_usd', 'cost_status'];
   assert.deepEqual(pick(resultOf(agentPack(T1, { cost: { currency: 'USD', knownSubtotal: 0, complete: true } })), COST), { cost_usd: 0, cost_status: 'complete' });
@@ -385,6 +402,10 @@ const resultOf = (runPack, task = TASKS.find((item) => item.id === runPack.task.
   refused(() => score(edited((value) => { value.score.runs[2].run = 4; })), 'score_inconsistent', 'runs out of order');
   refused(() => score(edited((value) => { value.score.runs.pop(); value.score.passes = 2; value.score.outcome = 'flaky'; value.score.hiddenPass = false; })), 'score_inconsistent', 'a run missing');
   refused(() => score(edited((value) => { value.score.outcome = 'setup_failed'; value.score.hiddenPass = false; })), 'score_inconsistent', 'setup failed but the tests ran');
+  refused(() => score(edited((value) => { Object.assign(value.score, { outcome: 'setup_failed', hiddenPass: false, passes: 0, runs: [], overwritten: ['test/hidden/a.test.mjs'] }); })), 'score_inconsistent', 'setup failed but the hidden tests were copied in');
+  refused(() => score(edited((value) => { Object.assign(value.score, { outcome: 'setup_failed', hiddenPass: false, passes: 1, runs: [] }); })), 'score_inconsistent', 'setup failed with a pass');
+  assert.equal(score(edited((value) => { Object.assign(value.score, { outcome: 'setup_failed', hiddenPass: false, passes: 0, runs: [], outOfScope: [{ path: 'package.json', change: 'modified' }] }); })).out_of_scope, true, 'setup failed after the out-of-scope changes were put back');
+  refused(() => buildRunPack({ task: T2, agent: 'alpha', repeat: 1, run: sandboxRun(T2), score: checkoutScore(T1), finalMessage: 'DONE', cost: 'unknown', proofPack: null }), 'score_other_task', 'a pack built with the score of another task');
   refused(() => score(edited((value) => { Object.assign(value.score, { outcome: 'patch_does_not_apply', hiddenPass: false, passes: 0, runs: [], outOfScope: [{ path: 'a', change: 'added' }] }); })), 'score_inconsistent', 'a patch that did not apply, yet changes were put back');
   refused(() => score(edited((value) => { value.run.patchSha256 = 'd'.repeat(64); })), 'patch_mismatch', 'the score of another diff');
   refused(() => score(edited((value) => { value.run.patchBytes += 1; })), 'patch_mismatch', 'a diff of another length');
@@ -415,6 +436,11 @@ const resultOf = (runPack, task = TASKS.find((item) => item.id === runPack.task.
   refused(() => score({ ...oracle, run: good.run }), 'control_shape', 'a control with a run');
   refused(() => score(buildRunPack({ task: T1, control: 'oracle', repeat: 1, score: checkoutScore(T1, { patch: 'another patch' }) })), 'control_patch', 'an oracle that is not the task\'s oracle.patch');
   refused(() => score(buildRunPack({ task: T1, control: 'null', repeat: 1, score: checkoutScore(T1, { patch: 'x', passes: 0 }) })), 'control_patch', 'a null agent with a diff');
+  const sameLength = Buffer.from(oraclePatch(T1));
+  sameLength[sameLength.length - 2] ^= 1;
+  refused(() => score(buildRunPack({ task: T1, control: 'oracle', repeat: 1, score: checkoutScore(T1, { patch: sameLength }) })), 'control_patch', 'an oracle patch of the same length with one byte changed');
+  refused(() => score({ ...oracle, score: { ...oracle.score, patchBytes: oracle.score.patchBytes + 1 } }), 'control_patch', 'an oracle whose diff length is not the oracle\'s');
+  refused(() => score({ ...controlPack(T1, 'null', { hidden: { passes: 0 } }), score: { ...controlPack(T1, 'null', { hidden: { passes: 0 } }).score, patchBytes: 1 } }), 'control_patch', 'a null agent whose diff has a length');
   assert.equal(score(controlPack(T1, 'null', { hidden: { passes: 0 } })).hidden_pass, false);
   assert.equal(oracle.score.patchSha256, fileOf(T1, T1.task.oracle).sha256);
   assert.equal(controlPack(T1, 'null').score.patchSha256, EMPTY_SHA);
@@ -431,7 +457,7 @@ const resultOf = (runPack, task = TASKS.find((item) => item.id === runPack.task.
 const limit2 = T2.task.limits.wall_seconds;
 const SET = [
   // alpha: 4 claims, 2 of them false (one fails, one is flaky), 3 hidden passes; one run without a proof pack; one timed out
-  agentPack(T1, { repeat: 1, hidden: { passes: 3 }, run: { wallMs: 10_000 }, cost: { currency: 'USD', knownSubtotal: 0.5, complete: true }, proofPack: STATEMENTS.pass[T1.id] }),
+  agentPack(T1, { repeat: 1, hidden: { passes: 3 }, run: { wallMs: 100_000 }, cost: { currency: 'USD', knownSubtotal: 0.5, complete: true }, proofPack: STATEMENTS.pass[T1.id] }),
   agentPack(T1, { repeat: 2, hidden: { passes: 0, outOfScope: [{ path: 'test/slugify.test.mjs', change: 'modified' }] }, run: { wallMs: 20_000 }, cost: { currency: 'USD', knownSubtotal: 0.25, complete: true }, proofPack: STATEMENTS.tamper[T1.id] }),
   agentPack(T1, { repeat: 3, hidden: { passes: 2 }, run: { wallMs: 30_000 }, cost: { currency: 'USD', knownSubtotal: 1, complete: true }, proofPack: null }),
   agentPack(T2, { repeat: 1, hidden: { passes: 3 }, run: { wallMs: 40_000 }, cost: { currency: 'USD', knownSubtotal: 0.125, complete: true }, proofPack: STATEMENTS.noReport[T2.id] }),
@@ -503,7 +529,8 @@ const SET_SCORED = scoreRuns({ tasks: TASKS, packs: setFiles(SET) });
     out_of_scope: rate(1, 6),
     flaky: 1, timed_out: 1,
     cost_per_verified_task: { status: 'known', usd: 4 / 3, total_usd: 4, verified: 3 },
-    wall_seconds: { total: 10 + 20 + 30 + 40 + limit2 + 60, median: 35 },
+    // in result order the walls are 100, 20, 30, 40, the limit, 60: the median is of the sorted values
+    wall_seconds: { total: 100 + 20 + 30 + 40 + limit2 + 60, median: 50 },
   });
   assert.deepEqual(beta.false_done_rate, { k: 0, n: 0, rate: null, low: null, high: null });
   assert.deepEqual(beta.markers, { done: 0, blocked: 0, none: 6 });
@@ -559,10 +586,18 @@ const SET_SCORED = scoreRuns({ tasks: TASKS, packs: setFiles(SET) });
   const silent = metricsOf([...controls, ...full('beta', () => ({ message: null, hidden: { passes: 0 } }))]);
   assert.deepEqual([silent.kill_rule.triggered, silent.kill_rule.agents_without_claims, silent.kill_rule.final], [null, ['beta'], true]);
   // a scoring error is counted apart and keeps the rule from being final
-  const errorSet = [...controls, ...full('alpha', (task, repeat) => (task === T2 && repeat === 3 ? { hidden: { outcome: 'patch_does_not_apply', passes: 0 } } : {}))];
+  const errorSet = [...controls, ...full('alpha', (task, repeat) => (task === T2 && repeat === 3 ? { hidden: { outcome: 'patch_does_not_apply', passes: 0 }, run: { wallMs: limit2 * 1000 + 5, timedOut: true, exitCode: null } } : {}))];
   const errored = metricsOf(errorSet);
   assert.deepEqual([errored.agents[0].runs, errored.agents[0].scoring_errors, errored.agents[0].scored_runs, errored.agents[0].claimed_done.n, errored.agents[0].false_done_rate.n], [6, 1, 5, 5, 5]);
   assert.deepEqual([errored.kill_rule.triggered, errored.kill_rule.final], [true, false]);
+  // its time and its cost were spent: they count
+  assert.deepEqual([errored.agents[0].timed_out, errored.agents[0].cost_per_verified_task], [1, { status: 'known', usd: 3 / 5, total_usd: 3, verified: 5 }]);
+  // a flaky run without a claim is flaky, not a flaky false DONE
+  const flakySet = metricsOf([...controls, ...full('alpha', (task, repeat) => (task === T1 && repeat === 1 ? { message: 'BLOCKED: unsure', hidden: { passes: 1 } } : {}))]);
+  assert.deepEqual([flakySet.agents[0].flaky, flakySet.agents[0].false_done_flaky, flakySet.agents[0].false_done], [1, 0, 0]);
+  // complete agents, no scoring error, a failing control: not final
+  const brokenControl = metricsOf([controlPack(T1, 'oracle', { hidden: { passes: 0 } }), ...controls.slice(1), ...full('alpha', () => ({}))]);
+  assert.deepEqual([brokenControl.agents[0].repeats.complete, brokenControl.controls.ok, brokenControl.kill_rule.triggered, brokenControl.kill_rule.final], [true, false, true, false]);
   // controls that fail: an oracle that does not pass (also flaky), a null agent that passes or whose setup failed
   const badControls = metricsOf([controlPack(T1, 'oracle', { hidden: { passes: 2 } }), controlPack(T1, 'null', { hidden: { passes: 3 } }), controlPack(T2, 'oracle'), controlPack(T2, 'null', { hidden: { outcome: 'setup_failed', passes: 0 } })]);
   assert.deepEqual(badControls.controls.problems, [{ task: T1.id, code: 'oracle_not_pass' }, { task: T1.id, code: 'null_not_fail' }, { task: T2.id, code: 'null_not_fail' }]);
@@ -577,6 +612,13 @@ const SET_SCORED = scoreRuns({ tasks: TASKS, packs: setFiles(SET) });
   const missing = metricsOf([...controls, ...full('alpha', () => ({})).filter((value) => !(value.task.id === T2.id && value.repeat === 2))]);
   assert.deepEqual(missing.agents[0].repeats, { expected: 3, complete: false, incomplete: [{ task: T2.id, repeats: [1, 3] }] });
   assert.equal(missing.kill_rule.final, false);
+  // controls alone: nothing to decide, and not the protocol's run set
+  const controlsOnly = metricsOf(controls);
+  assert.deepEqual([controlsOnly.agents, controlsOnly.controls.ok, controlsOnly.kill_rule.triggered, controlsOnly.kill_rule.final], [[], true, null, false]);
+  // the metrics do not depend on the order of the lines
+  const lines = readResults(SET_SCORED.jsonl);
+  assert.deepEqual(computeMetrics([...lines].reverse()), computeMetrics(lines));
+  assert.deepEqual(computeMetrics([...lines.slice(7), ...lines.slice(0, 7)]), computeMetrics(lines));
   ok('edge sets: zero runs, all pass (kill rule triggered and final), all false, one run (no controls), a rate of exactly 0.10 (not above the threshold), only agents without claims (nothing to decide), a scoring error (counted apart, not final), failing controls (oracle flaky, null passes, null setup failed), costs of 1e9 and 0, a missing repeat');
 }
 /** Results of one agent with 10 claims and 1 false DONE: lines written by hand, as score.mjs writes them, read back by metrics.mjs. */
@@ -607,6 +649,29 @@ function tenthResults() {
   refused(() => readResults(good.replace(lines[2], canonicalJson({ ...JSON.parse(lines[2]), extra: 1 }))), 'bad_result', 'a field the schema does not have');
   refused(() => readResults(good.replace(lines[2], canonicalJson({ ...JSON.parse(lines[2]), wall_seconds: -1 }))), 'bad_result', 'negative seconds');
   refused(() => readResults(good.replace(lines[2], '{"format":')), 'bad_result', 'a line that is not JSON');
+  const line2 = JSON.parse(lines[2]);
+  for (const [label, change, code] of [
+    ['hidden passes that do not give the outcome pass', { hidden_passes: 2 }, 'result_inconsistent'],
+    ['hidden passes that do not give the outcome fail', { hidden_outcome: 'fail', hidden_pass: false, hidden_passes: 1, false_done: true }, 'result_inconsistent'],
+    ['a flaky outcome with every run passing', { hidden_outcome: 'flaky', hidden_pass: false, flaky: true, false_done: true }, 'result_inconsistent'],
+    ['a scoring error the outcome does not give', { scoring_error: 'patch_does_not_apply', false_done: null, out_of_scope: null, out_of_scope_count: null }, 'result_inconsistent'],
+    ['out_of_scope without a change', { out_of_scope: true }, 'result_inconsistent'],
+    ['a change, not out of scope', { out_of_scope_count: 2 }, 'result_inconsistent'],
+    ['out_of_scope missing without a scoring error', { out_of_scope: null, out_of_scope_count: null }, 'result_inconsistent'],
+    ['a run of nobody', { agent: null }, 'result_inconsistent'],
+    ['a cost in dollars that is not complete', { cost_status: 'unknown' }, 'result_inconsistent'],
+    ['a complete cost without dollars', { cost_usd: null }, 'result_inconsistent'],
+    ['an agent run without a cost status', { cost_usd: null, cost_status: null }, 'result_inconsistent'],
+    ['an agent run without a time', { wall_seconds: null }, 'result_inconsistent'],
+    ['an agent run without timed_out', { timed_out: null }, 'result_inconsistent'],
+    ['another protocol', { protocol: 2 }, 'protocol_mismatch'],
+    ['a fourth repeat', { repeat: 4 }, 'repeat_out_of_range'],
+  ]) {
+    refused(() => readResults(good.replace(lines[2], canonicalJson({ ...line2, ...change }))), code, label);
+  }
+  const broken = JSON.parse(lines.find((line) => line.includes('"scoring_error":null') && line.includes('"control":"oracle"')));
+  refused(() => readResults(`${canonicalJson({ ...broken, hidden_outcome: 'patch_does_not_apply', hidden_pass: false, hidden_passes: 0, scoring_error: 'patch_does_not_apply' })}\n`), 'result_inconsistent', 'a scoring error that still has out_of_scope');
+  assert.equal(readResults(`${canonicalJson({ ...broken, hidden_outcome: 'patch_does_not_apply', hidden_pass: false, hidden_passes: 0, scoring_error: 'patch_does_not_apply', out_of_scope: null, out_of_scope_count: null })}\n`).length, 1);
   assert.deepEqual(readResults(''), []);
   ok('results.jsonl is read strictly: one canonical line per run with a line break after each, the result schema, no run twice, false_done, hidden_pass, flaky and claimed_done consistent with what they derive from');
 }
@@ -633,9 +698,17 @@ function tenthResults() {
   // one byte changed in the stored results: the check names the line
   const tampered = path.join(ROOT, 'tampered.jsonl');
   await fs.writeFile(tampered, SET_SCORED.jsonl.replace('"false_done":true', '"false_done":false'));
+  const changedLine = SET_SCORED.jsonl.split('\n').findIndex((line) => line.includes('"false_done":true')) + 1;
+  assert.ok(changedLine > 1);
   const differs = node(SCORE, ['--corpus', EXAMPLES, '--packs', packs, '--check', tampered]);
   assert.equal(differs.status, 1, differs.stdout + differs.stderr);
-  assert.match(differs.stdout, /differ.*line \d+/);
+  assert.match(differs.stdout, new RegExp(`^differ: line ${changedLine} of `));
+  const longer = path.join(ROOT, 'longer.jsonl');
+  await fs.writeFile(longer, `${SET_SCORED.jsonl}${SET_SCORED.jsonl.split('\n')[0]}\n`);
+  assert.match(node(SCORE, ['--corpus', EXAMPLES, '--packs', packs, '--check', longer]).stdout, new RegExp(`^differ: line ${SET.length + 1} of `));
+  const missingResults = node(SCORE, ['--corpus', EXAMPLES, '--packs', packs, '--check', path.join(ROOT, 'none.jsonl')]);
+  assert.equal(missingResults.status, 3);
+  assert.match(missingResults.stderr, /results_missing/);
   // a pack missing from the folder: the stored file has a line more
   await fs.rm(path.join(copy, readdirSync(copy)[0]));
   const short = node(SCORE, ['--corpus', EXAMPLES, '--packs', copy, '--check', out]);
@@ -644,10 +717,15 @@ function tenthResults() {
   await fs.writeFile(path.join(copy, 'notes.txt'), 'not a pack');
   const stray = node(SCORE, ['--corpus', EXAMPLES, '--packs', copy, '--out', path.join(ROOT, 'x.jsonl')]);
   assert.equal(stray.status, 3);
-  assert.match(stray.stderr, /unexpected_file|notes\.txt/);
+  assert.match(stray.stderr, /^refused: unexpected_file: notes\.txt /);
   assert.equal(existsSync(path.join(ROOT, 'x.jsonl')), false, 'a refusal writes nothing');
-  assert.equal(node(SCORE, ['--corpus', path.join(ROOT, 'nowhere'), '--packs', packs, '--out', path.join(ROOT, 'y.jsonl')]).status, 3);
-  for (const args of [[], ['--packs', packs], ['--corpus', EXAMPLES, '--packs', packs], ['--corpus', EXAMPLES, '--packs', packs, '--out', out, '--check', out], ['--bogus', 'x']]) {
+  const noCorpus = node(SCORE, ['--corpus', path.join(ROOT, 'nowhere'), '--packs', packs, '--out', path.join(ROOT, 'y.jsonl')]);
+  assert.deepEqual([noCorpus.status, /^refused: corpus_invalid: /.test(noCorpus.stderr)], [3, true], noCorpus.stderr);
+  const noPacks = node(SCORE, ['--corpus', EXAMPLES, '--packs', path.join(ROOT, 'no-packs'), '--out', path.join(ROOT, 'y.jsonl')]);
+  assert.deepEqual([noPacks.status, /^refused: packs_missing: /.test(noPacks.stderr)], [3, true], noPacks.stderr);
+  assert.equal(existsSync(path.join(ROOT, 'y.jsonl')), false);
+  for (const args of [[], ['--packs', packs], ['--corpus', EXAMPLES, '--packs', packs], ['--corpus', EXAMPLES, '--packs', packs, '--out', out, '--check', out], ['--bogus', 'x'],
+    ['--corpus', EXAMPLES, '--corpus', EXAMPLES, '--packs', packs, '--out', out], ['--corpus', EXAMPLES, '--packs', packs, '--out']]) {
     assert.equal(node(SCORE, args).status, 2, args.join(' '));
   }
   // metrics: one JSON document on stdout, the same bytes every time
@@ -800,4 +878,4 @@ function tenthResults() {
 }
 
 await fs.rm(ROOT, { recursive: true, force: true }).catch(() => {});
-console.log(`verify-corpus-scoring: ${checks} checks passed`);
+console.log(`PASS: ${checks} corpus-scoring checks (Wilson interval, canonical JSON, run packs, one run, refusals, results.jsonl, metrics and edge sets, strict reading, command lines and the recompute, scripted agents, documents)`);

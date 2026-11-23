@@ -28,7 +28,8 @@ import { KILL_RULE, METRICS, PROTOCOL, THRESHOLDS } from './protocol.mjs';
 export const FORMAT = 'pod-corpus-preregistration';
 export const FORMAT_VERSION = 1;
 const TAG_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-const AGENT_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+/** An agent id of the freeze config; the scoring's run packs and result lines use the same rule (corpus/schema/run-pack.schema.json). */
+export const AGENT_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const AGENT_KEYS = ['id', 'cli', 'version', 'model', 'notes'];
 const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 // In the configuration every value is one line of visible text.

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:datgold:pod-corpus:run-pack:1",
+  "title": "A run pack of the Proof-of-Done benchmark corpus (datgold.corpus-run-pack/1)",
+  "description": "The evidence of one run, from which corpus/tools/score.mjs computes its result line: the task it was made for, who ran (an agent and its repeat, or the oracle or null-agent control), the agent's run in the run sandbox (corpus/tools/run-sandbox.mjs), its final message, its cost, the score of its diff in the clean scoring checkout (corpus/tools/score-checkout.mjs) and the proof pack that chatmcp verify built on its final tree. A pack file is this object written as canonical JSON (corpus/SCORING.md). The rules a schema cannot say (the task's hashes, a score consistent with itself, the run's diff equal to the scored one, a proof pack of the task's own acceptance file) are checked by score.mjs.",
+  "$comment": "Checked with DATGOLD-HUB/lib/proof/schema-validate.mjs through the bridge corpus/tools/json-schema.mjs; it supports only the keywords used here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "protocol", "task", "agent", "control", "repeat", "run", "finalMessage", "cost", "score", "proofPack"],
+  "properties": {
+    "format": { "const": "datgold.corpus-run-pack/1" },
+    "protocol": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "PROTOCOL_VERSION of corpus/tools/protocol.mjs the run was made under" },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256"],
+      "properties": {
+        "id": { "$ref": "#/$defs/taskId" },
+        "sha256": { "$ref": "#/$defs/sha256", "description": "the task hash of corpus/tools/load.mjs" }
+      }
+    },
+    "agent": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$", "description": "an agent id of the freeze config" },
+        { "type": "null", "description": "a control" }
+      ]
+    },
+    "control": { "enum": [null, "oracle", "null"], "description": "null for an agent's run; oracle: the task's oracle.patch; null: the empty diff" },
+    "repeat": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "1 to the protocol's repeats per task and agent (score.mjs checks the upper bound)" },
+    "run": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run" }] },
+    "finalMessage": {
+      "oneOf": [
+        { "type": "string", "maxLength": 65536, "description": "the agent's final message, or its last 65,536 characters; the claim is its final line" },
+        { "type": "null", "description": "no message (no claim), or a control" }
+      ]
+    },
+    "cost": {
+      "oneOf": [
+        { "type": "null", "description": "a control" },
+        { "const": "unknown" },
+        { "$ref": "#/$defs/cost" }
+      ]
+    },
+    "score": { "$ref": "#/$defs/score" },
+    "proofPack": { "type": ["object", "null"], "description": "the agent-change statement v0.1 (docs/spec/agent-change-v0.1.md) built on the agent's final tree, as it is; score.mjs reads its acceptance hash, criteria, check results and check-changes report" }
+  },
+  "$defs": {
+    "taskId": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitId": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "baseTree", "finalTree", "patchSha256", "patchBytes", "agent"],
+      "description": "what run-sandbox.mjs returned, reduced to what the scoring reads",
+      "properties": {
+        "format": { "const": "datgold.corpus-run/1" },
+        "baseTree": { "$ref": "#/$defs/gitId" },
+        "finalTree": { "$ref": "#/$defs/gitId" },
+        "patchSha256": { "$ref": "#/$defs/sha256" },
+        "patchBytes": { "$ref": "#/$defs/count" },
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exitCode", "signal", "timedOut", "cancelled", "wallMs"],
+          "properties": {
+            "exitCode": { "type": ["integer", "null"] },
+            "signal": { "type": ["string", "null"], "maxLength": 32 },
+            "timedOut": { "type": "boolean" },
+            "cancelled": { "type": "boolean" },
+            "wallMs": { "$ref": "#/$defs/count" }
+          }
+        }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "knownSubtotal", "complete"],
+      "description": "the cost shape of the proof pack and of chatmcp verify exec",
+      "properties": {
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "knownSubtotal": { "type": "number", "minimum": 0, "maximum": 1000000000 },
+        "complete": { "type": "boolean" }
+      }
+    },
+    "score": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "taskId", "baseTree", "patchSha256", "patchBytes", "hiddenSha256", "outcome", "hiddenPass", "passes", "requiredRuns", "runs", "outOfScope", "overwritten"],
+      "description": "what score-checkout.mjs returned, reduced to what the scoring reads",
+      "properties": {
+        "format": { "const": "datgold.corpus-score/1" },
+        "taskId": { "$ref": "#/$defs/taskId" },
+        "baseTree": { "$ref": "#/$defs/gitId" },
+        "patchSha256": { "$ref": "#/$defs/sha256" },
+        "patchBytes": { "$ref": "#/$defs/count" },
+        "hiddenSha256": { "$ref": "#/$defs/sha256" },
+        "outcome": { "enum": ["pass", "fail", "flaky", "patch_does_not_apply", "setup_failed"] },
+        "hiddenPass": { "type": "boolean" },
+        "passes": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "requiredRuns": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "runs": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["run", "pass"],
+            "properties": { "run": { "type": "integer", "minimum": 1, "maximum": 20 }, "pass": { "type": "boolean" } }
+          }
+        },
+        "outOfScope": {
+          "type": "array",
+          "maxItems": 200000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "change"],
+            "properties": { "path": { "type": "string", "minLength": 1, "maxLength": 4096 }, "change": { "enum": ["added", "modified", "deleted"] } }
+          }
+        },
+        "overwritten": { "type": "array", "maxItems": 20000, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+      }
+    }
+  }
+}
