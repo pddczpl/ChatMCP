@@ -6,7 +6,7 @@
 //   4. its exit, its duration and the sha256 and size of each output stream are recorded, the streams are kept in the evidence folder;
 //   5. the claim is read from the end of its final message (the marker contract of lib/proof/marker.mjs, or --claim-marker), from its
 //      stdout or from what an adapter (lib/proof/adapters/index.mjs) found in its documented JSON output; the run and the claim are one
-//      `call` record of the session's ledger;
+//      `task_end` record of the session's ledger (the agent's task ends with its claim; the checks that verify it follow);
 //   6. the criteria: the trusted checks of the baseline's acceptance file, each recorded with recordCheck as `run` records one;
 //   7. the pack, as `pack` builds it.
 // The commands' shared steps (the workspace and state folder, the session start, the pack) come from commands.mjs as `steps`, so this
@@ -31,7 +31,10 @@ import { joinCommand } from './args.mjs';
 import { stop } from './codes.mjs';
 import { readAcceptance } from './session.mjs';
 
-/** The format of the agent's `call` record in the ledger. */
+/**
+ * The format of the agent's `task_end` record in the session's ledger. Not a `call` record: that type has the closed schema of the proof
+ * service's tool calls (pod-17, docs/PROOF-SERVICE.md). This format tells exec's `task_end` apart from the service's.
+ */
 export const EXEC_FORMAT = 'chatmcp.verify-exec/1';
 /** The claim is read from at most the last 64 KiB of the agent's stdout. */
 export const CLAIM_WINDOW_BYTES = 64 * 1024;
@@ -379,7 +382,7 @@ export async function execCommand(ctx, steps) {
       cost: cost ?? 'unknown', costSource,
     });
     claim = record.claim;
-    entry = await ledger.append('call', record);
+    entry = await ledger.append('task_end', record);
     // 6. the criteria, unless the person stopped exec
     if (!run.interrupted) {
       const acceptance = await resolveAcceptance({ baseline: session.acceptanceBytes, current: null, trustStore: createTrustStore(state.hubDir) });

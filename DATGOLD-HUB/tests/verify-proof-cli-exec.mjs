@@ -522,10 +522,10 @@ async function trustAcceptance(repo) {
   // the ledger: the session's start, the agent's run with its claim, then the receipt of the criterion's check
   const entries = ledgerEntries(data.paths.ledger);
   assert.equal(verifyChain(fs.readFileSync(data.paths.ledger)).ok, true, 'the ledger verifies');
-  assert.deepEqual(entries.map((entry) => entry.type), ['task_start', 'call', 'check']);
+  assert.deepEqual(entries.map((entry) => entry.type), ['task_start', 'task_end', 'check'], 'the session, the agent\'s task with its claim, the receipt of the check');
   assert.equal(entries[0].record.source, 'chatmcp verify exec');
   const call = entries[1].record;
-  assert.deepEqual([entries[1].seq, entries[1].hash], [data.record.seq, data.record.hash], 'the answer names the call record');
+  assert.deepEqual([entries[1].seq, entries[1].hash], [data.record.seq, data.record.hash], 'the answer names the agent\'s record');
   assert.equal(call.kind, 'agent_exec');
   assert.equal(call.format, 'chatmcp.verify-exec/1');
   assert.equal(call.commandSha256, sha256(data.command), 'the record binds the exact command');
@@ -688,7 +688,7 @@ clearInterval(timer);
   assert.deepEqual(injected.data.checks, [], 'no check runs after a Ctrl-C');
   assert.ok(await goneWithin(once.pids, 10_000), `the agent and its child are gone (${once.pids.join(', ')})`);
   const entries = ledgerEntries(injected.data.paths.ledger);
-  assert.deepEqual(entries.map((entry) => entry.type), ['task_start', 'call'], 'the agent\'s run is recorded, nothing after it');
+  assert.deepEqual(entries.map((entry) => entry.type), ['task_start', 'task_end'], 'the agent\'s run is recorded, nothing after it');
   assert.equal(entries[1].record.interrupted, true);
   // a second Ctrl-C does not wait for the grace
   expectAnswer(twice.answer, 1, 'exec_interrupted', 'two Ctrl-C while the agent runs (injected)');
