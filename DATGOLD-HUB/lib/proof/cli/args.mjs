@@ -39,6 +39,9 @@ export function compileClaimMarker(source) {
   const refuse = (expected) => stop('bad_value', { option: '--claim-marker', value: String(source).slice(0, CLAIM_MARKER_MAX_CHARS + 1), expected });
   if (typeof source !== 'string' || !source.length || source.length > CLAIM_MARKER_MAX_CHARS) throw refuse(`a regular expression of 1 to ${CLAIM_MARKER_MAX_CHARS} characters`);
   let pattern;
+  // The source must compile on its own before it is wrapped: one that closes the wrapper's group ("DONE)|(READY") would otherwise compile
+  // to ^(?:DONE)|(READY)$ and escape the anchors. A source that compiles alone has balanced groups, so the wrapper holds all of it.
+  try { new RegExp(source, 'u'); } catch { throw refuse('a regular expression that compiles on its own (JavaScript syntax, u flag)'); }
   try { pattern = new RegExp(`^(?:${source})$`, 'u'); } catch { throw refuse('a regular expression that compiles (JavaScript syntax, u flag)'); }
   if (pattern.test('')) throw refuse('a regular expression that does not match an empty line');
   // the pattern as the person wrote it, for the record (RegExp source escapes a slash)

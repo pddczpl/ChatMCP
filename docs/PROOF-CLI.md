@@ -225,8 +225,9 @@ vendored with the other bridged files.
   follows its first line break). A final line that began before the window, or white space after the marker longer than the window, is
   then no claim, never a marker the stream does not end with.
 - **`--claim-marker <regex>`** names a DONE marker of your own, for an agent that cannot be told to write `DONE`: a JavaScript regular
-  expression (`u` flag), 1 to 200 characters, that must match the **whole** final line (it is anchored). A pattern that does not compile,
-  or that matches an empty line, is `bad_value` (exit 2). With it, a final line it matches is the claim DONE and the plain `DONE` no
+  expression (`u` flag), 1 to 200 characters, that must match the **whole** final line: it is wrapped as `^(?:<pattern>)$`. A pattern
+  that does not compile on its own (so also one that closes the wrapper's group, such as `DONE)|(READY`, which would otherwise escape
+  the anchors), or that matches an empty line, is `bad_value` (exit 2). With it, a final line it matches is the claim DONE and the plain `DONE` no
   longer counts; `BLOCKED: <reason>` stays the contract's, so a custom marker never turns BLOCKED into DONE. The final line is tested up to
   1,000 characters; a pattern that runs longer than 1 second on it is stopped and the claim is none (`claim.markerTimedOut`).
 - The final line is recorded as `claim.line`, up to 1,000 characters; `claim.from` is `stdout` or `adapter`, `claim.rule` `contract` or
@@ -249,7 +250,9 @@ and the claim is read from stdout as text.
 | `opencode` | nothing: opencode documents no machine-readable output of `opencode run`, so this adapter reads nothing and the claim comes from its plain text output | https://opencode.ai/docs/cli/ |
 
 Agent CLIs change quickly. When a vendor changes its output, the adapter answers `recognized: false` rather than guessing, and its
-`version` moves when it is updated.
+`version` moves when it is updated. Only the documented shapes are read: one result object, or JSON Lines. What `claude -p
+--output-format json --verbose` prints is not documented (the pages above pair `--verbose` with `stream-json` only); an array of
+messages is `no_result` and is not read, so use `--output-format json` without `--verbose`, or `stream-json`.
 
 #### Cost
 
