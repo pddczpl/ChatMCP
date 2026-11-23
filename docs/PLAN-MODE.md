@@ -172,7 +172,9 @@ resume) is a plan-mode run again. ac-18 builds the resume semantics on this.
   `plan_mode_unsupported`, and `DualAgent` refuses to carry a held plan-mode API task to the Companion.
 - **ACP** (`lib/acp/*`) and the **MCP host** (`lib/mcp/host.mjs`) do not expose plan mode: the ACP client sends only `prompt` and
   `workspacePath` (start) or `id` and `prompt` (continue), and the MCP host starts no agent task. An ACP session that continues a plan-mode task
-  keeps it read-only.
+  keeps it read-only. An editor that answers a plan request through ACP sends `approved` alone (`lib/acp/hub-client.mjs`): when the owner
+  edited the plan after the request was raised, that approval is refused (409 `plan_conflict`), the ACP agent logs it, and the request stays
+  pending for the owner in DatGold.
 
 ## Decisions (v1)
 

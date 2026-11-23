@@ -727,17 +727,16 @@ export class LocalTools {
       run: (a, ctx) => this.#gitLog(a, ctx),
     });
     define('get_plan', {
-      description: 'Load the saved task plan (checklist and plan text) for this conversation, with its revision number.',
+      description: 'Load the saved task plan (checklist) for this conversation.',
       schema: obj({}), category: 'read', reason: 'Đọc kế hoạch', summary: () => 'Đọc kế hoạch',
       run: (a, ctx) => this.#plan('get', a, ctx),
     });
     define('update_plan', {
-      description: 'Save the task plan as a checklist. Use it for multi-step work and keep it current. Status: todo, doing, done, blocked; put the evidence (test output, file, command) in "evidence" before marking an item done. '
-        + 'The user can edit the plan too: pass expected_revision, the revision get_plan (or your last update_plan) returned. If the plan changed since, nothing is saved and you are told to call get_plan.',
+      description: 'Save the task plan as a checklist; keep it current. Put evidence (test output, file, command) in "evidence" before marking a step done.',
       schema: obj({
-        title: str('Short plan title.', { maxLength: 240 }),
-        items: { type: 'array', maxItems: 100, items: obj({ text: str('Step description.', { maxLength: 500 }), status: str('Step status.', { enum: ['todo', 'doing', 'done', 'blocked'] }), evidence: str('Proof the step is done.', { maxLength: 600 }) }, ['text', 'status']) },
-        expected_revision: int('The revision of the plan you last read (get_plan) or wrote (update_plan).', { minimum: 0 }),
+        title: str('Plan title.', { maxLength: 240 }),
+        items: { type: 'array', maxItems: 100, items: obj({ text: str('The step.', { maxLength: 500 }), status: str('Step status.', { enum: ['todo', 'doing', 'done', 'blocked'] }), evidence: str('Proof it is done.', { maxLength: 600 }) }, ['text', 'status']) },
+        expected_revision: int('Revision from get_plan.', { minimum: 0 }),
       }, ['items']),
       annotations: { readOnlyHint: false }, category: 'checkpoint', reason: 'Cập nhật kế hoạch', summary: () => 'Cập nhật kế hoạch',
       run: (a, ctx) => this.#plan('set', a, ctx),
