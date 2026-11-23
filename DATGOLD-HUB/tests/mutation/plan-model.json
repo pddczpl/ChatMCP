@@ -381,6 +381,20 @@
    ]
   },
   {
+   "name": "H11",
+   "what": "a plan answer reaches the Hub's gate without its extras (no feedback, no approved text, no revision, no execution)",
+   "patches": [
+    { "file": "hub.mjs", "old": "? gate.decide(request.id, approved, extras) :", "new": "? gate.decide(request.id, approved) :" }
+   ]
+  },
+  {
+   "name": "H12",
+   "what": "a plan answer reaches the gate of a second chat without its extras",
+   "patches": [
+    { "file": "hub.mjs", "old": ": taskEngine?.api?.decidePermission?.(request.id, approved, extras);", "new": ": taskEngine?.api?.decidePermission?.(request.id, approved);" }
+   ]
+  },
+  {
    "name": "H10",
    "what": "the page's edit of a plan ignores baseRevision",
    "patches": [

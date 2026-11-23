@@ -657,6 +657,11 @@ try {
     assert.equal(childStart.status, 200);
     const childTask = (await childStart.json()).task;
     const worktreeCard = await until(() => gate.state().pending.find((item) => item.toolName === 'local.worktrees_create' && item.taskId === childTask.id), 'the worktree question of the plan chat');
+    // An ordinary request (not a plan) takes no feedback and no execution over HTTP either: 400, and it stays pending.
+    for (const extra of [{ feedback: 'Not for this card.' }, { execution: 'autonomous' }]) {
+      assert.equal((await post('/api/studio/permissions/decide', { id: worktreeCard.id, approved: true, ...extra })).status, 400, `the route refuses ${Object.keys(extra)[0]} on an ordinary request`);
+    }
+    assert.ok(gate.state().pending.some((item) => item.id === worktreeCard.id), 'the refused answers leave the ordinary request pending');
     assert.equal((await post('/api/studio/permissions/decide', { id: worktreeCard.id, approved: true })).status, 200);
     const childCard = await until(() => pool.pendingApprovals().find((item) => item.category === 'plan' && item.taskId === childTask.id), 'the plan of the second chat');
     assert.ok(toolNames(childFirst).includes('exit_plan_mode') && childFirst.instructions.includes('PLAN MODE'), 'the second chat runs in plan mode');

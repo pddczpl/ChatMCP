@@ -216,7 +216,7 @@
   },
   {
    "name": "H1",
-   "what": "the decide route drops the feedback of an answer",
+   "what": "the decide route drops the extras of an answer to a request of the Hub's gate that is not a plan (a feedback or an execution is taken instead of refused; since ac-10 a plan answer goes through answerPlan, plan-model.json H11)",
    "patches": [
     { "file": "hub.mjs", "old": "? gate.decide(payload.id,payload.approved,extras)", "new": "? gate.decide(payload.id,payload.approved)" }
    ]
