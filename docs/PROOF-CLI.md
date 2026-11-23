@@ -320,6 +320,13 @@ guard that refuses and records any such use. The commands `run` runs are the per
 state folder in a temporary folder: the package (`bin`, `files`, every module the CLI loads inside `files`), this page and its tables,
 every usage error, help and `--version`, every `--json` answer against the schemas (the statement also against
 `agent-change-v0.1.schema.json` and `validateStatement`), English and Vietnamese, `exec` and `check`, a plain folder and a repository
-end to end (evidenced, stale, untrusted, checks modified), integrity failures, the state folder inside the workspace, the words after
-`--` (typed into cmd.exe and powershell.exe on Windows, sh elsewhere), and no network use under a guard. Its mutation list is
-`tests/mutation/proof-cli.json`.
+end to end (evidenced, stale, untrusted, checks modified, a rewritten acceptance file, no acceptance file), integrity failures (an
+edited, deleted or torn ledger, an edited or re-hashed baseline, an edited session copy, a broken or swapped session), `.chatmcp` linked
+out of the workspace, the state folder inside the workspace, the baseline store side directly (limits, a forged blob), the words after
+`--` (typed into cmd.exe and powershell.exe on Windows, sh elsewhere), and no network use under a guard. CI runs it on windows-latest and
+ubuntu-latest (Node 22 and 24) and on macos-latest (Node 24). Its mutation list is `tests/mutation/proof-cli.json` (85 mutations).
+
+A `store_object_mismatch` cannot be reached through the CLI as it is: before a pack reads a baseline blob, `diffBaseline` has already
+hashed every old blob it uses again ([PROOF-BASELINE.md](PROOF-BASELINE.md)). The store side checks again in case that order changes; the
+suite reaches the check directly. The `workspace_changed` of `snapshot` (the acceptance file changing during the snapshot) is a race the
+suite does not provoke.
