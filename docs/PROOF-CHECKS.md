@@ -6,9 +6,8 @@ the roll-up of the proof pack ([spec/agent-change-v0.1.md](spec/agent-change-v0.
 plan task pod-21.
 
 **What exists today:** `DATGOLD-HUB/lib/proof/check-runner.mjs` (`runAcceptanceChecks`, `reapAttempt`, `processTreeOf`) and
-`rollUpCriteria` in `lib/proof/pack.mjs`. **What does not exist yet:** nothing in the agent, the Hub or the `chatmcp verify` command
-line calls the runner. Wiring the ledger into the agent is pod-17; the `exec` and `check` commands of the CLI come later
-([PROOF-CLI.md](PROOF-CLI.md)).
+`rollUpCriteria` in `lib/proof/pack.mjs`. **Who calls it:** the done-gate of the agent on every final answer
+(pod-23, [PROOF-GATE.md](PROOF-GATE.md)) and `chatmcp verify reproduce` (pod-32, [PROOF-CLI.md](PROOF-CLI.md)).
 
 ## What runs
 

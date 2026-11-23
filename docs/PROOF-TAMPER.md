@@ -9,8 +9,8 @@ case, fix a wrong expectation or rename a file; it may also make a red check gre
 apart, so it never says which one happened: every text it produces says that checks were modified, and the person reading the report
 decides. The wording is checked by its suite (no "cheating", no accusation of any kind).
 
-**Status: an API only. Nothing in the Hub or the agent calls it yet.** The done-gate (pod-23) is meant to show its flags on the gate
-message, and the Proof tab (pod-34) and the packs (pod-19) to carry them. It adds no claim to [THREAT-MODEL.md](THREAT-MODEL.md) or
+**Who calls it:** the done-gate ([PROOF-GATE.md](PROOF-GATE.md), pod-23) shows its flags on the gate message and in the outcome of a task,
+and `chatmcp verify pack` ([PROOF-CLI.md](PROOF-CLI.md)) puts them into the pack; the Proof tab (pod-34) comes later. It adds no claim to [THREAT-MODEL.md](THREAT-MODEL.md) or
 [CLAIMS.md](CLAIMS.md).
 
 ## API

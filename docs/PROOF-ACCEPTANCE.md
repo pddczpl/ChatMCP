@@ -7,9 +7,9 @@ commands may ever run. It belongs to phase P4 (Proof-of-Done core), plan task po
 The identifier keeps the old name (`.chatmcp/`, see [NAMING.md](NAMING.md)), like every other folder and file name the Hub reads.
 
 **What exists today:** the reader, the schema, the baseline rule, the trust store and the proposal (`DATGOLD-HUB/lib/proof/acceptance.mjs`,
-`lib/proof/yaml-subset.mjs`, `lib/proof/trust-store.mjs`). **What does not exist yet:** nothing calls the check runner ([PROOF-CHECKS.md](PROOF-CHECKS.md),
-pod-21), nothing in the agent or the app uses the file, there is no `chatmcp verify trust` or `verify init` command (the CLI, pod-24)
-and no approval dialog in the app (the Proof tab, pod-34). Until those land, a check runs only when code calls the check runner itself.
+`lib/proof/yaml-subset.mjs`, `lib/proof/trust-store.mjs`). The owner trusts a file with
+`chatmcp verify trust` ([PROOF-CLI.md](PROOF-CLI.md), pod-24). A trusted file's checks run on every final answer of the agent
+(the done-gate, [PROOF-GATE.md](PROOF-GATE.md), pod-23). **What does not exist yet:** an approval dialog in the app (the Proof tab, pod-34).
 
 ## Example
 
