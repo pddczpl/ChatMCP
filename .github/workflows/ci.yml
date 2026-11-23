@@ -105,8 +105,9 @@ jobs:
 
   proof-tree-macos:
     # Gate G4 of P4 wants the tree snapshot engine (docs/PROOF-TREE.md) measured on all three systems. The full Hub suite does not run on
-    # macOS; this job runs only the three proof-tree suites there (case-insensitive APFS, Apple Git, symlinks allowed), and the suite of the
-    # chatmcp verify CLI (docs/PROOF-CLI.md), whose plan wants it spawned on every CI system (bash 3.2, /bin/sh and pwsh of the runner).
+    # macOS; this job runs only the three proof-tree suites there (case-insensitive APFS, Apple Git, symlinks allowed), and the suites of the
+    # chatmcp verify CLI (docs/PROOF-CLI.md), whose plan wants it spawned on every CI system (bash 3.2, /bin/sh and pwsh of the runner) and
+    # wants a pack made on one system reproduced on another (verify-proof-reproduce reproduces the committed Windows pack here).
     name: Proof tree suites (macos-latest, Node 24)
     runs-on: macos-latest
     timeout-minutes: 20
@@ -124,6 +125,9 @@ jobs:
       - name: Run the proof CLI suite
         if: ${{ !cancelled() }}
         run: node tests/run-all.mjs --no-skip all --retry-failed-once --filter proof-cli --json test-results/summary-proof-cli.json
+      - name: Run the proof reproduce suite
+        if: ${{ !cancelled() }}
+        run: node tests/run-all.mjs --no-skip all --retry-failed-once --filter proof-reproduce --json test-results/summary-proof-reproduce.json
       - name: Upload test summary
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -132,6 +136,7 @@ jobs:
           path: |
             DATGOLD-HUB/test-results/summary.json
             DATGOLD-HUB/test-results/summary-proof-cli.json
+            DATGOLD-HUB/test-results/summary-proof-reproduce.json
             DATGOLD-HUB/test-results/proof-tree-budget-*.json
           if-no-files-found: ignore
 

@@ -1,7 +1,11 @@
 // What `chatmcp verify` says, in English and in Vietnamese (--lang en|vi). One message per answer code (./codes.mjs); a message gets the
 // answer's facts (`detail` and a few fields of `data`) and never decides anything: the code does.
 
-const list = 'init, trust, snapshot, run, exec, check, show, pack';
+const list = 'init, trust, snapshot, run, exec, check, reproduce, show, pack';
+const unreadable = {
+  en: { too_large: 'it is larger than 256 MiB', not_utf8: 'it is not UTF-8 text', not_json: 'it is not JSON', statement_only: 'it is a statement alone, not the .pack.json file pack writes beside it', not_canonical: 'it is not canonical JSON (a byte was changed, added or moved)' },
+  vi: { too_large: 'nó lớn hơn 256 MiB', not_utf8: 'nó không phải văn bản UTF-8', not_json: 'nó không phải JSON', statement_only: 'đó chỉ là một statement, không phải tệp .pack.json mà pack ghi bên cạnh', not_canonical: 'nó không phải JSON chuẩn tắc (có byte bị đổi, thêm hoặc dời chỗ)' },
+};
 const why = {
   en: (p) => (p.timedOut ? 'timed out' : p.cancelled ? 'cancelled' : p.signal ? `ended by signal ${p.signal}` : `exit ${p.exit}`),
   vi: (p) => (p.timedOut ? 'quá thời gian' : p.cancelled ? 'bị hủy' : p.signal ? `bị dừng bởi tín hiệu ${p.signal}` : `mã thoát ${p.exit}`),
@@ -50,6 +54,14 @@ export const MESSAGES = Object.freeze({
   exec_evidenced: {
     en: (p) => `The agent claimed DONE and every criterion (${p.total}) is evidenced; the statement is in ${p.file}.`,
     vi: (p) => `Agent báo DONE và mọi tiêu chí (${p.total}) đều có bằng chứng; statement nằm ở ${p.file}.`,
+  },
+  pack_verified: {
+    en: () => 'The pack verifies (its schema, its digest, its files and its ledger), and every criterion is evidenced.',
+    vi: () => 'Gói bằng chứng hợp lệ (lược đồ, digest, các tệp và sổ cái), và mọi tiêu chí đều có bằng chứng.',
+  },
+  reproduced: {
+    en: (p) => `Reproduced ${p.reproduced} of ${p.compared} receipts (${p.percent}).`,
+    vi: (p) => `Đã tái lập ${p.reproduced}/${p.compared} biên nhận (${p.percent}).`,
   },
   acceptance_exists: {
     en: (p) => `${p.file} already exists; init never overwrites it.`,
@@ -103,6 +115,30 @@ export const MESSAGES = Object.freeze({
     en: () => 'Ctrl-C stopped exec: the agent (or the check that was running) was stopped with its process tree. What ran is in the ledger; no pack was built.',
     vi: () => 'Ctrl-C đã dừng exec: agent (hoặc lệnh kiểm tra đang chạy) đã bị dừng cùng cây tiến trình. Những gì đã chạy nằm trong sổ cái; không tạo gói bằng chứng.',
   },
+  pack_not_evidenced: {
+    en: (p) => (p.total ? `The pack verifies, but ${p.notEvidenced} of ${p.total} criteria are not evidenced.` : 'The pack verifies, but it has no criterion to evidence.'),
+    vi: (p) => (p.total ? `Gói bằng chứng hợp lệ, nhưng ${p.notEvidenced}/${p.total} tiêu chí chưa có bằng chứng.` : 'Gói bằng chứng hợp lệ, nhưng không có tiêu chí nào để chứng minh.'),
+  },
+  tree_mismatch: {
+    en: (p) => `The pack verifies, but the workspace is not its final tree: ${p.actual ?? 'no tree'} here, ${p.expected} in the pack.`,
+    vi: (p) => `Gói bằng chứng hợp lệ, nhưng workspace không phải cây cuối của nó: ở đây là ${p.actual ?? 'không có cây'}, trong gói là ${p.expected}.`,
+  },
+  reproduce_divergent: {
+    en: (p) => `Reproduced ${p.reproduced} of ${p.compared} receipts (${p.percent}); ${p.divergent} divergent.`,
+    vi: (p) => `Đã tái lập ${p.reproduced}/${p.compared} biên nhận (${p.percent}); ${p.divergent} biên nhận lệch.`,
+  },
+  nothing_to_reproduce: {
+    en: () => 'Nothing to reproduce: no receipt of the pack ran a check of its acceptance file on its final tree. Nothing ran.',
+    vi: () => 'Không có gì để tái lập: không biên nhận nào của gói chạy một lệnh kiểm tra của tệp tiêu chí trên cây cuối của nó. Không chạy gì cả.',
+  },
+  base_mismatch: {
+    en: (p) => `The base is not the pack's before tree (${p.actual ?? 'no tree'} here, ${p.expected} in the pack); nothing ran.`,
+    vi: (p) => `Mốc gốc không phải cây ban đầu của gói (ở đây là ${p.actual ?? 'không có cây'}, trong gói là ${p.expected}); không chạy gì cả.`,
+  },
+  reproduce_interrupted: {
+    en: (p) => `Ctrl-C stopped reproduce during the ${p.step}: what was running was stopped with its process tree, and the temporary worktree was removed.`,
+    vi: (p) => `Ctrl-C đã dừng reproduce trong bước ${p.step}: những gì đang chạy đã bị dừng cùng cây tiến trình, và cây làm việc tạm đã được xóa.`,
+  },
   no_command: {
     en: () => `No command. Use: chatmcp verify <command>, one of ${list} (chatmcp verify --help).`,
     vi: () => `Thiếu lệnh. Dùng: chatmcp verify <lệnh>, một trong ${list} (chatmcp verify --help).`,
@@ -142,6 +178,19 @@ export const MESSAGES = Object.freeze({
   bad_command: {
     en: (p) => `The command text is longer than ${p.max} characters or holds a NUL character.`,
     vi: (p) => `Lệnh dài quá ${p.max} ký tự hoặc chứa ký tự NUL.`,
+  },
+  missing_argument: {
+    en: (p) => `${p.command} needs ${p.argument}: chatmcp verify ${p.command === 'reproduce' ? 'reproduce <pack> --base <commit|folder>' : `${p.command} <pack>`}`,
+    vi: (p) => `${p.command} cần ${p.argument}: chatmcp verify ${p.command === 'reproduce' ? 'reproduce <gói> --base <commit|thư mục>' : `${p.command} <gói>`}`,
+  },
+  bad_pack: { en: (p) => `The pack ${p.path} is not a file.`, vi: (p) => `Gói bằng chứng ${p.path} không phải một tệp.` },
+  bad_base: {
+    en: (p) => (p.why === 'no_repository'
+      ? `--base ${p.base} is not a folder, and the workspace is no Git repository to name a commit in.`
+      : `--base ${p.base} is neither a folder nor a commit of the workspace's repository.`),
+    vi: (p) => (p.why === 'no_repository'
+      ? `--base ${p.base} không phải thư mục, và workspace không phải kho Git để chỉ một commit.`
+      : `--base ${p.base} không phải thư mục cũng không phải commit của kho trong workspace.`),
   },
   sha256_mismatch: {
     en: (p) => `The acceptance file is ${p.actual}, not ${p.expected}: these are not the bytes you reviewed, so nothing was trusted.`,
@@ -196,9 +245,25 @@ export const MESSAGES = Object.freeze({
     en: (p) => `A blob of the baseline store does not hash to its id (${p.path}).`,
     vi: (p) => `Một blob trong kho của mốc không băm ra đúng id của nó (${p.path}).`,
   },
-  not_built: {
-    en: (p) => `chatmcp verify ${p.command} is not built yet (plan task ${p.plannedIn}); nothing was done.`,
-    vi: (p) => `chatmcp verify ${p.command} chưa được xây dựng (việc ${p.plannedIn} của kế hoạch); không làm gì cả.`,
+  pack_unreadable: {
+    en: (p) => `The pack file does not read: ${unreadable.en[p.why] ?? p.why}.`,
+    vi: (p) => `Không đọc được tệp gói bằng chứng: ${unreadable.vi[p.why] ?? p.why}.`,
+  },
+  pack_invalid: {
+    en: (p) => `The pack is not valid (${p.part}): ${p.errors?.[0] ? `${p.errors[0].path || '/'} ${p.errors[0].message}` : 'see detail.errors'}.`,
+    vi: (p) => `Gói bằng chứng không hợp lệ (${p.part}): ${p.errors?.[0] ? `${p.errors[0].path || '/'} ${p.errors[0].message}` : 'xem detail.errors'}.`,
+  },
+  pack_digest_mismatch: {
+    en: (p) => `The statement of the pack has the digest ${p.computed}, not the ${p.recorded} the pack records: it was changed.`,
+    vi: (p) => `Statement trong gói có digest ${p.computed}, không phải ${p.recorded} mà gói ghi lại: nó đã bị thay đổi.`,
+  },
+  pack_file_mismatch: {
+    en: (p) => `The pack's ${p.file} does not match (${p.why}): it was changed, or it is not the file the statement names.`,
+    vi: (p) => `Tệp ${p.file} trong gói không khớp (${p.why}): nó đã bị thay đổi, hoặc không phải tệp mà statement nêu.`,
+  },
+  pack_ledger_broken: {
+    en: (p) => `The pack's ledger does not verify (${p.why}${p.why === 'chain' ? ` at line ${p.brokenAt}, ${p.reason}` : p.why === 'receipt' ? `: receipt ${p.seq}, ${p.field}` : `: ${p.field}`}).`,
+    vi: (p) => `Sổ cái trong gói không khớp (${p.why}${p.why === 'chain' ? ` từ dòng ${p.brokenAt}, ${p.reason}` : p.why === 'receipt' ? `: biên nhận ${p.seq}, ${p.field}` : `: ${p.field}`}).`,
   },
   state_inside_workspace: {
     en: (p) => `The state folder ${p.stateFolder} and the workspace ${p.workspace} lie inside one another; set CHATMCP_STATE_DIR to a folder outside the workspace.`,
@@ -225,6 +290,10 @@ export const MESSAGES = Object.freeze({
     vi: () => 'Kho đã chuyển giữa SHA-1 và SHA-256 kể từ lúc chụp mốc.',
   },
   patch_too_large: { en: () => 'The patch is larger than 128 MiB.', vi: () => 'Bản vá lớn hơn 128 MiB.' },
+  pack_too_large: {
+    en: (p) => `The pack file would be ${p.bytes} bytes, over its limit of ${p.max}; nothing was written.`,
+    vi: (p) => `Tệp gói bằng chứng sẽ có ${p.bytes} byte, vượt giới hạn ${p.max}; không ghi gì cả.`,
+  },
   baseline_busy: {
     en: () => 'Another baseline or diff of this workspace is running; try again later.',
     vi: () => 'Đang có một lần chụp mốc hoặc so sánh khác của workspace này; hãy thử lại sau.',
@@ -250,17 +319,20 @@ const USAGE = {
 
 Commands:
   init [--print]                     propose .chatmcp/acceptance.yml from the project's files and write it (--print: write nothing)
-  trust [--sha256 <hex>] [--revoke]  show, trust or revoke the exact bytes of .chatmcp/acceptance.yml
+  trust [--sha256 <hex>] [--revoke] [--pack <file>]
+                                     show, trust or revoke the exact bytes of .chatmcp/acceptance.yml (or of a pack's)
   snapshot                           take a baseline of the workspace and start a proof session
   run [--shell bash|sh|powershell] [--cwd <folder>] [--timeout <seconds>] -- <command>
                                      run a check and record its receipt in the session's ledger
   exec [--timeout <seconds>] [--claim-marker <regex>] [--cost-usd <n>] [--adapter claude|codex|opencode]
        [--shell bash|sh|powershell] [--agent <name>] [--agent-version <version>] -- <agent command>
                                      snapshot, run the agent, read its DONE / BLOCKED claim, run the trusted checks, pack
-  check                              not built yet (plan task pod-32)
+  check <pack> [--tree]              verify a pack file: its schema, digest, files and ledger (--tree: and the workspace's tree)
+  reproduce <pack> --base <commit|folder>
+                                     re-run the pack's trusted setup and checks on its base and patch; each receipt reproduced or divergent
   show                               the session: its baseline, ledger, receipts and acceptance trust
   pack [--agent <name>] [--agent-version <version>]
-                                     build the proof pack (an in-toto statement) of the session
+                                     build the proof pack (an in-toto statement and the pack file) of the session
 
 Options of every command: --json, --lang en|vi, --workspace <folder>, --help
 Exit codes: 0 pass, 1 unverified or failed, 2 usage, 3 integrity failure, 4 environment
@@ -270,17 +342,20 @@ State folder: CHATMCP_STATE_DIR, else the Hub's data folder. The CLI makes no ne
 
 Các lệnh:
   init [--print]                     đề xuất .chatmcp/acceptance.yml từ các tệp của dự án và ghi nó (--print: không ghi gì)
-  trust [--sha256 <hex>] [--revoke]  xem, tin cậy hoặc thu hồi tin cậy đúng các byte của .chatmcp/acceptance.yml
+  trust [--sha256 <hex>] [--revoke] [--pack <tệp>]
+                                     xem, tin cậy hoặc thu hồi tin cậy đúng các byte của .chatmcp/acceptance.yml (hoặc của một gói)
   snapshot                           chụp mốc của workspace và bắt đầu một phiên bằng chứng
   run [--shell bash|sh|powershell] [--cwd <thư mục>] [--timeout <giây>] -- <lệnh>
                                      chạy một lệnh kiểm tra và ghi biên nhận vào sổ cái của phiên
   exec [--timeout <giây>] [--claim-marker <regex>] [--cost-usd <n>] [--adapter claude|codex|opencode]
        [--shell bash|sh|powershell] [--agent <tên>] [--agent-version <phiên bản>] -- <lệnh của agent>
                                      chụp mốc, chạy agent, đọc lời báo DONE / BLOCKED, chạy các lệnh kiểm tra được tin cậy, đóng gói
-  check                              chưa được xây dựng (việc pod-32 của kế hoạch)
+  check <pack> [--tree]              kiểm một tệp gói: lược đồ, digest, các tệp và sổ cái (--tree: và cây của workspace)
+  reproduce <pack> --base <commit|folder>
+                                     chạy lại phần setup và các lệnh kiểm tra được tin cậy trên mốc gốc và bản vá; mỗi biên nhận được tái lập hay lệch
   show                               phiên hiện tại: mốc, sổ cái, biên nhận và trạng thái tin cậy
   pack [--agent <tên>] [--agent-version <phiên bản>]
-                                     tạo gói bằng chứng (một statement in-toto) của phiên
+                                     tạo gói bằng chứng (một statement in-toto và tệp gói) của phiên
 
 Tùy chọn của mọi lệnh: --json, --lang en|vi, --workspace <thư mục>, --help
 Mã thoát: 0 đạt, 1 chưa được kiểm chứng hoặc không đạt, 2 sai cách dùng, 3 hỏng toàn vẹn, 4 môi trường

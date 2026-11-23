@@ -7,8 +7,9 @@
 //      English and in Vietnamese;
 //   2. usage: every mistake on the command line exits 2 with its own code, help and --version exit 0, and every --json output is exactly
 //      one JSON object that validates against the CLI's output schema; English and Vietnamese give the same JSON but for the message;
-//   3. check (pod-32) answers `not_built` with exit 4, in both languages, and writes nothing anywhere; exec (pod-26) is built, and
-//      tests/verify-proof-cli-exec.mjs is its suite;
+//   3. every command is built: check and reproduce (pod-32, tests/verify-proof-reproduce.mjs is their suite) refuse a command line without
+//      a pack (exit 2) in both languages and write nothing anywhere; exec (pod-26) refuses a folder without an acceptance file
+//      (tests/verify-proof-cli-exec.mjs is its suite);
 //   4. a plain folder: init --print writes nothing, init writes .chatmcp/acceptance.yml and never overwrites it, trust previews (exit 1),
 //      refuses a sha256 that is not the file's (exit 3), trusts the right one and revokes; snapshot, run, show work; pack is refused with
 //      exit 4 (no Git repository); nothing but .chatmcp/acceptance.yml is ever written into the folder;
@@ -198,7 +199,7 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
   assert.deepEqual(Object.fromEntries(network), { 'lib/runtime.mjs': 'node:net' }, 'the network modules in the CLI\'s import graph');
 
   // the tables: commands, exit codes, codes, messages
-  assert.deepEqual(COMMANDS, ['init', 'trust', 'snapshot', 'run', 'exec', 'check', 'show', 'pack'], 'the commands of the plan');
+  assert.deepEqual(COMMANDS, ['init', 'trust', 'snapshot', 'run', 'exec', 'check', 'reproduce', 'show', 'pack'], 'the commands of the plan');
   assert.deepEqual(EXIT, { pass: 0, unverified: 1, usage: 2, integrity: 3, environment: 4 }, 'the exit codes of the plan');
   for (const [code, outcome] of Object.entries(CODES)) {
     assert.match(code, /^[a-z][a-z0-9_]*$/, `code ${code} is snake_case`);
@@ -207,7 +208,7 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
     assert.ok(texts && typeof texts.en === 'function' && typeof texts.vi === 'function', `code ${code} has a message in English and in Vietnamese`);
   }
   assert.deepEqual(Object.keys(MESSAGES).sort(), Object.keys(CODES).sort(), 'every message belongs to a code and every code has a message');
-  assert.equal(CODES.not_built, 'environment', 'not_built is exit 4');
+  assert.equal(Object.hasOwn(CODES, 'not_built'), false, 'every command of the plan is built: there is no not_built answer');
   // the doc
   const doc = fs.readFileSync(path.join(REPO, 'docs', 'PROOF-CLI.md'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(fs.readFileSync(path.join(REPO, 'docs', 'INDEX.md'), 'utf8'), /\]\(PROOF-CLI\.md\)/, 'docs/INDEX.md links docs/PROOF-CLI.md');
@@ -355,30 +356,31 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
   ok(`${cases.length} usage errors exit 2 with their codes; help and --version exit 0; en and vi give the same JSON but the message`);
 }
 
-// ------------------------------------------------------------------------------------------------------------------------- 3. not built yet
+// ------------------------------------------------------------------------------------------------------------------------- 3. every command is built
 {
-  const plain = folder('not-built');
+  const plain = folder('built');
   write(plain, 'a.txt', 'a\n');
   const before = fingerprint(plain);
   const runs = await Promise.all([
     ask(['verify', 'check'], { cwd: plain }),
-    ask(['verify', 'check', 'pack.json', '--lang', 'vi'], { cwd: plain }),
+    ask(['verify', 'reproduce', '--lang', 'vi'], { cwd: plain }),
+    ask(['verify', 'check', 'pack.json'], { cwd: plain }),
   ]);
-  for (const answer of runs) {
-    expectAnswer(answer, 4, 'not_built', `${answer.command} is not built yet`);
-    assert.equal(answer.data, null);
-  }
-  assert.equal(runs[0].detail.plannedIn, 'pod-32', 'check names the plan task that builds it');
-  assert.notEqual(runs[0].message, runs[1].message, 'in both languages');
+  expectAnswer(runs[0], 2, 'missing_argument', 'check without a pack');
+  expectAnswer(runs[1], 2, 'missing_argument', 'reproduce without a pack');
+  expectAnswer(runs[2], 2, 'bad_pack', 'check of a file that is not there');
+  for (const answer of runs) assert.equal(answer.data, null);
+  assert.deepEqual([runs[0].detail, runs[1].detail], [{ command: 'check', argument: '<pack>' }, { command: 'reproduce', argument: '<pack>' }]);
+  assert.equal(runs[1].message, MESSAGES.missing_argument.vi({ command: 'reproduce', argument: '<pack>' }), 'in Vietnamese');
   const human = await cli(['verify', 'check'], { cwd: plain });
-  assert.equal(human.status, 4, 'exit 4 without --json too');
+  assert.equal(human.status, 2, 'exit 2 without --json too');
   assert.match(human.stderr, /check/, 'and the human answer names the command');
   // exec is built (pod-26, tests/verify-proof-cli-exec.mjs): a folder without an acceptance file is refused before anything runs
   const exec = await ask(['verify', 'exec', '--', 'some-agent', '-p', 'fix it'], { cwd: plain });
   expectAnswer(exec, 1, 'acceptance_missing', 'exec in a folder without an acceptance file');
   assert.deepEqual(fingerprint(plain), before, 'check and exec write nothing into the folder');
   assert.equal(fs.existsSync(STATE), false, 'nor anything into the state folder');
-  ok('check (pod-32) answers not_built, exit 4, in both languages; exec (pod-26) is built and refuses a folder without an acceptance file; neither writes anything');
+  ok('check and reproduce (pod-32) refuse a command line without a pack (exit 2), in both languages; exec (pod-26) refuses a folder without an acceptance file; none writes anything');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 4. a plain folder

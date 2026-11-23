@@ -9,7 +9,6 @@
     { "name": "PC-lang-values", "what": "any --lang is accepted", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (options['--lang'] !== undefined && !LANGS.includes(options['--lang']))", "new": "if (false)" }] },
     { "name": "PC-verify-word", "what": "the first word need not be verify", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (positional[0] !== 'verify') throw stop('unknown_command', { command: positional[0] });", "new": "void 0;" }] },
     { "name": "PC-unknown-command", "what": "a command that does not exist is looked up anyway", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (!COMMANDS.includes(command)) throw stop('unknown_command', { command });", "new": "void 0;" }] },
-    { "name": "PC-not-built-grammar", "what": "check gets the grammar of the built commands", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (Object.hasOwn(NOT_BUILT, command)) return { ...base, command, topic: null, options: {}, words };", "new": "void 0;" }] },
     { "name": "PC-unknown-option", "what": "an option no command knows is ignored", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (unknown.length) throw stop('unknown_option', { option: unknown[0], command });", "new": "void 0;" }] },
     { "name": "PC-foreign-option", "what": "an option of another command is ignored", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (foreign) throw stop('unknown_option', { option: foreign, command });", "new": "void 0;" }] },
     { "name": "PC-extra-word", "what": "one word after the command is ignored", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (positional.length > 2) throw", "new": "if (positional.length > 3) throw" }] },
@@ -33,11 +32,9 @@
     { "name": "PC-ps-trailing-backslash", "what": "only a space counts as white space before a trailing backslash", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "if (/\\s/u.test(word) && word.endsWith('\\\\'))", "new": "if (/ /u.test(word) && word.endsWith('\\\\'))" }] },
     { "name": "PC-quote-choice", "what": "words for PowerShell are quoted the bash way", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "const quote = shell === 'powershell' ? quotePowerShell : quotePosix;", "new": "const quote = quotePosix;" }] },
 
-    { "name": "PC-code-not-built", "what": "not_built is a usage error", "patches": [{ "file": "lib/proof/cli/codes.mjs", "old": "not_built: 'environment',", "new": "not_built: 'usage'," }] },
     { "name": "PC-code-check-failed", "what": "a failed check is a pass", "patches": [{ "file": "lib/proof/cli/codes.mjs", "old": "check_failed: 'unverified',", "new": "check_failed: 'pass'," }] },
     { "name": "PC-code-sha256-mismatch", "what": "another digest than the file's is only unverified", "patches": [{ "file": "lib/proof/cli/codes.mjs", "old": "sha256_mismatch: 'integrity',", "new": "sha256_mismatch: 'unverified'," }] },
     { "name": "PC-exit-integrity", "what": "an integrity failure exits 1", "patches": [{ "file": "lib/proof/cli/codes.mjs", "old": "integrity: 3,", "new": "integrity: 1," }] },
-    { "name": "PC-planned-check", "what": "check names the wrong plan task", "patches": [{ "file": "lib/proof/cli/codes.mjs", "old": "check: 'pod-32'", "new": "check: 'pod-24'" }] },
 
     { "name": "PC-message-lang", "what": "every message is in English", "patches": [{ "file": "lib/proof/cli/messages.mjs", "old": "return (texts[lang] ?? texts.en)(params);", "new": "return texts.en(params);" }] },
     { "name": "PC-usage-lang", "what": "the help is in English whatever --lang says", "patches": [{ "file": "lib/proof/cli/messages.mjs", "old": "export const usage = (lang) => USAGE[lang] ?? USAGE.en;", "new": "export const usage = () => USAGE.en;" }] },
@@ -82,7 +79,6 @@
     { "name": "PC-pack-base-commit", "what": "the pack names no base commit", "patches": [{ "file": "lib/proof/cli/commands.mjs", "old": "baseCommit: typeof record.git?.head === 'string' && GIT_ID.test(record.git.head) ? record.git.head : null,", "new": "baseCommit: null," }] },
     { "name": "PC-pack-canonical", "what": "the statement is written pretty-printed, not canonical", "patches": [{ "file": "lib/proof/cli/commands.mjs", "old": "await writeAtomic(file, `${canonicalJson(statement)}\\n`);", "new": "await writeAtomic(file, `${JSON.stringify(statement, null, 2)}\\n`);" }] },
     { "name": "PC-pack-agent", "what": "the pack names DatGold as the agent whatever --agent says", "patches": [{ "file": "lib/proof/cli/commands.mjs", "old": "agent: { name: ctx.args.options.agent,", "new": "agent: { name: 'DatGold'," }] },
-    { "name": "PC-not-built-task", "what": "not_built names no plan task", "patches": [{ "file": "lib/proof/cli/commands.mjs", "old": "plannedIn: NOT_BUILT[ctx.args.command] });", "new": "plannedIn: 'later' });" }] },
 
     { "name": "PC-store-gitlink", "what": "a submodule row is read as a blob", "patches": [{ "file": "lib/proof/cli/store-side.mjs", "old": "if (!entry || entry.mode === MODE.gitlink) result.set(file, null);", "new": "if (!entry) result.set(file, null);" }] },
     { "name": "PC-store-max", "what": "a blob of exactly maxBytes is skipped", "patches": [{ "file": "lib/proof/cli/store-side.mjs", "old": "if (row.size > maxBytes)", "new": "if (row.size >= maxBytes)" }] },

@@ -1,24 +1,29 @@
-// The command line of `chatmcp verify` (docs/PROOF-CLI.md, "Grammar"): the words before `--` are options and the command, the words after
-// `--` are the command `run` runs. Nothing here touches a file.
+// The command line of `chatmcp verify` (docs/PROOF-CLI.md, "Grammar"): the words before `--` are options, the command and (for check and
+// reproduce) the pack file, the words after `--` are the command `run` runs. Nothing here touches a file.
 import { ADAPTER_NAMES } from '../adapters/index.mjs';
-import { COMMANDS, NOT_BUILT, stop } from './codes.mjs';
+import { COMMANDS, stop } from './codes.mjs';
 
 const GLOBAL = new Set(['--json', '--lang', '--workspace', '--help', '--version']);
 /** The options of each command (besides the global ones). */
 const OWN = Object.freeze({
   init: ['--print'],
-  trust: ['--sha256', '--revoke'],
+  trust: ['--sha256', '--revoke', '--pack'],
   snapshot: [],
   run: ['--shell', '--cwd', '--timeout'],
   exec: ['--shell', '--timeout', '--claim-marker', '--cost-usd', '--adapter', '--agent', '--agent-version'],
+  check: ['--tree'],
+  reproduce: ['--base'],
   show: [],
   pack: ['--agent', '--agent-version'],
 });
 /** The options that take a value; the others are flags. */
-const VALUED = new Set(['--lang', '--workspace', '--sha256', '--shell', '--cwd', '--timeout', '--agent', '--agent-version', '--claim-marker', '--cost-usd', '--adapter']);
+const VALUED = new Set(['--lang', '--workspace', '--sha256', '--shell', '--cwd', '--timeout', '--agent', '--agent-version', '--claim-marker', '--cost-usd', '--adapter',
+  '--pack', '--base']);
 const KNOWN = new Set([...GLOBAL, ...Object.values(OWN).flat()]);
 /** The commands that take the words after `--`. */
 const TAKES_WORDS = new Set(['run', 'exec']);
+/** The commands that take a pack file as their one word after the command. */
+const TAKES_PACK = new Set(['check', 'reproduce']);
 
 export const LANGS = Object.freeze(['en', 'vi']);
 export const SHELLS = Object.freeze(['bash', 'sh', 'powershell', 'pwsh']);
@@ -125,14 +130,15 @@ export function parseArgs(argv) {
   }
   if (!COMMANDS.includes(command)) throw stop('unknown_command', { command });
   if (options['--help']) return { ...base, command: 'help', topic: command, options: {}, words: null };
-  // a command a later task builds takes whatever follows it: its grammar is not fixed yet
-  if (Object.hasOwn(NOT_BUILT, command)) return { ...base, command, topic: null, options: {}, words };
   const own = new Set(OWN[command]);
   if (unknown.length) throw stop('unknown_option', { option: unknown[0], command });
   const foreign = Object.keys(options).find((name) => !GLOBAL.has(name) && !own.has(name));
   if (foreign) throw stop('unknown_option', { option: foreign, command });
-  if (positional.length > 2) throw stop('unexpected_argument', { argument: positional[2] });
+  if (TAKES_PACK.has(command)) {
+    if (positional.length > 3) throw stop('unexpected_argument', { argument: positional[3] });
+  } else if (positional.length > 2) throw stop('unexpected_argument', { argument: positional[2] });
   if (!TAKES_WORDS.has(command) && words !== null) throw stop('unexpected_argument', { argument: '--' });
+  if (TAKES_PACK.has(command) && positional.length < 3) throw stop('missing_argument', { command, argument: '<pack>' });
   const read = {};
   if (command === 'init') read.print = options['--print'] === true;
   if (command === 'trust') {
@@ -140,6 +146,16 @@ export function parseArgs(argv) {
     const digest = options['--sha256'];
     if (digest !== undefined && !HEX64.test(digest)) throw stop('bad_value', { option: '--sha256', value: digest, expected: '64 hex digits' });
     read.sha256 = digest === undefined ? null : digest.toLowerCase();
+    if (options['--pack'] === '') throw stop('bad_value', { option: '--pack', value: '', expected: 'a pack file' });
+    read.pack = options['--pack'] ?? null;
+  }
+  if (command === 'check') read.tree = options['--tree'] === true;
+  if (command === 'reproduce') {
+    const value = options['--base'];
+    if (value === undefined) throw stop('missing_argument', { command, argument: '--base' });
+    // a base that starts with a dash would read as an option of the Git commands it is handed to
+    if (!value.trim() || value.startsWith('-')) throw stop('bad_value', { option: '--base', value, expected: 'a commit or a folder' });
+    read.base = value;
   }
   if (command === 'run') {
     const shell = readShell(options['--shell']);
@@ -165,7 +181,7 @@ export function parseArgs(argv) {
     read.agent ??= 'unknown';
     read.agentVersion ??= 'unknown';
   }
-  return { ...base, command, topic: null, options: read, words };
+  return { ...base, command, topic: null, options: read, words, pack: TAKES_PACK.has(command) ? positional[2] : null };
 }
 
 // ------------------------------------------------------------------------------------------------------------- the words after --
