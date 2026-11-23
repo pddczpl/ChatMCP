@@ -7,7 +7,8 @@
 //      English and in Vietnamese;
 //   2. usage: every mistake on the command line exits 2 with its own code, help and --version exit 0, and every --json output is exactly
 //      one JSON object that validates against the CLI's output schema; English and Vietnamese give the same JSON but for the message;
-//   3. exec (pod-26) and check (pod-32) answer `not_built` with exit 4, in both languages, and write nothing anywhere;
+//   3. check (pod-32) answers `not_built` with exit 4, in both languages, and writes nothing anywhere; exec (pod-26) is built, and
+//      tests/verify-proof-cli-exec.mjs is its suite;
 //   4. a plain folder: init --print writes nothing, init writes .chatmcp/acceptance.yml and never overwrites it, trust previews (exit 1),
 //      refuses a sha256 that is not the file's (exit 3), trusts the right one and revokes; snapshot, run, show work; pack is refused with
 //      exit 4 (no Git repository); nothing but .chatmcp/acceptance.yml is ever written into the folder;
@@ -360,24 +361,24 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
   write(plain, 'a.txt', 'a\n');
   const before = fingerprint(plain);
   const runs = await Promise.all([
-    ask(['verify', 'exec', '--', 'some-agent', '-p', 'fix it'], { cwd: plain }),
     ask(['verify', 'check'], { cwd: plain }),
-    ask(['verify', 'exec', '--lang', 'vi', '--', 'some-agent'], { cwd: plain }),
     ask(['verify', 'check', 'pack.json', '--lang', 'vi'], { cwd: plain }),
   ]);
   for (const answer of runs) {
     expectAnswer(answer, 4, 'not_built', `${answer.command} is not built yet`);
     assert.equal(answer.data, null);
   }
-  assert.equal(runs[0].detail.plannedIn, 'pod-26', 'exec names the plan task that builds it');
-  assert.equal(runs[1].detail.plannedIn, 'pod-32', 'check names the plan task that builds it');
-  assert.notEqual(runs[0].message, runs[2].message, 'in both languages');
-  const human = await cli(['verify', 'exec', '--', 'some-agent'], { cwd: plain });
+  assert.equal(runs[0].detail.plannedIn, 'pod-32', 'check names the plan task that builds it');
+  assert.notEqual(runs[0].message, runs[1].message, 'in both languages');
+  const human = await cli(['verify', 'check'], { cwd: plain });
   assert.equal(human.status, 4, 'exit 4 without --json too');
-  assert.match(human.stderr, /exec/, 'and the human answer names the command');
-  assert.deepEqual(fingerprint(plain), before, 'exec and check write nothing into the folder');
+  assert.match(human.stderr, /check/, 'and the human answer names the command');
+  // exec is built (pod-26, tests/verify-proof-cli-exec.mjs): a folder without an acceptance file is refused before anything runs
+  const exec = await ask(['verify', 'exec', '--', 'some-agent', '-p', 'fix it'], { cwd: plain });
+  expectAnswer(exec, 1, 'acceptance_missing', 'exec in a folder without an acceptance file');
+  assert.deepEqual(fingerprint(plain), before, 'check and exec write nothing into the folder');
   assert.equal(fs.existsSync(STATE), false, 'nor anything into the state folder');
-  ok('exec (pod-26) and check (pod-32) answer not_built, exit 4, in both languages, and write nothing');
+  ok('check (pod-32) answers not_built, exit 4, in both languages; exec (pod-26) is built and refuses a folder without an acceptance file; neither writes anything');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 4. a plain folder

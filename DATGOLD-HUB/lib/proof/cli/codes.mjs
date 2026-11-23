@@ -10,7 +10,7 @@ export const SESSION_FORMAT = 'chatmcp.verify-session/1';
 export const COMMANDS = Object.freeze(['init', 'trust', 'snapshot', 'run', 'exec', 'check', 'show', 'pack']);
 
 /** The commands of the plan that later tasks build; until then they answer `not_built`. */
-export const NOT_BUILT = Object.freeze({ exec: 'pod-26', check: 'pod-32' });
+export const NOT_BUILT = Object.freeze({ check: 'pod-32' });
 
 /** The exit code of each outcome. */
 export const EXIT = Object.freeze({ pass: 0, unverified: 1, usage: 2, integrity: 3, environment: 4 });
@@ -29,6 +29,7 @@ export const CODES = Object.freeze({
   check_passed: 'pass',
   session_intact: 'pass',
   pack_evidenced: 'pass',
+  exec_evidenced: 'pass',
   // 1: not verified, or not done: the answer itself is "no"
   acceptance_exists: 'unverified',
   acceptance_missing: 'unverified',
@@ -36,6 +37,13 @@ export const CODES = Object.freeze({
   not_trusted: 'unverified',
   check_failed: 'unverified',
   pack_unverified: 'unverified',
+  claim_refuted: 'unverified',
+  claim_unverified: 'unverified',
+  agent_blocked: 'unverified',
+  no_claim: 'unverified',
+  agent_failed: 'unverified',
+  agent_timed_out: 'unverified',
+  exec_interrupted: 'unverified',
   // 2: the command line is wrong (or the commands come in the wrong order)
   no_command: 'usage',
   unknown_command: 'usage',

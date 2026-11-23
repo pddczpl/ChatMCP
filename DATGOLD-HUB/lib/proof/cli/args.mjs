@@ -1,5 +1,6 @@
 // The command line of `chatmcp verify` (docs/PROOF-CLI.md, "Grammar"): the words before `--` are options and the command, the words after
 // `--` are the command `run` runs. Nothing here touches a file.
+import { ADAPTER_NAMES } from '../adapters/index.mjs';
 import { COMMANDS, NOT_BUILT, stop } from './codes.mjs';
 
 const GLOBAL = new Set(['--json', '--lang', '--workspace', '--help', '--version']);
@@ -9,17 +10,62 @@ const OWN = Object.freeze({
   trust: ['--sha256', '--revoke'],
   snapshot: [],
   run: ['--shell', '--cwd', '--timeout'],
+  exec: ['--shell', '--timeout', '--claim-marker', '--cost-usd', '--adapter', '--agent', '--agent-version'],
   show: [],
   pack: ['--agent', '--agent-version'],
 });
 /** The options that take a value; the others are flags. */
-const VALUED = new Set(['--lang', '--workspace', '--sha256', '--shell', '--cwd', '--timeout', '--agent', '--agent-version']);
+const VALUED = new Set(['--lang', '--workspace', '--sha256', '--shell', '--cwd', '--timeout', '--agent', '--agent-version', '--claim-marker', '--cost-usd', '--adapter']);
 const KNOWN = new Set([...GLOBAL, ...Object.values(OWN).flat()]);
+/** The commands that take the words after `--`. */
+const TAKES_WORDS = new Set(['run', 'exec']);
 
 export const LANGS = Object.freeze(['en', 'vi']);
 export const SHELLS = Object.freeze(['bash', 'sh', 'powershell', 'pwsh']);
 export const MAX_TIMEOUT_SECONDS = 900;
+/** exec's --timeout: the agent's whole run, from 1 second to a day, an hour when it is not given. */
+export const EXEC_TIMEOUT_SECONDS = Object.freeze({ min: 1, max: 86_400, default: 3600 });
+export const CLAIM_MARKER_MAX_CHARS = 200;
 const HEX64 = /^[0-9a-f]{64}$/i;
+// A cost in US dollars as a person writes it: whole dollars up to 1e9, at most six decimals; no sign, no exponent.
+const USD = /^(?:0|[1-9][0-9]{0,9})(?:\.[0-9]{1,6})?$/;
+
+/**
+ * The --claim-marker of exec: a JavaScript regular expression (u flag) that the whole final line of the agent's message must match for
+ * the claim DONE (docs/PROOF-CLI.md, "The claim"). 1 to 200 characters; a pattern that does not compile, or that matches an empty line
+ * (it would read an agent that wrote nothing as DONE), is bad_value.
+ */
+export function compileClaimMarker(source) {
+  const refuse = (expected) => stop('bad_value', { option: '--claim-marker', value: String(source).slice(0, CLAIM_MARKER_MAX_CHARS + 1), expected });
+  if (typeof source !== 'string' || !source.length || source.length > CLAIM_MARKER_MAX_CHARS) throw refuse(`a regular expression of 1 to ${CLAIM_MARKER_MAX_CHARS} characters`);
+  let pattern;
+  // The source must compile on its own before it is wrapped: one that closes the wrapper's group ("DONE)|(READY") would otherwise compile
+  // to ^(?:DONE)|(READY)$ and escape the anchors. A source that compiles alone has balanced groups, so the wrapper holds all of it.
+  try { new RegExp(source, 'u'); } catch { throw refuse('a regular expression that compiles on its own (JavaScript syntax, u flag)'); }
+  try { pattern = new RegExp(`^(?:${source})$`, 'u'); } catch { throw refuse('a regular expression that compiles (JavaScript syntax, u flag)'); }
+  if (pattern.test('')) throw refuse('a regular expression that does not match an empty line');
+  // the pattern as the person wrote it, for the record (RegExp source escapes a slash)
+  Object.defineProperty(pattern, 'claimMarker', { value: source });
+  return pattern;
+}
+
+function readTimeout(value, { min, max }) {
+  if (value !== undefined && (!/^[0-9]{1,6}$/.test(value) || Number(value) < min || Number(value) > max)) {
+    throw stop('bad_value', { option: '--timeout', value, expected: `whole seconds from ${min} to ${max}` });
+  }
+  return value === undefined ? null : Number(value);
+}
+function readShell(value) {
+  if (value !== undefined && !SHELLS.includes(value)) throw stop('bad_value', { option: '--shell', value, expected: SHELLS.join(', ') });
+  return value === 'pwsh' ? 'powershell' : (value ?? null);
+}
+function readAgent(options, read) {
+  for (const [option, key] of [['--agent', 'agent'], ['--agent-version', 'agentVersion']]) {
+    const value = options[option];
+    if (value !== undefined && (!value.trim() || value.length > 200)) throw stop('bad_value', { option, value, expected: '1 to 200 characters' });
+    read[key] = value ?? null;
+  }
+}
 
 /** The language asked for, read before anything else so that every later answer is in it; an unreadable --lang answers in English. */
 export function languageOf(argv) {
@@ -86,7 +132,7 @@ export function parseArgs(argv) {
   const foreign = Object.keys(options).find((name) => !GLOBAL.has(name) && !own.has(name));
   if (foreign) throw stop('unknown_option', { option: foreign, command });
   if (positional.length > 2) throw stop('unexpected_argument', { argument: positional[2] });
-  if (command !== 'run' && words !== null) throw stop('unexpected_argument', { argument: '--' });
+  if (!TAKES_WORDS.has(command) && words !== null) throw stop('unexpected_argument', { argument: '--' });
   const read = {};
   if (command === 'init') read.print = options['--print'] === true;
   if (command === 'trust') {
@@ -96,21 +142,28 @@ export function parseArgs(argv) {
     read.sha256 = digest === undefined ? null : digest.toLowerCase();
   }
   if (command === 'run') {
-    const shell = options['--shell'];
-    if (shell !== undefined && !SHELLS.includes(shell)) throw stop('bad_value', { option: '--shell', value: shell, expected: SHELLS.join(', ') });
-    const timeout = options['--timeout'];
-    if (timeout !== undefined && (!/^[0-9]{1,6}$/.test(timeout) || Number(timeout) < 1 || Number(timeout) > MAX_TIMEOUT_SECONDS)) {
-      throw stop('bad_value', { option: '--timeout', value: timeout, expected: `whole seconds from 1 to ${MAX_TIMEOUT_SECONDS}` });
-    }
-    if (words === null || !words.length) throw stop('missing_command_text');
-    Object.assign(read, { shell: shell === 'pwsh' ? 'powershell' : (shell ?? null), cwd: options['--cwd'] ?? '', timeoutSeconds: timeout === undefined ? null : Number(timeout) });
+    const shell = readShell(options['--shell']);
+    const timeoutSeconds = readTimeout(options['--timeout'], { min: 1, max: MAX_TIMEOUT_SECONDS });
+    if (words === null || !words.length) throw stop('missing_command_text', { command });
+    Object.assign(read, { shell, cwd: options['--cwd'] ?? '', timeoutSeconds });
+  }
+  if (command === 'exec') {
+    const shell = readShell(options['--shell']);
+    const timeoutSeconds = readTimeout(options['--timeout'], EXEC_TIMEOUT_SECONDS) ?? EXEC_TIMEOUT_SECONDS.default;
+    const marker = options['--claim-marker'];
+    const claimMarker = marker === undefined ? null : compileClaimMarker(marker);
+    const cost = options['--cost-usd'];
+    if (cost !== undefined && (!USD.test(cost) || Number(cost) > 1e9)) throw stop('bad_value', { option: '--cost-usd', value: cost, expected: 'US dollars from 0 to 1000000000, at most six decimals (1.25)' });
+    const adapter = options['--adapter'];
+    if (adapter !== undefined && !ADAPTER_NAMES.includes(adapter)) throw stop('bad_value', { option: '--adapter', value: adapter, expected: ADAPTER_NAMES.join(', ') });
+    if (words === null || !words.length || (words.length === 1 && !words[0].trim())) throw stop('missing_command_text', { command });
+    Object.assign(read, { shell, timeoutSeconds, claimMarker, costUsd: cost === undefined ? null : Number(cost), adapter: adapter ?? null });
+    readAgent(options, read);
   }
   if (command === 'pack') {
-    for (const [option, key] of [['--agent', 'agent'], ['--agent-version', 'agentVersion']]) {
-      const value = options[option];
-      if (value !== undefined && (!value.trim() || value.length > 200)) throw stop('bad_value', { option, value, expected: '1 to 200 characters' });
-      read[key] = value ?? 'unknown';
-    }
+    readAgent(options, read);
+    read.agent ??= 'unknown';
+    read.agentVersion ??= 'unknown';
   }
   return { ...base, command, topic: null, options: read, words };
 }

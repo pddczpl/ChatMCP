@@ -48,6 +48,18 @@ const TREE_FIELDS = Object.freeze(['status', 'treeAlgorithm', 'objectFormat', 't
 // one tool call with the trees around it. Closed like `check`, so that their tree ids can be kept whole and no field can carry output.
 const TREE_RECORD_FIELDS = Object.freeze(['event', 'run', 'callId', 'tool', 'category', 'tree', 'scanMs']);
 const CALL_FIELDS = Object.freeze(['run', 'callId', 'tool', 'category', 'outcome', 'treeBefore', 'treeAfter', 'changed', 'overlapped', 'scanMs', 'beforeSeq']);
+// The other shape of `call`: the run of an external agent that `chatmcp verify exec` wrapped (pod-26, lib/proof/cli/exec.mjs,
+// docs/PROOF-CLI.md), told apart by `kind`. Closed too: digests, counts, flags and short bounded texts, never the agent's output.
+export const EXEC_CALL_KIND = 'agent_exec';
+export const EXEC_CALL_FORMAT = 'chatmcp.verify-exec/1';
+const EXEC_CALL_FIELDS = Object.freeze(['kind', 'format', 'command', 'commandTruncated', 'commandSha256', 'shell', 'cwd', 'agent', 'exit', 'signal', 'timedOut',
+  'interrupted', 'lingering', 'stuck', 'treeLeft', 'durationMs', 'timeoutMs', 'stdout', 'stderr', 'claim', 'adapter', 'cost', 'costSource']);
+const EXEC_STREAM_FIELDS = Object.freeze(['sha256', 'bytes', 'logged', 'truncated']);
+const EXEC_CLAIM_FIELDS = Object.freeze(['marker', 'reason', 'rule', 'pattern', 'line', 'markerTimedOut', 'from']);
+const EXEC_ADAPTER_FIELDS = Object.freeze(['name', 'version', 'checked', 'recognized', 'reason', 'isError', 'model', 'agentVersion']);
+const EXEC_COST_FIELDS = Object.freeze(['currency', 'knownSubtotal', 'complete']);
+// The longest text of each kind: the claim's reason (500 written) and its pattern (200 written) have room for what masking adds.
+export const EXEC_CALL_TEXT = Object.freeze({ cwd: 1024, name: 256, signal: 32, claim: 1000 });
 const WORD = /^[a-z][a-z0-9_]{0,31}$/;
 const NAME_CHARS = 256;
 const UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -109,6 +121,10 @@ const KEPT_WHOLE = Object.freeze({
   tree: kept([['event'], ['category'], ...ids('tree')]),
   call: kept([['category'], ['outcome'], ...ids('treeBefore', 'treeAfter')]),
 });
+// exec's shape of `call` keeps its three digests and the words its schema holds to fixed values.
+const EXEC_CALL_KEPT = kept([['kind'], ['format'], ['commandSha256'], ...['stdout', 'stderr'].map((stream) => [stream, 'sha256']), ['shell'], ['claim', 'marker'], ['claim', 'rule'],
+  ['claim', 'from'], ['adapter', 'name'], ['adapter', 'checked'], ['adapter', 'reason'], ['cost'], ['cost', 'currency'], ['costSource']]);
+const keptFor = (type, record) => (type === 'call' && record?.kind === EXEC_CALL_KIND ? EXEC_CALL_KEPT : KEPT_WHOLE[type] ?? null);
 
 /** Every string of `value` masked, but for the strings at the paths `keep` names (JSON of the list of keys; nothing inside an array). */
 const maskDeep = (value, secrets, keep = null, at = []) => {
@@ -224,7 +240,61 @@ function treeRecordProblem(record) {
   return callFieldsProblem(record) ?? treeRefProblem(record.tree, 'tree');
 }
 
+const isHex64 = (value) => typeof value === 'string' && HEX64.test(value);
+const boundedText = (value, max, min = 0) => typeof value === 'string' && value.length >= min && value.length <= max;
+const isWord = (value) => typeof value === 'string' && WORD.test(value);
+
+/** exec's shape of `call` (kind agent_exec): what `chatmcp verify exec` records of the agent's run and its claim. */
+function execCallProblem(record) {
+  if (!sameFields(record, EXEC_CALL_FIELDS)) return `an exec call record has exactly the fields ${EXEC_CALL_FIELDS.join(', ')}`;
+  if (record.format !== EXEC_CALL_FORMAT) return `format is ${EXEC_CALL_FORMAT}`;
+  if (!boundedText(record.command, COMMAND_CHARS)) return `command is text of at most ${COMMAND_CHARS} characters`;
+  if (typeof record.commandTruncated !== 'boolean') return 'commandTruncated is a boolean';
+  if (!isHex64(record.commandSha256)) return 'commandSha256 is 64 hex digits';
+  if (!['bash', 'sh', 'powershell'].includes(record.shell)) return 'shell is bash, sh or powershell';
+  if (!boundedText(record.cwd, EXEC_CALL_TEXT.cwd)) return `cwd is text of at most ${EXEC_CALL_TEXT.cwd} characters`;
+  const { agent } = record;
+  if (!isPlainObject(agent) || !sameFields(agent, ['name', 'version']) || !boundedText(agent.name, EXEC_CALL_TEXT.name, 1) || !boundedText(agent.version, EXEC_CALL_TEXT.name, 1)) {
+    return `agent is {name, version}, each text of 1 to ${EXEC_CALL_TEXT.name} characters`;
+  }
+  if (record.exit !== null && !Number.isSafeInteger(record.exit)) return 'exit is an integer or null';
+  if (!nullableText(record.signal, EXEC_CALL_TEXT.signal)) return `signal is null or text of at most ${EXEC_CALL_TEXT.signal} characters`;
+  for (const name of ['timedOut', 'interrupted', 'lingering', 'stuck']) if (typeof record[name] !== 'boolean') return `${name} is a boolean`;
+  if (record.treeLeft !== null && typeof record.treeLeft !== 'boolean') return 'treeLeft is a boolean or null';
+  if (!count(record.durationMs) || !count(record.timeoutMs)) return 'durationMs and timeoutMs are counts';
+  for (const name of ['stdout', 'stderr']) {
+    const stream = record[name];
+    if (!isPlainObject(stream) || !sameFields(stream, EXEC_STREAM_FIELDS) || !isHex64(stream.sha256) || !count(stream.bytes) || !count(stream.logged)
+      || stream.logged > stream.bytes || typeof stream.truncated !== 'boolean') return `${name} is {sha256, bytes, logged (at most bytes), truncated}`;
+  }
+  const { claim } = record;
+  if (!isPlainObject(claim) || !sameFields(claim, EXEC_CLAIM_FIELDS)) return `claim has exactly the fields ${EXEC_CLAIM_FIELDS.join(', ')}`;
+  if (!['DONE', 'BLOCKED', null].includes(claim.marker)) return 'claim.marker is DONE, BLOCKED or null';
+  if ((claim.marker === 'BLOCKED') !== (claim.reason !== null)) return 'claim.reason is the reason of BLOCKED, and null otherwise';
+  for (const name of ['reason', 'pattern', 'line']) if (!nullableText(claim[name], EXEC_CALL_TEXT.claim)) return `claim.${name} is null or text of at most ${EXEC_CALL_TEXT.claim} characters`;
+  if (!['contract', 'claim-marker'].includes(claim.rule)) return 'claim.rule is contract or claim-marker';
+  if (!['stdout', 'adapter'].includes(claim.from)) return 'claim.from is stdout or adapter';
+  if (typeof claim.markerTimedOut !== 'boolean') return 'claim.markerTimedOut is a boolean';
+  const { adapter } = record;
+  if (adapter !== null) {
+    if (!isPlainObject(adapter) || !sameFields(adapter, EXEC_ADAPTER_FIELDS)) return `adapter is null or has exactly the fields ${EXEC_ADAPTER_FIELDS.join(', ')}`;
+    if (!isWord(adapter.name) || !position(adapter.version) || typeof adapter.checked !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(adapter.checked)) return 'adapter is named by a word, with its version and the day it was checked';
+    if (typeof adapter.recognized !== 'boolean' || (adapter.reason !== null && !isWord(adapter.reason))) return 'adapter.recognized is a boolean and adapter.reason null or a word';
+    if (adapter.isError !== null && typeof adapter.isError !== 'boolean') return 'adapter.isError is a boolean or null';
+    if (!nullableText(adapter.model, EXEC_CALL_TEXT.name) || !nullableText(adapter.agentVersion, EXEC_CALL_TEXT.name)) return `adapter.model and adapter.agentVersion are null or text of at most ${EXEC_CALL_TEXT.name} characters`;
+  }
+  const { cost } = record;
+  if (cost !== 'unknown' && !(isPlainObject(cost) && sameFields(cost, EXEC_COST_FIELDS) && typeof cost.currency === 'string' && /^[A-Z]{3}$/.test(cost.currency)
+    && typeof cost.knownSubtotal === 'number' && Number.isFinite(cost.knownSubtotal) && cost.knownSubtotal >= 0 && cost.knownSubtotal <= 1e9 && typeof cost.complete === 'boolean')) {
+    return 'cost is "unknown" or {currency, knownSubtotal, complete}';
+  }
+  if (![null, 'adapter', 'option'].includes(record.costSource)) return 'costSource is null, adapter or option';
+  return null;
+}
+
 function callProblem(record) {
+  // two closed shapes: exec's, named by its kind, and the guard seam's, which has no kind at all
+  if (Object.hasOwn(record, 'kind')) return record.kind === EXEC_CALL_KIND ? execCallProblem(record) : `the kind of a call record is ${EXEC_CALL_KIND}, or it has none`;
   if (!sameFields(record, CALL_FIELDS)) return `a call record has exactly the fields ${CALL_FIELDS.join(', ')}`;
   if (typeof record.outcome !== 'string' || !WORD.test(record.outcome)) return 'outcome is a word';
   if (record.changed !== null && typeof record.changed !== 'boolean') return 'changed is a boolean or null';
@@ -333,7 +403,7 @@ export class ProofLedger {
     if (!isPlainObject(record)) throw fault('ledger_bad_record', 'a record is a JSON object');
     let copy;
     try { copy = JSON.parse(JSON.stringify(record)); } catch (error) { throw fault('ledger_bad_record', `the record is not JSON: ${error.message}`); }
-    const masked = maskDeep(copy, this.secrets() ?? [], KEPT_WHOLE[type] ?? null);
+    const masked = maskDeep(copy, this.secrets() ?? [], keptFor(type, copy));
     if (type === 'check') {
       // A secret the receipt's builder did not know can be longer once masked: the command stays within its 4,096 characters and the
       // preview within its 2 KiB.

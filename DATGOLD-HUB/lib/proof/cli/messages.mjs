@@ -47,6 +47,10 @@ export const MESSAGES = Object.freeze({
     en: (p) => `Every criterion (${p.total}) is evidenced; the statement is in ${p.file}.`,
     vi: (p) => `Mọi tiêu chí (${p.total}) đều có bằng chứng; statement nằm ở ${p.file}.`,
   },
+  exec_evidenced: {
+    en: (p) => `The agent claimed DONE and every criterion (${p.total}) is evidenced; the statement is in ${p.file}.`,
+    vi: (p) => `Agent báo DONE và mọi tiêu chí (${p.total}) đều có bằng chứng; statement nằm ở ${p.file}.`,
+  },
   acceptance_exists: {
     en: (p) => `${p.file} already exists; init never overwrites it.`,
     vi: (p) => `${p.file} đã có; init không bao giờ ghi đè nó.`,
@@ -71,6 +75,34 @@ export const MESSAGES = Object.freeze({
     en: (p) => (p.total ? `${p.notEvidenced} of ${p.total} criteria are not evidenced; the statement is in ${p.file}.` : `There is no criterion to evidence; the statement is in ${p.file}.`),
     vi: (p) => (p.total ? `${p.notEvidenced}/${p.total} tiêu chí chưa có bằng chứng; statement nằm ở ${p.file}.` : `Không có tiêu chí nào để chứng minh; statement nằm ở ${p.file}.`),
   },
+  claim_refuted: {
+    en: (p) => `The agent claimed DONE, but ${p.refuted} of ${p.total} criteria failed or had their checks changed: the claim is refuted. The statement is in ${p.file}.`,
+    vi: (p) => `Agent báo DONE, nhưng ${p.refuted}/${p.total} tiêu chí không đạt hoặc bị sửa lệnh kiểm tra: lời báo bị bác bỏ. Statement nằm ở ${p.file}.`,
+  },
+  claim_unverified: {
+    en: (p) => (p.total ? `The agent claimed DONE, but ${p.notEvidenced} of ${p.total} criteria are not evidenced. The statement is in ${p.file}.` : `The agent claimed DONE, but there is no criterion to evidence it. The statement is in ${p.file}.`),
+    vi: (p) => (p.total ? `Agent báo DONE, nhưng ${p.notEvidenced}/${p.total} tiêu chí chưa có bằng chứng. Statement nằm ở ${p.file}.` : `Agent báo DONE, nhưng không có tiêu chí nào để chứng minh. Statement nằm ở ${p.file}.`),
+  },
+  agent_blocked: {
+    en: (p) => `The agent said BLOCKED: ${p.reason}. ${p.notEvidenced} of ${p.total} criteria are not evidenced; the statement is in ${p.file}.`,
+    vi: (p) => `Agent báo BLOCKED: ${p.reason}. ${p.notEvidenced}/${p.total} tiêu chí chưa có bằng chứng; statement nằm ở ${p.file}.`,
+  },
+  no_claim: {
+    en: (p) => `The agent's final message does not end with a DONE or BLOCKED line, so it made no claim. ${p.notEvidenced} of ${p.total} criteria are not evidenced; the statement is in ${p.file}.`,
+    vi: (p) => `Tin nhắn cuối của agent không kết thúc bằng dòng DONE hay BLOCKED, nên agent không báo gì. ${p.notEvidenced}/${p.total} tiêu chí chưa có bằng chứng; statement nằm ở ${p.file}.`,
+  },
+  agent_failed: {
+    en: (p) => `The agent failed (${p.signal ? `ended by signal ${p.signal}` : `exit ${p.exit}`}). The criteria were checked on what it left; the statement is in ${p.file}.`,
+    vi: (p) => `Agent bị lỗi (${p.signal ? `bị dừng bởi tín hiệu ${p.signal}` : `mã thoát ${p.exit}`}). Các tiêu chí đã được kiểm trên những gì nó để lại; statement nằm ở ${p.file}.`,
+  },
+  agent_timed_out: {
+    en: (p) => `The agent ran past ${p.timeoutSeconds} s and was stopped with its process tree. The criteria were checked on what it left; the statement is in ${p.file}.`,
+    vi: (p) => `Agent chạy quá ${p.timeoutSeconds} giây và đã bị dừng cùng cây tiến trình của nó. Các tiêu chí đã được kiểm trên những gì nó để lại; statement nằm ở ${p.file}.`,
+  },
+  exec_interrupted: {
+    en: () => 'Ctrl-C stopped exec: the agent (or the check that was running) was stopped with its process tree. What ran is in the ledger; no pack was built.',
+    vi: () => 'Ctrl-C đã dừng exec: agent (hoặc lệnh kiểm tra đang chạy) đã bị dừng cùng cây tiến trình. Những gì đã chạy nằm trong sổ cái; không tạo gói bằng chứng.',
+  },
   no_command: {
     en: () => `No command. Use: chatmcp verify <command>, one of ${list} (chatmcp verify --help).`,
     vi: () => `Thiếu lệnh. Dùng: chatmcp verify <lệnh>, một trong ${list} (chatmcp verify --help).`,
@@ -91,8 +123,8 @@ export const MESSAGES = Object.freeze({
   },
   repeated_option: { en: (p) => `${p.option} is given more than once.`, vi: (p) => `${p.option} được đưa nhiều hơn một lần.` },
   missing_command_text: {
-    en: () => 'run needs the command after --: chatmcp verify run -- <command>',
-    vi: () => 'run cần lệnh đặt sau --: chatmcp verify run -- <lệnh>',
+    en: (p) => `${p.command ?? 'run'} needs the command after --: chatmcp verify ${p.command ?? 'run'} -- <command>`,
+    vi: (p) => `${p.command ?? 'run'} cần lệnh đặt sau --: chatmcp verify ${p.command ?? 'run'} -- <lệnh>`,
   },
   bad_workspace: { en: (p) => `The workspace ${p.path} is not a folder.`, vi: (p) => `Workspace ${p.path} không phải một thư mục.` },
   bad_cwd: {
@@ -222,7 +254,9 @@ Commands:
   snapshot                           take a baseline of the workspace and start a proof session
   run [--shell bash|sh|powershell] [--cwd <folder>] [--timeout <seconds>] -- <command>
                                      run a check and record its receipt in the session's ledger
-  exec                               not built yet (plan task pod-26)
+  exec [--timeout <seconds>] [--claim-marker <regex>] [--cost-usd <n>] [--adapter claude|codex|opencode]
+       [--shell bash|sh|powershell] [--agent <name>] [--agent-version <version>] -- <agent command>
+                                     snapshot, run the agent, read its DONE / BLOCKED claim, run the trusted checks, pack
   check                              not built yet (plan task pod-32)
   show                               the session: its baseline, ledger, receipts and acceptance trust
   pack [--agent <name>] [--agent-version <version>]
@@ -240,7 +274,9 @@ Các lệnh:
   snapshot                           chụp mốc của workspace và bắt đầu một phiên bằng chứng
   run [--shell bash|sh|powershell] [--cwd <thư mục>] [--timeout <giây>] -- <lệnh>
                                      chạy một lệnh kiểm tra và ghi biên nhận vào sổ cái của phiên
-  exec                               chưa được xây dựng (việc pod-26 của kế hoạch)
+  exec [--timeout <giây>] [--claim-marker <regex>] [--cost-usd <n>] [--adapter claude|codex|opencode]
+       [--shell bash|sh|powershell] [--agent <tên>] [--agent-version <phiên bản>] -- <lệnh của agent>
+                                     chụp mốc, chạy agent, đọc lời báo DONE / BLOCKED, chạy các lệnh kiểm tra được tin cậy, đóng gói
   check                              chưa được xây dựng (việc pod-32 của kế hoạch)
   show                               phiên hiện tại: mốc, sổ cái, biên nhận và trạng thái tin cậy
   pack [--agent <tên>] [--agent-version <phiên bản>]

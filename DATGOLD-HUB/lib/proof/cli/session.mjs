@@ -4,7 +4,8 @@
 //   <state>/proof/<taskId>.jsonl          the ledger of a session (lib/proof/ledger.mjs), its first record the session's task_start
 //   <state>/proof/trusted-acceptance.json the trust store (lib/proof/trust-store.mjs)
 //   <state>/proof/cli/<key>/              session.json (which session is current), the raw bytes of the acceptance file at the snapshot,
-//                                         the last statement of each session, the snapshot and shell scratch folders
+//                                         the last statement of each session, exec's evidence folder of each session (<taskId>.exec/),
+//                                         the snapshot and shell scratch folders
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -66,6 +67,8 @@ export async function stateOf(root, env) {
     studio: path.join(folder, 'studio'),
     acceptanceCopy: (taskId) => path.join(folder, `${taskId}.acceptance.yml`),
     statement: (taskId) => path.join(folder, `${taskId}.statement.json`),
+    // exec's evidence of the agent's run: stdout.log and stderr.log (lib/proof/cli/exec.mjs)
+    evidence: (taskId) => path.join(folder, `${taskId}.exec`),
   };
 }
 

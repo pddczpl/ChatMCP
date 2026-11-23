@@ -8,7 +8,7 @@ import { COMMAND_TABLE } from './commands.mjs';
 export { CLI_FORMAT, CODES, COMMANDS, EXIT, NOT_BUILT, SESSION_FORMAT } from './codes.mjs';
 export { MESSAGES, usage } from './messages.mjs';
 export { CLI_DATA_SCHEMAS, CLI_OUTPUT_SCHEMA } from './schema.mjs';
-export { joinCommand, parseArgs } from './args.mjs';
+export { compileClaimMarker, joinCommand, parseArgs } from './args.mjs';
 
 // What the modules the CLI calls throw, as answer codes (a code of the modules that is also an answer code keeps its name).
 const MODULE_CODES = Object.freeze({
@@ -44,11 +44,12 @@ const line = (text) => (text.endsWith('\n') ? text : `${text}\n`);
 
 /**
  * Runs one command line and writes its answer: with --json exactly one JSON object on one line on stdout (nothing on stderr), else text
- * (a pass or a "no" on stdout, a refusal on stderr). Resolves with the exit code.
+ * (a pass or a "no" on stdout, a refusal on stderr; exec also passes the agent's output on as it comes). `signals` is where exec listens
+ * for Ctrl-C (SIGINT), SIGTERM and Ctrl-Break: the process, or an emitter a test fires. Resolves with the exit code.
  */
-export async function main(argv, { stdout = process.stdout, stderr = process.stderr, env = process.env, cwd = process.cwd(), now = () => new Date() } = {}) {
+export async function main(argv, { stdout = process.stdout, stderr = process.stderr, env = process.env, cwd = process.cwd(), now = () => new Date(), signals = process } = {}) {
   const head = argv.includes('--') ? argv.slice(0, argv.indexOf('--')) : argv;
-  const ctx = { env, cwd, now, args: null, root: null, lang: languageOf(argv), json: head.includes('--json') };
+  const ctx = { env, cwd, now, args: null, root: null, lang: languageOf(argv), json: head.includes('--json'), stdout, stderr, signals };
   let answer;
   try {
     ctx.args = parseArgs(argv);
