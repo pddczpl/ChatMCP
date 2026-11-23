@@ -23,6 +23,7 @@ import { ApprovalStack } from '@/components/approval/ApprovalStack';
 import { OutboundReviewCard, type ReviewAction } from '@/components/approval/OutboundReviewCard';
 import { ChatGptWebRiskNote } from '@/components/approval/ChatGptWebRiskNote';
 import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
+import { composerPlan, planLine, planRequest, sendsPlanMode } from '@/lib/plan-view';
 import type { ChatAttachment } from '@/types';
 import { parseRoleProfileOverrides } from '@/lib/model-profile-selection';
 import { useTranslation } from '@/lib/i18n';
@@ -44,6 +45,9 @@ export function ConversationView() {
   const [selectedProfileId, setSelectedProfileId] = useState('');
   // The thinking effort chosen for the next message: '' is what is in force (the connection's, or the conversation's own), 'auto' or a level overrides it.
   const [taskEffort, setTaskEffort] = useState('');
+  // The next message starts (or continues) the conversation in plan mode: a flag of that task, never the permission mode, which every conversation shares.
+  const [planWanted, setPlanWanted] = useState(false);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
   const [roleProfilesDraft, setRoleProfilesDraft] = useState('');
   const [showRoleProfiles, setShowRoleProfiles] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -90,6 +94,8 @@ export function ConversationView() {
   const willSwitch=Boolean(selectedTaskId&&task?.transport&&task.transport!==desiredTransport);
   // The chip for the thinking effort of the next message: a new conversation on the Model API, or a follow-up to one that is on it.
   const effortChip = desiredTransport === 'api' && (!selectedTaskId || (!!task && !willSwitch && task.transport !== 'chatgpt-web'));
+  const plan = composerPlan({ agentMode: desiredTransport, task: selectedTaskId ? task : null, working: isWorking, wanted: planWanted });
+  const planMode = sendsPlanMode(plan, planWanted);
   // the sentence is cut where the new channel's name goes (in bold)
   const [switchBefore, switchAfter] = t('agents_conv_switch').split('{transport}');
   const permissions = hub?.studio?.permissions;
@@ -103,6 +109,7 @@ export function ConversationView() {
   useEffect(() => {
     if (!selectedTaskId) setDependsOn([]);
     setTaskEffort('');
+    setPlanWanted(false);
     followOutput.current = true;
     setShowLatest(false);
   }, [selectedTaskId]);
@@ -127,13 +134,13 @@ export function ConversationView() {
         const roleProfiles=apiMode?parseRoleProfileOverrides(roleProfilesDraft,knownProfiles):{};
         const res = await api.startTask(text || t('agents_conv_files_prompt'), attachments, selectedBaseRef || null, dependsOn,
           selectedWorkspacePath || hub?.workspaces?.activePath || hub?.workspace?.path || null,
-          apiMode ? selectedProfileId || null : null, roleProfiles, apiMode ? taskEffort || null : null);
+          apiMode ? selectedProfileId || null : null, roleProfiles, apiMode ? taskEffort || null : null, planMode);
         if (res?.task?.id) {
           queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
         }
       } else {
-        const res = await api.continueTask(selectedTaskId, text || t('agents_conv_files_prompt'), attachments, effortChip ? taskEffort || null : null);
+        const res = await api.continueTask(selectedTaskId, text || t('agents_conv_files_prompt'), attachments, effortChip ? taskEffort || null : null, planMode);
         if(res.task.id!==selectedTaskId){
           // A user-requested mode switch creates a linked task in the chosen
           // transport rather than silently using the old model runner.
@@ -143,6 +150,7 @@ export function ConversationView() {
         }else queryClient.setQueryData(['task',selectedTaskId],res.task);
       }
       setTaskEffort('');
+      setPlanWanted(false);
       refreshTask();
       return true;
     } catch (err: any) {
@@ -202,6 +210,7 @@ export function ConversationView() {
 
   // The global gate also contains requests from Studio actions and other active conversations.
   const pendingApprovals = (permissions?.pending || []).map(normalizeApproval);
+  const planWaits = !!selectedTaskId && pendingApprovals.some(item => planRequest(item)?.taskId === selectedTaskId);
   const approvalHistory = (permissions?.recent || []).filter(item => item.taskId === selectedTaskId).map(normalizeApproval);
 
   const handleApprove = async (id: string) => {
@@ -215,6 +224,13 @@ export function ConversationView() {
       setApproving(false);
       refreshTask();
     }
+  };
+
+  // The plan of a plan-mode task was answered: the card with the focus is about to go, so the message box takes it.
+  const handlePlanAnswered = () => {
+    composerInput.current?.focus();
+    refreshTask();
+    void queryClient.invalidateQueries({ queryKey: ['plan'] });
   };
 
   const handleDeny = async (id: string, reason?: string) => {
@@ -346,6 +362,7 @@ export function ConversationView() {
               {task && <StateBanner
                 status={task.status}
                 message={task.error}
+                plan={planLine(task, planWaits)}
                 onRetry={() => { void continueTask(); }}
                 onResume={() => { void continueTask(); }}
                 disabled={sending}
@@ -360,7 +377,7 @@ export function ConversationView() {
           )}
         <div className={column}>
           {outboundReview && <OutboundReviewCard review={outboundReview} onDecide={decideReview} busy={decidingReview} />}
-          <ApprovalStack approvals={pendingApprovals} onApprove={handleApprove} onDeny={handleDeny} busy={approving} />
+          <ApprovalStack approvals={pendingApprovals} onApprove={handleApprove} onDeny={handleDeny} busy={approving} gateMode={mode} onPlanAnswered={handlePlanAnswered} />
         </div>
         <div ref={messagesEndRef} />
       </div>
@@ -387,6 +404,9 @@ export function ConversationView() {
             disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
             currentMode={mode}
             onModeChange={handleModeChange}
+            plan={plan}
+            onPlanChange={setPlanWanted}
+            inputRef={composerInput}
             extraTools={<>
               {newTaskPicker && <ModelProfilePicker hub={hub} value={selectedProfileId} onChange={(profileId) => { setSelectedProfileId(profileId); setTaskEffort(''); }}
                 rolesOpen={showRoleProfiles} onToggleRoles={() => setShowRoleProfiles(x => !x)} />}

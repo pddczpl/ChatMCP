@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
-import { ArrowUp, Bot, Check, ChevronDown, Eye, Paperclip, ShieldAlert, ShieldCheck, Square, X } from 'lucide-react';
+import { useState, useRef, useEffect, type ReactNode, type Ref } from 'react';
+import { ArrowUp, Bot, Check, ChevronDown, ClipboardList, Eye, Paperclip, ShieldAlert, ShieldCheck, Square, X } from 'lucide-react';
 import type { ChatAttachment } from '@/types';
+import type { ComposerPlan } from '@/lib/plan-view';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 import { FILES_PER_MESSAGE, FILE_LIMIT_BYTES, IMAGE_LIMIT_BYTES, TOTAL_LIMIT_BYTES, fitImage, fittedName, limitLabel } from '@/lib/image-fit';
@@ -15,6 +16,11 @@ interface ComposerProps {
   placeholder?: string;
   currentMode?: string;
   onModeChange?: (mode: string) => void;
+  /** The Plan entry (lib/plan-view.ts `composerPlan`): a flag of this conversation's next message, never the permission mode. Absent: no entry. */
+  plan?: ComposerPlan;
+  onPlanChange?: (on: boolean) => void;
+  /** The message box, for a caller that hands the focus back to it. */
+  inputRef?: Ref<HTMLTextAreaElement>;
   dependencyOptions?: {id: string; label: string; state: string}[];
   selectedDependsOn?: string[];
   onDependsOnChange?: (ids: string[]) => void;
@@ -32,6 +38,9 @@ export function Composer({
   placeholder,
   currentMode = 'review',
   onModeChange,
+  plan,
+  onPlanChange,
+  inputRef,
   dependencyOptions = [],
   selectedDependsOn = [],
   onDependsOnChange,
@@ -149,7 +158,8 @@ export function Composer({
   ];
 
   const currentModeObj = modes.find((m) => m.id === currentMode) || modes[1];
-  const ModeIcon = currentModeObj.icon;
+  const planOn = !!plan?.offered && plan.checked;
+  const ModeIcon = planOn ? ClipboardList : currentModeObj.icon;
   const canSend = (text.trim() || attachments.length > 0) && !disabled && !submitting;
 
   const handleSelectMode = (modeId: string) => {
@@ -172,7 +182,7 @@ export function Composer({
           accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.json,.js,.jsx,.ts,.tsx,.mjs,.cjs,.py,.cs,.go,.rs,.java,.html,.css,.sql,.xml,.yaml,.yml,.toml,.sh,.ps1"
           onChange={e=>{void handleFiles(Array.from(e.target.files||[]));e.target.value='';}} />
         <textarea
-          ref={textareaRef}
+          ref={(node) => { textareaRef.current = node; if (typeof inputRef === 'function') inputRef(node); else if (inputRef) inputRef.current = node; }}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -205,7 +215,7 @@ export function Composer({
               title={t('agent_exec_mode')}
             >
               <ModeIcon className={cn('h-3.5 w-3.5', currentMode === 'full-access' ? 'text-danger' : 'text-primary')} />
-              <span className="text-fg">{currentModeObj.label}</span>
+              <span className="text-fg">{planOn && <>{t('plan_composer')} · </>}{currentModeObj.label}</span>
               <ChevronDown className="h-3 w-3 text-faint" />
             </button>
 
@@ -260,6 +270,27 @@ export function Composer({
                     </button>
                   );
                 })}
+                {plan?.offered && (
+                  <div className="mt-1.5 border-t border-line-subtle pt-1.5">
+                    <div className="px-2.5 py-1 text-[12px] font-medium text-faint">{t('plan_composer_heading')}</div>
+                    <button
+                      type="button"
+                      role="menuitemcheckbox"
+                      data-action="composer-plan"
+                      aria-checked={plan.checked}
+                      aria-disabled={plan.locked ? true : undefined}
+                      onClick={() => { if (plan.locked) return; setModeMenuOpen(false); onPlanChange?.(!plan.checked); }}
+                      className={cn('flex w-full items-start gap-2.5 rounded-lg p-2.5 text-left transition-colors', plan.checked ? 'bg-primary/10' : !plan.locked && 'hover:bg-hover', plan.locked && 'cursor-not-allowed')}
+                    >
+                      <ClipboardList className={cn('mt-0.5 h-4 w-4 shrink-0', plan.checked ? 'text-primary' : 'text-muted')} />
+                      <div className="min-w-0 flex-1">
+                        <div className={cn('text-[13px] font-semibold', plan.checked ? 'text-primary' : plan.locked ? 'text-muted' : 'text-fg')}>{t('plan_composer')}</div>
+                        <div className="text-[12px] leading-4 text-muted">{t(plan.locked === 'held' ? 'plan_composer_held' : plan.locked === 'running' ? 'plan_composer_running' : 'plan_composer_note')}</div>
+                      </div>
+                      {plan.checked && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

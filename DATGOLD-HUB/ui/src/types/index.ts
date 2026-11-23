@@ -55,7 +55,14 @@ export interface TaskSummary {
   /** How the latest run started when it continued an earlier one (lib/agent.mjs, P9 ac-18); null for a run that did not. */
   resumeMode?: ResumeMode | null;
   resume?: TaskResume | null;
+  /** Plan mode (P9 ac-9, docs/PLAN-MODE.md): whether the task is in it, the last answer to its plan, and whether it is held read-only until a plan is approved. */
+  planMode?: boolean;
+  planApproval?: PlanApproval | null;
+  planOnly?: boolean;
 }
+
+/** The last answer to a task's plan. `execution`: the mode the owner chose for carrying it out, for that task only. */
+export interface PlanApproval { status: string; at?: string; revision?: number; editedByUser?: boolean; execution?: string | null }
 
 /** 'transcript': the run replayed the conversation's history from the Hub's journal; 'checkpoint': the journal could not be used, the run got the checkpoint text. */
 export type ResumeMode = 'transcript' | 'checkpoint';
@@ -332,6 +339,8 @@ export interface ApprovalRequest {
   expiresAt?: string;
   diff?: string;
   currentSha?: string;
+  /** What the owner wrote with the answer to a plan request (bounded and masked by the Hub); only on an answered one. */
+  feedback?: string;
   /** 'mcp' for a request of a local MCP client through the Hub's MCP server host (lib/mcp/host.mjs), with its client id and its tag mcp:<client>. */
   source?: string;
   client?: string;
@@ -628,6 +637,9 @@ export interface Task {
   handoff?: {fromTaskId:string;toTransport:string;note:string};
   resumeMode?: ResumeMode | null;
   resume?: TaskResume | null;
+  planMode?: boolean;
+  planApproval?: PlanApproval | null;
+  planOnly?: boolean;
 }
 
 export interface HubHealth {
