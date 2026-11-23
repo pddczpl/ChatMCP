@@ -1,0 +1,48 @@
+{
+ "suite": "ui-plan-api-for-mutation.mjs",
+ "description": "What ui/tests/api.test.mjs must notice of the page's side of P9 ac-10: the reason of a denial and the extras of a plan answer reach the Hub (decidePermission, denyAction, and the deny handler of ConversationView, which used to drop the reason), the plan decision names the revision the page showed, an edit of the plan sends its baseRevision, and nothing is sent that the caller did not give.",
+ "mutations": [
+  {
+   "name": "U1",
+   "what": "decidePermission drops the feedback, the edited plan and the execution",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "body: JSON.stringify({ id, approved, ...definedOnly(extras) }) }),", "new": "body: JSON.stringify({ id, approved }) })," }
+   ]
+  },
+  {
+   "name": "U2",
+   "what": "denyAction drops the reason of the denial",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "api.decidePermission(id, false, reason ? { feedback: reason } : {}),", "new": "api.decidePermission(id, false)," }
+   ]
+  },
+  {
+   "name": "U3",
+   "what": "decidePlan does not name the revision the page showed",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "JSON.stringify({ taskId, revision, decision, ...definedOnly(extras) })", "new": "JSON.stringify({ taskId, decision, ...definedOnly(extras) })" }
+   ]
+  },
+  {
+   "name": "U4",
+   "what": "savePlan drops the baseRevision",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": "...definedOnly({ baseRevision, text })", "new": "...definedOnly({ text })" }
+   ]
+  },
+  {
+   "name": "U5",
+   "what": "an optional field the caller did not give is sent as null",
+   "patches": [
+    { "file": "ui/src/lib/api.ts", "old": ".filter(([, item]) => item !== undefined && item !== null)", "new": ".filter(([, item]) => item !== undefined)" }
+   ]
+  },
+  {
+   "name": "U6",
+   "what": "the conversation screen drops the reason of a denial again",
+   "patches": [
+    { "file": "ui/src/components/conversation/ConversationView.tsx", "old": "await api.denyAction(id, reason);", "new": "await api.decidePermission(id, false);" }
+   ]
+  }
+ ]
+}

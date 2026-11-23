@@ -20,7 +20,7 @@ export const STUDIO_TOOLS=[
   entry('checkpoint','Create bounded local pre-change snapshot for Git review/restore.',obj({label:str}),{readOnlyHint:false}),
   entry('review','Compare current files against checkpoint without modifying files.',obj({checkpointId:str,file:str})),
   entry('plan_get','Load durable plan for current conversation.',obj({})),
-  entry('plan_set','Persist a structured plan. Status: todo, doing, done, blocked.',obj({title:str,items:{type:'array',items:{type:'object',properties:{text:str,status:{type:'string',enum:['todo','doing','done','blocked']},evidence:str},required:['text','status','evidence'],additionalProperties:false}}}),{readOnlyHint:false}),
+  entry('plan_set','Persist a structured plan. Status: todo, doing, done, blocked. Pass expected_revision, the revision plan_get returned: if the plan changed since (the user can edit it), nothing is saved.',obj({title:str,items:{type:'array',items:{type:'object',properties:{text:str,status:{type:'string',enum:['todo','doing','done','blocked']},evidence:str},required:['text','status','evidence'],additionalProperties:false}},expected_revision:{type:'integer',minimum:0}},['title','items']),{readOnlyHint:false}),
 ];
 export class StudioTools {
   constructor({workspace,gate,intelligence}){this.workspace=workspace;this.gate=gate;this.intelligence=intelligence;}
@@ -36,7 +36,8 @@ export class StudioTools {
       definitions:()=>this.intelligence?.definitions(args),index_status:()=>this.intelligence?.status(),
       checkpoint:()=>this.workspace.checkpoint(args),review:()=>this.workspace.review(args),
       plan_get:()=>this.workspace.plan({taskId,operation:'get'}),
-      plan_set:()=>this.workspace.plan({taskId,operation:'set',title:args.title,items:args.items}),
+      // The model writes as 'agent' (docs/PLAN-MODE.md): without the revision it read, an edit of the owner is a conflict and nothing is written.
+      plan_set:()=>this.workspace.plan({taskId,operation:'set',title:args.title,items:args.items,by:'agent',expectedRevision:args.expected_revision??null}),
     }[op];
     if(!handle)return {isError:true,content:[{type:'text',text:'Unknown Studio tool'}]};
     try {const result=await handle();return {isError:false,content:[{type:'text',text:JSON.stringify(result)}],structuredContent:result};}
