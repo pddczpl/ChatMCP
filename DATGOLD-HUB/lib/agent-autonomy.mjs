@@ -3,6 +3,7 @@
 // can establish file/test evidence. Plans and model narration are NOT completion certificates.
 import { createHash } from 'node:crypto';
 import { availableObjectiveReceipts, acceptedObjectiveIds } from './objective-acceptance.mjs';
+import { FRESHNESS, createTaskProgress, receiptFreshness, receiptSummary, treeKey } from './agent-progress.mjs';
 
 const hash = (value) => createHash('sha256').update(String(value)).digest('hex');
 const text = (v, n = 190) => String(v ?? '').replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0,n);
@@ -80,13 +81,13 @@ export function planInstructions(plan) {
 }
 
 export function recoveryInstructions({progress,plan,attempt}) {
-  const p=object(progress)?progress:{};
+  const p=createTaskProgress(object(progress)?progress:{});
   const todo=plan?.objectives?.filter(o=>o.status!=='has_evidence').slice(0,3).map(o=>o.id+': '+text(o.text,100))??[];
   return [
     'HOST STAGNATION RECOVERY '+attempt+'/'+RECOVERY_POINTS.length+'.',
     'Previous read/search steps have revisited equivalent unchanged evidence. Do NOT repeat those searches just to regain context.',
     'No tool has been executed by this recovery instruction. Do not replay ambiguous mutating operations.',
-    'Verified file changes: '+(p.verifiedFiles?.length||0)+'; passing approved checks: '+(p.verifiedChecks?.length||0)+'.',
+    'Fresh verified file changes: '+p.verifiedFiles.length+'; fresh passing approved checks: '+p.verifiedChecks.length+'.',
     'Last inspected targets (untrusted labels): '+JSON.stringify((p.inspected||[]).slice(-6))+'.',
     'Current user objectives (untrusted text): '+JSON.stringify(todo)+'.',
     attempt===1?
@@ -104,18 +105,28 @@ export function isRoutinePoll(name) {
 // This verifier only trusts the first-party local backend and a fresh
 // independent StudioWorkspace.read() hash, never model-provided file contents.
 // External MCP tool text and errors cannot establish verification receipts.
-export async function verifyHostEvidence({manager, name, result, step = 0} = {}) {
+//
+// Every receipt carries the tree it was made on (pod-18, docs/PROOF-RECEIPTS.md), from the trees the proof service took around the call (`proof`, what the guard's onProof
+// gave the caller) or, for a call that is not scanned (a read cannot change files), the current tree `tree` (the latest tree key the Hub knows). A tree it cannot be
+// sure of is null: the receipt's freshness is then unknown, never fresh.
+export async function verifyHostEvidence({manager, name, result, step = 0, proof = null, tree = null} = {}) {
   if(manager?.backend!=='local' || result?.isError!==false || !object(result.structuredContent))return null;
   const meta=result.structuredContent;
   const nameStr=String(name??'');
+  const before=treeKey(proof?.treeBefore),after=treeKey(proof?.treeAfter);
+  // The one tree a call saw from its start to its end: both trees known, equal, and no other scanned call in flight on the folder meanwhile.
+  const steady=proof&&proof.overlapped!==true&&before!==null&&before===after?after:null;
+  const seen=proof?steady:(typeof tree==='string'?tree:null);
   if(nameStr==='local.read_file' && typeof meta.path==='string' &&
      /^[a-f0-9]{64}$/i.test(meta.sha256??'') && manager.studio?.read) {
     try {
       const fresh=await manager.studio.read({file:meta.path,maxBytes:500000});
       if(fresh?.sha256?.toLowerCase()===meta.sha256.toLowerCase())
-        return {kind:'inspect',path:text(fresh.path,160),sha256:meta.sha256.toLowerCase(),step};
+        return {kind:'inspect',path:text(fresh.path,160),sha256:meta.sha256.toLowerCase(),step,tree:seen};
     }catch{/* Large/protected/unknown files remain unverified. */}
   }
+  // An edit is bound to the tree right after it (the file it wrote is in that tree), unless another call ran beside it.
+  const written=proof&&proof.overlapped!==true?after:null;
   if(/^local\.(?:edit_file|write_file|files_apply_patch)$/.test(nameStr) &&
      typeof meta.path==='string' && /^[a-f0-9]{64}$/i.test(meta.sha256??'') &&
      meta.unchanged!==true && manager.studio?.read) {
@@ -123,7 +134,7 @@ export async function verifyHostEvidence({manager, name, result, step = 0} = {})
     try {
       const fresh=await manager.studio.read({file:meta.path,maxBytes:500000});
       if(fresh?.sha256?.toLowerCase() === meta.sha256.toLowerCase())
-        return {kind:'edit',path:text(fresh.path,160),sha256:meta.sha256.toLowerCase(),step};
+        return {kind:'edit',path:text(fresh.path,160),sha256:meta.sha256.toLowerCase(),step,tree:written};
     }catch{/* Large/protected/unknown files remain UNVERIFIED. */}
   }
   if(nameStr==='local.files_write_batch' && Array.isArray(meta.files) && manager.studio?.read) {
@@ -137,16 +148,18 @@ export async function verifyHostEvidence({manager, name, result, step = 0} = {})
         if(fresh?.sha256?.toLowerCase()===file.sha256.toLowerCase())receipts.push({path:text(fresh.path,160),sha256:file.sha256.toLowerCase()});
       }catch{/* Large/protected/unknown files remain UNVERIFIED. */}
     }
-    if(receipts.length)return {kind:'edit',path:receipts[0].path,sha256:receipts[0].sha256,step,more:receipts.slice(1).map(item=>({...item,step}))};
+    if(receipts.length)return {kind:'edit',path:receipts[0].path,sha256:receipts[0].sha256,step,tree:written,more:receipts.slice(1).map(item=>({...item,step}))};
   }
   if(nameStr==='local.run_command' && meta.kind==='verify' && meta.exitCode===0 &&
     !meta.timedOut && !meta.cancelled && !meta.lingering && !meta.truncated?.stdout && !meta.truncated?.stderr) {
-    return {kind:'verify',id:hash(nameStr+'\0'+meta.cwd+'\0'+step).slice(0,16),step};
+    // A check that changed the files it checked is unreliable (the strict pass rule of docs/PROOF-CHECKS.md): its pass is about a tree that is gone. No receipt.
+    if(before!==null&&after!==null&&before!==after)return null;
+    return {kind:'verify',id:hash(nameStr+'\0'+meta.cwd+'\0'+step).slice(0,16),step,tree:steady};
   }
   // The local git_diff tool gives a digest of its diff only when there was a change and the model was shown all of it. As for a passing check, the receipt trusts that field of the
   // first-party result: unlike a read or an edit, nothing is read again from the disk.
   if(nameStr==='local.git_diff' && /^[a-f0-9]{64}$/i.test(meta.diffSha256??'') && meta.truncated!==true){
-    return {kind:'review',id:meta.diffSha256.toLowerCase().slice(0,16),step};
+    return {kind:'review',id:meta.diffSha256.toLowerCase().slice(0,16),step,tree:seen};
   }
   return null;
 }
@@ -154,23 +167,43 @@ export async function verifyHostEvidence({manager, name, result, step = 0} = {})
 // A completed model message is not the same as independently verified work.
 // This produces a persistent, truthful outcome instead of treating model prose
 // or an arbitrary tool exit code as universal proof.
-export function assessCompletionEvidence(plan,progress) {
-  if(!plan||!Array.isArray(plan.phases))return {ready:true,missing:[],reason:'No complex task graph required'};
-  const p=object(progress)?progress:{};
-  const missing=[];
+/** What is missing when a kind of receipt the plan asks for has none, and what is added when it has some but none is fresh on the final tree. */
+export const MISSING=Object.freeze({edit:'No independently SHA-verified file edit',verify:'No verified successful project check',review:'No independently recorded Git diff review'});
+// Plain words, not FRESHNESS: this module and agent-progress.mjs import each other, so nothing of that one is read while this one loads.
+const NOT_FRESH=Object.freeze({
+  stale:' on the final tree: its receipts are stale (the files changed after them)',
+  unknown:' on the final tree: freshness unknown (the Hub has no tree to compare them with)',
+});
+
+/**
+ * Whether the receipts the plan asks for (an edit, a passing check, a Git diff review) are FRESH on the final tree: `tree` (a tree reference's ids) when given, else
+ * the latest tree the progress knows. A receipt of a tree that is gone does not count (stale), nor does one whose freshness is unknown: unknown is never fresh.
+ */
+export function assessCompletionEvidence(plan,progress,{tree}={}) {
+  if(!plan||!Array.isArray(plan.phases))return {ready:true,missing:[],reason:'No complex task graph required',freshness:'not_applicable'};
+  const p=createTaskProgress(object(progress)?progress:{});
+  const current=tree===undefined?p.tree:treeKey(tree);
+  const missing=[],states=[];
   const required=new Set(plan.phases.map(x=>x.id));
-  if(required.has('edit')&&!(p.verifiedFiles?.length>0))missing.push('No independently SHA-verified file edit');
-  if(required.has('verify')&&!(p.verifiedChecks?.length>0))missing.push('No verified successful project check');
-  if(required.has('review')&&!(p.gitReviews?.length>0))missing.push('No independently recorded Git diff review');
-  return {ready:missing.length===0,missing,reason:missing.length===0?'All planned evidence categories have receipts':'Some required evidence is missing; task completion is not certified'};
+  for(const kind of ['edit','verify','review']){
+    if(!required.has(kind))continue;
+    const seen=new Set(p.receipts.filter(r=>r.kind===kind).map(r=>receiptFreshness(r,current)));
+    const state=seen.has(FRESHNESS.fresh)?FRESHNESS.fresh:seen.has(FRESHNESS.unknown)?FRESHNESS.unknown:seen.has(FRESHNESS.stale)?FRESHNESS.stale:'missing';
+    states.push(state);
+    if(state!==FRESHNESS.fresh)missing.push(MISSING[kind]+(NOT_FRESH[state]??''));
+  }
+  const freshness=!missing.length?'fresh':['unknown','stale','missing'].find(state=>states.includes(state));
+  return {ready:missing.length===0,missing,freshness,
+    reason:missing.length===0?'All planned evidence categories have receipts fresh on the final tree':'Some required evidence is missing or not fresh on the final tree; task completion is not certified'};
 }
 
 export function evidenceReport(progress,plan) {
-  const p=object(progress)?progress:{};
-  const evidence={verifiedFiles:p.verifiedFiles?.length??0,verifiedChecks:p.verifiedChecks?.length??0,gitReviews:p.gitReviews?.length??0};
+  const p=createTaskProgress(object(progress)?progress:{});
+  const evidence={verifiedFiles:p.verifiedFiles.length,verifiedChecks:p.verifiedChecks.length,gitReviews:p.gitReviews.length,freshness:receiptSummary(p)};
   return {
     verifiedEvidence:evidence,
-    objectiveReceipts:availableObjectiveReceipts(p),
+    // Read by the model on a resume: no receipt id (it carries a prefix of its tree), only what the receipts are.
+    objectiveReceipts:availableObjectiveReceipts(p).map(({kind,step,path})=>({kind,step,...(path?{path}:{})})),
     plan:plan?{goal:plan.goal,phases:plan.phases.map(({id,title,status,receipts})=>({id,title,status,receipts})),
       objectives:plan.objectives.map(({id,text,status})=>({id,text,status}))}:null,
     note:'Tool receipts and evidence milestones do not prove the whole requested task is correct; inspect actual diff and test output.',
@@ -184,14 +217,15 @@ export function evidenceReport(progress,plan) {
  * cannot prove that every user objective or criterion was satisfied. A human
  * or objective-linked independent evaluator must certify those criteria.
  */
-export function classifyTaskCompletion(plan, progress, { execution = 'answered' } = {}) {
+export function classifyTaskCompletion(plan, progress, { execution = 'answered', tree } = {}) {
   if (!plan || !Array.isArray(plan.objectives)) return Object.freeze({
-    execution, requirements:'not_assessed', verification:'not_applicable',
+    execution, requirements:'not_assessed', verification:'not_applicable', freshness:'not_applicable',
     unresolvedObjectiveIds:[], missingChecks:[],
     note:'An explanatory/read-only answer does not require code modification or test evidence.',
   });
-  const categories=assessCompletionEvidence(plan,progress);
-  const trusted=new Set(acceptedObjectiveIds(plan,progress));
+  // Both judged against the final tree: the receipts the plan asks for, and the receipts each acceptance was made with.
+  const categories=assessCompletionEvidence(plan,progress,{tree});
+  const trusted=new Set(acceptedObjectiveIds(plan,progress,{tree}));
   const unresolved=plan.objectives.filter(o=>!trusted.has(o.id)).map(o=>o.id);
   return Object.freeze({
     execution,
@@ -200,6 +234,7 @@ export function classifyTaskCompletion(plan, progress, { execution = 'answered' 
     verification:categories.ready?(unresolved.length?'evidence_present_not_objective_certified':plan.objectives.some(o=>(o.evidence||[]).some(e=>e.acceptedBy&&e.acceptedBy!=='local_owner'))?'accepted_with_fresh_receipts_checks_by_hub':'owner_accepted_with_fresh_receipts'):'missing_evidence',
     unresolvedObjectiveIds:unresolved,
     missingChecks:categories.missing,
+    freshness:categories.freshness,
     note:unresolved.length
       ? 'Execution finished, but the user requirements are not independently accepted.'
       : 'Objective-linked criteria have recorded receipts; inspect their freshness and provenance.',

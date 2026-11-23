@@ -7,7 +7,7 @@ import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { buildInternalCatalog, fingerprint } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
 import { externalToolName } from './permissions.mjs';
-import { ProofService } from './proof/service.mjs';
+import { ProofService, scannedCall } from './proof/service.mjs';
 
 export const VERSION = '3.11.2';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
@@ -314,7 +314,8 @@ export class HubManager {
 
   /**
    * The end of a run of `taskId` in its proof ledger: the full final snapshot and task_end, for every status (a cancelled or failed task
-   * too). The runner calls it before releaseTask, while the workspace is still its own. Never throws.
+   * too). The runner calls it before releaseTask, while the workspace is still its own. Resolves with {seq, tree} (the run's final tree, which
+   * the runner judges its receipts against, pod-18) or null. Never throws.
    */
   async finishProof(taskId, { status, errorCode = null } = {}) {
     try { return (await this.proof?.end(taskId, { status, errorCode })) ?? null; }
@@ -348,9 +349,12 @@ export class HubManager {
     signal?.throwIfAborted();
     // The start of this run in the task's proof ledger: task_start for a new task, a full snapshot of the workspace (lib/proof/service.mjs).
     // Every runner opens its session here once the task holds the workspace, so they all get it. It never fails the task.
-    await this.proofService()?.begin(this.taskId, { signal });
+    const started = await this.proofService()?.begin(this.taskId, { signal });
     signal?.throwIfAborted();
-    return this.#createLocalSession();
+    const session = this.#createLocalSession();
+    // The run's start tree (the ids begin() recorded), for the receipts the runner binds to trees (pod-18, docs/PROOF-RECEIPTS.md): null when nothing was recorded.
+    session.proofStart = started?.tree ?? null;
+    return session;
   }
 
   /** The tools of the local backend live in this process; the external ones go through the shared McpClientManager. */
@@ -437,7 +441,10 @@ export class HubManager {
       const { decision, refusal } = await this.#preToolHooks({ name, args, definition, binding, toolUseId, options, decision: gateDecision });
       // The caller learns what was decided BEFORE anything runs. It is awaited: whoever records "this call is now going
       // ahead" must have finished writing that down before the call can have any effect. If it throws, nothing runs.
-      if (typeof onDecision === 'function') await onDecision({ name, allowed: decision.allowed === true && refusal === null, category: decision.category ?? null, kind: decision.risk?.kind ?? null });
+      // `mayChangeFiles`: a call of a category the proof service scans, the one rule of what may change the files (pod-18: a runner whose scanned call comes back without trees
+      // no longer knows the tree).
+      const mayChangeFiles = scannedCall({ category: decision.category ?? null, touchesWorkspace: this.#touchesWorkspace(name, decision) });
+      if (typeof onDecision === 'function') await onDecision({ name, allowed: decision.allowed === true && refusal === null, category: decision.category ?? null, kind: decision.risk?.kind ?? null, mayChangeFiles });
       await this.workflow?.mark(binding.taskId, 'tool_start', { toolName: name, category: decision.category });
       if (refusal !== null) {
         await this.workflow?.mark(binding.taskId, 'hook_denied', { toolName: name, category: decision.category, isError: true });
@@ -460,13 +467,14 @@ export class HubManager {
           : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
             : await external(name, args, options);
       } catch (error) {
-        await this.#proofAfter(proof, 'threw', onProof);
+        const proofInfo = await this.#proofAfter(proof, 'threw', onProof);
+        await this.workflow?.noteTree?.(binding.taskId, { proof: proofInfo, mayChangeFiles });
         await this.#noteAfter(checkpoint); // a call that threw may have changed files before it did
         // A stopped call is not a failure of the tool; any other exception is, and the hooks are told before it travels on.
         if (!options.signal?.aborted) await this.#postToolHooks('PostToolUseFailure', { name, args, binding, toolUseId, error: error?.message ?? String(error), signal: options.signal });
         throw error;
       }
-      await this.#proofAfter(proof, result?.isError === true ? 'error' : 'ok', onProof);
+      const proofInfo = await this.#proofAfter(proof, result?.isError === true ? 'error' : 'ok', onProof);
       await this.#noteAfter(checkpoint);
       const structured = result?.structuredContent;
       const verified = (name === 'studio.diff_check' && structured?.ok === true)
@@ -475,6 +483,8 @@ export class HubManager {
         toolName: name, category: decision.category, isError: result?.isError === true, verified,
         fileEdit: decision.category === 'workspace_edit' && !NOT_FILE_EDITS.has(name),
         commandKind: name === 'local.run_command' ? String(decision.risk?.kind ?? '') : '',
+        // The trees of the call: the timeline's `verified` is a passing check fresh on the latest tree (lib/studio-workflow.mjs), not a flag.
+        proof: proofInfo, mayChangeFiles,
       });
       const failed = result?.isError === true;
       const parts = await this.#postToolHooks(failed ? 'PostToolUseFailure' : 'PostToolUse', { name, args, binding, toolUseId, toolResponse: result, error: failed ? failureText(result) : undefined, signal: options.signal });
@@ -607,10 +617,11 @@ export class HubManager {
    * so an onProof that throws changes nothing of what is returned.
    */
   async #proofAfter(proof, outcome, onProof) {
-    if (!proof) return;
+    if (!proof) return null;
     const info = await proof.service.afterCall(proof.token, { outcome });
-    if (!info || typeof onProof !== 'function') return;
+    if (!info || typeof onProof !== 'function') return info;
     try { await onProof(info); }
     catch (error) { this.log(`Sổ bằng chứng: bên gọi không lưu được bằng chứng của ${info.tool} (${error?.message ?? error}).`); }
+    return info;
   }
 }

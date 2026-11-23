@@ -283,3 +283,17 @@ test('the banner asks for its words before it decides to show nothing, so that e
   assert.ok(hook > 0, 'StateBanner reads the language through useTranslation()');
   assert.ok(early > 0 && hook < early, 'and does so before its first early return');
 });
+
+// The receipts by the tree they were made on (pod-18): a row with the fresh ones of all, and a note that says what the rest are, or that the Hub does not know the tree.
+test('the details say how many receipts are fresh on the latest tree, and say it when the Hub does not know the tree', () => {
+  for (const lang of ['vi', 'en']) {
+    const rows = ribbonRows(task('completed', { usage: undefined, receiptFreshness: { tree: true, fresh: 3, stale: 1, unknown: 0 } }), t(lang), lang);
+    assert.deepEqual(rows, [[t(lang)('agents_ribbon_freshness'), '3 / 4', t(lang)('agents_ribbon_freshness_hint', { fresh: 3, stale: 1, unknown: 0 })]], `${lang}: one row`);
+    assert.match(rows[0][2], /3/);
+    const old = ribbonRows(task('completed', { usage: undefined, receiptFreshness: { tree: false, fresh: 0, stale: 0, unknown: 4 } }), t(lang), lang);
+    assert.deepEqual(old, [[t(lang)('agents_ribbon_freshness'), '0 / 4', t(lang)('agents_ribbon_freshness_unknown')]], `${lang}: a task from an older version: freshness unknown`);
+    assert.deepEqual(ribbonRows(task('completed', { usage: undefined, receiptFreshness: { tree: true, fresh: 0, stale: 0, unknown: 0 } }), t(lang), lang), [], `${lang}: no receipt, no row`);
+    assert.deepEqual(ribbonRows(task('completed', { usage: undefined }), t(lang), lang), [], `${lang}: a Hub that sends no freshness, no row`);
+  }
+  assert.ok(!DIACRITICS.test(t('en')('agents_ribbon_freshness_hint', { fresh: 1, stale: 2, unknown: 3 }) + t('en')('agents_ribbon_freshness_unknown')), 'the English words are English');
+});

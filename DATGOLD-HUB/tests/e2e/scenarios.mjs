@@ -92,6 +92,18 @@ export const SCENARIOS = {
       ? 'Đã sửa add() trong calc.js (a - b thành a + b) và chạy node test.js: thành công, exit code 0.'
       : 'Đã sửa calc.js nhưng node test.js vẫn thất bại. Xem đầu ra của lệnh để biết lý do.');
   },
+
+  // The same repair and a passing test, then a file moved AFTER the test (pod-18): the edit and the test were checked on a tree that is gone.
+  'repair-add-then-move'({ turn, last }) {
+    if (turn === 0) return call('read_file', { path: 'calc.js' });
+    if (turn === 1) {
+      const sha = shaOf(last);
+      return call('edit_file', { path: 'calc.js', old_string: 'return a - b;', new_string: 'return a + b;', ...(sha ? { expected_sha256: sha } : {}) });
+    }
+    if (turn === 2) return call('run_command', { command: 'node test.js', description: 'Chạy kiểm thử của hàm add()' });
+    if (turn === 3) return call('move_path', { source: 'README.md', destination: 'README.old.md' });
+    return say('Đã sửa add() trong calc.js, chạy node test.js thành công, rồi đổi tên README.md thành README.old.md.');
+  },
 };
 
 // Six conversations for the contract tests (tests/verify-mock-protocols.mjs). Every protocol answers them the same way, so a real

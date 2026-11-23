@@ -40,8 +40,8 @@ export interface TaskSummary {
   steps?: number;
   toolCalls?: number;
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
-  verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
-  completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
+  verificationOutcome?: { ready: boolean; missing: string[]; reason?: string; freshness?: ReceiptsFreshness };
+  completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string;freshness?:ReceiptsFreshness};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;plannedOutputTokens?:number;approximate:boolean };
   modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string;estimatedResponses?:number;estimateSource?:string|null;approximate?:boolean};
   promptCount?: number;
@@ -569,6 +569,9 @@ export interface ToolCall {
   summary?: string;
 }
 
+/** Whether the receipts a plan asks for are fresh on the final tree (pod-18, docs/PROOF-RECEIPTS.md); unknown is never fresh. */
+export type ReceiptsFreshness = 'fresh' | 'unknown' | 'stale' | 'missing' | 'not_applicable';
+
 export interface Task {
   id: string;
   effectiveProfile?: {id:string;name:string;revision?:string|null;provider:string;protocol:string;model:string;endpointOrigin:string;credentialSource:string}|null;
@@ -580,7 +583,10 @@ export interface Task {
     /** `acceptedBy`: "local_owner" for the owner's click, "auto_hub_check" when the Hub matched a check it ran because the owner turned that option on. */
     evidence?:Array<{criterionIndex:number;receiptId:string;acceptedAt:string;acceptedBy?:string}>;
   }>};
-  objectiveReceipts?: Array<{receiptId:string;kind:'inspect'|'edit'|'verify'|'review';step:number;path?:string}>;
+  /** The receipts that can be accepted: only those fresh on the latest tree the Hub knows (pod-18); `receiptId` ends with a prefix of that tree. */
+  objectiveReceipts?: Array<{receiptId:string;kind:'inspect'|'edit'|'verify'|'review';step:number;path?:string;freshness?:'fresh'}>;
+  /** All receipts by the tree they were made on: fresh, stale (the files changed after them), unknown (no tree to compare with, e.g. a task from an older version); `tree` says whether the Hub knows the current tree. */
+  receiptFreshness?: {tree:boolean;fresh:number;stale:number;unknown:number};
   prompt?: string;
   branch?: string | null;
   worktree?: string | null;
@@ -611,8 +617,8 @@ export interface Task {
   plan?: { title: string; status: string; details?: string }[];
   pendingApprovals?: any[];
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
-  verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
-  completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
+  verificationOutcome?: { ready: boolean; missing: string[]; reason?: string; freshness?: ReceiptsFreshness };
+  completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string;freshness?:ReceiptsFreshness};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;plannedOutputTokens?:number;approximate:boolean };
   modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string;estimatedResponses?:number;estimateSource?:string|null;approximate?:boolean};
   lastMessage?: string;

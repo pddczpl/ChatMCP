@@ -19,7 +19,7 @@ await fs.writeFile(path.join(workspace,'.env'),'SECRET=DO_NOT_READ_ME\n');
 git('add','README.md','src/app.py');git('commit','-qm','baseline');
 const manager={workspace,secrets:[],log:()=>{}};
 const studio=new StudioWorkspace({manager,directory:path.join(root,'state')});
-let n=0;const check=(condition)=>{assert.ok(condition);n++};
+let n=0;const check=(condition,message)=>{assert.ok(condition,message);n++};
 try{
   const tree=await studio.tree({directory:'src'});check(tree.entries.some(e=>e.name==='app.py'));
   const source=await studio.read({file:'src/app.py'});check(source.content.includes('compute_aqi'));
@@ -82,8 +82,47 @@ try{
   const router=new StudioTools({workspace:studio,gate});check(router.definitions().length>=12);
   const output=await router.call('studio.search',{query:'compute_aqi',mode:'symbol',limit:5},{taskId:planId});check(output.structuredContent.matches.length===1);
   const workflow=new StudioWorkflow({directory:path.join(root,'workflow')});await workflow.mark(planId,'tool_start',{toolName:'studio.diff_check',category:'read'});await workflow.mark(planId,'tool_result',{toolName:'studio.diff_check',verified:true});
-  check((await workflow.state(planId)).verified===true);
+  // `verified` is computed (pod-18): a passing check fresh on the latest tree the timeline knows. A diff check with no tree known is of unknown freshness, not verified.
+  check((await workflow.state(planId)).verified===false&&(await workflow.state(planId)).freshness==='unknown');
   const workflowReload=new StudioWorkflow({directory:path.join(root,'workflow')});check((await workflowReload.state(planId)).checksObserved===1);
+  {
+    const T=(c)=>({status:'ok',treeAlgorithm:'git-pinned-v1',objectFormat:'sha1',tree:c.repeat(40),rawTree:null});
+    const trees=(b,a,extra={})=>({treeBefore:T(b),treeAfter:T(a),overlapped:false,...extra});
+    const id='123e4567-e89b-42d3-a456-426614174001';
+    const timeline=new StudioWorkflow({directory:path.join(root,'workflow-trees')});
+    const pass=(proof,extra={})=>timeline.mark(id,'tool_result',{toolName:'local.run_command',category:'execute',verified:true,proof,mayChangeFiles:true,...extra});
+    const edit=(proof,extra={})=>timeline.mark(id,'tool_result',{toolName:'local.edit_file',category:'workspace_edit',proof,mayChangeFiles:true,...extra});
+    const view=async()=>{const {verified,freshness,checksObserved}=await timeline.state(id);return JSON.stringify([verified,freshness,checksObserved]);};
+    const is=(...want)=>JSON.stringify(want);
+    check(await view()===is(false,'none',0),'no check yet');
+    await edit(trees('a','b'));await pass(trees('b','b'));
+    check(await view()===is(true,'fresh',1),'a passing check on the latest tree: verified');
+    await edit(trees('b','c'));
+    check(await view()===is(false,'stale',1),'a later edit: the pass is of a tree that is gone');
+    const reloaded=await new StudioWorkflow({directory:path.join(root,'workflow-trees')}).state(id);
+    check(reloaded.verified===false&&reloaded.freshness==='stale','computed again after a reload');
+    await pass(trees('c','d'));
+    check(await view()===is(false,'stale',2),'a check that changed the files it checked: counted, never a pass of a tree');
+    await pass(trees('d','d',{overlapped:true}));
+    check(await view()===is(false,'unknown',3),'a check beside another call: unknown');
+    await pass(trees('d','d'));
+    check(await view()===is(true,'fresh',4));
+    await timeline.mark(id,'tool_result',{toolName:'local.move_path',category:'workspace_edit',mayChangeFiles:true});
+    check(await view()===is(false,'unknown',4),'a call that may change files and came back without trees: the tree is unknown');
+    await edit(trees('d','d'));
+    check(await view()===is(true,'fresh',4),'its trees say the tree is d again');
+    await timeline.noteTree(id,{proof:trees('d','e'),mayChangeFiles:true});
+    check(await view()===is(false,'unknown',4),'a call that threw after it changed the files: no pass is fresh (one of unknown tree, beside another call, so unknown)');
+    await timeline.mark(id,'tool_result',{toolName:'studio.diff_check',category:'read',verified:true});
+    check(await view()===is(true,'fresh',5),'a check that is not scanned is bound to the latest tree');
+    await timeline.mark(id,'tool_result',{toolName:'local.run_command',category:'execute',verified:true,isError:true,proof:trees('e','e'),mayChangeFiles:true});
+    check(await view()===is(true,'fresh',5),'a call in error is no pass');
+    // A timeline saved by an older version: a sticky flag and no tree; it loads with its counts, of unknown freshness.
+    const legacy='123e4567-e89b-42d3-a456-426614174002';
+    await fs.writeFile(path.join(root,'workflow-trees',legacy+'.json'),JSON.stringify({taskId:legacy,steps:[],phase:'verification',editsObserved:1,checksObserved:1,verified:true}));
+    const old=await new StudioWorkflow({directory:path.join(root,'workflow-trees')}).state(legacy);
+    check(old.verified===false&&old.freshness==='unknown'&&old.checksObserved===1&&old.editsObserved===1,'an old timeline: not verified, freshness unknown');
+  }
   const provider={ready:()=>true,respond:async()=>({output:[{type:'message',content:[{type:'output_text',text:'Inspect src/app.py line 1'}]}]})};
   const delegates=new StudioDelegates({workspace:studio,provider,directory:path.join(root,'delegates')});const job=await delegates.research({queries:['compute_aqi']});check(job.status==='completed'&&job.workers[0].references.length===1);
   const delegatesAgain=new StudioDelegates({workspace:studio,provider,directory:path.join(root,'delegates')});await delegatesAgain.load();check(delegatesAgain.state().last.id===job.id);

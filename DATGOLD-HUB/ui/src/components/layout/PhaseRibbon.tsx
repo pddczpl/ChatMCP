@@ -49,6 +49,13 @@ export function ribbonRows(task: Task, t: Translate, lang: FormatLang): Array<[s
   if (task.verificationOutcome?.ready === false) {
     rows.push([t('agents_ribbon_missing'), String(task.verificationOutcome.missing.length), task.verificationOutcome.missing.join('; ')]);
   }
+  // The receipts by the tree they were made on (pod-18): fresh of all, and what the rest are. A Hub that does not know the tree says so: nothing is fresh then.
+  const freshness = task.receiptFreshness;
+  const receipts = freshness ? freshness.fresh + freshness.stale + freshness.unknown : 0;
+  if (freshness && receipts > 0) {
+    rows.push([t('agents_ribbon_freshness'), `${freshness.fresh} / ${receipts}`,
+      freshness.tree ? t('agents_ribbon_freshness_hint', { fresh: freshness.fresh, stale: freshness.stale, unknown: freshness.unknown }) : t('agents_ribbon_freshness_unknown')]);
+  }
   return rows;
 }
 

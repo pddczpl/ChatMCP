@@ -3,7 +3,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
-import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
+import { callIdentity, createTaskProgress, observeTaskTool, observeTree, progressCheckpoint, receiptSummary, treeKey } from './agent-progress.mjs';
+import { scannedCall } from './proof/service.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from './agent-autonomy.mjs';
 import { injectRepoMapIntoInstructions, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
@@ -544,6 +545,13 @@ function plannedBudget(provider, instructions, tools) {
   return resolveEffectiveContextBudget({ contextWindowTokens: configured, modelMetadataTokens: facts.metadataContextTokens, instructions, tools, maxOutputTokens: facts.outputLimit });
 }
 
+/** One proof for a model's call that reached the guard more than once: the tree before the first, the tree after the last, overlapped if any was. Null for none. */
+function joinedProof(proofs) {
+  if (!proofs.length) return null;
+  if (proofs.length === 1) return proofs[0];
+  return { ...proofs.at(-1), treeBefore: proofs[0].treeBefore, overlapped: proofs.some((proof) => proof.overlapped === true) };
+}
+
 export class AgentRunner {
   constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null, preflightTimeoutMs = PREFLIGHT_TIMEOUT_MS, projectInstructions = null, agentOptions = null }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
@@ -709,6 +717,9 @@ export class AgentRunner {
       else {
         call.phase = 'executing';
         if (info.category === 'read' || info.category === 'checkpoint') call.readOnly = true;
+        // Whether the proof service scans this call (lib/proof/service.mjs scannedCall): a call that may change files. The guard says so, an external server flagged
+        // touchesWorkspace included; a caller that does not is judged by the category. Read with the call's trees when its receipts are bound (pod-18).
+        this.#callTrees(context, call.callId).scanned = typeof info.mayChangeFiles === 'boolean' ? info.mayChangeFiles : scannedCall({ category: info.category });
       }
     }
     if (info.allowed) {
@@ -747,6 +758,8 @@ export class AgentRunner {
       roleProfiles:task.roleProfiles??{},
       reasoningEffort:task.reasoningEffort??null,
       objectiveReceipts:availableObjectiveReceipts(task.progress),
+      // How many receipts are fresh on the latest tree the Hub knows, stale, or of unknown freshness (an older task's, or a run without trees).
+      receiptFreshness:receiptSummary(task.progress),
       contextPolicy:task.contextPolicy??null,
       modelCost:task.modelCost??createCostLedger(),
       subagentNotices:publicSubagentNotices(task,{summary}),
@@ -943,6 +956,8 @@ export class AgentRunner {
         if (task.state !== settledState) this.#advance(task, settledState, interrupted ? 'hub_restarted' : isTaskState(task.state) ? 'reconciled_on_load' : 'migrated_from_status', { force: true });
         if (interrupted) {
           if (task.runs?.length) Object.assign(task.runs.at(-1),{status:'paused',state:task.state,finishedAt:task.finishedAt});
+          // A call that may have changed the files was running when the Hub died: the tree it left is not the last one the run saw, so no receipt is fresh (pod-18).
+          if (task.state === 'uncertain') task.progress = observeTree(task.progress, null);
           await this.#event(task, 'paused', task.error, { status: task.status });
           // The proof ledger of the run that died: the call it was in the middle of and the run itself, as uncertain records.
           try { await this.manager.recoverProof?.(task.id); } catch (proofError) { this.log(this.#redact(proofError.message)); }
@@ -1215,7 +1230,7 @@ export class AgentRunner {
       task.pendingCall = null;
     }
     const budget = new RequestMeter({used:task.usage});
-    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: new HistoryLedger(), inFlight: null, resumeEvidence:priorContext };
+    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), callTrees: new Map(), history: new HistoryLedger(), inFlight: null, resumeEvidence:priorContext };
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
     // Held on the gate before anything of the run can call a tool (the policy is the gate's: it outlives this run until the plan is approved).
     if (planOnly(task)) this.#holdPlan(task);
@@ -1250,6 +1265,9 @@ export class AgentRunner {
       // If cancellation wins a preflight race, close a session which arrives late.
       sessionPromise.then((session) => { if (context.controller.signal.aborted && context.session !== session) void boundedClose(() => session.close()); }, () => {});
       context.session = await abortable(sessionPromise, context.controller.signal);
+      // The run's start tree from the proof ledger (HubManager.createAgentSession): the current tree until a scanned call says otherwise, so the receipts of an
+      // earlier run are fresh again when the files are as they were then, and stale when they changed between the runs. None: the tree stays unknown.
+      task.progress = observeTree(task.progress, context.session.proofStart ?? null);
       const normalized = normalizeCatalog(context.session.catalog);
       context.catalog = normalized.catalog; context.index = normalized.index;
       task.catalogCounts = { tools: context.catalog.tools.length, prompts: context.catalog.prompts.length, resources: context.catalog.resources.length, resourceTemplates: context.catalog.resourceTemplates.length };
@@ -1548,13 +1566,43 @@ export class AgentRunner {
       // release a newer task's lock.
       if (this.activeTaskId === task.id) {
         // The end of this run in the proof ledger, whatever the status (a cancelled or failed task too), while the workspace is still the task's.
-        try { await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }
+        let ended = null;
+        try { ended = await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }
+        try { await this.#judgeFinalTree(task, ended?.tree ?? null); } catch (judgeError) { this.log(this.#redact(judgeError.message)); }
         try { this.manager.releaseTask(task.id); } catch (releaseError) { this.log(this.#redact(releaseError.message)); }
         this.activeTaskId = null; this.context = null;
       }
       context.history.clear(); context.session = null;
       context.done.resolve(this.#public(task));
     }
+  }
+
+  /**
+   * The run's real final tree (pod-18, docs/PROOF-RECEIPTS.md): the completion was judged against the latest tree the run knew, the tree after its last scanned
+   * call. A change made outside a scanned call after it (a process a command left running, a watcher, the person's own editor, an external tool the owner did not
+   * flag) shows only in the full snapshot ProofService.end() takes. When both trees are known and differ, that snapshot is the current tree: the receipts made on
+   * the other one are stale, the outcome of a completed task is judged again (missing evidence, freshness stale), the Hub's warning goes into its answer, and
+   * all of it is saved. The task's status stays. An unknown final tree changes nothing: it is no evidence that the files changed.
+   */
+  async #judgeFinalTree(task, finalTree) {
+    const final = treeKey(finalTree);
+    const judged = task.progress?.tree ?? null;
+    if (!final || !judged || final === judged) return;
+    task.progress = observeTree(task.progress, finalTree);
+    if (task.status !== 'completed') { await this.#persist(task); return; }
+    task.verificationOutcome = assessCompletionEvidence(task.goalPlan, task.progress);
+    task.completionOutcome = classifyTaskCompletion(task.goalPlan, task.progress);
+    if (task.verificationOutcome.ready) { await this.#persist(task); return; }
+    const warning = verificationWarning(task.verificationOutcome.missing);
+    if (task.finalParts) {
+      this.#setFinalText(task, { ...task.finalParts, verificationNotice: warning });
+      // The run and the dialogue keep the answer as it now reads.
+      if (task.runs?.length) task.runs.at(-1).finalText = task.finalText;
+      const said = task.dialogue?.findLast((entry) => entry.role === 'assistant' && entry.run === (task.runs?.length ?? 1));
+      if (said) said.text = task.finalText;
+    }
+    await this.#event(task, 'verification_unverified', 'Cây thư mục lúc kết thúc khác cây sau lời gọi cuối mà Hub đã ghi (một tiến trình còn chạy, trình soạn thảo hoặc công cụ không được quét đã sửa file): biên nhận không còn mới. ' + warning,
+      { status: task.status, reason: 'final_tree_changed' }, { missing: task.verificationOutcome.missing, freshness: task.verificationOutcome.freshness });
   }
 
   async cancel(id) {
@@ -1771,8 +1819,12 @@ export class AgentRunner {
           // The name the call ran under: dispatch resolves a short name given to mcp_call (read_file is local.read_file), and the verifier knows only the qualified one.
           const named=callIdentity(call).name;
           const actualName=context.direct?.byName?.get(call.name) ?? catalogToolName(context,named) ?? named;
-          const verified=await verifyHostEvidence({manager:this.manager,name:actualName,result,step:task.steps});
-          const evidence=observeTaskTool(task.progress,{call,result,step:task.steps,verified});
+          // The trees the proof service took around this call (none for a read, or where the service records no trees): the receipts are bound to them (pod-18).
+          const trees=context.callTrees.get(call.call_id)??{scanned:false,proofs:[]};
+          context.callTrees.delete(call.call_id);
+          const proof=joinedProof(trees.proofs);
+          const verified=await verifyHostEvidence({manager:this.manager,name:actualName,result,step:task.steps,proof,tree:task.progress.tree});
+          const evidence=observeTaskTool(task.progress,{call,result,step:task.steps,verified,proof,scanned:trees.scanned});
           task.progress=evidence.progress;
           if(verified)task.goalPlan=updateGoalPlan(task.goalPlan,verified);
           if(this.agentOptions.autoAcceptChecks)await this.#autoAcceptChecks(task);
@@ -2090,8 +2142,17 @@ export class AgentRunner {
    * trees around the call go into the transcript as a `proof` line, next to the call's other records. They are never put in the result, the
    * events or the pending call, which is what a model (and a resumed run) reads. Awaited.
    */
+  /** The trees of the model's call `callId` gathered by the guard's callbacks: whether it is a scanned call, and what onProof said of it. */
+  #callTrees(context, callId) {
+    let entry = context.callTrees.get(callId);
+    if (!entry) { entry = { scanned: false, proofs: [] }; context.callTrees.set(callId, entry); }
+    return entry;
+  }
+
   async #proved(context, info) {
     const { task } = context;
+    // Kept for the receipts of this call (lib/agent-progress.mjs, pod-18): its trees decide which tree they are bound to and which tree is current after it.
+    if (task.pendingCall?.callId) this.#callTrees(context, task.pendingCall.callId).proofs.push(info);
     await this.#appendTranscript(task, {
       at: now(), type: 'proof', toolName: info.tool, callId: task.pendingCall?.callId ?? null, guardCallId: info.callId, seq: info.seq, outcome: info.outcome,
       changed: info.changed, overlapped: info.overlapped, granularity: info.granularity, treeBefore: info.treeBefore, treeAfter: info.treeAfter,

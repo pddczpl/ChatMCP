@@ -4,7 +4,8 @@
 //
 // What it proves: the Hub runs on its own; the model is offered the real tools; every call goes through the
 // permission gate and a checkpoint; refusals reach the model as results; a command cannot be approved by
-// accident; secrets never reach the transcript; a repository cannot run programs through Git settings; a tool that can change the files makes the receipts of a coding run stale.
+// accident; secrets never reach the transcript; a repository cannot run programs through Git settings; the receipts of a coding run are bound to the workspace tree they
+// were made on, so whatever changes the files after them (a tool of any name, a shell command) makes them stale, and what leaves the files leaves them fresh.
 // CLAIM: receipt-invalidation
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -16,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { HubManager, defaultDataDirectory } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner } from '../lib/agent.mjs';
-import { mutatesTree } from '../lib/agent-progress.mjs';
+import { receiptSummary } from '../lib/agent-progress.mjs';
+import { MISSING } from '../lib/agent-autonomy.mjs';
 import { parseArguments } from '../hub.mjs';
 
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -247,8 +249,8 @@ try {
   // made in a real run, and every coding run ended with "No independently recorded Git diff review".)
   await section('a git_diff after the last edit is a review receipt, one before a later edit is not (real tools)', async () => {
     const GOAL = 'Read calc.js and find out why add() returns the wrong sum; then fix it with the smallest change and run the project tests; finally review the Git diff and report what is still limited.';
-    const NO_CHECK = 'No verified successful project check';
-    const NO_REVIEW = 'No independently recorded Git diff review';
+    const NO_CHECK = MISSING.verify;
+    const NO_REVIEW = MISSING.review;
     /** One run of the real loop on a fresh project; the plan of the goal has a review phase, so the Hub has to judge the completion. */
     const run = async (name, steps) => {
       const dir = await project(name);
@@ -289,8 +291,10 @@ try {
     equal(b.task.progress.verifiedChecks, [], 'B: nor is the passing test before it a check of the file');
     equal(b.task.progress.verifiedFiles.length, 1, 'B: only the last edit holds a file hash');
     check(b.task.progress.verifiedFiles[0].sha256 !== first, 'B: and it is the hash of the last edit');
-    check(b.task.progress.invalidatedEvidence >= 3, 'B: the Hub counts what the last edit made stale');
-    equal(b.task.verificationOutcome.missing, [NO_CHECK, NO_REVIEW], 'B: the Hub says what is missing');
+    check(receiptSummary(b.task.progress).stale >= 3, 'B: the receipts the last edit made stale are kept, and counted as stale');
+    const STALE = ' on the final tree: its receipts are stale (the files changed after them)';
+    equal(b.task.verificationOutcome.missing, [NO_CHECK + STALE, NO_REVIEW + STALE], 'B: the Hub says what is missing, and that it is stale');
+    equal(b.task.completionOutcome.freshness, 'stale', 'B: the completion says so');
     check(b.task.finalText.includes(NO_REVIEW), 'B: and so does the answer');
 
     // C: the model looks again after the later edit: that diff is the one that counts.
@@ -313,12 +317,12 @@ try {
     equal(e.task.progress.gitReviews, [], 'E: a diff shown in part is not a review');
   });
 
-  // ---------------------------------------------------------------- which tools make the receipts stale
-  // A receipt describes the files as they were when it was made, so a tool that can change the files makes every receipt stale: the passing test, the diff that was read, the hash of the edit
-  // and what was read. The rule was a list of names (move_file, delete_file, rename_file ...) that no Hub tool has: after read, edit, `npm test` and git_diff, a move_path or a delete_path left
-  // the review, the check and the edit receipt of a tree that had changed, and the run could still end "ready". The tools here are the Hub's own, called by the real loop.
+  // ---------------------------------------------------------------- what makes the receipts stale
+  // A receipt describes the files as they were when it was made: it is bound to the workspace tree of that moment (pod-18), so whatever changes the files after it makes every receipt stale:
+  // the passing test, the diff that was read, the hash of the edit and what was read. The rule was once a list of tool names (and a shell command that edited a file was its documented limit);
+  // now it is the tree the proof service snapshots around every call that can change files. The tools here are the Hub's own, called by the real loop.
   const held = (task) => ({ read: task.progress.verifiedInspections.length, edit: task.progress.verifiedFiles.length, check: task.progress.verifiedChecks.length, review: task.progress.gitReviews.length });
-  await section('a tool that can change the files makes the receipts stale, one that cannot leaves them (real tools)', async () => {
+  await section('a call that changes the files makes the receipts stale, one that leaves them leaves them fresh (real tools)', async () => {
     const GOAL = 'Read calc.js and find out why add() returns the wrong sum; then fix it with the smallest change and run the project tests; finally review the Git diff and report what is still limited.';
     const ALL = { read: 1, edit: 1, check: 1, review: 1 };
     const NONE = { read: 0, edit: 0, check: 0, review: 0 };
@@ -326,7 +330,11 @@ try {
     /** read, edit, a passing `npm test`, the diff, a second read: one receipt of each kind. Then the calls under test, one turn each, then the answer. */
     const run = async (name, calls) => {
       const dir = await project(name);
-      git(dir, ['branch', 'side']);
+      // A branch whose files differ (slow.js), so that checking it out or merging it really changes the files: a checkout of the same commit leaves them, and the receipts.
+      git(dir, ['checkout', '-q', '-b', 'side']);
+      await fs.appendFile(path.join(dir, 'slow.js'), '// side\n');
+      git(dir, ['commit', '-q', '-am', 'side']);
+      git(dir, ['checkout', '-q', '-']);
       git(dir, ['config', 'user.name', 'Test']);
       git(dir, ['config', 'user.email', 'test@example.invalid']);
       await manager.selectWorkspace(dir);
@@ -354,6 +362,11 @@ try {
       if (ran.answer?.isError !== false) problems.push(`${label}: (premise) the last call did not succeed: ${textOf(ran.answer).slice(0, 160)}`);
       if (JSON.stringify(held(ran.task)) !== JSON.stringify(want)) problems.push(`${label}: holds ${JSON.stringify(held(ran.task))}, expected ${JSON.stringify(want)}`);
       if (ran.task.verificationOutcome.ready !== !clears) problems.push(`${label}: the Hub says ready=${ran.task.verificationOutcome.ready}, expected ${!clears}`);
+      // Stale, not gone: the receipts are kept, and the completion says why it is not ready.
+      const summary = receiptSummary(ran.task.progress);
+      const want2 = clears ? { tree: true, fresh: 0, stale: 5, unknown: 0 } : { tree: true, fresh: 4, stale: 1, unknown: 0 };
+      if (JSON.stringify(summary) !== JSON.stringify(want2)) problems.push(`${label}: receipts ${JSON.stringify(summary)}, expected ${JSON.stringify(want2)}`);
+      if (ran.task.completionOutcome.freshness !== (clears ? 'stale' : 'fresh')) problems.push(`${label}: the completion's freshness is ${ran.task.completionOutcome.freshness}`);
     };
     const rows = [
       // The tools that can change the files, whatever they are given. The branch is switched through mcp_call: the arguments of the routed call decide it.
@@ -362,6 +375,12 @@ try {
       ['git_checkout', [tool('git_checkout', { ref: 'side' })], true],
       ['git_merge', [tool('git_merge', { branch: 'side' })], true],
       ['git_branch switch (routed)', [routed('git_branch', { action: 'switch', name: 'side' })], true],
+      // A shell command that edits a tracked file: once the documented limit of a list of names, now seen in the tree after it.
+      ['run_command that edits a file', [tool('run_command', { command: 'node -e "require(\'fs\').appendFileSync(\'slow.js\', \'// edited\\n\')"', description: 'Edit a file' })], true],
+      // One that writes only a file Git ignores: the tree (with the project's .gitignore) is the same.
+      ['run_command that writes an ignored file', [tool('run_command', { command: 'node -e "require(\'fs\').writeFileSync(\'started.txt\', \'1\')"', description: 'Write an ignored file' })], false],
+      // The same tool that edits: the tree after it is the same as before it, so nothing it was given changed what was tested (the receipts follow the files, not the name).
+      ['write_file with the same bytes', [tool('write_file', { path: 'slow.js', overwrite: true, content: "const fs = require('fs');\nfs.writeFileSync('started.txt', '1');\nsetTimeout(() => { fs.writeFileSync('finished.txt', '1'); }, 6000);\n" })], false],
       // Control, and the tools that leave the files as they are: a plan, an empty folder, a list of branches, staging and committing what was reviewed.
       ['nothing after the review', [], false],
       ['make_directory', [tool('make_directory', { path: 'newdir' })], false],
@@ -377,43 +396,6 @@ try {
     }
     equal(committed, '2', '(premise) the reviewed change was really committed');
     equal(problems, [], 'every tool left the receipts as it left the files');
-  });
-
-  // ---------------------------------------------------------------- every tool is classified
-  // mutatesTree (lib/agent-progress.mjs) is a list of names: the registry's category is about permission (npm test, git_add and make_directory are all workspace_edit) and cannot say which tool
-  // changes what a file holds. So a tool added to the catalog later would stay out of the list unnoticed, and the receipts would survive it. Every tool that is not read-only is put here once,
-  // with the arguments that make it change files or not, and the first check breaks when the catalog has a tool this list has not.
-  await section('every tool of the real catalog that is not read-only is classified for the receipts', async () => {
-    const RULES = [
-      // Can change the files (with these arguments).
-      ['local.write_file', {}, true], ['local.edit_file', {}, true], ['local.files_write_batch', {}, true], ['local.files_apply_patch', {}, true],
-      ['local.move_path', {}, true], ['local.delete_path', {}, true],
-      ['local.git_checkout', {}, true], ['local.git_merge', {}, true], ['local.git_branch', { action: 'create' }, true], ['local.git_branch', { action: 'switch' }, true],
-      ['local.worktrees_create', {}, true], ['local.worktrees_remove', {}, true],
-      ['local.rename_symbol', { apply: true }, true], ['local.format_document', { apply: true }, true], ['local.organize_imports', { apply: true }, true],
-      // The same tools asked only to look.
-      ['local.git_branch', { action: 'list' }, false], ['local.rename_symbol', {}, false], ['local.format_document', {}, false], ['local.organize_imports', {}, false],
-      // Leave what the project's files hold as it is: a plan, a token profile, the Hub's own notes (.chatmcp/knowledge.json), an empty folder, staging and committing.
-      ['local.update_plan', {}, false], ['local.token_profile', {}, false], ['local.knowledge_create', {}, false], ['local.make_directory', {}, false], ['local.git_add', {}, false], ['local.git_commit', {}, false],
-      // Work outside the folder or in a browser, a debugger breakpoint, a stopped background task, a snapshot kept in the Hub's own folder.
-      ['local.tasks_cancel', {}, false], ['local.debug_breakpoint', {}, false], ['studio.checkpoint', {}, false],
-      ['local.github_action', {}, false], ['local.github_pr_merge', {}, false], ['local.github_release_create', {}, false], ['local.github_rerun_failed', {}, false], ['local.github_code_search', {}, false],
-      // Publishes commits to a remote: no file of the project changes, so what was tested and reviewed stays tested and reviewed.
-      ['local.git_push', {}, false], ['local.git_push', { remote: 'origin', branch: 'feature/x', set_upstream: true }, false],
-      ['local.web_fetch', {}, false], ['local.web_search', {}, false], ['local.web_extract', {}, false], ['local.docs_search', {}, false], ['local.dependency_lookup', {}, false],
-      ['local.browser_launch', {}, false], ['local.browser_navigate', {}, false], ['local.browser_click', {}, false], ['local.browser_fill', {}, false], ['local.browser_screenshot', {}, false],
-      ['local.browser_close', {}, false], ['local.browser_trace_start', {}, false], ['local.browser_trace_stop', {}, false], ['local.responsive_check', {}, false], ['local.screenshot_capture', {}, false],
-      // Run code, so they can change files without the Hub seeing it: the documented limit. A shell command that edits a file leaves the receipts.
-      ['local.run_command', { command: 'sed -i s/a/b/ calc.js' }, false], ['local.tasks_run', { command: 'sed -i s/a/b/ calc.js' }, false], ['local.test_run', {}, false], ['local.build_run', {}, false],
-      ['local.debug_start', {}, false], ['local.debug_continue', {}, false], ['local.debug_step', {}, false], ['local.debug_evaluate', {}, false], ['local.debug_stop', {}, false],
-      ['local.git_commit', { run_hooks: true }, false],
-    ];
-    const catalog = manager.catalog.tools;
-    const writers = catalog.filter((entry) => entry.annotations?.readOnlyHint !== true).map((entry) => entry.name).sort();
-    equal(writers, [...new Set(RULES.map(([name]) => name))].sort(), 'every tool that is not read-only is in the list above, and nothing else is');
-    const wrong = RULES.filter(([name, args, mutates]) => mutatesTree(name, args) !== mutates).map(([name, args, mutates]) => `${name} ${JSON.stringify(args)} should ${mutates ? '' : 'not '}make the receipts stale`);
-    equal(wrong, [], 'and mutatesTree says what the list says');
-    equal(catalog.filter((entry) => entry.annotations?.readOnlyHint === true && mutatesTree(entry.name, {})).map((entry) => entry.name), [], 'a read-only tool never makes them stale');
   });
 
   // ---------------------------------------------------------------- the name a call is judged by
