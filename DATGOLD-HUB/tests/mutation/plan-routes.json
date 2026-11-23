@@ -1,0 +1,62 @@
+{
+ "suite": "verify-studio-http.mjs",
+ "description": "What the Studio HTTP suite must notice of the plan routes of P9 ac-10 (docs/PLAN-MODE.md \"The plan and its revision\"): POST /api/studio/plan/set always writes as the user and keeps its fields; POST /api/studio/plan/decide refuses a bad task id, decision or revision, a request for changes without feedback or with an execution, and answers 404 when no plan waits. What the routes do with a plan request that waits is in plan-model.json (verify-plan-mode, through a real Hub).",
+ "mutations": [
+  {
+   "name": "Q1",
+   "what": "the page can write a plan as the model",
+   "patches": [
+    { "file": "hub.mjs", "old": "by:'user',expectedRevision:payload.baseRevision??null});", "new": "by:payload.by??'user',expectedRevision:payload.baseRevision??null});" }
+   ]
+  },
+  {
+   "name": "Q2",
+   "what": "the page's edit of the plan text is dropped",
+   "patches": [
+    { "file": "hub.mjs", "old": "items:payload.items??[],text:payload.text,by:'user',", "new": "items:payload.items??[],by:'user'," }
+   ]
+  },
+  {
+   "name": "Q3",
+   "what": "the plan decision route takes any task id",
+   "patches": [
+    { "file": "hub.mjs", "old": "if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(payload.taskId))throw Object.assign(new Error('Cần ID hội thoại hợp lệ.'),{code:'bad_task_id',statusCode:400});", "new": "" }
+   ]
+  },
+  {
+   "name": "Q4",
+   "what": "the plan decision route takes any decision",
+   "patches": [
+    { "file": "hub.mjs", "old": "if(!['approve','request_changes'].includes(payload.decision))throw", "new": "if(false)throw" }
+   ]
+  },
+  {
+   "name": "Q5",
+   "what": "the plan decision route takes a missing or broken revision",
+   "patches": [
+    { "file": "hub.mjs", "old": "if(!(Number.isSafeInteger(payload.revision)&&payload.revision>=0))throw", "new": "if(false)throw" }
+   ]
+  },
+  {
+   "name": "Q6",
+   "what": "changes can be requested without feedback",
+   "patches": [
+    { "file": "hub.mjs", "old": "if(!approve&&feedback===null)throw", "new": "if(false)throw" }
+   ]
+  },
+  {
+   "name": "Q7",
+   "what": "a request for changes takes an execution choice",
+   "patches": [
+    { "file": "hub.mjs", "old": "if(!approve&&execution!==null)throw", "new": "if(false)throw" }
+   ]
+  },
+  {
+   "name": "Q8",
+   "what": "a decision for a task with no plan waiting is not answered with 404",
+   "patches": [
+    { "file": "hub.mjs", "old": "if(!planRequest)throw Object.assign(new Error('Tác vụ này không có kế hoạch nào đang chờ duyệt.'),{code:'no_plan_request',statusCode:404});", "new": "" }
+   ]
+  }
+ ]
+}

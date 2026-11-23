@@ -14,6 +14,16 @@
 //  5. a continue of a plan-mode task stays read-only, planMode:false cannot leave it, a Hub restart while the plan waits leaves it read-only
 //  6. the HTTP routes: planMode on /api/tasks/start, feedback on /api/studio/permissions/decide (validated), a plan-mode chat that runs as a
 //     second chat (its own gate); the Browser Companion refuses planMode; ACP and the MCP host cannot send it
+// The plan model v2 (P9 ac-10, docs/PLAN-MODE.md "The plan and its revision"):
+//  7. StudioWorkspace.plan(): one revision number per plan (checklist and text), who wrote it last, the approval record; a stale base is a
+//     409 conflict and writes nothing; the model cannot overwrite the owner's edit without naming the revision it read; an old plan file is
+//     revision 0 and is rewritten only by its next write; two writes from one base save one
+//  8. the model's side: update_plan / studio.plan_set / exit_plan_mode with expected_revision get a conflict result that names get_plan and
+//     leave the file byte for byte; the execution choice of an approval (Review or Autonomous) is the mode of that task only, survives a restart,
+//     and Read Only still wins
+//  9. through a real Hub process (hub.mjs on a free port, never 3007) and the strict Chat Completions mock: an edit raises the revision, a stale
+//     baseRevision is 409, a stale decision is 409, the model's stale update_plan gets the conflict and the file is unchanged, the feedback is in
+//     the next provider request, Autonomous runs the write unasked under a gate in Review, Review asks it under a gate in Autonomous
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -33,7 +43,11 @@ import { PermissionGate, PLAN_LIMITS, decisionExtras } from '../lib/permissions.
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { snapshotTree } from '../lib/proof/tree-snapshot.mjs';
+import { StudioTools } from '../lib/studio-tools.mjs';
 import { createHubServer } from '../hub.mjs';
+import { connectModel, setMode, settledTask, startHub, waitFor } from './e2e/hub-process.mjs';
+import { startMockModel } from './e2e/mock-model-server.mjs';
+import { call as mockCall, say } from './e2e/scenarios.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -253,7 +267,7 @@ try {
     assert.throws(() => gate.decide(card.id, 'yes'), { code: 'bad_decision', statusCode: 400 });
     assert.ok(gate.state().pending.some((item) => item.id === card.id), 'a refused answer leaves the request pending');
     assert.deepEqual(gate.decide(card.id, true, { plan: EDITED, feedback: '  Keep it small.  ' }), { ok: true, id: card.id, approved: true });
-    assert.deepEqual(await approval, { approved: true, status: 'approved', feedback: 'Keep it small.', plan: EDITED });
+    assert.deepEqual(await approval, { approved: true, status: 'approved', feedback: 'Keep it small.', plan: EDITED, revision: null, execution: null });
     assert.equal(gate.taskPolicy('plan-1'), null, 'the approval clears the policy');
     assert.equal(gate.history.at(-1).decision, 'approved');
     assert.equal(gate.history.at(-1).category, 'plan');
@@ -262,7 +276,7 @@ try {
     const denial = gate.askPlanApproval({ taskId: 'plan-2', plan: PLAN });
     const denied = await until(() => gate.state().pending.find((item) => item.taskId === 'plan-2'), 'the second plan card');
     gate.decide(denied.id, false, { feedback: 'Add a test first.' });
-    assert.deepEqual(await denial, { approved: false, status: 'denied', feedback: 'Add a test first.', plan: null });
+    assert.deepEqual(await denial, { approved: false, status: 'denied', feedback: 'Add a test first.', plan: null, revision: null, execution: null });
     assert.equal(gate.taskPolicy('plan-2').planOnly, true, 'a denial keeps the policy');
     assert.equal(gate.history.at(-1).feedback, 'Add a test first.', 'the feedback is in the history of the decision');
 
@@ -275,16 +289,16 @@ try {
     assert.equal((await plain).allowed, false);
 
     // The decide payload of the Hub route is read by decisionExtras: types and lengths, before any request is looked up.
-    assert.deepEqual(decisionExtras({ id: 'x', approved: true }), { feedback: null, plan: null });
-    assert.deepEqual(decisionExtras({ feedback: ' fine ', plan: EDITED }), { feedback: 'fine', plan: EDITED });
-    assert.deepEqual(decisionExtras({ feedback: '   ' }), { feedback: null, plan: null }, 'blank feedback is none');
+    assert.deepEqual(decisionExtras({ id: 'x', approved: true }), { feedback: null, plan: null, execution: null, revision: null });
+    assert.deepEqual(decisionExtras({ feedback: ' fine ', plan: EDITED }), { feedback: 'fine', plan: EDITED, execution: null, revision: null });
+    assert.deepEqual(decisionExtras({ feedback: '   ' }), { feedback: null, plan: null, execution: null, revision: null }, 'blank feedback is none');
     assert.throws(() => decisionExtras({ feedback: ['x'] }), { code: 'bad_feedback', statusCode: 400 });
     assert.throws(() => decisionExtras({ plan: 7 }), { code: 'bad_plan', statusCode: 400 });
     ok('gate: the plan request rides the approval stack (category plan, expiry, the card holds the plan); decide() validates feedback and an edited plan (only for a plan, only to approve); only an approval clears the policy');
 
     const expiring = newGate({ timeout: 80 });
     expiring.setTaskPolicy('plan-3', { planOnly: true });
-    assert.deepEqual(await expiring.askPlanApproval({ taskId: 'plan-3', plan: PLAN }), { approved: false, status: 'expired', feedback: null, plan: null });
+    assert.deepEqual(await expiring.askPlanApproval({ taskId: 'plan-3', plan: PLAN }), { approved: false, status: 'expired', feedback: null, plan: null, revision: null, execution: null });
     assert.equal(expiring.taskPolicy('plan-3').planOnly, true, 'an expired plan request is a denial: the policy holds');
     assert.equal(expiring.history.at(-1).decision, 'expired');
     const controller = new AbortController();
@@ -302,7 +316,7 @@ try {
     const quiet = newGate();
     quiet.interactive = false;
     quiet.setTaskPolicy('plan-4', { planOnly: true });
-    assert.deepEqual(await quiet.askPlanApproval({ taskId: 'plan-4', plan: PLAN }), { approved: false, status: 'unanswerable', feedback: null, plan: null });
+    assert.deepEqual(await quiet.askPlanApproval({ taskId: 'plan-4', plan: PLAN }), { approved: false, status: 'unanswerable', feedback: null, plan: null, revision: null, execution: null });
     assert.equal(quiet.state().pending.length, 0, 'nobody to ask: nothing is left pending');
     assert.equal(quiet.taskPolicy('plan-4').planOnly, true);
     ok('gate: an expired, stopped or cancelled plan request and one nobody can answer all leave the task read-only');
@@ -445,7 +459,13 @@ try {
     assert.ok(injected.includes(EDITED), 'the approved (edited) plan is injected as a user message');
     assert.equal(await fs.readFile(path.join(repo, 'approved.txt'), 'utf8'), 'done\n', 'after the approval the write runs');
     assert.equal(done.planApproval.status, 'approved');
-    assert.equal(done.planApproval.revision, 1);
+    // One revision number per plan (ac-10): the proposal is revision 1 of the task's plan, the owner's edit that came with the approval revision 2.
+    assert.equal(done.planApproval.revision, 2);
+    assert.equal(done.planApproval.execution, null, 'no execution choice: the task follows the mode of the gate');
+    const editedPlan = await stack.hub.studio.plan({ taskId: task.id });
+    assert.equal(editedPlan.text, EDITED, 'the plan file holds the approved (edited) text');
+    assert.deepEqual([editedPlan.revision, editedPlan.updatedBy, editedPlan.approvedRevision], [2, 'user', 2]);
+    assert.ok(Date.parse(editedPlan.approvedAt) > 0);
     assert.equal(done.planApproval.editedByUser, true);
     assert.ok(Date.parse(done.planApproval.at) > 0);
     assert.equal(done.planOnly, false);
@@ -467,7 +487,7 @@ try {
     await settled(runner, task.id);
     assert.match(thirdOutput, PLAN_REFUSAL);
     await assert.rejects(fs.access(path.join(repo, 'third.txt')));
-    ok('approve: the edited plan is injected, planApproval {approved, revision 1, editedByUser} is persisted, the policy is cleared and the write runs; a follow-up keeps the approval; planMode:true starts a new read-only plan');
+    ok('approve: the edited plan is injected and saved as revision 2 of the plan file (by the user), planApproval {approved, revision 2, editedByUser} is persisted, the policy is cleared and the write runs; a follow-up keeps the approval; planMode:true starts a new read-only plan');
   }
 
   {
@@ -637,6 +657,11 @@ try {
     assert.equal(childStart.status, 200);
     const childTask = (await childStart.json()).task;
     const worktreeCard = await until(() => gate.state().pending.find((item) => item.toolName === 'local.worktrees_create' && item.taskId === childTask.id), 'the worktree question of the plan chat');
+    // An ordinary request (not a plan) takes no feedback and no execution over HTTP either: 400, and it stays pending.
+    for (const extra of [{ feedback: 'Not for this card.' }, { execution: 'autonomous' }]) {
+      assert.equal((await post('/api/studio/permissions/decide', { id: worktreeCard.id, approved: true, ...extra })).status, 400, `the route refuses ${Object.keys(extra)[0]} on an ordinary request`);
+    }
+    assert.ok(gate.state().pending.some((item) => item.id === worktreeCard.id), 'the refused answers leave the ordinary request pending');
     assert.equal((await post('/api/studio/permissions/decide', { id: worktreeCard.id, approved: true })).status, 200);
     const childCard = await until(() => pool.pendingApprovals().find((item) => item.category === 'plan' && item.taskId === childTask.id), 'the plan of the second chat');
     assert.ok(toolNames(childFirst).includes('exit_plan_mode') && childFirst.instructions.includes('PLAN MODE'), 'the second chat runs in plan mode');
@@ -644,6 +669,8 @@ try {
     assert.equal((await post('/api/studio/permissions/decide', { id: childCard.id, approved: false, feedback: 'Child: smaller steps.' })).status, 200);
     await until(() => childOutput, 'the answer of the second chat');
     assert.match(childOutput, /Child: smaller steps\./);
+    const childPlan = await fetch(`${origin}/api/studio/plan?taskId=${childTask.id}`, { headers: auth }).then((response) => response.json());
+    assert.deepEqual([childPlan.revision, childPlan.updatedBy, childPlan.text], [1, 'agent', 'Child plan.'], 'the Hub route reads the plan of a second chat from the studio of that chat');
     assert.equal((await post('/api/studio/permissions/decide', { id: card.id, approved: false, feedback: 'Primary: name the files.' })).status, 200);
     await settled(runner, primary.id);
     assert.match(exitOutput, /Primary: name the files\./, 'the feedback sent over HTTP reaches the model');
@@ -666,6 +693,407 @@ try {
     const host = readFileSync(path.join(bundleRoot, 'lib', 'mcp', 'host.mjs'), 'utf8');
     assert.ok(!/planMode|\/api\/tasks|AgentRunner|\.continue\(/.test(host), 'the MCP host starts no agent task and names no plan mode');
     ok('transports: the Browser Companion refuses planMode (start, continue, a carried plan-mode task); ACP sends only prompt/workspacePath/id; the MCP host starts no task');
+  }
+
+  // ---------------------------------------------------------------- 7. the plan model v2 (ac-10): revision, owner, optimistic concurrency, lazy migration
+  {
+    const root = path.join(temp, 'plan-model');
+    const work = path.join(root, 'work');
+    await fs.mkdir(work, { recursive: true });
+    const studio = new StudioWorkspace({ manager: { workspace: work, secrets: [] }, directory: path.join(root, 'studio') });
+    const id = '6f9d2c1e-0b7a-4c3d-9e8f-1a2b3c4d5e6f';
+    const file = path.join(root, 'studio', 'plans', `${id}.json`);
+    const view = (plan) => [plan.revision, plan.updatedBy, plan.title, plan.items.map((item) => item.text), plan.text];
+    const raw = async () => { try { return await fs.readFile(file, 'utf8'); } catch { return null; } };
+    const conflict = (revision, updatedBy) => ({ code: 'plan_conflict', statusCode: 409, revision, updatedBy });
+
+    const none = await studio.plan({ taskId: id });
+    assert.deepEqual([none.version, none.revision, none.updatedBy, none.approvedAt, none.approvedRevision, none.text, none.items], [2, 0, null, null, null, '', []], 'no plan yet: revision 0, written by nobody');
+    assert.equal(await raw(), null, 'reading a plan that does not exist writes nothing');
+
+    // A plan file of the old shape (no revision, no owner): revision 0, and left as it is until something writes the plan.
+    const legacy = JSON.stringify({ taskId: id, workspace: path.resolve(work), title: 'Old plan', items: [{ text: 'Old step', status: 'doing', evidence: '' }], updatedAt: '2026-11-01T00:00:00.000Z' });
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, legacy);
+    const old = await studio.plan({ taskId: id });
+    assert.deepEqual(view(old), [0, null, 'Old plan', ['Old step'], '']);
+    assert.deepEqual([old.version, old.updatedAt, old.approvedAt, old.approvedRevision], [2, '2026-11-01T00:00:00.000Z', null, null]);
+    assert.equal(await raw(), legacy, 'a read does not rewrite an old plan file (lazy migration)');
+    await assert.rejects(studio.plan({ taskId: id, operation: 'set', title: 'x', items: [], by: 'user', expectedRevision: 1 }), conflict(0, null), 'an old plan is revision 0: a base of 1 is stale');
+    assert.equal(await raw(), legacy);
+    const migrated = await studio.plan({ taskId: id, operation: 'set', title: 'Owner plan', items: [{ text: 'Step A', status: 'todo' }], by: 'user', expectedRevision: 0 });
+    assert.deepEqual(view(migrated), [1, 'user', 'Owner plan', ['Step A'], '']);
+    const stored = JSON.parse(await raw());
+    assert.deepEqual([stored.version, stored.revision, stored.updatedBy, stored.approvedAt, stored.approvedRevision, stored.text], [2, 1, 'user', null, null, ''], 'the first write stores the v2 shape');
+
+    // The model ('agent') does not overwrite the owner's edit unless it names the revision it read.
+    const ownerBytes = await raw();
+    await assert.rejects(studio.plan({ taskId: id, operation: 'set', title: 'Model plan', items: [{ text: 'Model step', status: 'todo' }] }), conflict(1, 'user'), 'a write of the model without a base after an edit of the owner is a conflict');
+    await assert.rejects(studio.plan({ taskId: id, operation: 'set', title: 'Model plan', items: [], by: 'agent', expectedRevision: 0 }), conflict(1, 'user'), 'a stale base is a conflict');
+    await assert.rejects(studio.plan({ taskId: id, operation: 'text', text: 'Model text', by: 'agent' }), conflict(1, 'user'), 'a proposal (exit_plan_mode) without a base after an edit of the owner is a conflict');
+    assert.equal(await raw(), ownerBytes, 'a refused write leaves the file byte for byte');
+    const based = await studio.plan({ taskId: id, operation: 'set', title: 'Model plan', items: [{ text: 'Step A', status: 'done', evidence: 'ran it' }], by: 'agent', expectedRevision: 1 });
+    assert.deepEqual(view(based), [2, 'agent', 'Model plan', ['Step A'], '']);
+    const own = await studio.plan({ taskId: id, operation: 'set', title: 'Model plan', items: [{ text: 'Step A', status: 'done', evidence: 'ran it' }, { text: 'Step B', status: 'todo' }] });
+    assert.deepEqual([own.revision, own.updatedBy], [3, 'agent'], 'after its own write the model may write without a base (as before ac-10)');
+    // The text that exit_plan_mode proposes is a part of the same plan, under the same revision number.
+    const proposed = await studio.plan({ taskId: id, operation: 'text', text: PLAN, by: 'agent', expectedRevision: 3 });
+    assert.deepEqual(view(proposed), [4, 'agent', 'Model plan', ['Step A', 'Step B'], PLAN], 'a proposal keeps the checklist');
+    const kept = await studio.plan({ taskId: id, operation: 'set', title: 'Model plan', items: [{ text: 'Step A', status: 'done', evidence: 'ran it' }] });
+    assert.deepEqual([kept.revision, kept.text], [5, PLAN], 'a checklist write without a text keeps the text');
+    const owner = await studio.plan({ taskId: id, operation: 'set', title: 'Owner again', items: [], text: EDITED, by: 'user', expectedRevision: 5 });
+    assert.deepEqual(view(owner), [6, 'user', 'Owner again', [], EDITED], 'the owner edits the checklist and the text in one write');
+    const word = await studio.plan({ taskId: id, operation: 'set', title: 'Owner word', items: [], by: 'user' });
+    assert.deepEqual([word.revision, word.updatedBy, word.text], [7, 'user', EDITED], 'a write of the owner without a base is the owner\'s word');
+    const approved = await studio.plan({ taskId: id, operation: 'approve', revision: 7 });
+    assert.deepEqual([approved.revision, approved.updatedBy, approved.approvedRevision], [7, 'user', 7], 'an approval is recorded, it is not an edit');
+    assert.ok(Date.parse(approved.approvedAt) > 0);
+    const later = await studio.plan({ taskId: id, operation: 'set', title: 'After', items: [], by: 'user', expectedRevision: 7 });
+    assert.deepEqual([later.revision, later.approvedRevision, later.approvedAt], [8, 7, approved.approvedAt], 'a later edit keeps the record of the approval');
+
+    for (const bad of [-1, 1.5, '8', true, Number.MAX_SAFE_INTEGER + 1]) {
+      await assert.rejects(studio.plan({ taskId: id, operation: 'set', title: 'x', items: [], by: 'user', expectedRevision: bad }), { code: 'bad_revision', statusCode: 400 }, `expectedRevision ${JSON.stringify(bad)} is refused`);
+    }
+    await assert.rejects(studio.plan({ taskId: id, operation: 'set', title: 'x', items: [], by: 'owner' }), { code: 'bad_author', statusCode: 400 });
+    for (const bad of ['', '   ', 'x'.repeat(PLAN_LIMITS.planChars + 1), 42]) {
+      await assert.rejects(studio.plan({ taskId: id, operation: 'text', text: bad, by: 'agent', expectedRevision: 8 }), { code: 'bad_plan', statusCode: 400 }, 'a proposal is a non-empty text of at most 40,000 characters');
+    }
+    await assert.rejects(studio.plan({ taskId: id, operation: 'set', title: 'x', items: [], text: 42, by: 'user' }), { code: 'bad_plan', statusCode: 400 });
+    await assert.rejects(studio.plan({ taskId: id, operation: 'set', title: 'x', items: [], text: 'x'.repeat(PLAN_LIMITS.planChars + 1), by: 'user' }), { code: 'bad_plan', statusCode: 400 });
+    for (const bad of [0, -1, '7', 1.5]) await assert.rejects(studio.plan({ taskId: id, operation: 'approve', revision: bad }), { code: 'bad_revision', statusCode: 400 });
+    assert.equal(JSON.parse(await raw()).revision, 8, 'no refused call wrote');
+
+    // Two writes from the same base: one is saved, the other is a conflict (the read and the write of a plan are one step).
+    const race = await Promise.allSettled([1, 2].map((n) => studio.plan({ taskId: id, operation: 'set', title: `Race ${n}`, items: [], by: 'user', expectedRevision: 8 })));
+    assert.deepEqual(race.map((entry) => entry.status).sort(), ['fulfilled', 'rejected']);
+    assert.equal(race.find((entry) => entry.status === 'rejected').reason.code, 'plan_conflict');
+    assert.equal(JSON.parse(await raw()).revision, 9);
+    // A stored revision or owner that is not one is read as none.
+    await fs.writeFile(file, JSON.stringify({ ...JSON.parse(await raw()), revision: '9', updatedBy: 'robot' }));
+    assert.deepEqual([(await studio.plan({ taskId: id })).revision, (await studio.plan({ taskId: id })).updatedBy], [0, null]);
+    ok('plan model: no plan and an old plan file are revision 0 (read without a rewrite; the first write stores v2); every write raises the revision and records who wrote; a stale base is a 409 conflict that writes nothing; the model cannot overwrite the owner without naming the revision it read; the text and the checklist share one revision; an approval is recorded without an edit; bad values are 400; two writes from one base save one');
+  }
+
+  // ---------------------------------------------------------------- 8. the model's side and the execution choice
+  {
+    const root = path.join(temp, 'plan-tools');
+    const work = path.join(root, 'work');
+    await fs.mkdir(work, { recursive: true });
+    const studio = new StudioWorkspace({ manager: { workspace: work, secrets: [] }, directory: path.join(root, 'studio') });
+    const tools = new LocalTools({ workspace: studio, stateDirectory: path.join(root, 'state') });
+    const studioTools = new StudioTools({ workspace: studio });
+    const id = '0c8e4b7a-5d2f-4e1a-8b3c-9d0e1f2a3b4c';
+    const file = path.join(root, 'studio', 'plans', `${id}.json`);
+    const textOf = (result) => result.content.map((part) => part.text).join('\n');
+    const first = await tools.call('update_plan', { title: 'Plan', items: [{ text: 'Read', status: 'todo' }] }, { taskId: id });
+    assert.equal(first.isError, false, textOf(first));
+    assert.equal(first.structuredContent.revision, 1);
+    assert.match(textOf(first), /revision 1\b/i, 'the model is told the revision it wrote');
+    await studio.plan({ taskId: id, operation: 'set', title: 'Owner plan', items: [{ text: 'Owner step', status: 'todo' }], by: 'user', expectedRevision: 1 });
+    const bytes = await fs.readFile(file, 'utf8');
+    for (const args of [{ items: [{ text: 'Model step', status: 'doing' }] }, { items: [{ text: 'Model step', status: 'doing' }], expected_revision: 1 }]) {
+      const refused = await tools.call('update_plan', args, { taskId: id });
+      assert.equal(refused.isError, true);
+      assert.equal(refused.structuredContent.error.code, 'plan_conflict');
+      assert.deepEqual([refused.structuredContent.revision, refused.structuredContent.updatedBy, refused.structuredContent.executed], [2, 'user', false]);
+      assert.match(textOf(refused), /get_plan/, 'the conflict tells the model to read the plan');
+      assert.match(textOf(refused), /expected_revision/);
+      assert.match(textOf(refused), /revision 2\b/i);
+      assert.equal(await fs.readFile(file, 'utf8'), bytes, 'the refused update leaves the file byte for byte');
+    }
+    const shown = await tools.call('get_plan', {}, { taskId: id });
+    assert.match(textOf(shown), /Owner step/);
+    assert.match(textOf(shown), /revision 2\b/i);
+    assert.deepEqual([shown.structuredContent.revision, shown.structuredContent.updatedBy], [2, 'user']);
+    const read = await tools.call('update_plan', { items: [{ text: 'Owner step', status: 'doing' }], expected_revision: 2 }, { taskId: id });
+    assert.equal(read.isError, false, textOf(read));
+    assert.equal(read.structuredContent.revision, 3);
+    assert.equal((await tools.call('update_plan', { items: [], expected_revision: -1 }, { taskId: id })).structuredContent.error.code, 'invalid_arguments');
+    await studio.plan({ taskId: id, operation: 'set', title: 'Owner plan', items: [], by: 'user' });
+    const studioBytes = await fs.readFile(file, 'utf8');
+    const studioRefused = await studioTools.call('studio.plan_set', { title: 'Model', items: [] }, { taskId: id });
+    assert.equal(studioRefused.isError, true);
+    assert.match(textOf(studioRefused), /plan_conflict/);
+    assert.equal(await fs.readFile(file, 'utf8'), studioBytes);
+    const studioBased = await studioTools.call('studio.plan_set', { title: 'Model', items: [], expected_revision: 4 }, { taskId: id });
+    assert.equal(studioBased.isError, false, textOf(studioBased));
+    assert.deepEqual([studioBased.structuredContent.revision, studioBased.structuredContent.updatedBy], [5, 'agent']);
+    ok('model tools: get_plan and update_plan say the revision; after an edit of the owner update_plan (no base, or a stale one) and studio.plan_set get a plan_conflict result that names get_plan and expected_revision and leave the file byte for byte; with the revision read they write');
+  }
+
+  {
+    const root = path.join(temp, 'exec-gate');
+    await fs.mkdir(path.join(root, 'work'), { recursive: true });
+    const manager = { workspace: path.join(root, 'work'), secrets: [] };
+    const studio = new StudioWorkspace({ manager, directory: path.join(root, 'state', 'studio') });
+    const localTools = new LocalTools({ workspace: studio, stateDirectory: path.join(root, 'state') });
+    const gate = new PermissionGate({ manager, workspace: studio, timeout: 60_000 });
+    gate.attachLocalTools(localTools);
+    // What the gate does with one call of a task: it ran, it was refused, or it was asked (the question is denied at once).
+    const judged = async (taskId, name, args) => {
+      const verdict = gate.authorize({ name, args, taskId });
+      const card = await Promise.race([verdict.then(() => null), until(() => gate.state().pending.find((item) => item.taskId === taskId), `a question for ${taskId}`, 3000).catch(() => null)]);
+      if (card) { gate.decide(card.id, false); await verdict; return 'asked'; }
+      return (await verdict).allowed ? 'ran' : 'refused';
+    };
+    const WRITE = ['local.write_file', { path: 'x.txt', content: 'x' }];
+    // A command the analyser calls exec (category execute): asked in Review and Autonomous, run by Full Access.
+    const COMMAND = ['local.run_command', { command: 'node -e "1"' }];
+    // A tool of an external server the owner set no rule for (asked, run by Full Access) and a tool nobody can classify (refused by Autonomous).
+    const EXTERNAL = ['fixture.read_notes', {}];
+    // (A name without a dot is an external tool without a server, refused everywhere; a local.* name that no tool has is classified by its name.)
+    const UNKNOWN = ['local.frobnicate', {}];
+    assert.deepEqual(gate.setTaskPolicy('auto-1', { mode: 'autonomous' }), { mode: 'autonomous' });
+    assert.deepEqual(gate.setTaskPolicy('rev-1', { mode: 'review' }), { mode: 'review' });
+    assert.throws(() => { gate.taskPolicy('auto-1').mode = 'review'; }, TypeError, 'the policy object is frozen');
+    for (const bad of ['full-access', 'readonly', 'Autonomous', '', null]) assert.equal(gate.setTaskPolicy('bad-1', { mode: bad }), null, `mode ${JSON.stringify(bad)} is no policy`);
+    assert.equal(gate.taskPolicy('bad-1'), null);
+    assert.deepEqual(gate.setTaskPolicy('both-1', { planOnly: true, mode: 'autonomous' }), { planOnly: true }, 'plan mode holds whatever else a policy says');
+
+    const table = {};
+    for (const setting of ['review', 'autonomous', 'full-access', 'readonly']) {
+      if (setting === 'full-access') gate.configure({ mode: 'full-access', confirmation: 'FULL ACCESS' });
+      else gate.configure({ mode: setting, leaveFullAccess: true });
+      table[setting] = {};
+      for (const task of ['auto-1', 'rev-1', 'other-1']) table[setting][task] = [await judged(task, ...WRITE), await judged(task, ...COMMAND), await judged(task, ...EXTERNAL), await judged(task, ...UNKNOWN)];
+    }
+    gate.configure({ mode: 'review', leaveFullAccess: true });
+    assert.deepEqual(table, {
+      // [write, exec command, external tool without a rule, unclassified tool]
+      review: { 'auto-1': ['ran', 'asked', 'asked', 'refused'], 'rev-1': ['asked', 'asked', 'asked', 'asked'], 'other-1': ['asked', 'asked', 'asked', 'asked'] },
+      autonomous: { 'auto-1': ['ran', 'asked', 'asked', 'refused'], 'rev-1': ['asked', 'asked', 'asked', 'asked'], 'other-1': ['ran', 'asked', 'asked', 'refused'] },
+      'full-access': { 'auto-1': ['ran', 'asked', 'asked', 'refused'], 'rev-1': ['asked', 'asked', 'asked', 'asked'], 'other-1': ['ran', 'ran', 'ran', 'ran'] },
+      readonly: { 'auto-1': ['refused', 'refused', 'refused', 'refused'], 'rev-1': ['refused', 'refused', 'refused', 'refused'], 'other-1': ['refused', 'refused', 'refused', 'refused'] },
+    }, 'the chosen mode of a task replaces the gate\'s mode and Full Access for that task only; Read Only wins');
+    assert.equal(gate.mode, 'review');
+
+    // The answer to a plan request carries the choice; only an approval of a plan request can.
+    gate.setTaskPolicy('plan-exec', { planOnly: true });
+    const asking = gate.askPlanApproval({ taskId: 'plan-exec', plan: PLAN, revision: 2 });
+    const card = await until(() => gate.state().pending.find((item) => item.category === 'plan' && item.taskId === 'plan-exec'), 'the plan card');
+    assert.throws(() => gate.decide(card.id, false, { execution: 'review' }), { code: 'bad_execution', statusCode: 400 }, 'a denial chooses no execution');
+    assert.throws(() => gate.decide(card.id, true, { execution: 'full-access' }), { code: 'bad_execution', statusCode: 400 });
+    assert.throws(() => gate.decide(card.id, true, { revision: -1 }), { code: 'bad_revision', statusCode: 400 });
+    assert.ok(gate.state().pending.some((item) => item.id === card.id));
+    gate.decide(card.id, true, { execution: 'review', revision: 3, plan: EDITED });
+    assert.deepEqual(await asking, { approved: true, status: 'approved', feedback: null, plan: EDITED, revision: 3, execution: 'review' });
+    assert.deepEqual(gate.taskPolicy('plan-exec'), { mode: 'review' }, 'the approval leaves the chosen mode as the policy of the task');
+    gate.setTaskPolicy('plan-none', { planOnly: true });
+    const plainApproval = gate.askPlanApproval({ taskId: 'plan-none', plan: PLAN });
+    gate.decide((await until(() => gate.state().pending.find((item) => item.taskId === 'plan-none'), 'the second card')).id, true);
+    assert.equal((await plainApproval).execution, null);
+    assert.equal(gate.taskPolicy('plan-none'), null, 'without a choice the approval clears the policy');
+    const ordinary = gate.authorize({ name: 'local.write_file', args: { path: 'y.txt', content: 'y' }, taskId: 'chat-9' });
+    const ordinaryCard = await until(() => gate.state().pending.find((item) => item.taskId === 'chat-9'), 'the ordinary question');
+    assert.throws(() => gate.decide(ordinaryCard.id, true, { execution: 'autonomous' }), { code: 'bad_execution', statusCode: 400 });
+    assert.throws(() => gate.decide(ordinaryCard.id, true, { revision: 1 }), { code: 'bad_revision', statusCode: 400 });
+    gate.decide(ordinaryCard.id, false);
+    await ordinary;
+    assert.deepEqual(decisionExtras({ execution: 'autonomous', revision: 3 }), { feedback: null, plan: null, execution: 'autonomous', revision: 3 });
+    for (const bad of [{ execution: 'full-access' }, { execution: true }, { revision: '3' }, { revision: 1.5 }, { revision: -1 }]) {
+      assert.throws(() => decisionExtras(bad), { statusCode: 400 }, JSON.stringify(bad));
+    }
+    ok('execution choice: Review or Autonomous chosen for a task is its mode after the approval (it replaces the gate\'s mode and Full Access for that task, other tasks keep the gate\'s; Read Only wins); only an approval of a plan request carries a choice or a revision');
+  }
+
+  {
+    const stack = await makeStack('exec');
+    const { repo, gate, runner, model, hub, asked } = stack;
+    const update = call('update_plan', { title: 'Plan', items: [{ text: 'Edit src/app.js', status: 'todo' }] });
+    const blind = call('exit_plan_mode', { plan: PLAN });
+    const read = call('get_plan', {});
+    const based = call('exit_plan_mode', { plan: PLAN, expected_revision: 2 });
+    const write = call('write_file', { path: 'exec-auto.txt', content: 'auto\n' });
+    let blindOutput = null;
+    let readOutput = null;
+    let writeOutput = null;
+    let injected = null;
+    model.script(
+      turn(update),
+      // The owner edits the plan before the model proposes it.
+      async () => { await hub.studio.plan({ taskId: runner.activeTaskId, operation: 'set', title: 'Owner', items: [{ text: 'Owner step', status: 'todo' }], by: 'user', expectedRevision: 1 }); return turn(blind); },
+      (request) => { blindOutput = outputsOf(request.input).get(blind.call_id); return turn(read); },
+      (request) => { readOutput = outputsOf(request.input).get(read.call_id); return turn(based); },
+      (request) => { injected = userTexts(request.input).join('\n'); return turn(write); },
+      (request) => { writeOutput = outputsOf(request.input).get(write.call_id); return final('Done.'); },
+    );
+    const task = await runner.start({ prompt: 'Plan, then edit.', planMode: true });
+    const card = await pendingPlan(gate, task.id);
+    assert.match(blindOutput, /plan_conflict/, 'a proposal without a base after the owner edited is refused');
+    assert.match(blindOutput, /get_plan/);
+    assert.equal(gate.history.filter((entry) => entry.taskId === task.id && entry.category === 'plan').length, 0, 'the refused proposal raised no request');
+    assert.match(readOutput, /Owner step/);
+    assert.equal(card.detail.revision, 3, 'the request names the revision of the proposal: the plan file\'s number');
+    assert.equal(card.detail.plan, PLAN);
+    gate.decide(card.id, true, { execution: 'autonomous' });
+    const done = await settled(runner, task.id);
+    assert.equal(done.status, 'completed', done.error ?? '');
+    assert.doesNotMatch(writeOutput, /"isError":true|denied|từ chối/i, writeOutput);
+    assert.equal(await fs.readFile(path.join(repo, 'exec-auto.txt'), 'utf8'), 'auto\n', 'Autonomous: the write ran');
+    assert.ok(!asked.some((event) => event.taskId === task.id && event.toolName === 'local.write_file'), 'and nobody was asked, though the gate is in Review');
+    assert.equal(gate.mode, 'review');
+    assert.match(injected, /APPROVED PLAN \(revision 3/);
+    assert.match(injected, /expected_revision/);
+    assert.deepEqual([done.planApproval.status, done.planApproval.revision, done.planApproval.editedByUser, done.planApproval.execution], ['approved', 3, false, 'autonomous']);
+    assert.equal('planRevision' in done, false, 'no second revision counter');
+    assert.deepEqual(gate.taskPolicy(task.id), { mode: 'autonomous' });
+    const stored = JSON.parse(await fs.readFile(path.join(stack.data, 'api-tasks', task.id, 'task.json'), 'utf8'));
+    assert.equal(stored.planApproval.execution, 'autonomous');
+    assert.equal('planRevision' in stored, false);
+    const plan = await hub.studio.plan({ taskId: task.id });
+    assert.deepEqual([plan.revision, plan.approvedRevision, plan.text], [3, 3, PLAN]);
+    // A new Hub that loads the task holds it in the chosen mode before any run of it.
+    const dataB = path.join(temp, 'exec-hub-b');
+    await fs.mkdir(path.join(dataB, 'api-tasks'), { recursive: true });
+    await fs.cp(path.join(stack.data, 'api-tasks', task.id), path.join(dataB, 'api-tasks', task.id), { recursive: true });
+    const stackB = await makeStack('exec-b', { repo, data: dataB });
+    assert.deepEqual(stackB.gate.taskPolicy(task.id), { mode: 'autonomous' }, 'the choice survives a restart');
+    stackB.gate.setTaskPolicy(task.id, null);
+    // Were the choice not put back, the write would be asked: let such a question expire at once instead of holding the suite.
+    stackB.gate.timeout = 3000;
+    stackB.model.script(turn(call('write_file', { path: 'exec-again.txt', content: 'again\n' })), final('Again.'));
+    await stackB.pool.continue({ id: task.id, prompt: 'One more file.' });
+    await settled(stackB.runner, task.id);
+    assert.equal(await fs.readFile(path.join(repo, 'exec-again.txt'), 'utf8'), 'again\n');
+    assert.deepEqual(stackB.gate.taskPolicy(task.id), { mode: 'autonomous' }, 'a run of the task puts the choice back on its gate');
+    ok('runner: a proposal without a base after the owner edited is refused (plan_conflict, no request); the next proposal is revision 3 of the plan file; Autonomous chosen at the approval runs the write unasked under a gate in Review; planApproval records the execution, no planRevision counter is kept; a restart and a later run keep the choice');
+  }
+
+  // ---------------------------------------------------------------- 9. through a real Hub process and the strict protocol mock
+  {
+    const scratch = path.join(temp, 'hub-process');
+    const project = await makeRepo('hub-project');
+    const TAG_A = '[plan A]';
+    const AGAIN_A = '[plan A, again]';
+    const TAG_B = '[plan B]';
+    const FEEDBACK = 'FEEDBACK-7Q: name the test file before any edit.';
+    const PLAN_A = '1. Add test/answer.test.js.\n2. Edit src/app.js.';
+    const PLAN_A2 = '1. Add test/answer.test.js first.\n2. Edit src/app.js.';
+    const PLAN_B = '1. Write b.txt.';
+    const EDITED_B = '1. Write b.txt with the word B.';
+    const approvedTurn = (ctx) => ctx.prompt.startsWith('APPROVED PLAN');
+    const script = (ctx) => {
+      if (ctx.users.some((text) => text.includes(TAG_B))) {
+        if (approvedTurn(ctx)) return ctx.turn === 0 ? mockCall('write_file', { path: 'b.txt', content: 'B\n' }) : say('Done B.');
+        return ctx.turn === 0 ? mockCall('exit_plan_mode', { plan: PLAN_B }) : say('B waits.');
+      }
+      if (ctx.users.some((text) => text.includes(TAG_A))) {
+        if (approvedTurn(ctx)) return ctx.turn === 0 ? mockCall('write_file', { path: 'a.txt', content: 'A\n' }) : say('Done A.');
+        if (ctx.prompt.includes(AGAIN_A)) return ctx.turn === 0 ? mockCall('exit_plan_mode', { plan: PLAN_A2, expected_revision: 3 }) : say('A2 waits.');
+        const steps = [
+          mockCall('update_plan', { title: 'Plan A', items: [{ text: 'Model step', status: 'todo' }] }),
+          mockCall('exit_plan_mode', { plan: PLAN_A }),
+          // What the model last read is revision 2 (its proposal); the owner has written revision 3 since.
+          mockCall('update_plan', { title: 'Plan A (model)', items: [{ text: 'Model step', status: 'doing' }], expected_revision: 2 }),
+        ];
+        return steps[ctx.turn] ?? say('Will revise.');
+      }
+      return say('OK');
+    };
+    const mock = await startMockModel({ scenario: 'plan', scenarios: { plan: script }, strict: true, keepBodies: true });
+    cleanups.unshift(() => mock.close());
+    const hub = await startHub({ scratch, project });
+    cleanups.unshift(() => hub.stop());
+    assert.notEqual(hub.port, 3007, 'the test Hub never takes the owner\'s port');
+    await connectModel(hub, mock);
+    await setMode(hub, 'review');
+    const post = (route, body) => hub.request('POST', route, body);
+    const planOf = async (taskId) => (await hub.get(`/api/studio/plan?taskId=${taskId}`)).json;
+    const pendingOf = (taskId, test) => waitFor(async () => (await hub.state()).studio.permissions.pending.find((item) => item.taskId === taskId && test(item)), { timeoutMs: 30_000, label: `a request of ${taskId.slice(0, 8)}` });
+    const stopped = (taskId) => waitFor(async () => settledTask(await hub.state(), taskId), { timeoutMs: 30_000, label: `task ${taskId.slice(0, 8)} to stop` });
+    const planFile = async (taskId) => {
+      const found = [];
+      const walk = async (dir) => { for (const entry of await fs.readdir(dir, { withFileTypes: true })) { const full = path.join(dir, entry.name); if (entry.isDirectory()) await walk(full); else if (entry.name === `${taskId}.json` && path.basename(dir) === 'plans') found.push(full); } };
+      await walk(hub.stateDir);
+      assert.equal(found.length, 1, `one plan file of ${taskId}`);
+      return fs.readFile(found[0], 'utf8');
+    };
+
+    // ---- A: an edit, a stale base, a stale decision, the feedback, the model's stale update_plan
+    const startA = await post('/api/tasks/start', { prompt: `${TAG_A} Plan an edit of src/app.js, then edit and write it.`, planMode: true });
+    assert.equal(startA.status, 200, startA.text);
+    const a = startA.json.task;
+    const cardA = await pendingOf(a.id, (item) => item.category === 'plan');
+    assert.equal(cardA.detail.revision, 2, 'update_plan wrote revision 1, the proposal is revision 2');
+    const proposedA = await planOf(a.id);
+    assert.deepEqual([proposedA.revision, proposedA.updatedBy, proposedA.text], [2, 'agent', PLAN_A]);
+    const edit = await post('/api/studio/plan/set', { taskId: a.id, title: 'Plan A (owner)', items: [{ text: 'Owner step', status: 'todo' }], baseRevision: 2 });
+    assert.equal(edit.status, 200, edit.text);
+    assert.deepEqual([edit.json.revision, edit.json.updatedBy, edit.json.text], [3, 'user', PLAN_A], 'an edit of the plan raises the revision (the text is kept)');
+    const ownerView = await planOf(a.id);
+    const ownerBytes = await planFile(a.id);
+    const stale = await post('/api/studio/plan/set', { taskId: a.id, title: 'Stale', items: [], baseRevision: 2 });
+    assert.equal(stale.status, 409, stale.text);
+    assert.deepEqual([stale.json.code, stale.json.revision, stale.json.updatedBy], ['plan_conflict', 3, 'user'], 'a stale baseRevision is 409 and names the current revision');
+    assert.equal((await post('/api/studio/plan/set', { taskId: a.id, title: 'x', items: [], baseRevision: '3' })).status, 400, 'a baseRevision that is not a whole number is 400');
+    assert.equal(await planFile(a.id), ownerBytes, 'the refused edits wrote nothing');
+    const staleDecision = await post('/api/studio/plan/decide', { taskId: a.id, revision: 2, decision: 'request_changes', feedback: FEEDBACK });
+    assert.equal(staleDecision.status, 409, staleDecision.text);
+    assert.deepEqual([staleDecision.json.code, staleDecision.json.revision], ['plan_conflict', 3], 'a decision about a revision the plan has left is 409');
+    assert.equal((await post('/api/studio/plan/decide', { taskId: a.id, revision: 3, decision: 'request_changes' })).status, 400, 'changes are requested with feedback');
+    assert.ok((await hub.state()).studio.permissions.pending.some((item) => item.id === cardA.id), 'the refused decisions leave the request pending');
+    const before = mock.state.requests.length;
+    const changes = await post('/api/studio/plan/decide', { taskId: a.id, revision: 3, decision: 'request_changes', feedback: FEEDBACK });
+    assert.equal(changes.status, 200, changes.text);
+    await stopped(a.id);
+    const after = mock.state.requests.slice(before).map((request) => JSON.stringify(request.body));
+    assert.ok(after[0]?.includes(FEEDBACK), 'the feedback is in the next provider request');
+    assert.ok(after[0].includes('exit_plan_mode'));
+    const conflictRequest = after.find((body) => body.includes('plan_conflict'));
+    assert.ok(conflictRequest, 'the model\'s update_plan with a stale expected_revision got the conflict result');
+    assert.ok(conflictRequest.includes('get_plan'), 'which tells it to call get_plan');
+    assert.deepEqual(await planOf(a.id), ownerView, 'the owner\'s plan is unchanged');
+    assert.equal(await planFile(a.id), ownerBytes, 'byte for byte');
+    assert.deepEqual(mock.state.requests.map((request) => request.rejected ?? null).filter(Boolean), [], 'the strict mock refused no request');
+    const deniedA = await hub.task(a.id);
+    assert.deepEqual([deniedA.planApproval.status, deniedA.planApproval.revision, deniedA.planOnly], ['denied', 3, true]);
+
+    // ---- A again: a proposal based on the owner's revision, approved for Autonomous under a gate in Review
+    const continued = await post('/api/tasks/continue', { id: a.id, prompt: `${AGAIN_A} Revise the plan, then edit and write a.txt.` });
+    assert.equal(continued.status, 200, continued.text);
+    const cardA2 = await pendingOf(a.id, (item) => item.category === 'plan' && item.id !== cardA.id);
+    assert.equal(cardA2.detail.revision, 4);
+    assert.equal(cardA2.detail.plan, PLAN_A2);
+    // The owner touches only the checklist before approving: the approval names the new revision, and counts as an edit.
+    const checklist = await post('/api/studio/plan/set', { taskId: a.id, title: 'Plan A (owner, final)', items: [{ text: 'Owner step', status: 'doing' }], baseRevision: 4 });
+    assert.deepEqual([checklist.status, checklist.json.revision, checklist.json.text], [200, 5, PLAN_A2]);
+    assert.equal((await post('/api/studio/plan/decide', { taskId: a.id, revision: 4, decision: 'approve', execution: 'autonomous' })).status, 409, 'the revision of the proposal is stale once the owner edited');
+    const approveA = await post('/api/studio/plan/decide', { taskId: a.id, revision: 5, decision: 'approve', execution: 'autonomous' });
+    assert.equal(approveA.status, 200, approveA.text);
+    await stopped(a.id);
+    assert.equal(await fs.readFile(path.join(project, 'a.txt'), 'utf8'), 'A\n', 'Autonomous: the write ran');
+    const stateA = await hub.state();
+    assert.ok(!stateA.studio.permissions.recent.some((entry) => entry.taskId === a.id && entry.toolName === 'local.write_file'), 'without a question');
+    assert.equal(stateA.studio.permissions.mode, 'review', 'the gate stays in Review');
+    const approvedA = await hub.task(a.id);
+    assert.deepEqual([approvedA.planApproval.status, approvedA.planApproval.revision, approvedA.planApproval.editedByUser, approvedA.planApproval.execution, approvedA.planOnly], ['approved', 5, true, 'autonomous', false]);
+    const planA = await planOf(a.id);
+    assert.deepEqual([planA.revision, planA.approvedRevision, planA.text, planA.title], [5, 5, PLAN_A2, 'Plan A (owner, final)']);
+    assert.ok(Date.parse(planA.approvedAt) > 0);
+
+    // ---- B: answered through the decide route with an edit and Review, under a gate in Autonomous
+    await setMode(hub, 'autonomous');
+    const startB = await post('/api/tasks/start', { prompt: `${TAG_B} Plan it, then write b.txt.`, planMode: true });
+    assert.equal(startB.status, 200, startB.text);
+    const b = startB.json.task;
+    const cardB = await pendingOf(b.id, (item) => item.category === 'plan');
+    assert.equal(cardB.detail.revision, 1);
+    assert.equal((await post('/api/studio/plan/set', { taskId: b.id, title: 'Plan B (owner)', items: [], baseRevision: 1 })).status, 200);
+    const staleB = await post('/api/studio/permissions/decide', { id: cardB.id, approved: true, execution: 'review' });
+    assert.deepEqual([staleB.status, staleB.json?.code, staleB.json?.revision], [409, 'plan_conflict', 2], 'the decide route holds a plan approval to the revision the request names, by default');
+    const approveB = await post('/api/studio/permissions/decide', { id: cardB.id, approved: true, plan: EDITED_B, execution: 'review', revision: 2 });
+    assert.equal(approveB.status, 200, approveB.text);
+    const writeB = await pendingOf(b.id, (item) => item.toolName === 'local.write_file');
+    assert.equal((await post('/api/studio/permissions/decide', { id: writeB.id, approved: false })).status, 200);
+    await stopped(b.id);
+    await assert.rejects(fs.access(path.join(project, 'b.txt')), 'Review: the write was asked and, denied, not done');
+    const approvedB = await hub.task(b.id);
+    assert.deepEqual([approvedB.planApproval.status, approvedB.planApproval.revision, approvedB.planApproval.editedByUser, approvedB.planApproval.execution], ['approved', 3, true, 'review']);
+    const planB = await planOf(b.id);
+    assert.deepEqual([planB.revision, planB.updatedBy, planB.text, planB.approvedRevision], [3, 'user', EDITED_B, 3], 'the edit that came with the answer is revision 3 of the plan, by the user');
+    assert.ok(mock.state.requests.some((request) => { const body = JSON.stringify(request.body); return body.includes('APPROVED PLAN (revision 3') && body.includes(EDITED_B); }), 'the model is given the edited plan under its revision');
+    assert.equal((await hub.state()).studio.permissions.mode, 'autonomous', 'the gate stays in Autonomous');
+    ok(`real Hub (port ${hub.port}): an edit raises the revision; a stale baseRevision and a stale decision are 409; request_changes needs feedback and the feedback is in the next provider request; the model's update_plan with a stale expected_revision gets plan_conflict and the plan file is byte for byte unchanged; an approval names the revision after the edit of the owner; Autonomous runs the write unasked under Review; the decide route refuses a stale approval, an edit with the approval is the next revision and Review asks the write under Autonomous`);
   }
 } finally {
   for (const cleanup of cleanups) { try { await cleanup(); } catch { /* best effort */ } }

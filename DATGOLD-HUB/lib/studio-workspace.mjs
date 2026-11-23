@@ -32,6 +32,35 @@ const REVIEW_TEXT_BYTES = EDITABLE_FILE_BYTES;
 const REVIEW_TOTAL_TEXT_BYTES = 8 * 1024 * 1024;
 const REVIEW_MAX_FILES = 300;
 const SNIFF_BYTES = 8000;
+// The plan of a task (plan()): who can write it, how long its text may be (the limit of exit_plan_mode, PLAN_LIMITS of lib/permissions.mjs).
+const PLAN_AUTHORS = Object.freeze(['agent', 'user']);
+const PLAN_TEXT_CHARS = 40_000;
+const wholeRevision = (value) => Number.isSafeInteger(value) && value >= 0;
+/** A stored plan (or none) as plan() hands it out: the v2 shape, with revision 0 and nobody as its writer for a file of the old shape. */
+function planView(stored, { taskId, workspace }) {
+  const plan = stored && typeof stored === 'object' ? stored : null;
+  return {
+    version: 2, taskId, workspace: plan ? plan.workspace : workspace,
+    title: typeof plan?.title === 'string' ? plan.title : '', items: Array.isArray(plan?.items) ? plan.items : [], text: typeof plan?.text === 'string' ? plan.text : '',
+    revision: wholeRevision(plan?.revision) ? plan.revision : 0, updatedBy: PLAN_AUTHORS.includes(plan?.updatedBy) ? plan.updatedBy : null, updatedAt: plan?.updatedAt ?? null,
+    approvedAt: typeof plan?.approvedAt === 'string' ? plan.approvedAt : null, approvedRevision: wholeRevision(plan?.approvedRevision) && plan.approvedRevision >= 1 ? plan.approvedRevision : null,
+  };
+}
+/**
+ * What the model is told when a write of its plan was refused as a conflict (update_plan, studio.plan_set, exit_plan_mode): that nothing was saved,
+ * the revision the plan is at, and how to go on. `tool` is the call to repeat with that revision.
+ */
+export function planConflictText(error, expected = null, tool = 'update_plan') {
+  const who = error?.updatedBy === 'user' ? 'the user' : error?.updatedBy === 'agent' ? 'an earlier write of yours' : 'an earlier version of the Hub';
+  return `The plan changed since you last read it: it is at revision ${error?.revision} now, last written by ${who}${expected === null ? '' : ` (you sent expected_revision ${expected})`}. `
+    + `Nothing was saved. Call get_plan to read the plan as it is now, keep the user's changes, then call ${tool} again with expected_revision ${error?.revision}.`;
+}
+/** The answer to a write from a revision the plan has left (or a write of the model over the owner's): 409, with the revision there is now. */
+export function planConflict(current) {
+  const who = current.updatedBy === 'user' ? ', do người dùng sửa' : current.updatedBy === 'agent' ? ', do agent sửa' : '';
+  return Object.assign(fail('plan_conflict', `Kế hoạch đã đổi: bản hiện tại là ${current.revision}${who}. Không ghi gì; hãy đọc lại kế hoạch rồi lưu dựa trên bản ${current.revision}.`, 409),
+    { revision: current.revision, updatedBy: current.updatedBy });
+}
 
 /**
  * The text of `bytes` when it IS text: no NUL byte and valid UTF-8, so Buffer.from(text) gives the same bytes back (a BOM stays as the first character, line endings as they
@@ -63,6 +92,8 @@ export class StudioWorkspace {
   #checkpointSeq = 0;
   // checkpoint id -> { taskId, workspace }, so that finding the checkpoints of a task does not read every meta.json again (a meta is written once and never changes).
   #owners = new Map();
+  // task id -> the last plan step of that task (plan()): its read, check and write wait for the steps before them.
+  #planLocks = new Map();
   // gitOptions: extra GitRunner options (the public server passes the command broker's spawner here).
   constructor({manager, directory, now=()=>new Date().toISOString(), gitOptions={}}) {
     this.manager=manager; this.directory=path.resolve(directory); this.now=now;
@@ -829,18 +860,47 @@ export class StudioWorkspace {
       }
     } finally { if (!dryRun) this._restoreBusy = false; }
   }
-  async plan({taskId,operation='get',items=[],title=''}={}){
+  /**
+   * The plan of a task (v2, P9 ac-10, docs/PLAN-MODE.md "The plan and its revision"): a checklist (title, items) and a text (what exit_plan_mode
+   * proposed, or the owner's edit of it) under ONE revision number. Every write (`set`, `text`) raises it and says who wrote (`by`: 'agent' or
+   * 'user'); `approve` records which revision was approved and when, and is not a write of the plan. A plan file without a revision (written before
+   * v2) is read as revision 0 and is rewritten only by its next write.
+   * A write may name the revision it is based on (`expectedRevision`): any other revision is a 409 `plan_conflict` and nothing is written. A write
+   * of the model ('agent') that names none is a conflict as well when the owner wrote last: a model rewrite never replaces an edit of the owner it
+   * has not read. The read, the check and the write are one step per task (#planStep), so two writes from one base save one.
+   */
+  async plan({taskId,operation='get',items=[],title='',text,expectedRevision=null,by='agent',revision}={}){
     if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(taskId))throw fail('bad_task_id','Cần ID hội thoại hợp lệ.');
-    const file=path.join(this.directory,'plans',`${taskId}.json`);
-    let plan=await readJson(file)??{taskId,workspace:this.root,title:'',items:[],updatedAt:null};
-    if(plan.workspace!==this.root)throw fail('wrong_workspace','Kế hoạch thuộc workspace khác.',409);
-    if(operation==='get')return plan;
+    if(!['get','set','text','approve'].includes(operation))throw fail('bad_operation','operation phải là get, set, text hoặc approve.');
+    const writes=operation==='set'||operation==='text';
+    if(writes&&!PLAN_AUTHORS.includes(by))throw fail('bad_author','by phải là agent hoặc user.');
+    if(writes&&expectedRevision!==null&&expectedRevision!==undefined&&!wholeRevision(expectedRevision))throw fail('bad_revision','Số bản của kế hoạch (revision) phải là số nguyên không âm.');
     if(operation==='set'){
       if(!Array.isArray(items)||items.length>100||items.some(i=>typeof i.text!=='string'||i.text.length>500||!['todo','doing','done','blocked'].includes(i.status)))throw fail('bad_plan','Danh sách phải có tối đa 100 mục với trạng thái todo/doing/done/blocked.');
-      plan={taskId,workspace:this.root,title:capped(title,240),items:items.map(i=>({text:i.text,status:i.status,evidence:capped(i.evidence||'',600)})),updatedAt:this.now()};
-      await writeJson(file,plan);return plan;
+      if(text!==undefined&&(typeof text!=='string'||text.length>PLAN_TEXT_CHARS))throw fail('bad_plan',`Văn bản kế hoạch tối đa ${PLAN_TEXT_CHARS} ký tự.`);
     }
-    throw fail('bad_operation','operation phải là get hoặc set.');
+    if(operation==='text'&&(typeof text!=='string'||!text.trim()||text.length>PLAN_TEXT_CHARS))throw fail('bad_plan',`Văn bản kế hoạch phải không rỗng, tối đa ${PLAN_TEXT_CHARS} ký tự.`);
+    if(operation==='approve'&&!(wholeRevision(revision)&&revision>=1))throw fail('bad_revision','Bản được duyệt phải là số nguyên từ 1.');
+    const file=path.join(this.directory,'plans',`${taskId}.json`);
+    return this.#planStep(taskId,async()=>{
+      const current=planView(await readJson(file),{taskId,workspace:this.root});
+      if(current.workspace!==this.root)throw fail('wrong_workspace','Kế hoạch thuộc workspace khác.',409);
+      if(operation==='get')return current;
+      if(operation==='approve'){const approved={...current,approvedAt:this.now(),approvedRevision:revision};await writeJson(file,approved);return approved;}
+      const base=expectedRevision??null;
+      if(base===null?(by==='agent'&&current.updatedBy==='user'):base!==current.revision)throw planConflict(current);
+      const change=operation==='text'?{text}:{title:capped(title,240),items:items.map(i=>({text:i.text,status:i.status,evidence:capped(i.evidence||'',600)})),...(text===undefined?{}:{text})};
+      const next={...current,...change,revision:current.revision+1,updatedBy:by,updatedAt:this.now()};
+      await writeJson(file,next);return next;
+    });
+  }
+  /** Runs `work` after every earlier plan step of the task, and before every later one (one Hub process holds the plans of a workspace). */
+  async #planStep(taskId,work){
+    const before=this.#planLocks.get(taskId)??Promise.resolve();
+    const step=before.then(work);
+    const settled=step.then(()=>{},()=>{});
+    this.#planLocks.set(taskId,settled);
+    try{return await step;}finally{if(this.#planLocks.get(taskId)===settled)this.#planLocks.delete(taskId);}
   }
   async skills(){
     const root=this.requireRoot(); const locations=['AGENTS.md','SKILL.md','.github/copilot-instructions.md','.claude/CLAUDE.md','CLAUDE.md'];
