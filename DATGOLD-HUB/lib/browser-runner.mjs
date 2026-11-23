@@ -966,8 +966,12 @@ Next reply: exactly one JSON block with chatmcp_hub=v1, task=${task.id}, turn=${
       finally {
         try { await context.session?.close(); }
         finally {
-          if (this.context === context) this.context = null;
           const owned=context.executionManager||this.manager;
+          // The Companion's end of task in the proof ledger (the guard seam recorded its calls): the final snapshot, whatever the status. Before
+          // the runner lets go of the task, so that a next task (settle() waits for this) never finds the workspace still held.
+          try { await owned.finishProof?.(task.id, { status, errorCode: task.errorCode ?? null }); }
+          catch (proofError) { this.log('Proof ledger end failed: ' + String(proofError?.message || proofError)); }
+          if (this.context === context) this.context = null;
           owned.releaseTask(task.id);
           if(context.ownedManager)await owned.shutdown().catch(error=>
             this.log('Browser workspace manager shutdown failed: '+String(error?.message||error)));

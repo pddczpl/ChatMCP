@@ -944,6 +944,8 @@ export class AgentRunner {
         if (interrupted) {
           if (task.runs?.length) Object.assign(task.runs.at(-1),{status:'paused',state:task.state,finishedAt:task.finishedAt});
           await this.#event(task, 'paused', task.error, { status: task.status });
+          // The proof ledger of the run that died: the call it was in the middle of and the run itself, as uncertain records.
+          try { await this.manager.recoverProof?.(task.id); } catch (proofError) { this.log(this.#redact(proofError.message)); }
         }
       } catch (error) { this.log(this.#redact(`Không đọc được một bản ghi tác vụ: ${error.message}`)); }
     }
@@ -1545,6 +1547,8 @@ export class AgentRunner {
       // Release only the lock acquired by this run; a stale completion cannot
       // release a newer task's lock.
       if (this.activeTaskId === task.id) {
+        // The end of this run in the proof ledger, whatever the status (a cancelled or failed task too), while the workspace is still the task's.
+        try { await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }
         try { this.manager.releaseTask(task.id); } catch (releaseError) { this.log(this.#redact(releaseError.message)); }
         this.activeTaskId = null; this.context = null;
       }
@@ -2048,7 +2052,7 @@ export class AgentRunner {
     task.toolCalls += 1;
     let result;
     try {
-      result = await abortable(invoke({ signal: context.controller.signal, timeout, onDecision: (info) => this.#decided(context, info), onCheckpoint: (info) => this.#checkpointed(context, info) }), context.controller.signal);
+      result = await abortable(invoke({ signal: context.controller.signal, timeout, onDecision: (info) => this.#decided(context, info), onCheckpoint: (info) => this.#checkpointed(context, info), onProof: (info) => this.#proved(context, info) }), context.controller.signal);
     } catch (error) {
       if (context.controller.signal.aborted) throw context.controller.signal.reason;
       throw Object.assign(fault('tool_transport_failed', `MCP ${toolName} mất kết nối hoặc không trả về kết quả xác định: ${this.#redact(error?.message ?? String(error))}. Không tự chạy lại thao tác.`, 502), { upstream: true });
@@ -2079,6 +2083,19 @@ export class AgentRunner {
     if (!call || typeof info?.id !== 'string') return;
     call.checkpointId = info.id;
     await this.#persist(task, { at: now(), type: 'checkpoint', toolName: call.toolName, callId: call.callId, checkpointId: info.id, partial: info.partial === true, reused: info.reused === true });
+  }
+
+  /**
+   * Called by the guard once the proof ledger has the record of a call (lib/proof/service.mjs) and BEFORE the call's result comes back: the
+   * trees around the call go into the transcript as a `proof` line, next to the call's other records. They are never put in the result, the
+   * events or the pending call, which is what a model (and a resumed run) reads. Awaited.
+   */
+  async #proved(context, info) {
+    const { task } = context;
+    await this.#appendTranscript(task, {
+      at: now(), type: 'proof', toolName: info.tool, callId: task.pendingCall?.callId ?? null, guardCallId: info.callId, seq: info.seq, outcome: info.outcome,
+      changed: info.changed, overlapped: info.overlapped, granularity: info.granularity, treeBefore: info.treeBefore, treeAfter: info.treeAfter,
+    });
   }
 
   #preview(result) {

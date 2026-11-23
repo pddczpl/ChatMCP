@@ -443,6 +443,9 @@ export class ConcurrentApiAgent {
     // The SAME McpClientManager as the Hub's, for the same reason: the child offers the owner's approved servers, under the owner's policy, and its
     // shutdown does not close them (mcpOwned stays false). Its own data folder holds no mcp-servers.json.
     manager.mcp = this.manager.mcp;
+    // The child's proof ledger is its own (lib/proof/service.mjs: this manager's data folder, keyed by its worktree); only the Hub's options
+    // for it (the clock and the scan budget) are the same.
+    manager.proofOptions = this.manager.proofOptions ?? null;
     // Only an agent that another agent started (spawn_agent, a workflow) ends with SubagentStop; a conversation a person started, even one that runs
     // here because the first was busy, ends with Stop.
     if (record.parentTaskId) manager.lifecycleAgent = { kind: 'subagent', role: record.role || null, parentTaskId: record.parentTaskId, conversationId: record.conversationId || record.parentTaskId, workflowId: record.workflowId || null, phaseId: record.phaseId || null };
