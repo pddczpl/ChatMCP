@@ -125,24 +125,40 @@ The builder reads the outputs of the merged Proof-of-Done pieces and nothing els
 
 - A receipt **matches** a check when its `commandSha256` is the sha256 of the check's `run` and its `cwd` is the check's `cwd`, both
   written with `/`, without a leading `./` or a trailing `/`, the root being `.`.
-- A matching receipt is **on the final tree** when its `treeBefore` has the final tree's `treeAlgorithm`, object format and id: the
-  command ran on exactly the content the pack names. A command that changed the tree is evidence for the tree it started from.
+- A matching receipt **started on the final tree** when its `treeBefore` has the final tree's `treeAlgorithm`, object format and id:
+  the command ran on exactly the content the pack names. It **ended on the final tree** when its `treeAfter` has them too.
+- A failure counts when its run started on the final tree, whatever the run did afterwards: it failed on exactly that content.
+- A pass counts only when its run started **and** ended on the final tree. A command that changed the tree is no evidence that the
+  tree passes, because what it checked is not what it left. Two cases show why counting it for the tree it started from was wrong:
+  - a check that toggles a file runs T1→T0, T0→T1, T1→T0, ... When the final tree is T1, a run that started on T1 exited 0, yet the
+    check never leaves T1 as it found it;
+  - a formatter run as a check (`prettier --write`) fixes what it checks and exits 0. When a later check or step puts the unformatted
+    file back, the final tree is the tree the formatter started from, and its exit 0 would claim a formatted tree that is not there.
+
+  The check runner ([PROOF-CHECKS.md](../PROOF-CHECKS.md)) runs a check that changed the tree again on the new tree, so such a check
+  can still be evidenced by a later run that leaves the tree unchanged.
+
+> **Change, 2026-11-23, before any release:** a passing run must leave the final tree unchanged. Until then a passing run counted for
+> the tree it started from even when it changed the tree. The fields and the schema are unchanged; `validateStatement` checks the new
+> rule (`passed_receipt`, `stale_receipt` below).
 - A run **passed** when `exit` equals the check's expected exit code, and it neither timed out, nor was cancelled, nor ended by a signal.
 
 The `result` of a check, first match wins:
 
 | `result` | When | Reason added |
 |---|---|---|
-| `failed` | a run on the final tree did not pass (also when another run passed: a check that fails on the same content is not evidence) | `check_failed`, detail `exit 1, expected 0`, `timed out`, `cancelled` or `ended by signal ...` |
-| `passed` | at least `repeat` runs passed on the final tree | none |
-| `repeats_short` | some, fewer than `repeat`, runs passed on the final tree | `check_repeats_short`, detail `1 of 2 runs passed on the final tree` |
-| `stale` | no run on the final tree, a run on another tree of the same algorithm and object format | `check_stale` |
+| `failed` | a run that started on the final tree did not pass (also when another run passed: a check that fails on the same content is not evidence) | `check_failed`, detail `exit 1, expected 0`, `timed out`, `cancelled` or `ended by signal ...` |
+| `passed` | at least `repeat` runs passed that started and ended on the final tree | none |
+| `repeats_short` | some, fewer than `repeat`, such runs | `check_repeats_short`, detail `1 of 2 runs passed on the final tree` |
+| `stale` | no run that counts, and a run on a tree of the final tree's algorithm and object format: another tree, or the final tree it changed | `check_stale`, detail `ran on tree ..., not the final tree` or `ran on the final tree but did not leave it as it found it` |
 | `tree_unknown` | runs that cannot be compared with the final tree (no snapshot, another algorithm or object format) | `check_tree_unknown` |
 | `not_run` | no matching receipt | `check_not_run` |
 
-A check lists the seqs of its latest runs on the final tree, or, when it has none, of its latest matching runs (at most 10). The run its
-reason names is always listed, whatever the limit: the latest failing run of a `failed` check, the latest run on another tree of a
-`stale` check; when the limit left it out, it takes the place of the oldest run listed. So the pack always holds the receipt a result
+A check lists the seqs of the runs its result rests on, the latest ones (at most 10): the passes that count of a `passed` or
+`repeats_short` check, the runs that started on the final tree of a `failed` check, the matching runs of any other. The run its reason
+names is always listed, whatever the limit: the latest failing run of a `failed` check; for a `stale` check the latest run that started
+on the final tree (and changed it), else the latest run on another tree of the same algorithm; when the limit left it out, it takes the
+place of the oldest run listed. So the pack always holds the receipt a result
 rests on, and the rules below can check it.
 
 ### The status of a criterion
@@ -237,9 +253,9 @@ Reported with the keyword `semantic:<rule>`:
 | `no_receipt` | a check whose result is not `not_run` lists no receipt |
 | `check_result` | `passes` and `repeat` do not give the `result` |
 | `receipt_other_check` | a check lists a receipt of another command (`commandSha256`) or folder (`cwd`) |
-| `passed_receipt` | a `passed` or `repeats_short` check lists a receipt that did not run on the final tree or did not pass, or more receipts than `passes` |
-| `failed_receipt` | a `failed` check lists a receipt that did not run on the final tree, or no receipt that failed |
-| `stale_receipt` | a `stale` or `tree_unknown` check lists a run on the final tree; a `stale` one lists no run on a tree of the final tree's algorithm and object format; a `tree_unknown` one lists such a run |
+| `passed_receipt` | a `passed` or `repeats_short` check lists a receipt that did not start and end on the final tree or did not pass, or more receipts than `passes` |
+| `failed_receipt` | a `failed` check lists a receipt that did not start on the final tree, or no receipt that failed |
+| `stale_receipt` | a `stale` or `tree_unknown` check lists a run that started on the final tree and failed or left the tree as it was; a `stale` one lists no run on a tree of the final tree's algorithm and object format; a `tree_unknown` one lists such a run |
 | `not_run_receipt` | a `not_run` check lists a receipt |
 | `reason_check` | a reason names a check the criterion does not have |
 | `omitted_reasons` | reasons were left out but the last one listed is not `checks_modified` |
@@ -248,8 +264,8 @@ Reported with the keyword `semantic:<rule>`:
 | `too_large` | the canonical JSON is over 32 MiB |
 
 **A check's result against its receipts.** A result is itself a listed fact, and the receipts a check lists must not contradict it: they
-are of the check's command and folder, a run "on the final tree" has a `treeBefore` of the final tree's algorithm and object format whose
-id is the `workspace-tree-after` subject, and a run "passed" when `exit` is the check's `expectExit` and it neither timed out, nor was
+are of the check's command and folder, a run "started on the final tree" has a `treeBefore` of the final tree's algorithm and object
+format whose id is the `workspace-tree-after` subject (and "ended on" it with such a `treeAfter`), and a run "passed" when `exit` is the check's `expectExit` and it neither timed out, nor was
 cancelled, nor ended by a signal (the same tests the builder uses). Two things are not checked, because a statement the builder makes
 can break them: that a check lists all of its passing runs (a caller may lower the limit, and the pack does not record the limit it
 used), so only "no more receipts than `passes`" is required; and that `run` hashes to `commandSha256` (`run` is masked and cut, the hash

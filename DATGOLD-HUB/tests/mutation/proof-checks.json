@@ -1,0 +1,426 @@
+{
+ "suite": "verify-proof-checks.mjs",
+ "description": "The check runner of Proof-of-Done (plan task pod-21, docs/PROOF-CHECKS.md): what runs (trust, edits), the attempt loop (never re-run a failure, re-runs on a changed tree, unreliable, repeat), timeouts, cancel, the reaper and its process table walk, the receipt of each attempt and the roll-up through pack.mjs (lib/proof/check-runner.mjs), judged by tests/verify-proof-checks.mjs.",
+ "mutations": [
+  {
+   "name": "PC-edited-runs",
+   "what": "a file edited since the baseline still runs its baseline checks",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const blocked = acceptance.blocked ?? (edited ? 'acceptance_edited' : null);",
+     "new": "const blocked = acceptance.blocked;"
+    }
+   ]
+  },
+  {
+   "name": "PC-untrusted-unblocked",
+   "what": "an untrusted file is not reported as blocked",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const blocked = acceptance.blocked ?? (edited ? 'acceptance_edited' : null);",
+     "new": "const blocked = edited ? 'acceptance_edited' : null;"
+    }
+   ]
+  },
+  {
+   "name": "PC-edit-unseen",
+   "what": "an edit of the file is not noticed",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const edited = acceptance.edit !== null;",
+     "new": "const edited = false;"
+    }
+   ]
+  },
+  {
+   "name": "PC-blocked-runs",
+   "what": "a blocked file still runs what resolveAcceptance gave",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const runnable = blocked ? [] : acceptance.runnable;",
+     "new": "const runnable = acceptance.runnable;"
+    }
+   ]
+  },
+  {
+   "name": "PC-retry-failure",
+   "what": "a failing attempt is run again until repeat is reached",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (!done.attempt.passed) break; // never run again",
+     "new": "if (!done.attempt.passed && number >= check.repeat) break; // never run again"
+    }
+   ]
+  },
+  {
+   "name": "PC-reruns-more",
+   "what": "a check changing the tree is run again three times",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (changes > TREE_RERUNS) { row.unreliable = true; break; }",
+     "new": "if (changes > TREE_RERUNS + 1) { row.unreliable = true; break; }"
+    }
+   ]
+  },
+  {
+   "name": "PC-reruns-const",
+   "what": "three re-runs on a new tree",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "export const TREE_RERUNS = 2;",
+     "new": "export const TREE_RERUNS = 3;"
+    }
+   ]
+  },
+  {
+   "name": "PC-no-unreliable",
+   "what": "a check that keeps changing the tree is not marked unreliable",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "{ row.unreliable = true; break; }",
+     "new": "{ break; }"
+    }
+   ]
+  },
+  {
+   "name": "PC-ignore-tree-change",
+   "what": "a passing attempt that changed the tree counts like any other",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (done.attempt.treeChanged === true) {",
+     "new": "if (false) {"
+    }
+   ]
+  },
+  {
+   "name": "PC-no-count-reset",
+   "what": "passes before a change of the tree still count towards repeat",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "changes += 1; settled = 0;",
+     "new": "changes += 1;"
+    }
+   ]
+  },
+  {
+   "name": "PC-repeat-one",
+   "what": "repeat is ignored",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (settled >= check.repeat) break;",
+     "new": "if (settled >= 1) break;"
+    }
+   ]
+  },
+  {
+   "name": "PC-error-stops-all",
+   "what": "a check ShellRunner refused stops every check after it",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (done.error) { row.error = done.error; break; }",
+     "new": "if (done.error) { row.error = done.error; break run; }"
+    }
+   ]
+  },
+  {
+   "name": "PC-error-dropped",
+   "what": "the refusal of ShellRunner is not reported",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (done.error) { row.error = done.error; break; }",
+     "new": "if (done.error) break;"
+    }
+   ]
+  },
+  {
+   "name": "PC-timeout-uncapped",
+   "what": "the timeout of the file is reported without the cap of ShellRunner",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "timeoutMs: Math.min(requested, maxTimeoutMs), timeoutCapped:",
+     "new": "timeoutMs: requested, timeoutCapped:"
+    }
+   ]
+  },
+  {
+   "name": "PC-capped-flag",
+   "what": "a capped timeout is not marked",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "timeoutCapped: requested > maxTimeoutMs }",
+     "new": "timeoutCapped: false }"
+    }
+   ]
+  },
+  {
+   "name": "PC-timeout-seconds",
+   "what": "the timeout is read as milliseconds",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const requested = check.timeout * 1000;",
+     "new": "const requested = check.timeout;"
+    }
+   ]
+  },
+  {
+   "name": "PC-cancel-flag",
+   "what": "a cancel is not reported",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const cancelled = signal?.aborted === true;",
+     "new": "const cancelled = false;"
+    }
+   ]
+  },
+  {
+   "name": "PC-cancel-throws",
+   "what": "a cancel before a run throws instead of stopping",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (signal?.aborted) break run;",
+     "new": "if (false) break run;"
+    }
+   ]
+  },
+  {
+   "name": "PC-tree-after-signal",
+   "what": "the tree after a cancelled attempt is cancelled too, so the attempt is not recorded",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const treeAfter = await takeTree(snapshotter, null);",
+     "new": "const treeAfter = await takeTree(snapshotter, signal);"
+    }
+   ]
+  },
+  {
+   "name": "PC-no-reap",
+   "what": "what a check leaves behind is not reaped",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const reap = await reapAttempt({ pid: result.pid, spawnedAt, rows: watch?.rows ?? [], platform, processTree });",
+     "new": "const reap = { method: null, left: null, leftovers: null };"
+    }
+   ]
+  },
+  {
+   "name": "PC-no-watch",
+   "what": "the Windows process table is not read while the attempt runs",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const watch = platform === 'win32' ? watchTable(processTree) : null;",
+     "new": "const watch = null;"
+    }
+   ]
+  },
+  {
+   "name": "PC-reap-dead-rows",
+   "what": "the Windows reaper treats processes seen earlier as alive",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": ".filter((row) => now.has(key(row)));",
+     "new": ".filter(Boolean);"
+    }
+   ]
+  },
+  {
+   "name": "PC-reap-no-kill",
+   "what": "the Windows reaper finds the processes but kills none",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "for (const row of alive) await processTree.kill(row.pid);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PC-posix-no-kill",
+   "what": "the POSIX reaper does not signal the process group",
+   "platforms": [
+    "linux",
+    "darwin"
+   ],
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "try { process.kill(-pid, 'SIGKILL'); } catch { /* gone in between */ }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PC-walk-first-holder",
+   "what": "a reused pid adopts the children of its new holder",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "holder.created <= row.created && (!best || holder.created > best.created)",
+     "new": "holder.created <= row.created && !best"
+    }
+   ]
+  },
+  {
+   "name": "PC-walk-older-child",
+   "what": "a process older than its parent pid's holder is taken as its child",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (holder !== row && holder.created <= row.created && (!best",
+     "new": "if (holder !== row && (!best"
+    }
+   ]
+  },
+  {
+   "name": "PC-walk-root-slack",
+   "what": "any process with the shell's pid is taken as the shell",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "Math.abs(row.created - spawnedAt) <= slackMs",
+     "new": "true"
+    }
+   ]
+  },
+  {
+   "name": "PC-walk-no-standin",
+   "what": "the children of a shell the table never saw are not found",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "...(row.ppid === rootPid && !rootRow ? [root] : [])",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PC-walk-one-pass",
+   "what": "the walk stops after one pass over the table",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "if (parent && ours.has(parent)) { ours.add(row); grew = true; }",
+     "new": "if (parent && ours.has(parent)) ours.add(row);"
+    }
+   ]
+  },
+  {
+   "name": "PC-tree-unknown-false",
+   "what": "an unknown tree is reported as unchanged",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "before.objectFormat !== after.objectFormat) return null;",
+     "new": "before.objectFormat !== after.objectFormat) return false;"
+    }
+   ]
+  },
+  {
+   "name": "PC-passed-exit",
+   "what": "a pass is exit 0 whatever the file expects",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const passedRun = (receipt, expectExit) => receipt.exit === expectExit &&",
+     "new": "const passedRun = (receipt, expectExit) => receipt.exit === 0 &&"
+    }
+   ]
+  },
+  {
+   "name": "PC-check-changes-fn",
+   "what": "the check-changes function is handed to the roll-up instead of its report",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const report = typeof checkChanges === 'function' ? await checkChanges({ finalTree: final }) : checkChanges;",
+     "new": "const report = checkChanges;"
+    }
+   ]
+  },
+  {
+   "name": "PC-ledger-missing",
+   "what": "a ledger never written makes the roll-up throw",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": ".catch((error) => { if (error.code === 'ENOENT') return null; throw error; });",
+     "new": ".catch((error) => { throw error; });"
+    }
+   ]
+  },
+  {
+   "name": "PC-no-toolchain",
+   "what": "the toolchain versions are not recorded",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "const versions = toolchain ? await toolchain.versions((await runner.workspace.resolve('')).root) : null;",
+     "new": "const versions = null;"
+    }
+   ]
+  },
+  {
+   "name": "PC-cwd-root",
+   "what": "every check runs in the workspace root",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "cwd: check.cwd === '.' ? '' : check.cwd,",
+     "new": "cwd: '',"
+    }
+   ]
+  },
+  {
+   "name": "PC-output-budget",
+   "what": "the capture budget asked for is not passed on",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "timeoutMs, maxOutputBytes, signal });",
+     "new": "timeoutMs, signal });"
+    }
+   ]
+  },
+  {
+   "name": "PC-attempt-number",
+   "what": "every attempt is numbered 1",
+   "patches": [
+    {
+     "file": "lib/proof/check-runner.mjs",
+     "old": "attempt: number, seq: entry.seq",
+     "new": "attempt: 1, seq: entry.seq"
+    }
+   ]
+  }
+ ]
+}

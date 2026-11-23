@@ -7,9 +7,9 @@ commands may ever run. It belongs to phase P4 (Proof-of-Done core), plan task po
 The identifier keeps the old name (`.chatmcp/`, see [NAMING.md](NAMING.md)), like every other folder and file name the Hub reads.
 
 **What exists today:** the reader, the schema, the baseline rule, the trust store and the proposal (`DATGOLD-HUB/lib/proof/acceptance.mjs`,
-`lib/proof/yaml-subset.mjs`, `lib/proof/trust-store.mjs`). **What does not exist yet:** nothing runs the checks (the check runner is
+`lib/proof/yaml-subset.mjs`, `lib/proof/trust-store.mjs`). **What does not exist yet:** nothing calls the check runner ([PROOF-CHECKS.md](PROOF-CHECKS.md),
 pod-21), nothing in the agent or the app uses the file, there is no `chatmcp verify trust` or `verify init` command (the CLI, pod-24)
-and no approval dialog in the app (the Proof tab, pod-34). Until those land, a check can be called *runnable* by the API but nothing runs it.
+and no approval dialog in the app (the Proof tab, pod-34). Until those land, a check runs only when code calls the check runner itself.
 
 ## Example
 
@@ -70,7 +70,8 @@ one spelling (`./tools/` becomes `tools`), `manual.inspect` always a list and `m
 without an extension (`CON`, `PRN`, `AUX`, `NUL`, `COM0`-`COM9`, `LPT0`-`LPT9`, also with a superscript digit, `CONIN$`, `CONOUT$`), or
 ends in a dot or a space (`....`, `a `). This is a check of the text only: containment must be checked again on the **real** path at
 run time (a symbolic link or a junction inside the workspace can point outside), which is the check runner's job (pod-21), because only
-the runner sees the disk then.
+the runner sees the disk then. It does: ShellRunner resolves the folder through the workspace, which refuses a real path outside it
+(`symlink_escape`) before anything runs.
 
 **Hidden characters.** The owner approves a file by its hash after reading it, so the text read must be the text that runs. Every
 string of the schema (`run`, `cwd`, `setup`, `text`, `note`, `inspect`, `protected`; an `id` is ASCII anyway) refuses
