@@ -84,6 +84,13 @@ budget switch, the Hub's data folder inside the workspace, a snapshot that faile
 `completionOutcome.verification: 'missing_evidence'`, `freshness: 'unknown'`, the warning in its answer, and nothing to accept: the same
 outcome as a task without receipts, with words that say why. A short request without a plan is not judged (`not_applicable`), as before.
 
+**A folder without Git** (audit of #157, N1). There the tree is raw-v1, with no ignore rules ([PROOF-TREE.md](PROOF-TREE.md)), so a check
+that writes anything into the workspace (pytest's `.pytest_cache` and `__pycache__`, coverage output, a build cache) changes the tree it
+checked: by the strict pass rule it gives no check receipt, and the edits made before it are stale. What the person sees: a coding task
+whose tests passed ends `completed` with `missing_evidence` and "No verified successful project check" (the edit stale too), the same
+caveat [PROOF-CHECKS.md](PROOF-CHECKS.md) states for the check runner. The remedy: make the project a Git repository whose `.gitignore`
+lists those paths; the git-pinned-v1 tree then leaves them out and the check keeps its tree. (`tests/verify-proof-receipts.mjs` shows both.)
+
 ## Owner acceptance
 
 A receipt id (`objectiveReceiptId`) carries the first 12 hex characters of its tree: `verify:3:<id>@<tree prefix>`. Only receipts fresh on

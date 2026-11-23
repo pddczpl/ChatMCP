@@ -260,6 +260,14 @@ try {
     const ignored = await project('ignored-check', { test: "const fs = require('fs');\nconst { add } = require('./calc.js');\nfs.writeFileSync('cache.txt', 'ran');\nif (add(2, 3) !== 5) process.exit(1);\nconsole.log('OK 1 test');\n" });
     const fine = await run(manager, ignored, [read, fix, test, diff, done]);
     equal([fine.view.verificationOutcome.ready, fine.task.progress.checksChangedTree], [true, 0], 'a check that writes only an ignored file is a receipt');
+    // A folder without Git: the tree is raw-v1, with no ignore rules, so the same cache file a passing check writes changes the tree (audit of #157, N1).
+    const plain = path.join(root, 'plain-check');
+    await fs.mkdir(plain, { recursive: true });
+    for (const name of ['calc.js', 'check.js', 'package.json']) await fs.copyFile(path.join(ignored, name), path.join(plain, name));
+    const bare = await run(manager, plain, [read, fix, test, () => [say('Fixed add() and ran npm test.')]]);
+    equal(trees(bare.entries, 'task_start')[0]?.treeAlgorithm, 'raw-v1', '(premise) a folder without Git is snapshotted raw-v1');
+    equal([bare.task.progress.receipts.filter((receipt) => receipt.kind === 'verify').length, bare.task.progress.checksChangedTree], [0, 1], 'raw-v1: the passing check that wrote cache.txt is no receipt');
+    check(bare.view.verificationOutcome.missing.includes(MISSING.verify), 'and the run misses a check');
   });
 
   await section('without trees freshness is unknown, never fresh: the checks-only budget switch', async () => {
