@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { api, request } from '../src/lib/api.ts';
 import { getHubSecret, isHubSessionLost, onHubSessionLost, setHubSecret } from '../src/lib/session.ts';
 
@@ -165,4 +166,49 @@ test('"Download again" is the same call with again: true; the plain call carries
       ['/api/update/download', 'POST', '{"version":"3.10.3"}'], ['/api/update/download', 'POST', '{"version":"3.10.3"}'], ['/api/update/download', 'POST', '{"version":"3.10.3","again":true}'],
     ], 'only a download that is asked for again says so');
   } finally { globalThis.fetch = original; setHubSecret(''); }
+});
+
+test('a denial carries its reason to the Hub as feedback; the plan routes carry the revision the page read (P9 ac-10)', async () => {
+  const original = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (route, init = {}) => { seen.push({ route, method: init.method ?? 'GET', body: init.body === undefined ? undefined : JSON.parse(init.body), headers: init.headers }); return Response.json({ ok: true }); };
+  try {
+    await api.decidePermission('r1', true);
+    await api.decidePermission('r2', false, { feedback: 'Too broad.' });
+    await api.decidePermission('r3', true, { plan: '1. Edited.', execution: 'review' });
+    await api.denyAction('r4', 'Name the files first.');
+    await api.denyAction('r5');
+    await api.decidePlan('task-1', 3, 'request_changes', { feedback: 'Smaller steps.' });
+    await api.decidePlan('task-1', 4, 'approve', { execution: 'autonomous' });
+    await api.decidePlan('task-1', 5, 'approve');
+    await api.savePlan('task-1', 'Plan', [{ text: 'Step', status: 'todo' }], 4);
+    await api.savePlan('task-1', 'Plan', [], null, '1. The plan.');
+    await api.savePlan('task-1', 'Plan', []);
+    assert.deepEqual(seen.map((call) => [call.route, call.body]), [
+      ['/api/studio/permissions/decide', { id: 'r1', approved: true }],
+      ['/api/studio/permissions/decide', { id: 'r2', approved: false, feedback: 'Too broad.' }],
+      ['/api/studio/permissions/decide', { id: 'r3', approved: true, plan: '1. Edited.', execution: 'review' }],
+      ['/api/studio/permissions/decide', { id: 'r4', approved: false, feedback: 'Name the files first.' }],
+      ['/api/studio/permissions/decide', { id: 'r5', approved: false }],
+      ['/api/studio/plan/decide', { taskId: 'task-1', revision: 3, decision: 'request_changes', feedback: 'Smaller steps.' }],
+      ['/api/studio/plan/decide', { taskId: 'task-1', revision: 4, decision: 'approve', execution: 'autonomous' }],
+      ['/api/studio/plan/decide', { taskId: 'task-1', revision: 5, decision: 'approve' }],
+      ['/api/studio/plan/set', { taskId: 'task-1', title: 'Plan', items: [{ text: 'Step', status: 'todo' }], baseRevision: 4 }],
+      ['/api/studio/plan/set', { taskId: 'task-1', title: 'Plan', items: [], text: '1. The plan.' }],
+      ['/api/studio/plan/set', { taskId: 'task-1', title: 'Plan', items: [] }],
+    ], 'the reason of a denial is no longer dropped, and nothing is sent that the caller did not give');
+    for (const call of seen) {
+      assert.equal(call.method, 'POST');
+      assert.equal(call.headers['X-ChatMCP-Request'], 'local-dashboard', `${call.route}: with the marker of the page`);
+      assert.match(call.headers['X-ChatMCP-UI-Build'], /-react-agent$/, `${call.route}: with the build the Hub checks`);
+    }
+  } finally { globalThis.fetch = original; }
+});
+
+test('the conversation screen hands the reason of a denial on to the API instead of dropping it', () => {
+  const source = readFileSync(new URL('../src/components/conversation/ConversationView.tsx', import.meta.url), 'utf8');
+  const handler = source.slice(source.indexOf('const handleDeny'), source.indexOf('const timeline'));
+  assert.ok(handler.length > 0, 'the deny handler is there');
+  assert.match(handler, /api\.denyAction\(id, reason\)/);
+  assert.doesNotMatch(handler, /decidePermission\(id, false\)/);
 });

@@ -49,6 +49,29 @@ try{
   ok(sawTermLog);
   [r,v]=await post('/api/studio/plan/set',{taskId,title:'Roadmap',items:[{text:'Verify',status:'done',evidence:''}]});ok(r.ok&&v.items.length===1);
   [r,v]=await get('/api/studio/plan?taskId='+taskId);ok(r.ok&&v.title==='Roadmap');
+  // ---- ac-10: the plan model v2 over the routes (docs/PLAN-MODE.md, "The plan and its revision") ----------------------------------------
+  eq([v.revision,v.updatedBy,v.approvedAt],[1,'user',null],'a plan saved from the page is revision 1, by the user');
+  [r,v]=await post('/api/studio/plan/set',{taskId,title:'Roadmap 2',items:[],baseRevision:1});eq([r.status,v.revision],[200,2],'an edit from the current revision raises it');
+  [r,v]=await post('/api/studio/plan/set',{taskId,title:'Stale',items:[],baseRevision:1});eq([r.status,v.code,v.revision,v.updatedBy],[409,'plan_conflict',2,'user'],'a stale baseRevision is 409 and names the current revision');
+  [r,v]=await get('/api/studio/plan?taskId='+taskId);eq([v.revision,v.title],[2,'Roadmap 2'],'the stale edit wrote nothing');
+  for(const bad of [-1,'2',1.5,true]){[r,v]=await post('/api/studio/plan/set',{taskId,title:'x',items:[],baseRevision:bad});eq([r.status,v?.code],[400,'bad_revision'],`baseRevision ${JSON.stringify(bad)} is 400`);}
+  [r,v]=await post('/api/studio/plan/set',{taskId,title:'Roadmap 3',items:[],by:'agent',baseRevision:2});eq([r.status,v.revision,v.updatedBy],[200,3,'user'],'the page cannot write as the model');
+  [r,v]=await post('/api/studio/plan/set',{taskId,title:'Roadmap 3',items:[],text:'1. Do it.'});eq([r.status,v.revision,v.text],[200,4,'1. Do it.'],'the page can edit the text of the plan; without baseRevision the owner\'s write is unconditional');
+  const decide=(body)=>post('/api/studio/plan/decide',body);
+  for(const [label,body,code] of [
+    ['no task',{revision:4,decision:'approve'},'bad_task_id'],
+    ['no decision',{taskId,revision:4},'bad_decision'],
+    ['another decision',{taskId,revision:4,decision:'maybe'},'bad_decision'],
+    ['no revision',{taskId,decision:'approve'},'bad_revision'],
+    ['a revision that is not a whole number',{taskId,revision:'4',decision:'approve'},'bad_revision'],
+    ['changes without feedback',{taskId,revision:4,decision:'request_changes'},'feedback_required'],
+    ['changes with blank feedback',{taskId,revision:4,decision:'request_changes',feedback:'   '},'feedback_required'],
+    ['feedback that is too long',{taskId,revision:4,decision:'request_changes',feedback:'x'.repeat(4001)},'bad_feedback'],
+    ['an execution with changes',{taskId,revision:4,decision:'request_changes',feedback:'x',execution:'review'},'bad_execution'],
+    ['an execution that is no choice',{taskId,revision:4,decision:'approve',execution:'full-access'},'bad_execution'],
+  ]){[r,v]=await decide(body);eq([r.status,v?.code],[400,code],`plan decision, ${label}: 400 ${code}`);}
+  [r,v]=await decide({taskId,revision:4,decision:'approve',execution:'autonomous'});eq([r.status,v?.code],[404,'no_plan_request'],'a decision for a task with no plan waiting is 404');
+  [r,v]=await post('/api/studio/plan/decide',{taskId,revision:4,decision:'approve'},'wrong');eq(r.status,403,'the decision route is behind the CSRF token');
   [r,v]=await post('/api/tasks/auto-resume',{id:taskId,enabled:true});ok(r.ok&&v.task.id===taskId&&v.task.autoResume);
   [r,v]=await post('/api/tasks/auto-resume',{id:taskId,enabled:false},'wrong');ok(r.status===403);
   [r,v]=await get('/api/studio/checks');ok(r.ok);
