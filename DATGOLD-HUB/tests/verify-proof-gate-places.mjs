@@ -2,7 +2,8 @@
 // AgentRunner, check runner, baseline store and hooks, a scripted model.
 //  1. a step limit; a message queued while the checks run; a stop while a check runs (its process is gone, the attempt is recorded)
 //  2. no gate: no acceptance file, an untrusted one, Read Only, plan mode, an agent another agent started
-//  3. checks-only; a plain folder; a removed baseline; an ignored and a deleted acceptance file; a second chat in its own worktree (the owner's trust list is the Hub's)
+//  3. checks-only; a plain folder; a removed baseline; an ignored and a deleted acceptance file
+//  4. a second chat in its own worktree (the owner's trust list is the Hub's), with core.autocrlf off and on
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -75,7 +76,7 @@ try {
     } finally { manager.lifecycleAgent = null; }
   });
 
-  await section('3. checks-only (the scan budget of the proof service); a plain folder; a baseline that was removed; a second chat in its own worktree uses the Hub\'s trust list', async () => {
+  await section('3. checks-only (the scan budget of the proof service); a plain folder; a baseline that was removed; an ignored and a deleted acceptance file', async () => {
     // two-second scans: the proof service stops scanning around calls, so the Hub knows no tree until the gate takes its own
     let clock = 0;
     manager.proofOptions = { clock: () => (clock += 2000) };
@@ -94,6 +95,7 @@ try {
     for (const key of fsSync.readdirSync(folder)) await fs.rm(path.join(folder, key, `${proofBaseline.id}.json`), { force: true });
     const rebased = await run(manager, plain, [answer('Done.')], { runner: first.agent, id: first.id, prompt: 'Again.' });
     check(rebased.gates.includes('rebaselined'), 'a removed baseline is taken again, and said');
+    equal([rebased.view.completionOutcome.checksModified, rebased.view.proofGate.modifications], [true, [{ path: 'calc.test.js', codes: ['not_analyzed'] }]], 'and what was modified before it is still said');
     const held = JSON.parse(fsSync.readFileSync(path.join(manager.hubDirectory, 'api-tasks', first.id, 'task.json'), 'utf8')).proofBaseline.id;
     check(fsSync.readdirSync(folder).some((key) => fsSync.existsSync(path.join(folder, key, `${held}.json`))), '(premise) its baseline is on disk');
     await first.agent.delete(first.id);
@@ -104,41 +106,57 @@ try {
     const gone = await run(manager, manager.workspace, [() => [tool('run_command', { command: 'node -e "require(\'fs\').rmSync(\'.chatmcp/acceptance.yml\')"', description: 'Remove a file' })], answer('Done.'), answer('Done.')], { runner: hidden.agent, id: hidden.id, prompt: 'Tidy up.' });
     equal([gone.view.completionOutcome.requirements, gone.view.proofGate.reason, gone.view.proofGate.edit], ['failed', 'acceptance_edited', { deleted: true }], 'deleting it is no way out either');
 
-    const shared = await project('shared');
-    await manager.selectWorkspace(shared);
-    manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
-    let release;
-    const gate = new Promise((resolve) => { release = resolve; });
-    let count = 0;
-    const call = (name, args) => ({ type: 'function_call', status: 'completed', name, call_id: `side-${(count += 1)}`, arguments: JSON.stringify(args) });
-    const final = (text) => ({ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text }] });
-    const queues = {
-      main: [async () => { await gate; return final('Main done.'); }, () => final('Main really done.')],
-      child: [() => final('Child done.'), () => call('write_file', { path: 'calc.js', content: 'exports.add = (a, b) => a + b;\n', overwrite: true }), () => final('Child fixed it.')],
-    };
-    const model = {
-      ready: () => true, snapshot: () => ({ provider: 'fixture', model: 'gate-fixture' }), state: () => ({ provider: 'fixture', model: 'gate-fixture', configured: true, keySource: 'none' }),
-      async respond({ input }) {
-        const key = textsOf(input).some((text) => text.includes('[second chat]')) ? 'child' : 'main';
-        const step = queues[key].shift();
-        return { status: 'completed', output: [step ? await step() : final('Nothing more.')] };
-      },
-    };
-    const runner = new AgentRunner({ manager, provider: model, taskDirectory: path.join(manager.hubDirectory, 'side-tasks'), log: () => {}, toolSelectionMode: 'full' });
-    await runner.load();
-    const pool = new ConcurrentApiAgent({ bundleRoot, manager, primary: runner, provider: model, directory: path.join(manager.hubDirectory, 'side-chats'), log: () => {} });
-    await pool.load?.();
-    const stop = approver(manager);
-    try {
-      const main = await runner.start({ prompt: 'Fix add() in the main chat.' });
-      const child = await pool.start({ prompt: '[second chat] Fix add().' });
-      const view = await until(() => { const task = pool.get(child.id); return task && ['completed', 'failed'].includes(task.status) ? task : null; }, 'the second chat to end', 60_000);
-      equal([view.status, view.completionOutcome?.gate, view.proofGate?.rounds], ['completed', 'passed', 1], 'the second chat is gated in its own worktree, by the Hub\'s trust list');
-      release();
-      const ended = await until(() => { const task = runner.get(main.id); return task.status !== 'running' ? task : null; }, 'the main chat to end', 60_000);
-      equal(ended.completionOutcome.requirements, 'failed', 'and the main chat by its own tree');
-    } finally { stop(); release?.(); await pool.shutdown?.(); await runner.shutdown(); }
   });
+
+  for (const autocrlf of [false, true]) {
+    await section(`4. a second chat in its own worktree uses the Hub's trust list, with core.autocrlf=${autocrlf} (the default of Git for Windows is true: the worktree's acceptance file has other bytes than the trusted one)`, async () => {
+      // The worktree is made by the Hub's own Git, which reads the machine's configuration: this run's is the test's, on every system.
+      const config = path.join(root, `autocrlf-${autocrlf}.gitconfig`);
+      await fs.writeFile(config, `[core]\n\tautocrlf = ${autocrlf}\n`);
+      const before = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM };
+      Object.assign(process.env, { GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1' });
+      try {
+        const shared = await project(`shared-${autocrlf}`);
+        await manager.selectWorkspace(shared);
+        manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
+        let release;
+        const gate = new Promise((resolve) => { release = resolve; });
+        let count = 0;
+        const call = (name, args) => ({ type: 'function_call', status: 'completed', name, call_id: `side-${(count += 1)}`, arguments: JSON.stringify(args) });
+        const final = (text) => ({ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text }] });
+        const queues = {
+          main: [async () => { await gate; return final('Main done.'); }, () => final('Main really done.')],
+          child: [() => final('Child done.'), () => call('write_file', { path: 'calc.js', content: 'exports.add = (a, b) => a + b;\n', overwrite: true }), () => final('Child fixed it.')],
+        };
+        const model = {
+          ready: () => true, snapshot: () => ({ provider: 'fixture', model: 'gate-fixture' }), state: () => ({ provider: 'fixture', model: 'gate-fixture', configured: true, keySource: 'none' }),
+          async respond({ input }) {
+            const key = textsOf(input).some((text) => text.includes('[second chat]')) ? 'child' : 'main';
+            const step = queues[key].shift();
+            return { status: 'completed', output: [step ? await step() : final('Nothing more.')] };
+          },
+        };
+        const runner = new AgentRunner({ manager, provider: model, taskDirectory: path.join(manager.hubDirectory, `side-tasks-${autocrlf}`), log: () => {}, toolSelectionMode: 'full' });
+        await runner.load();
+        const pool = new ConcurrentApiAgent({ bundleRoot, manager, primary: runner, provider: model, directory: path.join(manager.hubDirectory, `side-chats-${autocrlf}`), log: () => {} });
+        await pool.load?.();
+        const stop = approver(manager);
+        try {
+          const main = await runner.start({ prompt: 'Fix add() in the main chat.' });
+          const child = await pool.start({ prompt: '[second chat] Fix add().' });
+          const view = await until(() => { const task = pool.get(child.id); return task && ['completed', 'failed'].includes(task.status) ? task : null; }, 'the second chat to end', 60_000);
+          const onDisk = await fs.readFile(path.join(view.worktree, '.chatmcp', 'acceptance.yml'), 'utf8');
+          equal(onDisk, autocrlf ? ACCEPT().replaceAll('\n', '\r\n') : ACCEPT(), `(premise) the worktree was checked out with core.autocrlf=${autocrlf}`);
+          equal([view.status, view.completionOutcome?.gate, view.proofGate?.rounds, view.completionOutcome?.checksModified], ['completed', 'passed', 1, false], 'the second chat is gated in its own worktree, by the Hub\'s trust list');
+          release();
+          const ended = await until(() => { const task = runner.get(main.id); return task.status !== 'running' ? task : null; }, 'the main chat to end', 60_000);
+          equal(ended.completionOutcome.requirements, 'failed', 'and the main chat by its own tree');
+        } finally { stop(); release?.(); await pool.shutdown?.(); await runner.shutdown(); }
+      } finally {
+        for (const [name, value] of Object.entries(before)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
+      }
+    });
+  }
 
   await manager.shutdown();
   console.log(`PASS: done-gate, where it runs (${count()} checks)`);

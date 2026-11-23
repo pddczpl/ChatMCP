@@ -14,6 +14,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { writeFileAtomic } from '../fs-safe.mjs';
 import { maskSecrets } from '../permissions.mjs';
 import { treeKey } from '../agent-progress.mjs';
@@ -51,8 +52,10 @@ const JUDGED = new Set([GATE_STATUS.passed, GATE_STATUS.failed, GATE_STATUS.unpr
 const judged = (result) => Boolean(result) && JUDGED.has(result.status);
 const isChecks = (row) => row?.kind === 'checks';
 const labelOf = (criterionId, index) => (index ? `${criterionId} #${index + 1}` : criterionId);
+// A format character (a bidi override, a zero-width one) in a file's name or in a check's output makes the text read as what it is not: it is written as its code point.
+const visible = (text) => text.replace(/\p{Cf}/gu, (char) => `<U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}>`);
 const oneLine = (value, limit) => {
-  const text = String(value ?? '').replace(/[\s\p{Cc}]+/gu, ' ').trim();
+  const text = visible(String(value ?? '')).replace(/[\s\p{Cc}]+/gu, ' ').trim();
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 };
 
@@ -164,7 +167,7 @@ export function gateNotice(result) {
       : `the owner's trusted acceptance checks failed on the final tree (${listed(result.failing, (item) => `${labelOf(item.criterionId, item.index)}: ${item.detail}`)})`;
     const rounds = result.stopped === 'no_turn_left'
       ? 'The agent was not sent back: no model turn was left to fix it.'
-      : `They failed ${result.rounds} times in this run, after which DatGold does not send the agent back again.`;
+      : 'The agent was sent back once; DatGold does not send it back again in this run.';
     return `This task is NOT done: ${what}. ${rounds}${modified}`;
   }
   if (result.status === GATE_STATUS.stale) return `The files changed after the owner's trusted acceptance checks passed, so that result does not hold for the final tree.${modified}`;
@@ -178,9 +181,9 @@ const ESCAPES = new RegExp('\\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\x07\\x1b]*(?:\\x
 const LINE_ENDS = new RegExp('\\r\\n|[\\r\\x85\\u2028\\u2029]', 'g');
 const CONTROL = /(?![\t\n])\p{Cc}/gu;
 
-/** The end of `text` (a test runner says there what failed), masked whole before it is cut, without control characters. */
+/** The end of `text` (a test runner says there what failed), masked whole before it is cut, without control characters and with format characters written visibly. */
 export function clipOutput(text, secrets = [], limit = GATE_LIMITS.outputChars) {
-  const shown = maskSecrets(String(text ?? ''), secrets).replace(ESCAPES, '').replace(LINE_ENDS, '\n').replace(CONTROL, '').replace(/\n+$/, '');
+  const shown = visible(maskSecrets(String(text ?? ''), secrets).replace(ESCAPES, '').replace(LINE_ENDS, '\n').replace(CONTROL, '')).replace(/\n+$/, '');
   if (shown.length <= limit) return shown;
   let start = shown.length - limit;
   const code = shown.charCodeAt(start);
@@ -247,6 +250,42 @@ async function readAcceptance(studio) {
     return buffer.subarray(0, length);
   } catch { return null; } finally { await handle?.close().catch(() => {}); }
 }
+const sha = (bytes) => acceptanceSha256(bytes);
+/**
+ * The bytes with LF line ends and with CRLF ones, whatever mix they have: what Git makes of one file under core.autocrlf (the default of Git for Windows). Null when they hold a
+ * CR that is no part of a CRLF: such bytes have no other form.
+ */
+function lineEndForms(bytes) {
+  const text = bytes.toString('latin1'); // byte for byte
+  if (/\r(?!\n)/.test(text)) return null;
+  const lf = text.replace(/\r\n/g, '\n');
+  return [Buffer.from(lf, 'latin1'), Buffer.from(lf.replace(/\n/g, '\r\n'), 'latin1')];
+}
+/** Whether two acceptance files say the same, read by the one reader that counts. */
+function sameMeaning(a, b) {
+  const [left, right] = [parsed(a).acceptance, parsed(b).acceptance];
+  return left !== null && right !== null && isDeepStrictEqual(left, right);
+}
+/** Whether two files (null: none) are the same bytes, or differ in nothing but LF / CRLF. */
+function sameButLineEnds(a, b) {
+  if (a === null || b === null) return a === b;
+  if (Buffer.compare(a, b) === 0) return true;
+  const [left, right] = [lineEndForms(a), lineEndForms(b)];
+  return left !== null && right !== null && left[0].equals(right[0]) && sameMeaning(a, b);
+}
+/** The bytes the owner trusts that `bytes` are: themselves, or the form with the other line ends when that one is trusted and says the same; null when neither is. */
+async function trustedForm(bytes, trustStore) {
+  if ((await trustStore.isTrusted(sha(bytes))) === true) return bytes;
+  for (const form of lineEndForms(bytes) ?? []) {
+    if ((await trustStore.isTrusted(sha(form))) === true && sameMeaning(bytes, form)) return form;
+  }
+  return null;
+}
+/** When the owner last trusted `sha256` (ms), or -Infinity. */
+async function trustedAt(trustStore, sha256) {
+  const entry = (await trustStore.list()).find((item) => item.sha256 === sha256);
+  return entry ? Date.parse(entry.at) : -Infinity;
+}
 const sameBytes = (a, b) => (a === null || b === null ? a === b : Buffer.compare(a, b) === 0);
 /** The parsed file and the problem that keeps it from being read, one of them null. */
 function parsed(bytes) {
@@ -261,7 +300,37 @@ const HEX64 = /^[0-9a-f]{64}$/;
 function savedBaseline(value) {
   if (!value || typeof value !== 'object' || typeof value.acceptanceSha256 !== 'string' || !HEX64.test(value.acceptanceSha256)) return null;
   const whole = typeof value.id === 'string' && typeof value.sha256 === 'string' && HEX64.test(value.sha256);
-  return { id: whole ? value.id : null, sha256: whole ? value.sha256 : null, acceptanceSha256: value.acceptanceSha256 };
+  const heldAt = typeof value.heldAt === 'string' ? Date.parse(value.heldAt) : Number.NaN;
+  return {
+    id: whole ? value.id : null, sha256: whole ? value.sha256 : null, acceptanceSha256: value.acceptanceSha256, at: typeof value.at === 'string' ? value.at : null,
+    // When a run was last held to this version; a record without it adopts no other one (until a run has written it again).
+    heldAt: Number.isNaN(heldAt) ? Infinity : heldAt,
+    cleanTree: typeof value.cleanTree === 'string' ? value.cleanTree : null,
+    modified: savedModified(value.modified),
+    carried: value.carried === null || value.carried === undefined || value.carried === CARRIED.modified ? value.carried ?? null : CARRIED.unknown,
+  };
+}
+/** What the changes before a baseline that was taken again are: not known, or known to have touched the checks. */
+const CARRIED = Object.freeze({ unknown: 'unknown', modified: 'modified' });
+/** The last judgment's modified checks as they were saved ({criteria, modifications}); null for none, and an empty one for a record that is not one. */
+function savedModified(value) {
+  if (value === null || value === undefined) return null;
+  const list = (items) => (Array.isArray(items) ? items : []);
+  return {
+    criteria: list(value.criteria).filter((id) => typeof id === 'string').slice(0, GATE_LIMITS.rows),
+    modifications: list(value.modifications).filter((item) => typeof item?.path === 'string' && Array.isArray(item.codes)).slice(0, GATE_LIMITS.modifications)
+      .map((item) => ({ path: oneLine(item.path, 400), codes: item.codes.filter((code) => typeof code === 'string').map((code) => oneLine(code, 64)) })),
+  };
+}
+/** `report` with what an earlier judgment of the conversation found, before the baseline was taken again: the flags of its criteria and its changes. */
+function withEarlier(report, earlier) {
+  const reasons = earlier.modifications.flatMap((item) => item.codes.map((code) => ({ code, path: item.path })));
+  const known = new Set(earlier.modifications.map((item) => item.path));
+  return {
+    ...report, checks_modified: true,
+    criteria: report.criteria.map((row) => (earlier.criteria.includes(row.id) ? { ...row, checks_modified: true, reasons: [...reasons, ...row.reasons.filter((item) => !known.has(item.path))] } : row)),
+    findings: [...earlier.modifications.map((item) => ({ path: item.path, flagged: true, reasons: item.codes.map((code) => ({ code, flagged: true })) })), ...report.findings.filter((item) => !(item.flagged && known.has(item.path)))],
+  };
 }
 
 /**
@@ -359,8 +428,9 @@ export class DoneGate {
     const { manager } = this;
     const current = await readAcceptance(manager.studio);
     const trustStore = manager.acceptanceTrustStore();
-    const sha256 = current ? acceptanceSha256(current) : null;
-    const trusted = sha256 !== null && (await trustStore.isTrusted(sha256)) === true;
+    const form = current ? await trustedForm(current, trustStore) : null;
+    const trusted = form !== null;
+    const sha256 = current ? sha(form ?? current) : null;
     const say = (gate, message, extra = {}) => emit(GATE_EVENT, message, { gate, ...extra });
     if (manager.lifecycleAgent?.kind === 'subagent') {
       if (trusted) await say('skipped', 'Tác nhân này do một tác nhân khác khởi động: cổng bằng chứng không chạy ở đây (tác vụ cha có cổng của nó).', { reason: 'subagent' });
@@ -368,7 +438,7 @@ export class DoneGate {
     }
     const saved = savedBaseline(task.proofBaseline);
     if (!saved && !current) return null;
-    const run = newRun(trustStore);
+    const run = { ...newRun(trustStore), directory, startTree: task.progress?.tree ?? null };
     const problem = current ? parsed(current).problem : null;
     let keep = true; // the bytes this run is held to are kept in the task's folder, unless they are the kept ones
     if (!saved) {
@@ -378,24 +448,35 @@ export class DoneGate {
         await say('invalid', `${ACCEPTANCE_FILE} không đọc được (dòng ${problem.line}: ${problem.reason}): cổng bằng chứng không chạy kiểm tra nào. Sửa tệp rồi tin lại bằng "chatmcp verify trust".`, { reason: 'invalid' });
         return run;
       }
-      this.#hold(run, current, sha256);
-    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem) {
-      // The owner trusted another version of the file since: this run is held to it.
-      this.#hold(run, current, sha256);
+      this.#hold(run, form ?? current);
+    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem && (await trustedAt(trustStore, sha256)) > saved.heldAt) {
+      // The owner trusted another version of the file since a run was last held to the saved one: this run is held to it. One they trusted before that (an older, weaker
+      // version that is still on the list) is not adopted: the agent can put its bytes back, and that is an edit.
+      this.#hold(run, form);
     } else {
       const kept = await fs.readFile(path.join(directory, ACCEPTANCE_COPY)).catch(() => null);
-      keep = !(kept && acceptanceSha256(kept) === saved.acceptanceSha256);
-      if (!keep) this.#hold(run, kept, saved.acceptanceSha256);
-      else if (sha256 === saved.acceptanceSha256) this.#hold(run, current, sha256);
+      keep = !(kept && sha(kept) === saved.acceptanceSha256);
+      const again = current ? [current, ...(lineEndForms(current) ?? [])].find((bytes) => sha(bytes) === saved.acceptanceSha256) ?? null : null;
+      if (!keep) this.#hold(run, kept);
+      else if (again) this.#hold(run, again);
       else { run.unusable = 'acceptance_lost'; return run; }
     }
     if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);
-    run.armed = true;
-    if (keep) await this.#keep(directory, run.acceptance);
-    task.proofBaseline = { id: saved?.id ?? null, sha256: saved?.sha256 ?? null, acceptanceSha256: run.sha256, at: task.proofBaseline?.at ?? new Date().toISOString() };
+    await this.#arm(run, task, saved, keep);
     if (!run.checks) return run;
     await this.#baseline({ run, task, saved, signal, say });
     return run;
+  }
+
+  /** From here on the conversation is held to the run's bytes, and the run does not lose its gate in silence. */
+  async #arm(run, task, saved, keep) {
+    run.armed = true;
+    if (keep) await this.#keep(run.directory, run.acceptance);
+    task.proofBaseline = {
+      id: saved?.id ?? null, sha256: saved?.sha256 ?? null, acceptanceSha256: run.sha256, at: saved?.at ?? null, heldAt: new Date().toISOString(),
+      // The tree known to have its checks unmodified: the one the first run started on, then the one last judged so. What a new baseline is measured by.
+      cleanTree: saved ? saved.cleanTree : run.startTree, modified: saved?.modified ?? null, carried: saved?.carried ?? null,
+    };
   }
 
   /** The notice of a run that begins without the owner's trust in the file it would be held to. */
@@ -405,9 +486,9 @@ export class DoneGate {
     return run;
   }
 
-  #hold(run, bytes, sha256) {
+  #hold(run, bytes) {
     run.acceptance = Buffer.from(bytes);
-    run.sha256 = sha256;
+    run.sha256 = sha(run.acceptance);
     run.checks = checkCount(parseAcceptance(run.acceptance));
   }
 
@@ -435,7 +516,9 @@ export class DoneGate {
     const root = path.resolve(manager.workspace);
     const hubDir = this.#hubDir();
     await this.#sweep(hubDir);
-    const armed = `Cổng bằng chứng: ${run.checks} kiểm tra của ${ACCEPTANCE_FILE} (chủ máy đã tin) sẽ chạy trên cây thư mục cuối trước khi tác vụ được coi là xong.`;
+    const version = run.sha256.slice(0, 12);
+    const armed = `Cổng bằng chứng: ${run.checks} kiểm tra của ${ACCEPTANCE_FILE} (bản ${version}, chủ máy đã tin) sẽ chạy trên cây thư mục cuối trước khi tác vụ được coi là xong.`;
+    const facts = { checks: run.checks, acceptance: version };
     let again = false;
     if (saved?.id) {
       try {
@@ -445,12 +528,12 @@ export class DoneGate {
         if (signal?.aborted) throw signal.reason;
         // Removed by the retention (or by hand): a new one, so that what changes from here on is seen. An edited or foreign one is never replaced.
         if (error?.code !== 'baseline_missing') {
-          await say('baseline_unavailable', `${armed} Không đọc được mốc so sánh của tác vụ (${error?.code ?? 'lỗi'}), nên không biết các kiểm tra có bị sửa hay không.`, { reason: String(error?.code ?? 'error').slice(0, 64) });
+          await say('baseline_unavailable', `${armed} Không đọc được mốc so sánh của tác vụ (${error?.code ?? 'lỗi'}), nên không biết các kiểm tra có bị sửa hay không.`, { ...facts, reason: String(error?.code ?? 'error').slice(0, 64) });
           return;
         }
         again = true;
       }
-      if (run.baseline) return void await say('armed', armed, { checks: run.checks });
+      if (run.baseline) return void await say('armed', armed, facts);
     }
     const limit = new AbortController();
     const timer = setTimeout(() => limit.abort(Object.assign(new Error('The baseline took too long.'), { code: 'baseline_timeout' })), this.baselineTimeoutMs);
@@ -460,15 +543,23 @@ export class DoneGate {
     try {
       const taken = await this.deps.snapshotBaseline({ hubDir, root, toolchain: null, retention: GATE_RETENTION, lock: { waitMs: LOCK_WAIT_MS }, signal: signal ? AbortSignal.any([signal, limit.signal]) : limit.signal });
       run.baseline = { id: taken.id, sha256: taken.sha256 };
-      Object.assign(task.proofBaseline, { id: taken.id, sha256: taken.sha256, at: new Date().toISOString() });
+      const record = task.proofBaseline;
+      Object.assign(record, { id: taken.id, sha256: taken.sha256, at: new Date().toISOString() });
+      // A baseline that is not the one of the conversation's first run does not know what changed before it: unknown is never "nothing changed".
+      const tree = treeKey(taken.record);
+      if (!saved) record.cleanTree = tree ?? record.cleanTree;
+      else if (record.modified) record.carried = CARRIED.modified;
+      else if (tree === null || tree !== record.cleanTree) record.carried ??= CARRIED.unknown;
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
       failed = limit.signal.aborted ? 'baseline_timeout' : String(error?.code ?? 'baseline_failed').slice(0, 64);
     } finally { clearTimeout(timer); clearTimeout(notice); }
     await said;
-    if (failed) await say('baseline_unavailable', `${armed} Không lấy được mốc so sánh (${failed}), nên sẽ không biết các kiểm tra có bị sửa hay không.`, { reason: failed });
-    else if (again) await say('rebaselined', `${armed} Mốc so sánh cũ không còn, đã lấy mốc mới từ lần chạy này: các thay đổi trước đó đối với kiểm tra không còn thấy được.`, { checks: run.checks });
-    else await say('armed', armed, { checks: run.checks });
+    const { carried } = task.proofBaseline;
+    const before = carried === CARRIED.unknown ? ' Các thay đổi đối với kiểm tra trước mốc này không biết được.' : carried === CARRIED.modified ? ' Các kiểm tra đã bị thay đổi trước mốc này.' : '';
+    if (failed) await say('baseline_unavailable', `${armed} Không lấy được mốc so sánh (${failed}), nên sẽ không biết các kiểm tra có bị sửa hay không.`, { ...facts, reason: failed });
+    else if (again) await say('rebaselined', `${armed} Mốc so sánh cũ không còn, đã lấy mốc mới từ lần chạy này.${before}`, { ...facts, carried });
+    else await say('armed', `${armed}${before}`, { ...facts, ...(carried ? { carried } : {}) });
   }
 
   /** The baseline of a conversation that is deleted. Never throws. */
@@ -480,11 +571,16 @@ export class DoneGate {
   }
 
   /** Why nothing is run for this answer, or null. */
-  async #skip(run, planMode) {
+  async #skip(run, task, planMode) {
     const { manager } = this;
     if (run.unusable === 'invalid') return 'invalid';
     if (run.unusable) return null;
-    if (!run.armed && (await run.trustStore.isTrusted(run.sha256)) !== true) return 'untrusted';
+    if (!run.armed) {
+      const form = await trustedForm(run.acceptance, run.trustStore);
+      if (!form) return 'untrusted';
+      this.#hold(run, form); // trusted since the run began, perhaps with the other line ends
+      await this.#arm(run, task, savedBaseline(task.proofBaseline), true);
+    }
     if (!run.checks) return 'no_checks';
     if (planMode) return 'plan_mode';
     if (manager.permissions?.mode === 'readonly') return 'readonly';
@@ -509,7 +605,7 @@ export class DoneGate {
       status: null, reason: null, at: new Date().toISOString(), rounds: run.failures, limit: GATE_ROUNDS, passes: 0, reused: false, tree: null, acceptanceSha256: run.sha256,
       criteria: [], checks: [], failing: [], open: [], checksModified: null, modifications: [], testChanges: [],
     };
-    const skipped = await this.#skip(run, planMode);
+    const skipped = await this.#skip(run, task, planMode);
     if (skipped) {
       if (!run.said.has(skipped)) { run.said.add(skipped); await say('skipped', SKIPPED[skipped], { reason: skipped }); }
       return done({ ...base, status: GATE_STATUS.skipped, reason: skipped });
@@ -523,7 +619,9 @@ export class DoneGate {
       await say(GATE_STATUS.unproven, `Cổng bằng chứng không chạy được kiểm tra (${unusable}): kết quả không được xác nhận.`, { reason: unusable });
       return done(result);
     }
-    const current = await readAcceptance(manager.studio);
+    const found = await readAcceptance(manager.studio);
+    // Other line ends (a checkout under core.autocrlf) are no edit: the file counts as the bytes the run is held to.
+    const current = sameButLineEnds(found, run.acceptance) ? run.acceptance : found;
     const reused = await this.#reuse(run, service, current, signal);
     if (reused) {
       await say(reused.status, `Cổng bằng chứng: cây thư mục không đổi từ lần chạy kiểm tra trước, dùng lại kết quả (${reused.status}).`, { reason: reused.reason, reused: true, rounds: run.failures, limit: GATE_ROUNDS, checksModified: reused.checksModified });
@@ -544,7 +642,8 @@ export class DoneGate {
     }
     const { report, changes, outputs, passes } = pass;
     const verdict = judgeChecks(report);
-    const result = { ...base, ...this.#record({ run, report, changes, verdict, current }), passes };
+    const result = { ...base, ...this.#record({ run, task, report, changes, verdict, current }), passes };
+    this.#remember(task, result);
     if (verdict.status === GATE_STATUS.failed) run.failures += 1;
     result.rounds = run.failures;
     const observed = { tree: report.finalTree, checks: result.status === GATE_STATUS.passed && result.checksModified !== true ? this.#receipts(report) : [] };
@@ -597,7 +696,7 @@ export class DoneGate {
       };
       const report = await this.deps.runChecks({
         baseline: run.acceptance, current, trustStore: run.trustStore, runner, ledger, snapshotter: service.snapshotter ?? null, toolchain: this.toolchain, signal,
-        checkChanges: run.baseline ? async () => { changes = await this.#changes(run, current); return changes; } : null,
+        checkChanges: run.baseline ? async () => { changes = await this.#changes(run, task, current); return changes; } : null,
       });
       signal?.throwIfAborted();
       const verdict = judgeChecks(report);
@@ -607,21 +706,41 @@ export class DoneGate {
   }
 
   /** The report on the changes to the checks, or null when it cannot be made: unknown is never "nothing changed". */
-  async #changes(run, current) {
-    try { return await this.deps.checkChanges({ manager: this.manager, hubDir: this.#hubDir(), baseline: run.baseline, acceptance: run.acceptance, current }); } catch (error) {
+  async #changes(run, task, current) {
+    let report;
+    try { report = await this.deps.checkChanges({ manager: this.manager, hubDir: this.#hubDir(), baseline: run.baseline, acceptance: run.acceptance, current }); } catch (error) {
       this.log(`Cổng bằng chứng: không so được các kiểm tra với lúc bắt đầu tác vụ (${error?.code ?? error?.message}).`);
       return null;
+    }
+    const { carried, modified } = task.proofBaseline ?? {};
+    if (report && carried === CARRIED.modified) return withEarlier(report, savedModified(modified) ?? { criteria: [], modifications: [] });
+    // What changed before a baseline that was taken again is not known, so "nothing changed since" is not known either; a change that is seen is one.
+    if (report && carried === CARRIED.unknown && report.checks_modified !== true) return null;
+    return report;
+  }
+
+  /** What the conversation keeps of a judgment, for the day its baseline is gone: the tree whose checks are known to be unmodified, or what was modified. Unknown changes nothing. */
+  #remember(task, result) {
+    const record = task.proofBaseline;
+    if (!record) return;
+    if (result.checksModified === true) {
+      record.modified = { criteria: result.criteria.filter((row) => row.codes.includes('checks_modified')).map((row) => row.id), modifications: result.modifications };
+      record.cleanTree = null;
+    } else if (result.checksModified === false) {
+      record.modified = null;
+      record.cleanTree = result.tree;
     }
   }
 
   /** What is kept of one run of the checks: no output, no tree but the key of the final one. */
-  #record({ run, report, changes, verdict, current }) {
+  #record({ run, task, report, changes, verdict, current }) {
     const { criteria } = parseAcceptance(run.acceptance);
     const specs = new Map(criteria.flatMap((criterion) => (criterion.checks ?? []).map((check, index) => [`${criterion.id}#${index}`, check])));
     const last = new Map();
     for (const attempt of report.attempts) last.set(`${attempt.criterionId}#${attempt.index}`, attempt);
     const secrets = this.manager.secrets ?? [];
     const found = Array.isArray(changes?.findings) ? changes.findings : [];
+    const earlier = task.proofBaseline?.carried === CARRIED.modified ? savedModified(task.proofBaseline.modified) : null;
     return {
       status: verdict.status, reason: verdict.reason, failing: verdict.failing.slice(0, GATE_LIMITS.rows), open: verdict.open.slice(0, GATE_LIMITS.rows),
       tree: treeKey(report.finalTree),
@@ -635,8 +754,8 @@ export class DoneGate {
           unreliable: check.unreliable, timeoutCapped: check.timeoutCapped, error: check.error ? oneLine(check.error.code, 64) : null, durationMs: attempt?.durationMs ?? null, seq: attempt?.seq ?? null,
         };
       }),
-      checksModified: changes ? changes.checks_modified === true : verdict.checksModified,
-      modifications: found.filter((item) => item.flagged).slice(0, GATE_LIMITS.modifications).map((item) => ({ path: oneLine(item.path, 400), codes: item.reasons.filter((reason) => reason.flagged).map((reason) => reason.code) })),
+      checksModified: earlier ? true : changes ? changes.checks_modified === true : verdict.checksModified,
+      modifications: earlier && !changes ? earlier.modifications : found.filter((item) => item.flagged).slice(0, GATE_LIMITS.modifications).map((item) => ({ path: oneLine(item.path, 400), codes: item.reasons.filter((reason) => reason.flagged).map((reason) => reason.code) })),
       // Test files changed without a flag (docs/PROOF-TAMPER.md: the heuristics flag neither every edit nor only bad ones): a person may want to look at them.
       testChanges: found.filter((item) => !item.flagged && item.reasons.some((reason) => reason.code === 'test_file_modified')).slice(0, GATE_LIMITS.modifications).map((item) => oneLine(item.path, 400)),
     };

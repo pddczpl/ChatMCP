@@ -443,28 +443,6 @@
   ]
  },
  {
-  "name": "PG-clip-before-mask",
-  "what": "the output is cut before it is masked",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "  const shown = maskSecrets(String(text ?? ''), secrets).replace(ESCAPES,",
-    "new": "  const shown = maskSecrets(String(text ?? '').slice(-limit), secrets).replace(ESCAPES,"
-   }
-  ]
- },
- {
-  "name": "PG-no-mask",
-  "what": "the output is not masked",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "  const shown = maskSecrets(String(text ?? ''), secrets).replace(ESCAPES,",
-    "new": "  const shown = String(text ?? '').replace(ESCAPES,"
-   }
-  ]
- },
- {
   "name": "PG-head-kept",
   "what": "the start of the output is kept instead of its end",
   "patches": [
@@ -472,28 +450,6 @@
     "file": "lib/proof/gate.mjs",
     "old": "  return `[${start} characters cut]\\n${shown.slice(start)}`;",
     "new": "  return `[${start} characters cut]\\n${shown.slice(0, limit)}`;"
-   }
-  ]
- },
- {
-  "name": "PG-escapes-kept",
-  "what": "escape sequences reach the model",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": ".replace(ESCAPES, '')",
-    "new": ""
-   }
-  ]
- },
- {
-  "name": "PG-controls-kept",
-  "what": "control characters reach the model",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": ".replace(CONTROL, '')",
-    "new": ""
    }
   ]
  },
@@ -619,17 +575,6 @@
   ]
  },
  {
-  "name": "PG-untrusted-kept",
-  "what": "the bytes of an untrusted file are kept and the conversation is held to them",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "    if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);\n    run.armed = true;\n    if (keep) await this.#keep(directory, run.acceptance);",
-    "new": "    if (keep) await this.#keep(directory, run.acceptance);\n    if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);\n    run.armed = true;"
-   }
-  ]
- },
- {
   "name": "PG-never-armed",
   "what": "a run is never armed",
   "patches": [
@@ -637,6 +582,28 @@
     "file": "lib/proof/gate.mjs",
     "old": "    run.armed = true;\n",
     "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-detector-failure-clean",
+  "what": "a detector that fails reads as nothing changed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      this.log(`Cổng bằng chứng: không so được các kiểm tra với lúc bắt đầu tác vụ (${error?.code ?? error?.message}).`);\n      return null;",
+    "new": "      return { format: 'chatmcp.check-changes/1', checks_modified: false, criteria: [], findings: [] };"
+   }
+  ]
+ },
+ {
+  "name": "PG-report-flag-ignored",
+  "what": "the flag of the report is not in the record",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "earlier ? true : changes ? changes.checks_modified === true : verdict.checksModified,",
+    "new": "earlier ? true : verdict.checksModified === null ? null : false,"
    }
   ]
  },
@@ -670,61 +637,6 @@
     "file": "lib/proof/gate.mjs",
     "old": "        run.said.add('invalid');\n        await say('invalid',",
     "new": "        run.said.add('invalid');\n        if (false) await say('invalid',"
-   }
-  ]
- },
- {
-  "name": "PG-adopt-untrusted",
-  "what": "a file the owner did not trust is adopted by the next run",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem) {",
-    "new": "    } else if (current && sha256 !== saved.acceptanceSha256 && !problem) {"
-   }
-  ]
- },
- {
-  "name": "PG-adopt-never",
-  "what": "a file the owner trusted meanwhile is not adopted",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem) {",
-    "new": "    } else if (false) {"
-   }
-  ]
- },
- {
-  "name": "PG-copy-unchecked",
-  "what": "an edited copy of the acceptance bytes is used",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "      keep = !(kept && acceptanceSha256(kept) === saved.acceptanceSha256);",
-    "new": "      keep = !kept;"
-   }
-  ]
- },
- {
-  "name": "PG-copy-not-made-again",
-  "what": "a missing copy is not made again",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "    if (keep) await this.#keep(directory, run.acceptance);",
-    "new": "    if (keep && !saved) await this.#keep(directory, run.acceptance);"
-   }
-  ]
- },
- {
-  "name": "PG-current-unchecked",
-  "what": "any file stands in for a lost copy",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "      else if (sha256 === saved.acceptanceSha256) this.#hold(",
-    "new": "      else if (current) this.#hold("
    }
   ]
  },
@@ -1015,6 +927,613 @@
   ]
  },
  {
+  "name": "PG-clip-before-mask",
+  "what": "the output is cut before it is masked",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const shown = visible(maskSecrets(String(text ?? ''), secrets).replace(ESCAPES,",
+    "new": "  const shown = visible(maskSecrets(String(text ?? '').slice(-limit), secrets).replace(ESCAPES,"
+   }
+  ]
+ },
+ {
+  "name": "PG-no-mask",
+  "what": "the output is not masked",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const shown = visible(maskSecrets(String(text ?? ''), secrets).replace(ESCAPES,",
+    "new": "  const shown = visible(String(text ?? '').replace(ESCAPES,"
+   }
+  ]
+ },
+ {
+  "name": "PG-escapes-kept",
+  "what": "escape sequences reach the model",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": ".replace(ESCAPES, '')",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-controls-kept",
+  "what": "control characters reach the model",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": ".replace(CONTROL, '')",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-format-chars-output",
+  "what": "format characters of the output are kept",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const shown = visible(maskSecrets(String(text ?? ''), secrets).replace(ESCAPES, '').replace(LINE_ENDS, '\\n').replace(CONTROL, '')).replace",
+    "new": "  const shown = (maskSecrets(String(text ?? ''), secrets).replace(ESCAPES, '').replace(LINE_ENDS, '\\n').replace(CONTROL, '')).replace"
+   }
+  ]
+ },
+ {
+  "name": "PG-format-chars-names",
+  "what": "format characters of a name are kept",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  const text = visible(String(value ?? '')).replace(",
+    "new": "  const text = String(value ?? '').replace("
+   }
+  ]
+ },
+ {
+  "name": "PG-format-chars-dropped",
+  "what": "format characters are dropped instead of shown",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "(char) => `<U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}>`);",
+    "new": "() => '');"
+   }
+  ]
+ },
+ {
+  "name": "PG-notice-says-failed",
+  "what": "checks that did not run are said to have failed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      : 'The agent was sent back once; DatGold does not send it back again in this run.';",
+    "new": "      : `They failed ${result.rounds} times in this run.`;"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-none",
+  "what": "a twin with other line ends is not recognised",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  for (const form of lineEndForms(bytes) ?? []) {",
+    "new": "  for (const form of []) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-lf-only",
+  "what": "only the LF form is tried",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  for (const form of lineEndForms(bytes) ?? []) {",
+    "new": "  for (const form of (lineEndForms(bytes) ?? []).slice(0, 1)) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-crlf-only",
+  "what": "only the CRLF form is tried",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  for (const form of lineEndForms(bytes) ?? []) {",
+    "new": "  for (const form of (lineEndForms(bytes) ?? []).slice(1)) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-untrusted",
+  "what": "a twin nobody trusted is held",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if ((await trustStore.isTrusted(sha(form))) === true && sameMeaning(bytes, form)) return form;",
+    "new": "    if (sameMeaning(bytes, form)) return form;"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-meaning",
+  "what": "a twin is not read again",
+  "equivalent": "the reader gives LF and CRLF the same values and refuses a lone CR, so two forms that differ in line ends only always say the same; the check stays for a reader that does not",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "=== true && sameMeaning(bytes, form)) return form;",
+    "new": "=== true) return form;"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-lone-cr",
+  "what": "a lone CR is a line end",
+  "equivalent": "the reader refuses a lone CR, so such a file is invalid before any form of it counts, and the second reading of the form refuses it too",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (/\\r(?!\\n)/.test(text)) return null;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-edit",
+  "what": "other line ends during the task are an edit",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const current = sameButLineEnds(found, run.acceptance) ? run.acceptance : found;",
+    "new": "    const current = found;"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-any-edit",
+  "what": "any edit counts as the held bytes",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return left !== null && right !== null && left[0].equals(right[0]) && sameMeaning(a, b);",
+    "new": "  return true;"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-held-own",
+  "what": "the run is held to the bytes on disk instead of the trusted ones",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      this.#hold(run, form ?? current);",
+    "new": "      this.#hold(run, current);"
+   }
+  ]
+ },
+ {
+  "name": "PG-twin-late-own",
+  "what": "a run trusted while it goes on is held to the bytes on disk",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      this.#hold(run, form); // trusted since the run began, perhaps with the other line ends",
+    "new": "      // trusted since the run began"
+   }
+  ]
+ },
+ {
+  "name": "PG-late-untrusted",
+  "what": "an untrusted file is asked of the runner",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (!form) return 'untrusted';\n      this.#hold(run, form);",
+    "new": "      this.#hold(run, form ?? run.acceptance);"
+   }
+  ]
+ },
+ {
+  "name": "PG-late-not-armed",
+  "what": "a run trusted while it goes on leaves the conversation unheld",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      await this.#arm(run, task, savedBaseline(task.proofBaseline), true);\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-late-not-kept",
+  "what": "a run trusted while it goes on keeps no bytes",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      await this.#arm(run, task, savedBaseline(task.proofBaseline), true);",
+    "new": "      await this.#arm(run, task, savedBaseline(task.proofBaseline), false);"
+   }
+  ]
+ },
+ {
+  "name": "PG-copy-unchecked",
+  "what": "an edited copy of the acceptance bytes is used",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      keep = !(kept && sha(kept) === saved.acceptanceSha256);",
+    "new": "      keep = !kept;"
+   }
+  ]
+ },
+ {
+  "name": "PG-copy-not-made-again",
+  "what": "a missing copy is not made again",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (keep) await this.#keep(run.directory, run.acceptance);",
+    "new": "    if (keep && !saved) await this.#keep(run.directory, run.acceptance);"
+   }
+  ]
+ },
+ {
+  "name": "PG-current-unchecked",
+  "what": "any file stands in for a lost copy",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": ".find((bytes) => sha(bytes) === saved.acceptanceSha256) ?? null : null;",
+    "new": ".find(() => true) ?? null : null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-lost-copy-no-twin",
+  "what": "a twin does not stand in for a lost copy",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "[current, ...(lineEndForms(current) ?? [])].find(",
+    "new": "[current].find("
+   }
+  ]
+ },
+ {
+  "name": "PG-untrusted-kept",
+  "what": "the bytes of an untrusted file are kept",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);\n    await this.#arm(run, task, saved, keep);",
+    "new": "    await this.#arm(run, task, saved, keep);\n    if ((await trustStore.isTrusted(run.sha256)) !== true) return await this.#untrusted(run, say);"
+   }
+  ]
+ },
+ {
+  "name": "PG-adopt-untrusted",
+  "what": "a file the owner did not trust is adopted by the next run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem && (await trustedAt(trustStore, sha256)) > saved.heldAt) {",
+    "new": "    } else if (current && sha256 !== saved.acceptanceSha256 && !problem) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-adopt-never",
+  "what": "a file the owner trusted meanwhile is not adopted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    } else if (trusted && sha256 !== saved.acceptanceSha256 && !problem && (await trustedAt(trustStore, sha256)) > saved.heldAt) {",
+    "new": "    } else if (false) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-adopt-older",
+  "what": "a version the owner trusted before is adopted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": " && !problem && (await trustedAt(trustStore, sha256)) > saved.heldAt) {",
+    "new": " && !problem) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-adopt-same-moment",
+  "what": "a trust of the very moment of the last run is adopted",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "(await trustedAt(trustStore, sha256)) > saved.heldAt) {",
+    "new": "(await trustedAt(trustStore, sha256)) >= saved.heldAt) {"
+   }
+  ]
+ },
+ {
+  "name": "PG-held-at-unknown",
+  "what": "a record without a time adopts anything",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    heldAt: Number.isNaN(heldAt) ? Infinity : heldAt,",
+    "new": "    heldAt: Number.isNaN(heldAt) ? 0 : heldAt,"
+   }
+  ]
+ },
+ {
+  "name": "PG-held-at-first",
+  "what": "the time of the first run counts instead of the last",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "heldAt: new Date().toISOString(),\n      // The tree known",
+    "new": "heldAt: task.proofBaseline?.heldAt ?? new Date().toISOString(),\n      // The tree known"
+   }
+  ]
+ },
+ {
+  "name": "PG-held-at-trust",
+  "what": "the time of the trust of the saved version is not looked up",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  return entry ? Date.parse(entry.at) : -Infinity;",
+    "new": "  return entry ? Date.now() + 1 : -Infinity;"
+   }
+  ]
+ },
+ {
+  "name": "PG-version-unsaid",
+  "what": "the armed event does not name the version",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const facts = { checks: run.checks, acceptance: version };",
+    "new": "    const facts = { checks: run.checks };"
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-never",
+  "what": "a baseline taken again is as good as the first one",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      else if (tree === null || tree !== record.cleanTree) record.carried ??= CARRIED.unknown;",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-always",
+  "what": "a baseline taken again is never clean, not even on the tree judged unmodified",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      else if (tree === null || tree !== record.cleanTree) record.carried ??= CARRIED.unknown;",
+    "new": "      else record.carried ??= CARRIED.unknown;"
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-modified-lost",
+  "what": "what was judged modified is forgotten with the baseline",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      else if (record.modified) record.carried = CARRIED.modified;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-unknown-clean",
+  "what": "unknown changes before the baseline read as none",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (report && carried === CARRIED.unknown && report.checks_modified !== true) return null;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-unknown-all",
+  "what": "a change that is seen after an unknown one is not said",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (report && carried === CARRIED.unknown && report.checks_modified !== true) return null;",
+    "new": "    if (report && carried === CARRIED.unknown) return null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-not-merged",
+  "what": "the criteria that were modified before are evidenced again",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (report && carried === CARRIED.modified) return withEarlier(",
+    "new": "    if (false) return withEarlier("
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-flag",
+  "what": "the flag of before is not in the record",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      checksModified: earlier ? true : changes ?",
+    "new": "      checksModified: changes ?"
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-list",
+  "what": "the changes of before are not listed when the detector fails",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      modifications: earlier && !changes ? earlier.modifications : found.filter(",
+    "new": "      modifications: found.filter("
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-twice",
+  "what": "the changes of before are listed twice",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "...report.findings.filter((item) => !(item.flagged && known.has(item.path)))],",
+    "new": "...report.findings],"
+   }
+  ]
+ },
+ {
+  "name": "PG-carried-first",
+  "what": "the first baseline of a conversation knows nothing either",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (!saved) record.cleanTree = tree ?? record.cleanTree;\n      else if (record.modified)",
+    "new": "      if (record.modified)"
+   }
+  ]
+ },
+ {
+  "name": "PG-remember-nothing",
+  "what": "a judgment leaves nothing for the day the baseline is gone",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    this.#remember(task, result);\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-remember-modified",
+  "what": "a judgment of modified checks is not remembered",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    if (result.checksModified === true) {\n      record.modified",
+    "new": "    if (false) {\n      record.modified"
+   }
+  ]
+ },
+ {
+  "name": "PG-remember-clean",
+  "what": "a test that was put back stays modified",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      record.modified = null;\n      record.cleanTree = result.tree;",
+    "new": "      record.cleanTree = result.tree;"
+   }
+  ]
+ },
+ {
+  "name": "PG-remember-tree",
+  "what": "the tree judged unmodified is not remembered",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      record.modified = null;\n      record.cleanTree = result.tree;",
+    "new": "      record.modified = null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-remember-unknown",
+  "what": "an unknown judgment forgets what was modified",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    } else if (result.checksModified === false) {\n      record.modified = null;",
+    "new": "    } else {\n      record.modified = null;"
+   }
+  ]
+ },
+ {
+  "name": "PG-start-tree",
+  "what": "the start tree of a run without a baseline is not kept",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "cleanTree: saved ? saved.cleanTree : run.startTree,",
+    "new": "cleanTree: saved ? saved.cleanTree : null,"
+   }
+  ]
+ },
+ {
+  "name": "PG-saved-clean-tree",
+  "what": "the tree judged unmodified is forgotten by the next run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "cleanTree: saved ? saved.cleanTree : run.startTree,",
+    "new": "cleanTree: run.startTree,"
+   }
+  ]
+ },
+ {
+  "name": "PG-saved-carried",
+  "what": "what a lost baseline left unknown is forgotten by the next run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "modified: saved?.modified ?? null, carried: saved?.carried ?? null,",
+    "new": "modified: saved?.modified ?? null, carried: null,"
+   }
+  ]
+ },
+ {
+  "name": "PG-saved-modified",
+  "what": "what was modified is forgotten by the next run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "modified: saved?.modified ?? null, carried: saved?.carried ?? null,",
+    "new": "modified: null, carried: saved?.carried ?? null,"
+   }
+  ]
+ },
+ {
+  "name": "PG-saved-carried-odd",
+  "what": "a saved word that is none is read as nothing",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "value.carried === CARRIED.modified ? value.carried ?? null : CARRIED.unknown,",
+    "new": "value.carried === CARRIED.modified ? value.carried ?? null : null,"
+   }
+  ]
+ },
+ {
+  "name": "PG-saved-modified-odd",
+  "what": "a saved list that is none is read as nothing",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  if (value === null || value === undefined) return null;\n  const list",
+    "new": "  if (value === null || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.criteria)) return null;\n  const list"
+   }
+  ]
+ },
+ {
   "name": "PG-rounds-three",
   "what": "the agent is sent back twice",
   "patches": [
@@ -1180,17 +1699,6 @@
   ]
  },
  {
-  "name": "PG-untrusted-runs",
-  "what": "an untrusted file is asked of the runner",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "    if (!run.armed && (await run.trustStore.isTrusted(run.sha256)) !== true) return 'untrusted';\n",
-    "new": ""
-   }
-  ]
- },
- {
   "name": "PG-no-checks-runs",
   "what": "a file without checks is run",
   "patches": [
@@ -1198,17 +1706,6 @@
     "file": "lib/proof/gate.mjs",
     "old": "    if (!run.checks) return 'no_checks';\n",
     "new": ""
-   }
-  ]
- },
- {
-  "name": "PG-revoked-silent",
-  "what": "a trust taken back while the run goes on is a silent skip",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "    if (!run.armed && (await run.trustStore",
-    "new": "    if ((await run.trustStore"
    }
   ]
  },
@@ -1379,35 +1876,13 @@
   ]
  },
  {
-  "name": "PG-detector-failure-clean",
-  "what": "a detector that fails reads as nothing changed",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "      this.log(`Cổng bằng chứng: không so được các kiểm tra với lúc bắt đầu tác vụ (${error?.code ?? error?.message}).`);\n      return null;",
-    "new": "      return { format: 'chatmcp.check-changes/1', checks_modified: false, criteria: [], findings: [] };"
-   }
-  ]
- },
- {
-  "name": "PG-report-flag-ignored",
-  "what": "the flag of the report is not in the record",
-  "patches": [
-   {
-    "file": "lib/proof/gate.mjs",
-    "old": "      checksModified: changes ? changes.checks_modified === true : verdict.checksModified,",
-    "new": "      checksModified: verdict.checksModified === null ? null : false,"
-   }
-  ]
- },
- {
   "name": "PG-unflagged-listed",
   "what": "unflagged changes are listed as modifications",
   "patches": [
    {
     "file": "lib/proof/gate.mjs",
-    "old": "modifications: found.filter((item) => item.flagged).slice(",
-    "new": "modifications: found.slice("
+    "old": "earlier.modifications : found.filter((item) => item.flagged).slice(",
+    "new": "earlier.modifications : found.slice("
    }
   ]
  },

@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
-import { acceptanceSha256 } from '../lib/proof/acceptance.mjs';
+import { acceptanceSha256, parseAcceptance } from '../lib/proof/acceptance.mjs';
 import { baselineFolder } from '../lib/proof/baseline.mjs';
 import { createTrustStore } from '../lib/proof/trust-store.mjs';
 import {
@@ -135,11 +135,12 @@ try {
     assert.equal(gateNotice(result('passed')), null);
     assert.equal(gateNotice(result('skipped', { reason: 'untrusted' })), null);
     const failed = gateNotice(result('failed', { failing, rounds: 2, reason: 'checks_failed' }));
-    assert.match(failed, /^This task is NOT done: the owner's trusted acceptance checks failed on the final tree \(tests: exit 1; lint #2: timed out\)\. They failed 2 times in this run, after which DatGold does not send the agent back again\./);
+    assert.match(failed, /^This task is NOT done: the owner's trusted acceptance checks failed on the final tree \(tests: exit 1; lint #2: timed out\)\. The agent was sent back once; DatGold does not send it back again in this run\./);
     const early = gateNotice(result('failed', { failing, rounds: 1, reason: 'checks_failed', stopped: 'no_turn_left' }));
     assert.match(early, /no model turn was left to fix it/);
     const edited = gateNotice(result('failed', { reason: 'acceptance_edited', rounds: 2, edit: { deleted: false } }));
     assert.match(edited, /\.chatmcp\/acceptance\.yml was edited during the task, so the owner's checks did not run/);
+    assert.doesNotMatch(edited, /failed|They /, 'checks that did not run did not fail');
     assert.match(gateNotice(result('failed', { reason: 'acceptance_edited', rounds: 2, edit: { deleted: true } })), /was deleted during the task/);
     assert.match(edited, /chatmcp verify trust/, 'the owner is told what to do about a change of their own');
     assert.match(gateNotice(result('unproven', { reason: 'tree_unknown' })), /^DatGold could not show that the owner's trusted acceptance checks hold on the final tree: the Hub could not take the final tree\./);
@@ -176,6 +177,14 @@ try {
     assert.equal(clipOutput('short\n', []), 'short');
     assert.equal(clipOutput(`key ${secret} end`, [secret]), 'key [REDACTED] end');
     assert.equal(clipOutput('\u001b[31mred\u001b[0m\u0007 bell\r\nnext', []), 'red bell\nnext', 'escapes and control characters are removed');
+    const RLO = String.fromCodePoint(0x202e), ZWJ = String.fromCodePoint(0x200d), BOM = String.fromCodePoint(0xfeff), TAG = String.fromCodePoint(0xe0041);
+    assert.equal(clipOutput(`a${RLO}b${ZWJ}c${BOM}d${TAG}e`, []), 'a<U+202E>b<U+200D>c<U+FEFF>d<U+E0041>e', 'format characters are written visibly');
+    assert.ok(!clipOutput(`key ${secret}${RLO}`, [secret]).includes(secret), 'and masking still comes first');
+    const spoofed = result('passed', { checksModified: true, modifications: [{ path: `a${RLO}sj.tset.js`, codes: ['test_file_deleted'] }] });
+    for (const text of [gateNotice(spoofed), gateMissing(spoofed), feedbackText({ result: { ...spoofed, status: 'failed', failing: [], reason: 'checks_failed' }, details: [{ criterionId: 'tests', index: 0, text: `x${RLO}`, command: `npm${RLO} test`, cwd: '.', detail: 'exit 1', expectExit: 0, stdout: `o${RLO}`, stderr: '' }] })]) {
+      assert.doesNotMatch(text, /\p{Cf}/u, 'no format character reaches the person or the model');
+      assert.match(text, /<U\+202E>/);
+    }
     const long = clipOutput(`${'a'.repeat(5000)}TAIL`, []);
     assert.ok(long.length <= GATE_LIMITS.outputChars + 60 && long.endsWith('TAIL'), 'the end of the output is kept: that is where a test runner says what failed');
     assert.match(long, /^\[\d+ characters cut\]/);
@@ -242,7 +251,7 @@ try {
     const gate = new DoneGate({
       manager,
       deps: {
-        snapshotBaseline: async (options) => { calls.baseline += 1; calls.baselineOptions = options; return { id: '20261123T000000000Z-00000000', sha256: 'cd'.repeat(32), record: {} }; },
+        snapshotBaseline: async (options) => { calls.baseline += 1; calls.baselineOptions = options; return { id: '20261123T000000000Z-00000000', sha256: 'cd'.repeat(32), record: { ...ids(trees.current) } }; },
         loadBaseline: async (options) => { calls.load.push(options); return { record: {}, entries: [], sha256: options.expectSha256 }; },
         checkChanges: async () => null,
         runChecks: async (options) => { calls.run.push(options); return report(); },
@@ -250,13 +259,15 @@ try {
       },
     });
     const events = [];
-    const task = { id: randomUUID(), proofBaseline: null };
+    const task = { id: randomUUID(), proofBaseline: null, progress: { tree: treeKey(ids('a')) } };
     const directory = path.join(dir, 'task');
     const emit = async (type, message, extra, detail) => { events.push({ type, message, ...extra, detail }); };
-    const begin = (more = {}) => gate.begin({ task, directory, signal: new AbortController().signal, emit, ...more });
+    // (the runner observes the start tree of a run before the gate begins)
+    const begin = (more = {}) => { task.progress = { tree: treeKey(ids(trees.current)) }; return gate.begin({ task, directory, signal: new AbortController().signal, emit, ...more }); };
     const review = (run, more = {}) => gate.review({ run, task, planMode: false, signal: new AbortController().signal, emit, canGoOn: () => true, ...more });
     return { dir, workspace, hubDirectory, acceptanceFile, store, manager, gate, calls, trees, events, task, directory, begin, review };
   }
+  const later = (ms = 60_000) => new Date(Date.now() + ms);
   const kinds = (r) => r.events.map((event) => event.gate);
   {
     const none = await rig({ file: null });
@@ -331,7 +342,7 @@ try {
     assert.deepEqual([deleted.result.reason, deleted.result.edit.deleted], ['acceptance_edited', true]);
     // the owner trusts the new file: the next run is held to it, with the tree baseline of the task's start
     await fs.writeFile(r.acceptanceFile, ACCEPT('tests', 'node other.js'));
-    await r.store.trust(acceptanceSha256(ACCEPT('tests', 'node other.js')), { approvedBy: 'owner' });
+    await r.store.trust(acceptanceSha256(ACCEPT('tests', 'node other.js')), { approvedBy: 'owner', at: later() });
     r.gate.deps.runChecks = async (options) => { r.calls.run.push(options); return report(); };
     const adopted = await r.begin();
     assert.equal((await r.review(adopted)).result.status, 'passed');
@@ -447,6 +458,243 @@ try {
     assert.deepEqual([broken.action, broken.result.status, broken.result.reason, broken.result.error, odd.calls.run.length], ['complete', 'unproven', 'gate_error', 'EIO', 0], 'a gate that cannot even begin neither fails the run nor lets it pass in silence');
     assert.match(gateNotice(broken.result), /EIO/);
     ok('a spawned agent is not gated and says so; a manager that is not the local backend has no gate; a gate that cannot begin is unproven');
+  }
+
+  {
+    // F1: the same file with other line ends (a worktree under core.autocrlf=true)
+    const LF = ACCEPT(), CRLF = LF.replaceAll('\n', '\r\n');
+    for (const [label, trusted, onDisk] of [['a CRLF twin of a trusted LF file', LF, CRLF], ['an LF twin of a trusted CRLF file', CRLF, LF]]) {
+      const r = await rig({ file: onDisk, trust: false });
+      await r.store.trust(acceptanceSha256(trusted), { approvedBy: 'owner' });
+      const run = await r.begin();
+      assert.deepEqual(kinds(r), ['armed'], label);
+      assert.equal((await r.review(run)).result.status, 'passed');
+      const options = r.calls.run[0];
+      assert.equal(Buffer.from(options.baseline).toString('utf8'), trusted, `${label}: the run is held to the trusted bytes`);
+      assert.equal(Buffer.from(options.current).toString('utf8'), trusted, `${label}: and the file in the workspace counts as them`);
+      assert.equal(await fs.readFile(path.join(r.directory, 'acceptance.yml'), 'utf8'), trusted, `${label}: which are the ones that are kept`);
+      assert.equal(r.task.proofBaseline.acceptanceSha256, acceptanceSha256(trusted));
+      // the line ends change during the task, and in the next run: still no edit
+      await fs.writeFile(r.acceptanceFile, trusted);
+      assert.equal((await r.review(run)).result.status, 'passed');
+      const next = await r.begin();
+      assert.equal((await r.review(next)).result.status, 'passed', `${label}: the next run too`);
+      await fs.rm(path.join(r.directory, 'acceptance.yml'));
+      await fs.writeFile(r.acceptanceFile, onDisk);
+      assert.equal((await r.review(await r.begin())).result.status, 'passed', `${label}: the kept copy is made again from a twin`);
+      assert.equal(await fs.readFile(path.join(r.directory, 'acceptance.yml'), 'utf8'), trusted);
+    }
+    // a mixed file is a twin as well; one more changed byte, a lone CR and a CR before a CRLF are not
+    const mixed = await rig({ file: LF.replace('\n', '\r\n'), trust: false });
+    await mixed.store.trust(acceptanceSha256(LF), { approvedBy: 'owner' });
+    assert.equal((await mixed.review(await mixed.begin())).result.status, 'passed', 'line ends of both kinds');
+    for (const [label, trusted, onDisk] of [
+      ['one more changed byte', LF, CRLF.replace('criterion', 'Criterion')], ['one more space', LF, `${CRLF} `],
+      ['a lone CR', LF, `${LF}#\r\n`.replace('#\r\n', '#\r#\n')], ['a CR before a CRLF, which would read as a trusted CRLF file', CRLF, CRLF.replaceAll('\r\n', '\r\r\n')], ['a missing last line end', LF, CRLF.trimEnd()],
+    ]) {
+      const r = await rig({ file: onDisk, trust: false });
+      await r.store.trust(acceptanceSha256(trusted), { approvedBy: 'owner' });
+      const run = await r.begin();
+      assert.ok(['untrusted', 'invalid'].includes(kinds(r)[0]) && kinds(r).length === 1, `${label}: not a twin (${kinds(r)})`);
+      assert.equal((await r.review(run)).result.status, 'skipped');
+      assert.equal(r.calls.run.length, 0);
+      const held = await rig({ file: trusted, deps: { runChecks: async (options) => report({ blocked: Buffer.compare(Buffer.from(options.baseline), Buffer.from(options.current ?? '')) === 0 ? null : 'acceptance_edited' }) } });
+      const armed = await held.begin();
+      await fs.writeFile(held.acceptanceFile, onDisk);
+      assert.equal((await held.review(armed)).result.reason, 'acceptance_edited', `${label}: an edit when it happens during the task`);
+    }
+    // a multi-line command: the reader gives it the same value with either line end, so its twin is one
+    const BLOCK = 'version: 1\ncriteria:\n  - id: tests\n    text: "x"\n    checks:\n      - run: |\n          echo one\n          echo two\n';
+    const block = await rig({ file: BLOCK.replaceAll('\n', '\r\n'), trust: false });
+    await block.store.trust(acceptanceSha256(BLOCK), { approvedBy: 'owner' });
+    assert.equal((await block.review(await block.begin())).result.checks[0].command, 'echo one echo two');
+    assert.deepEqual(parseAcceptance(BLOCK), parseAcceptance(BLOCK.replaceAll('\n', '\r\n')), '(premise) the line ends are no part of a value');
+    // a trust that comes while the run goes on, for the other line ends; a spawned agent; a trust taken back
+    const late = await rig({ file: CRLF, trust: false });
+    const waiting = await late.begin();
+    await late.store.trust(acceptanceSha256(LF), { approvedBy: 'owner' });
+    await late.review(waiting);
+    assert.equal(Buffer.from(late.calls.run[0].baseline).toString('utf8'), LF, 'the bytes the owner trusted, not the ones on disk');
+    const sub = await rig({ file: CRLF, trust: false, manager: { lifecycleAgent: { kind: 'subagent' } } });
+    await sub.store.trust(acceptanceSha256(LF), { approvedBy: 'owner' });
+    await sub.begin();
+    assert.deepEqual(kinds(sub), ['skipped'], 'a spawned agent that is not gated says so for a twin too');
+    ok('line ends: a CRLF or LF twin of a trusted file is held to the trusted bytes and is never an edit; another byte, a lone CR and a CR before a CRLF are no twin');
+  }
+  {
+    // F2: an older version the owner trusted before is no way out of a conversation held to a newer one
+    const OLD = ACCEPT('tests', 'node -e 0'), STRONG = ACCEPT('tests', 'node strong.js');
+    const r = await rig({ file: STRONG, trust: false, deps: { runChecks: async (options) => { r.calls.run.push(options); return report({ blocked: Buffer.compare(Buffer.from(options.baseline), Buffer.from(options.current ?? '')) === 0 ? null : 'acceptance_edited' }); } } });
+    await r.store.trust(acceptanceSha256(OLD), { approvedBy: 'owner', at: '2026-01-01T00:00:00Z' });
+    await r.store.trust(acceptanceSha256(STRONG), { approvedBy: 'owner', at: '2026-01-02T00:00:00Z' });
+    const first = await r.begin();
+    assert.equal(r.events[0].acceptance, acceptanceSha256(STRONG).slice(0, 12), 'the armed event names the version');
+    assert.ok(r.events[0].message.includes(acceptanceSha256(STRONG).slice(0, 12)));
+    await fs.writeFile(r.acceptanceFile, OLD);
+    assert.equal((await r.review(first)).result.reason, 'acceptance_edited');
+    for (const label of ['the next run', 'and the one after']) {
+      const run = await r.begin();
+      const outcome = await r.review(run);
+      assert.deepEqual([outcome.result.status, outcome.result.reason], ['failed', 'acceptance_edited'], `${label} is held to the version of the conversation`);
+      assert.equal(Buffer.from(r.calls.run.at(-1).baseline).toString('utf8'), STRONG);
+    }
+    // the way out: trusting it again renews the time
+    await r.store.trust(acceptanceSha256(OLD), { approvedBy: 'owner', at: later() });
+    const adopted = await r.begin();
+    assert.equal((await r.review(adopted)).result.status, 'passed', 'the owner trusted it again: adopted');
+    assert.equal(Buffer.from(r.calls.run.at(-1).baseline).toString('utf8'), OLD);
+    // and now it is the version of the conversation: going back to STRONG (trusted long ago) is an edit
+    await fs.writeFile(r.acceptanceFile, STRONG);
+    assert.equal((await r.review(await r.begin())).result.reason, 'acceptance_edited');
+    // trusted after the first run but before the last one that was held to the other version: not since the conversation was last held to it
+    const between = await rig({ file: STRONG, deps: { runChecks: async (options) => report({ blocked: Buffer.compare(Buffer.from(options.baseline), Buffer.from(options.current ?? '')) === 0 ? null : 'acceptance_edited' }) } });
+    const pause = () => new Promise((resolve) => { setTimeout(resolve, 8); });
+    await between.begin();
+    await pause();
+    await between.store.trust(acceptanceSha256(OLD), { approvedBy: 'owner' });
+    await pause();
+    assert.equal((await between.review(await between.begin())).result.status, 'passed');
+    await fs.writeFile(between.acceptanceFile, OLD);
+    assert.equal((await between.review(await between.begin())).result.reason, 'acceptance_edited');
+    // the very moment of the last run is not after it; a record without a time adopts nothing until it has one
+    const same = await rig({ file: STRONG, deps: { runChecks: async (options) => report({ blocked: Buffer.compare(Buffer.from(options.baseline), Buffer.from(options.current ?? '')) === 0 ? null : 'acceptance_edited' }) } });
+    await same.begin();
+    await fs.writeFile(same.acceptanceFile, OLD);
+    await same.store.trust(acceptanceSha256(OLD), { approvedBy: 'owner', at: same.task.proofBaseline.heldAt });
+    assert.equal((await same.review(await same.begin())).result.reason, 'acceptance_edited');
+    for (const heldAt of [undefined, 'nonsense', 7]) {
+      same.task.proofBaseline.heldAt = heldAt;
+      await same.store.trust(acceptanceSha256(OLD), { approvedBy: 'owner', at: later() });
+      assert.equal((await same.review(await same.begin())).result.reason, 'acceptance_edited', String(heldAt));
+    }
+    ok('a version the owner trusted before the conversation was held to another one is not adopted, however often it runs; trusting it again is the way out');
+  }
+  {
+    // F3: a baseline taken again knows nothing of what changed before it
+    const flagged = { format: 'chatmcp.check-changes/1', checks_modified: true, summary: 'x', criteria: [{ id: 'tests', checks_modified: true, reasons: [{ code: 'assertions_removed', path: 'a.test.js' }] }], findings: [{ path: 'a.test.js', flagged: true, reasons: [{ code: 'assertions_removed', flagged: true }] }] };
+    const quiet = { format: 'chatmcp.check-changes/1', checks_modified: false, summary: 'x', criteria: [{ id: 'tests', checks_modified: false, reasons: [] }], findings: [] };
+    // the roll-up a runner would give for the report it is handed
+    const rolled = (tree) => async ({ checkChanges }) => {
+      const changes = checkChanges ? await checkChanges({}) : null;
+      const row = changes?.criteria.find((item) => item.id === 'tests');
+      if (!row) return report({ finalTree: ids(tree.current), criteria: [criterion('tests', 'unverified', { checks: [{ index: 0, result: 'passed' }], reasons: [{ code: 'check_changes_unknown', check: null, detail: null }] })] });
+      return report({ finalTree: ids(tree.current), criteria: [row.checks_modified ? criterion('tests', 'checks_modified', { reasons: row.reasons.map((item) => ({ code: 'checks_modified', check: null, detail: `${item.code} ${item.path}` })) }) : criterion('tests', 'evidenced')] });
+    };
+    const lost = async () => { throw Object.assign(new Error('gone'), { code: 'baseline_missing' }); };
+    async function conversation(changes) {
+      const r = await rig();
+      r.changes = changes;
+      r.gate.deps.checkChanges = async () => r.changes;
+      r.gate.deps.runChecks = rolled(r.trees);
+      r.say = async () => (await r.review(await r.begin())).result;
+      r.loseBaseline = () => { const load = r.gate.deps.loadBaseline; r.gate.deps.loadBaseline = lost; return () => { r.gate.deps.loadBaseline = load; }; };
+      return r;
+    }
+    // judged clean, and the workspace is still that tree: clean
+    const same = await conversation(quiet);
+    assert.deepEqual([(await same.say()).status, same.task.proofBaseline.cleanTree], ['passed', treeKey(ids('a'))]);
+    let back = same.loseBaseline();
+    const still = await same.say();
+    assert.deepEqual([kinds(same).includes('rebaselined'), still.status, still.checksModified], [true, 'passed', false], 'the new baseline is the very tree that was last judged unmodified');
+    back();
+    // judged clean, then changed before the new baseline: unknown, in this run and from then on
+    const moved = await conversation(quiet);
+    await moved.say();
+    moved.trees.current = 'b';
+    back = moved.loseBaseline();
+    const unknown = await moved.say();
+    assert.deepEqual([unknown.status, unknown.reason, unknown.checksModified, unknown.criteria[0].status], ['unproven', 'check_changes_unknown', null, 'unverified'], 'what changed before the new baseline is not known: no clean pass');
+    assert.match(moved.events.findLast((event) => event.gate === 'rebaselined').message, /không biết/, 'and the event says so');
+    back();
+    const after = await moved.say();
+    assert.deepEqual([after.status, after.checksModified], ['unproven', null], 'the next run too, with its baseline in place');
+    moved.trees.current = 'a';
+    assert.equal((await moved.say()).checksModified, null);
+    moved.changes = flagged;
+    const worse = await moved.say();
+    assert.deepEqual([worse.checksModified, worse.modifications], [true, [{ path: 'a.test.js', codes: ['assertions_removed'] }]], 'a change that is seen is said all the same');
+    // judged modified: stays modified, with its notice, whatever the new baseline sees
+    const weak = await conversation(flagged);
+    assert.equal((await weak.say()).checksModified, true);
+    back = weak.loseBaseline();
+    weak.changes = quiet;
+    const kept = await weak.say();
+    assert.deepEqual([kept.status, kept.checksModified, kept.criteria[0].status, kept.modifications], ['passed', true, 'checks_modified', [{ path: 'a.test.js', codes: ['assertions_removed'] }]], 'what an earlier judgment of the conversation said stays true');
+    assert.match(gateNotice(kept), /a\.test\.js: assertions_removed/);
+    const twice = await weak.say();
+    assert.deepEqual([twice.checksModified, twice.modifications.length], [true, 1], 'after a second loss as well, and once');
+    back();
+    weak.changes = null;
+    weak.changes = flagged;
+    assert.deepEqual((await weak.say()).modifications, [{ path: 'a.test.js', codes: ['assertions_removed'] }], 'the same change, seen again, is listed once');
+    weak.changes = null;
+    const blind = await weak.say();
+    assert.deepEqual([blind.status, blind.checksModified, blind.modifications.length], ['unproven', true, 1], 'also when the detector fails');
+    weak.changes = { ...flagged, criteria: [], findings: [{ path: 'b.test.js', flagged: true, reasons: [{ code: 'test_file_deleted', flagged: true }] }] };
+    assert.deepEqual((await weak.say()).modifications.map((item) => item.path), ['a.test.js', 'b.test.js'], 'a new change is listed beside it');
+    // a first run whose start tree is not known has its baseline all the same
+    const treeless = await rig();
+    treeless.task.progress = null;
+    const bare = await treeless.gate.begin({ task: treeless.task, directory: treeless.directory, signal: new AbortController().signal, emit: async () => {} });
+    assert.deepEqual([treeless.task.proofBaseline.carried, treeless.task.proofBaseline.cleanTree, (await treeless.review(bare)).result.status], [null, treeKey(ids('a')), 'passed'], 'the first baseline of a conversation is its start');
+    // the last judgment on an intact baseline counts: a test that was put back is not modified any more
+    const repaired = await conversation(flagged);
+    await repaired.say();
+    repaired.changes = quiet;
+    assert.equal((await repaired.say()).checksModified, false);
+    back = repaired.loseBaseline();
+    assert.equal((await repaired.say()).checksModified, false, 'the same tree as the one judged unmodified');
+    back();
+    // an unknown judgment forgets neither
+    const gap = await conversation(flagged);
+    await gap.say();
+    gap.changes = null;
+    await gap.say();
+    back = gap.loseBaseline();
+    gap.changes = quiet;
+    assert.equal((await gap.say()).checksModified, true);
+    back();
+    // a first baseline that comes late (Read Only, or one that could not be taken) is under the same rule: the start tree of the first run is the measure
+    for (const [label, tree, status] of [['nothing changed since', 'a', 'passed'], ['something did', 'b', 'unproven']]) {
+      const late = await conversation(quiet);
+      late.manager.permissions.mode = 'readonly';
+      assert.equal((await late.say()).status, 'skipped');
+      assert.equal(late.calls.baseline, 0);
+      late.manager.permissions.mode = 'autonomous';
+      late.trees.current = tree;
+      assert.equal((await late.say()).status, status, `Read Only first, then a baseline: ${label}`);
+    }
+    // a trust that came while the first run went on: that run had no baseline, so the next one's is under the same rule
+    for (const [label, tree, status] of [['nothing changed since', 'a', 'passed'], ['something did', 'b', 'unproven']]) {
+      const given = await conversation(quiet);
+      await given.store.revoke(acceptanceSha256(ACCEPT()));
+      const run = await given.begin();
+      assert.deepEqual(kinds(given), ['untrusted']);
+      await given.store.trust(acceptanceSha256(ACCEPT()), { approvedBy: 'owner' });
+      assert.deepEqual([(await given.review(run)).result.reason, given.task.proofBaseline.acceptanceSha256, given.task.proofBaseline.id], ['check_changes_unknown', acceptanceSha256(ACCEPT()), null], 'the conversation is held to the file from here on');
+      assert.equal(await fs.readFile(path.join(given.directory, 'acceptance.yml'), 'utf8'), ACCEPT());
+      await given.store.revoke(acceptanceSha256(ACCEPT()));
+      assert.equal((await given.review(run)).result.reason, 'trust_revoked', 'and the run is armed');
+      await given.store.trust(acceptanceSha256(ACCEPT()), { approvedBy: 'owner' });
+      given.trees.current = tree;
+      assert.equal((await given.say()).status, status, `a trust given during the first run: ${label}`);
+    }
+    // a saved record that is not one is strict
+    for (const carried of [7, 'nonsense', {}]) {
+      const odd = await conversation(quiet);
+      await odd.say();
+      odd.task.proofBaseline.carried = carried;
+      assert.equal((await odd.say()).checksModified, null, `carried ${JSON.stringify(carried)}`);
+    }
+    for (const modified of [7, 'x', [], { criteria: 7, modifications: 'x' }, { criteria: [7], modifications: [7, {}, { path: 'a', codes: 'b' }] }]) {
+      const odd = await conversation(quiet);
+      await odd.say();
+      Object.assign(odd.task.proofBaseline, { modified, cleanTree: 7 });
+      back = odd.loseBaseline();
+      assert.equal((await odd.say()).checksModified, true, `a saved "modified" that is not a list is still modified: ${JSON.stringify(modified)}`);
+      back();
+    }
+    ok('a baseline that is taken again: clean only on the tree last judged unmodified, unknown otherwise and for the rest of the conversation, and what was judged modified stays modified with its notice');
   }
 
   // ------------------------------------------------------------------------------------------------------------------ E. review

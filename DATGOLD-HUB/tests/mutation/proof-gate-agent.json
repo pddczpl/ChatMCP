@@ -276,6 +276,39 @@
     "new": "[parts.words, parts.verificationNotice"
    }
   ]
+ },
+ {
+  "name": "GA-adopt-older",
+  "what": "an older version the owner trusted before is adopted by the next run",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": " && !problem && (await trustedAt(trustStore, sha256)) > saved.heldAt) {",
+    "new": " && !problem) {"
+   }
+  ]
+ },
+ {
+  "name": "GA-lost-is-clean",
+  "what": "a baseline taken again is as good as the first one",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      else if (tree === null || tree !== record.cleanTree) record.carried ??= CARRIED.unknown;",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-lost-forgets",
+  "what": "what was modified is forgotten with the baseline",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      else if (record.modified) record.carried = CARRIED.modified;\n",
+    "new": ""
+   }
+  ]
  }
  ]
 }

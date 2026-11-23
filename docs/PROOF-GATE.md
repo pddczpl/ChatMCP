@@ -23,8 +23,8 @@ The gate runs when all of this holds: a `.chatmcp/acceptance.yml` with at least 
 | an agent that another agent started | no gate (below) |
 | an answer that a message the person queued replaces, an empty answer, a run that fails, is stopped or reaches a limit | nothing was finished, so nothing is judged (`proofGate` is null) |
 
-**Trust is asked at every answer.** A trust given while the run goes on counts at once (without a baseline the changes to the checks are
-unknown, so the result is `unproven` at best). A trust taken back while an armed run goes on runs nothing and ends `unproven`
+**Trust is asked at every answer.** A trust given while the run goes on counts at once: the conversation is held to the file from there on
+(without a baseline the changes to the checks are unknown, so the result is `unproven` at best). A trust taken back while an armed run goes on runs nothing and ends `unproven`
 (`trust_revoked`) with a notice: the gate of a run does not go away in silence.
 
 **The checks run without asking for permission**, in every mode but Read Only, plan mode and sandbox-only. The owner approved these exact
@@ -51,7 +51,10 @@ conversation:
 
 - the file edited, replaced, deleted or turned into a link: nothing runs, the gate **fails** (`acceptance_edited`). The model is told to
   restore it if it changed it, and to leave it if it did not; the owner is told how to trust a new version of their own;
-- the owner trusts the new version: the **next run** is held to it. The run that was going on still fails;
+- the owner trusts another version: the **next run** is held to it, when the trust is newer than the last run that was held to the saved one
+  (`task.proofBaseline.heldAt`). The run that was going on still fails. A version the owner trusted **before** that is an edit like any other:
+  `git checkout HEAD~1 -- .chatmcp/acceptance.yml` puts back the bytes of an older, perhaps weaker version that is still on the list. Trusting it
+  again (`chatmcp verify trust`) renews its time and is the owner's way out;
 - the kept copy and the workspace file are both other bytes: `unproven` (`acceptance_lost`), nothing runs.
 
 **The baseline of the workspace.** With a trusted file the gate takes a baseline (`snapshotBaseline`, [PROOF-BASELINE.md](PROOF-BASELINE.md))
@@ -64,13 +67,31 @@ given up after 120 s; after 3 s an event says what the run is waiting for. Where
   (5 per workspace, 14 days: each baseline of a Git workspace is a whole store of it) never removes a baseline of `chatmcp verify`. Deleting a
   conversation removes its baseline. It is not in a second chat's own data folder: that one is nested
   so deep that Git on Windows refuses the store's path (measured: a data folder over about 138 characters);
-- removed by the retention (or by hand): a new one is taken and an event says so (`rebaselined`); changes made before are no longer seen;
+- removed by the retention (or by hand): a new one is taken and an event says so (`rebaselined`; below for what it is worth);
 - edited, not readable, too slow, or a Read Only run (which takes none): the changes to the checks are **unknown**, and a pass is `unproven`
   (`check_changes_unknown`), never clean;
 - a plain folder (no Git): the baseline has the hashes and no old bytes, so a changed test cannot be looked into and counts as modified
   (`not_analyzed`).
 
 An acceptance file that `.gitignore` leaves out of the tree is compared by its own bytes.
+
+**Line ends.** Git for Windows checks files out with CRLF by default (`core.autocrlf=true`), so the worktree of a second chat holds other bytes
+than the file the owner trusted. The gate alone (the trust list and `chatmcp verify` go by exact bytes) tries the LF and the CRLF form of the
+file: when one of them is trusted and reads as the same criteria, the run is held to **those trusted bytes**, and a workspace file that differs
+from them in nothing but LF / CRLF counts as them: no edit, no flagged change. One more changed byte or a lone CR is a difference.
+
+**A baseline that is taken again knows nothing of what changed before it**, and unknown is never "nothing changed". The gate remembers in
+`task.proofBaseline` the tree whose checks were last judged unmodified (`cleanTree`: at first the tree the first run started on) and what was
+judged modified (`modified`). When a baseline is not the one of the conversation's first run (the old one is gone, or the first run had none:
+Read Only, a time-out, a trust that came later):
+
+- an earlier judgment said the checks were modified: they **stay modified** (`carried: 'modified'`), with their notice, and the criteria stay
+  `checks_modified`;
+- the new baseline's tree is `cleanTree`: it is as good as the old one;
+- anything else: the changes before it are **unknown** for the rest of the conversation (`carried: 'unknown'`), so a pass is `unproven`
+  (`check_changes_unknown`); a change that is seen after it is flagged all the same.
+
+While the baseline is in place each judgment is made from it again: a test that was put back is not modified any more.
 
 ## The judgment
 
@@ -137,7 +158,8 @@ result (`exit 1 (expected 0)`, `timed out`, `could not start (bad_cwd)` ...) and
 name, the changes to the checks if there are any, and the request to fix the cause without weakening the checks.
 
 - **Output is untrusted data.** It is masked whole (`maskSecrets` with the Hub's registered secrets, and again by the runner's own
-  redaction), stripped of escape sequences and control characters, cut to its last 1,500 characters, and every line starts with `| `, so it
+  redaction), stripped of escape sequences and control characters, its format characters (a bidi override, a zero-width one) written as
+  `<U+202E>`, cut to its last 1,500 characters, and every line starts with `| `, so it
   cannot start a line of the host's own. The whole message is at most 12,000 characters.
 - Output goes into this message only. The task's events and `proofGate` hold none; the ledger keeps its hashes and its 2 KiB preview.
 - **No tree id reaches the model**, as for every record of the ledger ([PROOF-SERVICE.md](PROOF-SERVICE.md)).
@@ -175,7 +197,8 @@ what its checks changed makes older receipts stale, and an unknown tree makes th
 - `task.proofGate` (public task; the list of tasks has `status`, `reason` and `checksModified`): `{status, reason, rounds, limit, passes, reused,
   tree, acceptanceSha256, criteria, checks, failing, open, checksModified, modifications, testChanges, stopped?, edit?, error?}`. It is set
   when the run completes and null at the start of the next one.
-- `task.proofBaseline`: `{id, sha256, acceptanceSha256, at}`.
+- `task.proofBaseline`: `{id, sha256, acceptanceSha256, at, heldAt, cleanTree, modified, carried}`. The `armed` event names the version the
+  run is held to (the first 12 digits of its sha256).
 - `completionOutcome.gate` and `.checksModified`; the gate's line in `verificationOutcome.missing`; `finalParts.gateNotice`
   (`lib/final-text.mjs`), written as `[Done-gate notice]` right behind the model's words.
 
@@ -191,6 +214,9 @@ is `completed` (the run ended with an answer), as for every other verdict about 
 - **Nothing here is out of reach of the same user.** An agent with an approved shell can edit the ledger, the kept bytes, the baseline or the
   trust list in the Hub's data folder; the file tools refuse it. What such an edit leads to is `unproven` with a notice, or a run that begins
   ungated with an `untrusted` event, not a clean pass. Evidence is tamper-evident, it is not tamper-proof.
+- **An older version that is still trusted.** A new conversation that starts with an older version of the file in its tree has nothing to
+  compare it with: it is held to that version. Revoke the versions that do not count any more (`chatmcp verify trust --revoke`); the `armed` event
+  says which one counted.
 - A check proves what it checks. A passing gate does not say that the request was done.
 
 ## Limits

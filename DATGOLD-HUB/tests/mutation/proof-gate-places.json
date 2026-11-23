@@ -111,6 +111,28 @@
     "new": "    const after = await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env });"
    }
   ]
+ },
+ {
+  "name": "GA-autocrlf-ungated",
+  "what": "a second chat whose worktree has other line ends than the trusted file is not gated",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  for (const form of lineEndForms(bytes) ?? []) {",
+    "new": "  for (const form of []) {"
+   }
+  ]
+ },
+ {
+  "name": "GA-autocrlf-edit",
+  "what": "the line ends of a second chat's worktree are an edit",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const current = sameButLineEnds(found, run.acceptance) ? run.acceptance : found;",
+    "new": "    const current = found;"
+   }
+  ]
  }
  ]
 }

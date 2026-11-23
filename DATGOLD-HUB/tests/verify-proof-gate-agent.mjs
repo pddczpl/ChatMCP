@@ -6,6 +6,7 @@
 //  3. fails twice: ends failed, not looping; the notice; the owner's acceptance of an objective does not undo it; a follow-up run starts again
 //  4. the model weakens a test: the pass is flagged, the criterion is checks_modified by the pack's own roll-up, in the follow-up run too
 //  5. the hooks: after the gate; a block does not run the checks again on the same tree; a hook that changes a file after a pass makes it stale
+//  6. an older version of the file the owner trusted before, and a baseline that is gone, are no way around it
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -14,7 +15,7 @@ import { AgentRunner } from '../lib/agent.mjs';
 import { createTurnMapper } from '../lib/acp/event-map.mjs';
 import { treeKey } from '../lib/agent-progress.mjs';
 import { finalPartsOf } from '../lib/final-text.mjs';
-import { resolveAcceptance } from '../lib/proof/acceptance.mjs';
+import { acceptanceSha256, resolveAcceptance } from '../lib/proof/acceptance.mjs';
 import { GATE_EVENT } from '../lib/proof/gate.mjs';
 import { ledgerPath } from '../lib/proof/ledger.mjs';
 import { rollUpCriteria } from '../lib/proof/pack.mjs';
@@ -173,6 +174,46 @@ try {
     check(late.view.verificationOutcome.missing.includes('The files changed after the owner\'s trusted acceptance checks passed'), 'what is missing says so');
     check(/\[Done-gate notice\] The files changed after the owner's trusted acceptance checks passed/.test(late.view.finalText));
     equal(late.view.runs.at(-1).finalText, late.view.finalText, 'the run keeps the answer as it reads');
+  });
+
+  await section('6. no way around a trusted file: an older version the owner trusted before, and a baseline that is gone', async () => {
+    const OLD = ACCEPT({ tests: 'node -e 0' }), STRONG = ACCEPT({ tests: 'node calc.test.js', again: 'node calc.test.js again' });
+    await trust(manager, OLD);
+    await trust(manager, STRONG);
+    const dir = await project('downgrade', { acceptance: STRONG });
+    const first = await run(manager, dir, [write('.chatmcp/acceptance.yml', OLD), answer('Done.'), answer('Done.')], { prompt: 'Fix it.' });
+    equal([first.view.completionOutcome.requirements, first.view.proofGate.reason], ['failed', 'acceptance_edited'], 'the bytes of an older trusted version are an edit');
+    check(!/failed \d times|They failed/.test(first.view.finalText), 'checks that did not run are not said to have failed');
+    const second = await run(manager, dir, [answer('Done.'), answer('Done.')], { runner: first.agent, id: first.id, prompt: 'Go on.' });
+    equal([second.view.completionOutcome.requirements, second.view.proofGate.reason, checksOf(second.entries).length], ['failed', 'acceptance_edited', 0], 'in the next run too: the owner did nothing');
+    await trust(manager, OLD);
+    const third = await run(manager, dir, [answer('Done.')], { runner: first.agent, id: first.id, prompt: 'Go on.' });
+    equal([third.view.completionOutcome.gate, third.events.findLast((event) => event.gate === 'armed')?.acceptance], ['passed', acceptanceSha256(OLD).slice(0, 12)], 'trusting it again is the owner\'s way out, and the event names the version');
+
+    const lose = () => fs.rm(path.join(manager.hubDirectory, 'proof', 'gate'), { recursive: true, force: true });
+    const weakened = await project('lost-weak');
+    const one = await run(manager, weakened, [write('calc.test.js', WEAK), answer('Done.')], { prompt: 'Fix it.' });
+    equal(one.view.completionOutcome.checksModified, true);
+    await lose();
+    const two = await run(manager, weakened, [answer('Done.')], { runner: one.agent, id: one.id, prompt: 'Go on.' });
+    equal([two.gates.includes('rebaselined'), two.view.completionOutcome.checksModified, two.view.proofGate.criteria[0].status, two.view.proofGate.modifications], [true, true, 'checks_modified', [{ path: 'calc.test.js', codes: ['assertions_removed'] }]], 'a lost baseline does not clean a test that was weakened');
+    check(/\[Done-gate notice\] .*checks were modified during the task \(calc\.test\.js: assertions_removed\)/.test(two.view.finalText), 'nor take the notice away');
+
+    const clean = await project('lost-clean', { files: { 'calc.js': 'exports.add = (a, b) => a + b;\n' } });
+    const ok = await run(manager, clean, [answer('Done.')], { prompt: 'Look.' });
+    await lose();
+    const still = await run(manager, clean, [answer('Done.')], { runner: ok.agent, id: ok.id, prompt: 'Go on.' });
+    equal([still.gates.includes('rebaselined'), still.view.completionOutcome.gate, still.view.completionOutcome.checksModified], [true, 'passed', false], 'on the very tree that was judged unmodified a new baseline is as good as the old one');
+    await lose();
+    const between = await run(manager, clean, [write('calc.test.js', WEAK), answer('Done.')], { runner: ok.agent, id: ok.id, prompt: 'Go on.' });
+    equal(between.view.completionOutcome.checksModified, true, '(a change made after the new baseline is seen)');
+    const person = await project('lost-unknown', { files: { 'calc.js': 'exports.add = (a, b) => a + b;\n' } });
+    const before = await run(manager, person, [answer('Done.')], { prompt: 'Look.' });
+    await fs.writeFile(path.join(person, 'calc.test.js'), WEAK);
+    await lose();
+    const unknown = await run(manager, person, [answer('Done.')], { runner: before.agent, id: before.id, prompt: 'Go on.' });
+    equal([unknown.view.proofGate.status, unknown.view.proofGate.reason, unknown.view.completionOutcome.checksModified, unknown.view.completionOutcome.requirements], ['unproven', 'check_changes_unknown', null, 'unverified'], 'a file changed before the new baseline: what became of the checks is not known');
+    check(/\[Done-gate notice\] DatGold could not show/.test(unknown.view.finalText));
   });
 
   await manager.shutdown();
