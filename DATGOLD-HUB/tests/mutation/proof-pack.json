@@ -646,8 +646,8 @@
    "patches": [
     {
      "file": "lib/proof/pack.mjs",
-     "old": " && receipt.treeBefore.tree === context.after.tree);",
-     "new": ");"
+     "old": " && ref.tree === context.after.tree;",
+     "new": ";"
     }
    ]
   },

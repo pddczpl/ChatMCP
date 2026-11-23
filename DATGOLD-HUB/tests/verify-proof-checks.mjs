@@ -383,6 +383,20 @@ async function gone(pids, ms) {
   ok('without a snapshot engine every attempt is recorded with no tree, repeats still run, and nothing is rolled up');
 }
 
+// ------------------------------------------------------------------ 1b. a folder that leaves the workspace through a link
+{
+  const s = await scenario('escape', [{ id: 'escape', checks: [{ run: 'node marker.js ../escape.marker', cwd: 'link' }] }]);
+  const away = fresh('escape-away');
+  fs.writeFileSync(path.join(away, 'marker.js'), TOOLS['tools/marker.js']);
+  // a junction needs no privilege on Windows (this machine cannot create symbolic links)
+  fs.symlinkSync(away, path.join(s.root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+  const report = await run(s, { checkChanges: null });
+  assert.equal(runsOf(report, 'escape').error.code, 'symlink_escape');
+  assert.deepEqual(report.attempts, []);
+  assert.equal(fs.existsSync(s.outside('marker')), false, 'nothing ran in the folder outside');
+  ok('a check folder that is a link leading out of the workspace is refused on its real path before anything runs');
+}
+
 // ------------------------------------------------------------------ 6. the roll-up is pack.mjs's (also checked in every scenario above)
 {
   assert.equal(typeof rollUpCriteria, 'function');
