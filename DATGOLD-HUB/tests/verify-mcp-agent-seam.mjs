@@ -25,6 +25,8 @@ import { AgentRunner, createAgentInstructions, INSTRUCTION_NAME_LIMIT } from '..
 import { compactAgentInstructions } from '../lib/gemini-compat.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { BrowserRunner } from '../lib/browser-runner.mjs';
+import { ledgerPath } from '../lib/proof/ledger.mjs';
+import { readLedgerEntries } from '../lib/proof/service.mjs';
 import { HUB, counterLines, delay, descendants, missingReason, newDescendants, runtimeRoot } from './support/mcp-tools.mjs';
 
 const missing = missingReason();
@@ -296,7 +298,11 @@ try {
     const made = checkpoints.slice(before);
     assert.ok(made.some((label) => label.startsWith('Before ext.write_note')), JSON.stringify(made));
     assert.ok(!made.some((label) => label.startsWith('Before big.tool_1')), 'no checkpoint for a server that does not touch the workspace');
-    ok('a PNG result reaches the model as input_image and an SVG only as a text note; a checkpoint is taken before ext.write_note (touchesWorkspace) and not before big.tool_1');
+    // The proof ledger follows the same rule (lib/proof/service.mjs, docs/PROOF-SERVICE.md): the calls to the flagged server are scanned.
+    const proofCalls = (await readLedgerEntries(ledgerPath(hubDirectory, task.id))).entries.filter((entry) => entry.type === 'call').map((entry) => entry.record);
+    assert.deepEqual(proofCalls.map((record) => [record.tool, record.category, record.changed]), [['ext.images', 'external', false], ['ext.write_note', 'external', true]],
+      'the proof ledger has a call record for each call to the server flagged touchesWorkspace (the write changed the tree), none for big.tool_1');
+    ok('a PNG result reaches the model as input_image and an SVG only as a text note; a checkpoint is taken before ext.write_note (touchesWorkspace) and not before big.tool_1, and the proof ledger records the calls of the flagged server only');
   }
 
   // ------------------------------------------------------------------------------------------------------------------ 6. a spawn_agent child, auto mode
