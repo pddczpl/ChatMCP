@@ -26,7 +26,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  GENESIS, LEDGER_VERSION, PREVIEW_BYTES, ProofLedger, RECORD_TYPES, ToolchainProbe, argsSha256, checkReceipt, commandSha256,
+  EXEC_CALL_FORMAT, EXEC_CALL_KIND, GENESIS, LEDGER_VERSION, PREVIEW_BYTES, ProofLedger, RECORD_TYPES, ToolchainProbe, argsSha256, checkReceipt, commandSha256,
   ledgerPath, recordCheck, treeRef, validateRecord, verifyChain,
 } from '../lib/proof/ledger.mjs';
 import { BoundedCapture, ShellRunner } from '../lib/shell-runner.mjs';
@@ -583,6 +583,8 @@ try {
       ['a tool name of 300 characters', { ...callRecord, tool: 'x'.repeat(300) }],
       ['a call id of 300 characters', { ...callRecord, callId: 'x'.repeat(300) }],
       ['a negative scan time', { ...callRecord, scanMs: -5 }],
+      ['a kind field', { ...callRecord, kind: 'tool' }],
+      ['exec\'s kind on a guard call', { ...callRecord, kind: 'agent_exec' }],
     ]) assert.notEqual(validateRecord('call', bad), null, `call: ${label}`);
     // The ids and the words the Hub picks from fixed lists are kept whole when a registered secret occurs in them; every other string is masked.
     const withRaw = { ...tree, tree: { ...tree.tree, rawTree: id('raw of the start') } };
@@ -609,6 +611,105 @@ try {
     assert.equal(await rejection(strict.append('tree', { ...tree, tree: { ...tree.tree, tree: 'not hex' } })), 'ledger_bad_record');
     await assert.rejects(fs.stat(ledgerPath(hub, 'task_pod17_strict')), { code: 'ENOENT' });
     ok('tree and call records (pod-17) have closed schemas: tree references with hex ids only, no field that could carry output; their tree ids stay whole when a registered secret occurs in them, the other strings are masked');
+  }
+
+  // ---------------------------------------------------------------- 7. exec's call record (pod-26, docs/PROOF-CLI.md, "exec")
+  {
+    const hex = (text) => createHash('sha256').update(text).digest('hex');
+    const execRecord = {
+      kind: EXEC_CALL_KIND, format: EXEC_CALL_FORMAT, command: "node agent.mjs 'fix it'", commandTruncated: false, commandSha256: hex('the command'),
+      shell: 'bash', cwd: '.', agent: { name: 'claude', version: '2.9.9' }, exit: 0, signal: null, timedOut: false, interrupted: false, lingering: false,
+      stuck: false, treeLeft: false, durationMs: 1200, timeoutMs: 3_600_000,
+      stdout: { sha256: hex('out'), bytes: 24, logged: 24, truncated: false }, stderr: { sha256: hex(''), bytes: 0, logged: 0, truncated: false },
+      claim: { marker: 'DONE', reason: null, rule: 'contract', pattern: null, line: 'DONE', markerTimedOut: false, from: 'adapter' },
+      adapter: { name: 'claude', version: 1, checked: '2026-11-23', recognized: true, reason: null, isError: false, model: 'm-1', agentVersion: '2.9.9' },
+      cost: { currency: 'USD', knownSubtotal: 0.0123, complete: false }, costSource: 'adapter',
+    };
+    assert.equal(EXEC_CALL_KIND, 'agent_exec');
+    assert.equal(EXEC_CALL_FORMAT, 'chatmcp.verify-exec/1');
+    assert.equal(validateRecord('call', execRecord), null, 'exec\'s record of an agent run');
+    for (const [label, good] of [
+      ['BLOCKED with its reason', { ...execRecord, claim: { ...execRecord.claim, marker: 'BLOCKED', reason: 'the API key is missing', line: 'BLOCKED: the API key is missing' } }],
+      ['no claim, no line', { ...execRecord, claim: { ...execRecord.claim, marker: null, line: null, from: 'stdout' } }],
+      ['a custom marker that ran too long', { ...execRecord, claim: { ...execRecord.claim, marker: null, rule: 'claim-marker', pattern: '(a+)+', markerTimedOut: true } }],
+      ['no adapter, a stated cost', { ...execRecord, adapter: null, cost: { currency: 'USD', knownSubtotal: 1.25, complete: true }, costSource: 'option' }],
+      ['no adapter, no cost', { ...execRecord, adapter: null, cost: 'unknown', costSource: null }],
+      ['an adapter that did not recognise the output', { ...execRecord, adapter: { ...execRecord.adapter, recognized: false, reason: 'not_json', isError: null, model: null, agentVersion: null } }],
+      ['killed at the time limit', { ...execRecord, exit: null, signal: 'SIGKILL', timedOut: true, treeLeft: null }],
+      ['a log cut at its limit', { ...execRecord, stdout: { sha256: hex('big'), bytes: 17_825_797, logged: 16_777_216, truncated: true } }],
+      ['a command of 4,096 characters', { ...execRecord, command: 'x'.repeat(4096), commandTruncated: true }],
+      ['powershell', { ...execRecord, shell: 'powershell' }],
+    ]) assert.equal(validateRecord('call', good), null, `exec call: ${label}`);
+    const without = (name) => Object.fromEntries(Object.entries(execRecord).filter(([key]) => key !== name));
+    for (const [label, bad] of [
+      ['an extra field', { ...execRecord, output: 'hello' }],
+      ['a missing field', without('costSource')],
+      ['no kind (the guard seam\'s shape then)', without('kind')],
+      ['another format', { ...execRecord, format: 'chatmcp.verify-exec/2' }],
+      ['a command of 4,097 characters', { ...execRecord, command: 'x'.repeat(4097) }],
+      ['commandTruncated as text', { ...execRecord, commandTruncated: 'no' }],
+      ['a command hash that is not hex', { ...execRecord, commandSha256: 'x'.repeat(64) }],
+      ['another shell', { ...execRecord, shell: 'cmd' }],
+      ['a cwd that is not text', { ...execRecord, cwd: null }],
+      ['an agent without a version', { ...execRecord, agent: { name: 'claude' } }],
+      ['an agent with an empty name', { ...execRecord, agent: { name: '', version: '1' } }],
+      ['an agent with another field', { ...execRecord, agent: { ...execRecord.agent, email: 'a@b' } }],
+      ['exit as text', { ...execRecord, exit: '0' }],
+      ['a signal of 40 characters', { ...execRecord, signal: 'S'.repeat(40) }],
+      ['timedOut null', { ...execRecord, timedOut: null }],
+      ['interrupted as text', { ...execRecord, interrupted: 'no' }],
+      ['lingering missing', { ...execRecord, lingering: undefined }],
+      ['stuck as a number', { ...execRecord, stuck: 0 }],
+      ['treeLeft as text', { ...execRecord, treeLeft: 'yes' }],
+      ['a negative duration', { ...execRecord, durationMs: -1 }],
+      ['a fractional time limit', { ...execRecord, timeoutMs: 1.5 }],
+      ['output text in a stream', { ...execRecord, stdout: { ...execRecord.stdout, preview: 'hello' } }],
+      ['a stream hash that is not hex', { ...execRecord, stderr: { ...execRecord.stderr, sha256: 'abc' } }],
+      ['more logged than written', { ...execRecord, stdout: { ...execRecord.stdout, logged: 25 } }],
+      ['a stream count as text', { ...execRecord, stdout: { ...execRecord.stdout, bytes: '24' } }],
+      ['truncated as text', { ...execRecord, stdout: { ...execRecord.stdout, truncated: 'no' } }],
+      ['a marker in lower case', { ...execRecord, claim: { ...execRecord.claim, marker: 'done' } }],
+      ['BLOCKED without a reason', { ...execRecord, claim: { ...execRecord.claim, marker: 'BLOCKED' } }],
+      ['DONE with a reason', { ...execRecord, claim: { ...execRecord.claim, reason: 'because' } }],
+      ['a reason of 1,001 characters', { ...execRecord, claim: { ...execRecord.claim, marker: 'BLOCKED', reason: 'r'.repeat(1001) } }],
+      ['a line of 1,001 characters', { ...execRecord, claim: { ...execRecord.claim, line: 'l'.repeat(1001) } }],
+      ['a pattern of 1,001 characters', { ...execRecord, claim: { ...execRecord.claim, rule: 'claim-marker', pattern: 'p'.repeat(1001) } }],
+      ['another rule', { ...execRecord, claim: { ...execRecord.claim, rule: 'guess' } }],
+      ['a claim from elsewhere', { ...execRecord, claim: { ...execRecord.claim, from: 'stderr' } }],
+      ['markerTimedOut as text', { ...execRecord, claim: { ...execRecord.claim, markerTimedOut: 'no' } }],
+      ['a claim with another field', { ...execRecord, claim: { ...execRecord.claim, text: 'the whole message' } }],
+      ['an adapter with another field', { ...execRecord, adapter: { ...execRecord.adapter, raw: '{}' } }],
+      ['an adapter name that is not a word', { ...execRecord, adapter: { ...execRecord.adapter, name: 'Claude Code' } }],
+      ['an adapter version 0', { ...execRecord, adapter: { ...execRecord.adapter, version: 0 } }],
+      ['a checked day that is not a date', { ...execRecord, adapter: { ...execRecord.adapter, checked: 'today' } }],
+      ['recognized as text', { ...execRecord, adapter: { ...execRecord.adapter, recognized: 'yes' } }],
+      ['an adapter reason that is not a word', { ...execRecord, adapter: { ...execRecord.adapter, reason: 'Not JSON!' } }],
+      ['isError as text', { ...execRecord, adapter: { ...execRecord.adapter, isError: 'no' } }],
+      ['a model of 300 characters', { ...execRecord, adapter: { ...execRecord.adapter, model: 'm'.repeat(300) } }],
+      ['an agent version of 300 characters', { ...execRecord, adapter: { ...execRecord.adapter, agentVersion: 'v'.repeat(300) } }],
+      ['a cost that is free text', { ...execRecord, cost: 'about a dollar' }],
+      ['a cost with a currency in lower case', { ...execRecord, cost: { ...execRecord.cost, currency: 'usd' } }],
+      ['a negative cost', { ...execRecord, cost: { ...execRecord.cost, knownSubtotal: -1 } }],
+      ['a cost over 1e9', { ...execRecord, cost: { ...execRecord.cost, knownSubtotal: 2e9 } }],
+      ['a cost without complete', { ...execRecord, cost: { currency: 'USD', knownSubtotal: 1 } }],
+      ['another cost source', { ...execRecord, costSource: 'guess' }],
+    ]) assert.notEqual(validateRecord('call', bad), null, `exec call: ${label}`);
+    // its digests and its words from fixed lists stay whole when a registered secret occurs in them; every other string is masked
+    const secrets = [execRecord.commandSha256.slice(5, 10), execRecord.stdout.sha256.slice(20, 25), execRecord.stderr.sha256.slice(40, 45), 'claude', 'fix it', 'bash',
+      'contract', 'adapter', 'agent_exec', 'verify-exec', 'USD'];
+    const ledger = ProofLedger.forTask(hub, 'task_exec_call', { secrets: () => secrets });
+    await ledger.append('call', execRecord);
+    const [written] = entriesOf(await fs.readFile(ledgerPath(hub, 'task_exec_call')));
+    assert.deepEqual([written.record.commandSha256, written.record.stdout.sha256, written.record.stderr.sha256], [execRecord.commandSha256, execRecord.stdout.sha256, execRecord.stderr.sha256],
+      'the three digests are whole');
+    assert.deepEqual([written.record.kind, written.record.format, written.record.shell, written.record.claim.rule, written.record.claim.from, written.record.adapter.name, written.record.costSource, written.record.cost.currency],
+      ['agent_exec', 'chatmcp.verify-exec/1', 'bash', 'contract', 'adapter', 'claude', 'adapter', 'USD'], 'the words from fixed lists are whole');
+    assert.equal(written.record.command, "node agent.mjs '[REDACTED]'", 'the command is masked');
+    assert.equal(written.record.agent.name, '[REDACTED]', 'the agent\'s name is masked');
+    const strict = ProofLedger.forTask(hub, 'task_exec_strict');
+    assert.equal(await rejection(strict.append('call', { ...execRecord, output: 'hello' })), 'ledger_bad_record');
+    await assert.rejects(fs.stat(ledgerPath(hub, 'task_exec_strict')), { code: 'ENOENT' });
+    ok('exec\'s call record (kind agent_exec, pod-26) has a closed schema of its own beside the guard seam\'s: exactly its fields, their types and bounds, no field that could carry output; a guard call with a kind is refused; its digests and fixed words stay whole, the rest is masked');
   }
 
   console.log(`verify-proof-ledger: ${passed} checks passed`);
