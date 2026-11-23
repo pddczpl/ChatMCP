@@ -176,7 +176,9 @@ exec's own options come before `--`; every word after it belongs to the agent's 
      prompt file, redirect inside its command, as one word: `chatmcp verify exec -- "codex exec - < prompt.txt"`.
    - Its **stdout and stderr** are read by exec. Without `--json` they are passed on to exec's own stdout and stderr as they come, then the
      answer follows; with `--json` nothing of them is printed (the JSON line stays the only output). Each stream is hashed (sha256) and
-     counted whole and kept in the evidence folder (below).
+     counted whole and kept in the evidence folder (below). They are the bytes the shell hands on: with `--shell powershell`, Windows
+     PowerShell 5.1 reads a program's output and writes it again (UTF-8, CRLF line ends, its own errors as CLIXML on stderr), so the
+     hash is of those bytes, not of what the program wrote; bash and sh pass the program's own bytes. The claim reading counts CRLF as LF.
    - Its **environment** is the person's own, not scrubbed: an agent needs its credentials (the checks run scrubbed, as `run`'s do). On
      Windows Git Bash also gets `MSYS_NO_PATHCONV=1`, `MSYS2_ARG_CONV_EXCL=*` and `CHERE_INVOKING=1`, so the words reach the agent
      unchanged, and no child gets PowerShell 7's `PSModulePath` (as ShellRunner gives its shells).
