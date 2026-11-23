@@ -259,7 +259,7 @@ export function createTurnMapper({ cwd, from = 0, usageMark = null } = {}) {
     finalText(task) {
       if (!isObject(task)) return '';
       const parts = task.finalParts;
-      const candidates = isObject(parts) ? [parts.words, parts.verificationNotice, parts.hookNotice] : [task.finalText];
+      const candidates = isObject(parts) ? [parts.words, parts.gateNotice, parts.verificationNotice, parts.hookNotice] : [task.finalText];
       return candidates.map(text).filter((value) => value !== null && !said.has(value)).join('\n\n');
     },
   };

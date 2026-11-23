@@ -1244,7 +1244,7 @@
       "patches": [
         {
           "file": "lib/acp/event-map.mjs",
-          "old": "const candidates = isObject(parts) ? [parts.words, parts.verificationNotice, parts.hookNotice] : [task.finalText];",
+          "old": "const candidates = isObject(parts) ? [parts.words, parts.gateNotice, parts.verificationNotice, parts.hookNotice] : [task.finalText];",
           "new": "const candidates = isObject(parts) ? [parts.words] : [task.finalText];"
         }
       ]
@@ -1255,8 +1255,8 @@
       "patches": [
         {
           "file": "lib/acp/event-map.mjs",
-          "old": "[parts.words, parts.verificationNotice, parts.hookNotice]",
-          "new": "[parts.words, parts.verificationNotice]"
+          "old": "[parts.words, parts.gateNotice, parts.verificationNotice, parts.hookNotice]",
+          "new": "[parts.words, parts.gateNotice, parts.verificationNotice]"
         }
       ]
     },
@@ -1266,7 +1266,7 @@
       "patches": [
         {
           "file": "lib/acp/event-map.mjs",
-          "old": "[parts.words, parts.verificationNotice, parts.hookNotice]",
+          "old": "[parts.words, parts.gateNotice, parts.verificationNotice, parts.hookNotice]",
           "new": "[parts.words, parts.hookNotice]"
         }
       ]

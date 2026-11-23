@@ -118,7 +118,7 @@
    "patches": [
     {
      "file": "lib/agent.mjs",
-     "old": "    task.verificationOutcome = assessCompletionEvidence(task.goalPlan, task.progress);",
+     "old": "    task.verificationOutcome = gateVerification(evidence, task.proofGate);",
      "new": ""
     }
    ]
@@ -129,7 +129,7 @@
    "patches": [
     {
      "file": "lib/agent.mjs",
-     "old": "    task.completionOutcome = classifyTaskCompletion(task.goalPlan, task.progress);",
+     "old": "    task.completionOutcome = gateCompletion(classifyTaskCompletion(task.goalPlan, task.progress), task.proofGate);",
      "new": ""
     }
    ]
@@ -140,7 +140,7 @@
    "patches": [
     {
      "file": "lib/agent.mjs",
-     "old": "      this.#setFinalText(task, { ...task.finalParts, verificationNotice: warning });",
+     "old": "      this.#setFinalText(task, { ...task.finalParts, gateNotice: gateNotice(task.proofGate), verificationNotice: evidence.missing.length ? verificationWarning(evidence.missing) : null });",
      "new": ""
     }
    ]

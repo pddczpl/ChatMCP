@@ -8,6 +8,7 @@ import { buildInternalCatalog, fingerprint } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
 import { externalToolName } from './permissions.mjs';
 import { ProofService, scannedCall } from './proof/service.mjs';
+import { createTrustStore } from './proof/trust-store.mjs';
 
 export const VERSION = '3.11.2';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
@@ -89,6 +90,9 @@ export class HubManager {
     // own data folder). `proofOptions` ({clock, budget}) is handed to it; a manager that works for another one is given the same options.
     this.proof = null;
     this.proofOptions = null;
+    // The owner's list of trusted acceptance files (lib/proof/trust-store.mjs), the Hub's one: the done-gate (lib/proof/gate.mjs) of a manager that works for another one is
+    // handed the SAME store (a side chat's own data folder holds none, and reading it there would leave the chat ungated).
+    this.acceptanceTrust = null;
   }
 
   log(message) {
@@ -302,6 +306,9 @@ export class HubManager {
     this.taskId = id;
   }
   releaseTask(id) { if (this.taskId === id) this.taskId = null; }
+
+  /** The owner's list of trusted acceptance files: the one handed to this manager, else the one of its own data folder. */
+  acceptanceTrustStore() { return this.acceptanceTrust ??= createTrustStore(this.hubDirectory); }
 
   /** The proof service of the current workspace, made again when the workspace changed; null without a workspace. */
   proofService() {

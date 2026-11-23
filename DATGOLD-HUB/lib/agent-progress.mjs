@@ -124,6 +124,28 @@ export function observeTree(progressValue, ids) {
   return project(progress);
 }
 
+/**
+ * The progress after the done-gate ran the owner's checks (lib/proof/gate.mjs, docs/PROOF-GATE.md): the final tree it saw (`tree`, a tree reference's ids; null: unknown) is
+ * the current tree, and each of `checks` ({id}, the checks of a clean pass by their ledger line) is a verify receipt on it. Without a tree nothing is added.
+ */
+export function observeChecks(progressValue, { tree, checks = [], step = 0 } = {}) {
+  const progress = createTaskProgress(progressValue);
+  progress.tree = treeKey(tree);
+  for (const { id } of progress.tree ? checks : []) {
+    const record = receipt({ kind: 'verify', step: positive(step), id, tree: progress.tree });
+    if (record && !progress.receipts.some((item) => json(item) === json(record))) progress.receipts.push(record);
+  }
+  progress.receipts = bounded(progress.receipts);
+  return project(progress);
+}
+
+/** The progress with its stall counters started again: the host asked for another look (a done-gate round), so what the agent reads again is not a stall. */
+export function restartStall(progressValue) {
+  const progress = createTaskProgress(progressValue);
+  progress.noProgress = 0;
+  progress.recoveryAttempts = 0;
+  return progress;
+}
 
 function json(value) {
   // Stable keys avoid mistaking a reordered argument object for new work.

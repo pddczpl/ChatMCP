@@ -4,8 +4,9 @@
 it compares the workspace with that baseline. The result is a change list for every workspace and, for a Git workspace, a patch between
 the two trees whose **sha256 is the subject a proof pack binds to** (the pack builder is pod-29's; this module only exposes the hash).
 
-**Status: a module and its API only. Nothing in the agent or the Hub calls it yet**: the wiring into the task lifecycle is pod-26's and
-pod-32's. It makes no claim to users, so it adds nothing to [THREAT-MODEL.md](THREAT-MODEL.md) or [CLAIMS.md](CLAIMS.md).
+**Who calls it:** the done-gate of the agent (one baseline per conversation with a trusted acceptance file, in a folder of its own,
+[PROOF-GATE.md](PROOF-GATE.md)) and `chatmcp verify` ([PROOF-CLI.md](PROOF-CLI.md)). On Windows Git refuses a private store whose path is too long
+("'$GIT_DIR' too big"): measured, a data folder over about 138 characters. It makes no claim to users, so it adds nothing to [THREAT-MODEL.md](THREAT-MODEL.md) or [CLAIMS.md](CLAIMS.md).
 
 It builds on the tree snapshot engine ([PROOF-TREE.md](PROOF-TREE.md)), the state folder of the proof ledger
 ([PROOF-LEDGER.md](PROOF-LEDGER.md)) and the acceptance file ([PROOF-ACCEPTANCE.md](PROOF-ACCEPTANCE.md)).

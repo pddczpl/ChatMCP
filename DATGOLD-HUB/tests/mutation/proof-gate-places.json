@@ -1,0 +1,138 @@
+{
+ "suite": "verify-proof-gate-places.mjs",
+ "description": "The done-gate in the agent loop, where it runs and what interrupts it (plan task pod-23, docs/PROOF-GATE.md): plan mode, a stop, a step limit, a queued message, the next run, a deleted conversation, the trust list a second chat is handed, an acceptance file that Git ignores (lib/agent.mjs, lib/manager.mjs, lib/concurrent-api-agent.mjs, lib/proof/gate.mjs). Each mutation runs the whole suite (about 40 s).",
+ "mutations": [
+ {
+  "name": "GA-queued-ignored",
+  "what": "a message queued while the checks ran does not stop the judgment",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "          if (task.pendingMessages?.length) {\n            task.dialogue.push({ role: 'assistant', at: now(), text: answer, run: task.runs?.length ?? 1 });\n            continue;\n          }\n          // The owner's Stop",
+    "new": "          // The owner's Stop"
+   }
+  ]
+ },
+ {
+  "name": "GA-kept-over-runs",
+  "what": "the judgment of the last run stands in the next one",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    task.proofGate = null; // set when",
+    "new": "    // set when"
+   }
+  ]
+ },
+ {
+  "name": "GA-plan-mode",
+  "what": "a task in plan mode is gated",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "run: context.gate, task, planMode: planOnly(task),",
+    "new": "run: context.gate, task, planMode: false,"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-stop",
+  "what": "a stop does not reach the checks",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "planMode: planOnly(task), signal: context.controller.signal, emit:",
+    "new": "planMode: planOnly(task), emit:"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-budget",
+  "what": "the agent is sent back when no turn is left",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "      canGoOn: () => this.#canTakeAnotherStep(context), onRun:",
+    "new": "      onRun:"
+   }
+  ]
+ },
+ {
+  "name": "GA-no-forget",
+  "what": "a deleted conversation leaves its baseline",
+  "patches": [
+   {
+    "file": "lib/agent.mjs",
+    "old": "    await this.doneGate.forget(this.tasks.get(id));\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-own-trust",
+  "what": "a second chat reads the trust list of its own data folder",
+  "patches": [
+   {
+    "file": "lib/concurrent-api-agent.mjs",
+    "old": "    manager.acceptanceTrust = this.manager.acceptanceTrustStore?.() ?? null;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "GA-trust-other",
+  "what": "the manager ignores the list it was handed",
+  "patches": [
+   {
+    "file": "lib/manager.mjs",
+    "old": "  acceptanceTrustStore() { return this.acceptanceTrust ??= createTrustStore(this.hubDirectory); }",
+    "new": "  acceptanceTrustStore() { return createTrustStore(this.hubDirectory); }"
+   }
+  ]
+ },
+ {
+  "name": "GA-baseline-own-acceptance",
+  "what": "the baseline's own acceptance file is compared",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const before = withAcceptance(await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store') }), acceptance, objectFormat);",
+    "new": "    const before = await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store') });"
+   }
+  ]
+ },
+ {
+  "name": "GA-final-own-acceptance",
+  "what": "the workspace's listing decides about the acceptance file",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const after = withAcceptance(await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env }), current, objectFormat);",
+    "new": "    const after = await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env });"
+   }
+  ]
+ },
+ {
+  "name": "GA-autocrlf-ungated",
+  "what": "a second chat whose worktree has other line ends than the trusted file is not gated",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "  for (const form of lineEndForms(bytes) ?? []) {",
+    "new": "  for (const form of []) {"
+   }
+  ]
+ },
+ {
+  "name": "GA-autocrlf-edit",
+  "what": "the line ends of a second chat's worktree are an edit",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    const current = sameButLineEnds(found, run.acceptance) ? run.acceptance : found;",
+    "new": "    const current = found;"
+   }
+  ]
+ }
+ ]
+}

@@ -56,7 +56,7 @@ run are fresh again when the files are as they were, stale when they changed bet
 ## The completion is judged against the final tree
 
 `assessCompletionEvidence(plan, progress, {tree})` and `classifyTaskCompletion(plan, progress, {tree})` judge the receipts the plan asks for
-(an edit, a passing check, a Git diff review) against the final tree: `tree` when the caller gives one (the done-gate of pod-23 may), else
+(an edit, a passing check, a Git diff review) against the final tree: `tree` when the caller gives one, else
 the latest tree the progress knows. For each kind the state is fresh when one receipt is fresh, else unknown, else stale, else missing, and
 `missing` says which:
 
@@ -123,7 +123,8 @@ rest are, or that the Hub does not know the tree; the acceptance panel says how 
 
 ## Not done here
 
-- The done-gate that sends the model back when its receipts are not fresh is pod-23's. The final tree is checked after the run, so the
+- The done-gate (pod-23, [PROOF-GATE.md](PROOF-GATE.md)) sends the model back when the owner's trusted checks fail, not when a receipt is stale.
+  Its passing checks are verify receipts on the final tree it saw (`observeChecks`). The final tree is checked again after the run, so the
   model is not asked to do anything about a change it did not see.
 - No snapshot is taken at accept time: a change made after the run ended is seen at the next run.
 - The Browser Companion and the MCP host do not keep agent receipts; their calls are in the ledger only.

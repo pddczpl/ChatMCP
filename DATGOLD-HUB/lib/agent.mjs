@@ -3,8 +3,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
-import { callIdentity, createTaskProgress, observeTaskTool, observeTree, progressCheckpoint, receiptSummary, treeKey } from './agent-progress.mjs';
+import { callIdentity, createTaskProgress, observeChecks, observeTaskTool, observeTree, progressCheckpoint, receiptSummary, restartStall, treeKey } from './agent-progress.mjs';
 import { scannedCall } from './proof/service.mjs';
+import { DoneGate, GATE_EVENT, GATE_STATUS, gateCompletion, gateNotice, gateVerification, staleGate } from './proof/gate.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from './agent-autonomy.mjs';
 import { injectRepoMapIntoInstructions, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
@@ -582,6 +583,8 @@ export class AgentRunner {
     this.listeners = new Set();
     // Stop / SubagentStop / TaskCompleted hooks: asked about every final answer before the task can complete (lib/lifecycle-hooks.mjs).
     this.finalHooks = new FinalAnswerHooks({ manager, log: (line) => this.log(this.#redact(line)) });
+    // The owner's trusted acceptance checks: run on every final answer, before the hooks judge it (lib/proof/gate.mjs, docs/PROOF-GATE.md).
+    this.doneGate = new DoneGate({ manager, log: (line) => this.log(this.#redact(line)) });
   }
 
   /** What the owner's switch says now: a store is asked each time (start() asks it once per run), a fixed setting never changes. */
@@ -753,7 +756,9 @@ export class AgentRunner {
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
       verificationOutcome:task.verificationOutcome??null,
       finalParts:!summary&&task.finalText?(task.finalParts??null):null,
-      completionOutcome:task.completionOutcome??(task.status==='completed'?classifyTaskCompletion(task.goalPlan,task.progress):null),
+      completionOutcome:task.completionOutcome??(task.status==='completed'?gateCompletion(classifyTaskCompletion(task.goalPlan,task.progress),task.proofGate):null),
+      // The judgment of the done-gate on the answer (lib/proof/gate.mjs): null when no gate ran on this run; a list entry carries what a list shows of it.
+      proofGate:!task.proofGate?null:summary?{status:task.proofGate.status,reason:task.proofGate.reason,checksModified:task.proofGate.checksModified}:task.proofGate,
       effectiveProfile:task.effectiveProfile??null,
       roleProfiles:task.roleProfiles??{},
       reasoningEffort:task.reasoningEffort??null,
@@ -998,7 +1003,8 @@ export class AgentRunner {
       objectiveId,criterionIndex,receiptId,confirmed});
     // The owner's option: what this acceptance completes may let a check of the next objective be matched too.
     if(this.agentOptions.autoAcceptChecks)await this.#autoAcceptChecks(task);
-    task.completionOutcome=classifyTaskCompletion(task.goalPlan,task.progress);
+    // The owner accepts objectives; what the done-gate said of the owner's checks stays what it is.
+    task.completionOutcome=gateCompletion(classifyTaskCompletion(task.goalPlan,task.progress),task.proofGate);
     task.updatedAt=now();
     await this.#persist(task,{at:task.updatedAt,type:'owner_acceptance',
       objectiveId,criterionIndex,receiptId,status:task.completionOutcome.requirements});
@@ -1091,7 +1097,7 @@ export class AgentRunner {
   /** The text of a finished run and the record of whose words it holds, made together (lib/final-text.mjs): the text the page shows is unchanged, and the record cannot disagree with it. */
   #setFinalText(task, parts) {
     task.finalText = composeFinalText(parts);
-    task.finalParts = { words: parts.words, verificationNotice: parts.verificationNotice ?? null, hookNotice: parts.hookNotice ?? null };
+    task.finalParts = { words: parts.words, verificationNotice: parts.verificationNotice ?? null, hookNotice: parts.hookNotice ?? null, ...(parts.gateNotice ? { gateNotice: parts.gateNotice } : {}) };
   }
 
   #goOnForNotices(context, finalTexts) {
@@ -1117,6 +1123,7 @@ export class AgentRunner {
     if (this.activeTaskId === id) throw fault('task_running','Dừng phiên trước khi xóa.',409);
     await this.writes.get(id)?.catch(()=>{});
     await fs.rm(this.#directory(id),{recursive:true,force:true});
+    await this.doneGate.forget(this.tasks.get(id));
     this.tasks.delete(id); this.writes.delete(id);
     return {ok:true,deletedId:id};
   }
@@ -1213,6 +1220,7 @@ export class AgentRunner {
     if (taskEffort !== null) task.reasoningEffort = taskEffort;
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.finalParts = null; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.resume = null; // set below when this run continues an earlier one
+    task.proofGate = null; // set when the done-gate judged this run's answer (task.proofBaseline stays: it is the conversation's)
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
     // selectionText is stored only when it is not the prompt: a later run of the conversation reads this prompt as an earlier one, and must read the same text.
@@ -1590,12 +1598,15 @@ export class AgentRunner {
     if (!final || !judged || final === judged) return;
     task.progress = observeTree(task.progress, finalTree);
     if (task.status !== 'completed') { await this.#persist(task); return; }
-    task.verificationOutcome = assessCompletionEvidence(task.goalPlan, task.progress);
-    task.completionOutcome = classifyTaskCompletion(task.goalPlan, task.progress);
+    // A pass of the done-gate was on the tree that is gone.
+    task.proofGate = staleGate(task.proofGate, final);
+    const evidence = assessCompletionEvidence(task.goalPlan, task.progress);
+    task.verificationOutcome = gateVerification(evidence, task.proofGate);
+    task.completionOutcome = gateCompletion(classifyTaskCompletion(task.goalPlan, task.progress), task.proofGate);
     if (task.verificationOutcome.ready) { await this.#persist(task); return; }
     const warning = verificationWarning(task.verificationOutcome.missing);
     if (task.finalParts) {
-      this.#setFinalText(task, { ...task.finalParts, verificationNotice: warning });
+      this.#setFinalText(task, { ...task.finalParts, gateNotice: gateNotice(task.proofGate), verificationNotice: evidence.missing.length ? verificationWarning(evidence.missing) : null });
       // The run and the dialogue keep the answer as it now reads.
       if (task.runs?.length) task.runs.at(-1).finalText = task.finalText;
       const said = task.dialogue?.findLast((entry) => entry.role === 'assistant' && entry.run === (task.runs?.length ?? 1));
@@ -1633,6 +1644,8 @@ export class AgentRunner {
   async #run(context) {
     const { task } = context;
     try {
+      // What this run's answer will be held to (lib/proof/gate.mjs), before the model can change anything: the acceptance file as it is now and, with a trusted one, the baseline.
+      context.gate = await this.doneGate.begin({ task, directory: this.#directory(task.id), signal: context.controller.signal, emit: this.#gateEvent(task) });
       while (true) {
         // The previous model turn is complete here (every result is in): host messages that waited for it follow its last result.
         context.history.endBatch();
@@ -1776,12 +1789,24 @@ export class AgentRunner {
           if(this.#goOnForNotices(context,finalTexts))continue;
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
           const answer = this.#redact(finalTexts.join('\n\n'));
+          // The done-gate first: the owner's trusted checks run on the final tree, so that the hooks judge an answer whose checks are known (docs/PROOF-GATE.md).
+          const gated = await this.#passDoneGate(context);
+          if (gated.action === 'continue') {
+            // Host data like a hook's feedback: it waits in the ledger's open batch, behind the answer it is about.
+            context.history.appendUser([{ type: 'input_text', text: this.#redact(gated.feedback) }], { kind: GATE_EVENT });
+            continue;
+          }
+          // A person's message that came while the checks ran: the answer is not the last one, so nothing judges it further.
+          if (task.pendingMessages?.length) {
+            task.dialogue.push({ role: 'assistant', at: now(), text: answer, run: task.runs?.length ?? 1 });
+            continue;
+          }
           // The owner's Stop (SubagentStop) and TaskCompleted hooks judge the answer before the task can complete. Their verdict, the final text and the
           // outcomes below are put on the task only when it completes: a refused answer leaves a running task that holds none of it.
           context.finalRun ??= this.finalHooks.begin();
           const verdict = await this.finalHooks.review({
             run: context.finalRun, task, finalText: answer, signal: context.controller.signal,
-            assess: () => ({ verification: assessCompletionEvidence(task.goalPlan, task.progress), completion: classifyTaskCompletion(task.goalPlan, task.progress) }),
+            assess: () => ({ verification: gateVerification(assessCompletionEvidence(task.goalPlan, task.progress), gated.result), completion: gateCompletion(classifyTaskCompletion(task.goalPlan, task.progress), gated.result) }),
             emit: (type, message, detail) => this.#event(task, type, message, { status: 'running' }, detail),
           });
           this.#check(context);
@@ -1796,13 +1821,16 @@ export class AgentRunner {
           if (this.#goOnForNotices(context, finalTexts)) continue;
           // The text the main chat shows is the model's words with the Hub's own sentences after them. It is made here, so it is recorded here which part is whose
           // (finalParts, lib/final-text.mjs): what reads the model's words alone (a worker's summary, agent_results) reads that record and never looks for the boundary in the text.
-          const parts = { words: answer, verificationNotice: null, hookNotice: null };
+          const parts = { words: answer, gateNotice: gateNotice(gated.result), verificationNotice: null, hookNotice: null };
           this.#setFinalText(task, parts);
+          task.proofGate = gated.result;
           task.verificationOutcome = verdict.verification;
           task.completionOutcome = verdict.completion;
           if(!task.verificationOutcome.ready) {
             const warning = verificationWarning(task.verificationOutcome.missing);
-            parts.verificationNotice = warning;
+            // What the gate's own notice says is not said again in the sentence about the plan's evidence.
+            const { missing } = assessCompletionEvidence(task.goalPlan, task.progress);
+            if (missing.length) parts.verificationNotice = verificationWarning(missing);
             this.#setFinalText(task, parts);
             await this.#event(task,'verification_unverified',warning,{status:'running'},{missing:task.verificationOutcome.missing});
           }
@@ -1858,6 +1886,34 @@ export class AgentRunner {
       }
       await this.#finish(context);
     } catch (error) { await this.#finish(context, error); }
+  }
+
+  /** The events of the done-gate (type proof_gate): what it says of itself is `gate` (armed, running, passed, failed ...). */
+  #gateEvent(task) {
+    return (type, message, extra = {}, detail = undefined) => this.#event(task, type, message, { status: 'running', ...extra }, detail);
+  }
+
+  /**
+   * The done-gate on a final answer (lib/proof/gate.mjs). What its checks showed is noted whatever the judgment: the tree they left is the current tree, and the passing
+   * checks of a clean pass are verify receipts on it. A round that sends the agent back starts its stall counters again: the host asked for another look.
+   */
+  async #passDoneGate(context) {
+    const { task } = context;
+    const verdict = await this.doneGate.review({
+      run: context.gate, task, planMode: planOnly(task), signal: context.controller.signal, emit: this.#gateEvent(task),
+      canGoOn: () => this.#canTakeAnotherStep(context), onRun: () => { this.#advance(task, 'verifying', GATE_EVENT); },
+    });
+    this.#check(context);
+    if (verdict.observed) {
+      task.progress = observeChecks(task.progress, { ...verdict.observed, step: task.steps });
+      if (verdict.observed.checks.length && !verdict.result.reused) {
+        task.goalPlan = updateGoalPlan(task.goalPlan, { kind: 'verify' });
+        if (this.agentOptions.autoAcceptChecks) await this.#autoAcceptChecks(task);
+      }
+    }
+    if (verdict.action === 'continue') task.progress = restartStall(task.progress);
+    if (task.state === 'verifying') this.#advance(task, 'running', `${GATE_EVENT}:${verdict.result?.status ?? GATE_STATUS.skipped}`);
+    return verdict;
   }
 
   async #dispatch(context, call) {

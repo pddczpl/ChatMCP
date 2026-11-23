@@ -111,6 +111,8 @@ These three events fire when an agent run **ends with a final answer**, before t
 
 There is no tool, so a `matcher` is ignored and a handler with `if` never runs: every handler of the event runs. A block of either event sends the agent back; the next final answer is judged again, starting with `Stop` / `SubagentStop`.
 
+**The done-gate comes first.** In a project with a trusted acceptance file the Hub runs the owner's checks on the answer before any of these events ([PROOF-GATE.md](PROOF-GATE.md)): an answer whose checks failed and that was sent back is not shown to a hook, and after a failed gate `TaskCompleted` sees `chatmcp_completion.requirements` `failed` and `chatmcp_verification.ready` false. A block does not run the checks again while the files stay the same.
+
 Not asked: a run that fails, is cancelled or reaches a limit (nothing was finished), an empty "final answer", an answer that a message the person queued in the meantime replaces, the **ChatGPT Web transport** (the model lives in the chatgpt.com tab and the Hub has no loop of its own that could send it back to work: a web task finishes with none of the three events firing), and the helpers that call the model once and have no loop (`DynamicDelegates`, `StudioDelegates`, `planWithModel`).
 
 **What a hook receives**, besides `session_id`, `cwd`, `permission_mode`, `hook_event_name`, `chatmcp_permission_mode` and `chatmcp_execution_policy`:

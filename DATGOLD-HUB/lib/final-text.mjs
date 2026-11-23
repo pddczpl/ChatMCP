@@ -1,7 +1,8 @@
 // The text a finished run ends with, and whose words are in it.
 //
-// The AgentRunner (lib/agent.mjs) makes the final text of a completed run from the model's last answer and, after it, up to two sentences of the Hub's own:
+// The AgentRunner (lib/agent.mjs) makes the final text of a completed run from the model's last answer and, after it, up to three sentences of the Hub's own:
 //
+//   * "[Done-gate notice] This task is NOT done: ..."                                          when the owner's trusted acceptance checks do not back the answer (lib/proof/gate.mjs)
 //   * "[Verification notice] DatGold has NOT independently verified full completion: <gaps>."   when the Hub's evidence does not back the run's plan
 //   * "[Hook notice] The Stop hook blocked 8 times; ..."                                       when a Stop / SubagentStop / TaskCompleted hook still objected after its blocks
 //
@@ -13,6 +14,8 @@
 // sentence is also used by the legacy readers (a task saved before the record existed has only the text, and they find the sentence again by it). The Hub wrote
 // "ChatMCP has NOT ..." until the product was renamed DatGold, so those readers look for both wordings (verificationWarnings).
 
+// The done-gate's notice stands first, right behind the words: that the owner's checks failed matters before anything else the Hub says.
+export const GATE_NOTICE_MARK = '\n\n[Done-gate notice] ';
 export const VERIFICATION_NOTICE_MARK = '\n\n[Verification notice] ';
 export const HOOK_NOTICE_MARK = '\n\n[Hook notice] ';
 
@@ -32,11 +35,11 @@ export function verificationWarnings(missing) {
 }
 
 /**
- * The final text of a run: the model's words, then the Hub's verification sentence, then the Hub's hook note, each only when there is one.
+ * The final text of a run: the model's words, then the done-gate's notice, the Hub's verification sentence and the Hub's hook note, each only when there is one.
  * A notice is a non-empty string or null.
  */
-export function composeFinalText({ words, verificationNotice = null, hookNotice = null }) {
-  return words + (verificationNotice ? VERIFICATION_NOTICE_MARK + verificationNotice : '') + (hookNotice ? HOOK_NOTICE_MARK + hookNotice : '');
+export function composeFinalText({ words, gateNotice = null, verificationNotice = null, hookNotice = null }) {
+  return words + (gateNotice ? GATE_NOTICE_MARK + gateNotice : '') + (verificationNotice ? VERIFICATION_NOTICE_MARK + verificationNotice : '') + (hookNotice ? HOOK_NOTICE_MARK + hookNotice : '');
 }
 
 const notice = (value) => value === null || value === undefined || (typeof value === 'string' && value !== '');
@@ -44,24 +47,26 @@ const notice = (value) => value === null || value === undefined || (typeof value
 /**
  * The record of whose words a task's final text holds, from the task as the runner hands it out (`finalParts` next to `finalText`), or null.
  * It is trusted only when it makes the very text it came with, byte for byte: a record that is malformed, or that belongs to another text (an earlier run's, a clipped
- * list entry), is ignored and the reader does what it did before the record existed. Returns {words, verificationNotice, hookNotice} (a notice is a string or null).
+ * list entry), is ignored and the reader does what it did before the record existed. Returns {words, verificationNotice, hookNotice} (a notice is a string or null),
+ * and gateNotice when the done-gate left one.
  */
 export function finalPartsOf(view) {
   const parts = view?.finalParts;
   if (!parts || typeof parts !== 'object' || Array.isArray(parts)) return null;
-  const { words, verificationNotice, hookNotice } = parts;
+  const { words, gateNotice, verificationNotice, hookNotice } = parts;
   if (typeof words !== 'string' || !notice(verificationNotice) || !notice(hookNotice)) return null;
-  const record = { words, verificationNotice: verificationNotice ?? null, hookNotice: hookNotice ?? null };
+  if (!notice(gateNotice)) return null;
+  const record = { words, ...(gateNotice ? { gateNotice } : {}), verificationNotice: verificationNotice ?? null, hookNotice: hookNotice ?? null };
   return typeof view.finalText === 'string' && composeFinalText(record) === view.finalText ? record : null;
 }
 
 /**
  * What a reader that shows the model's words to a person, or hands them to another model, needs from a finished task: the words, and the Hub's own sentences apart from them, in the
- * order the runner wrote them (the verification notice, then the hook note). `recorded` says that they come from the runner's record. A task saved before the record, or one whose
+ * order the runner wrote them (the done-gate's notice, the verification notice, then the hook note). `recorded` says that they come from the runner's record. A task saved before the record, or one whose
  * record does not make its text, has only the text: the words are all of it, there is no sentence to tell apart, and the reader does what it always did with the text.
  */
 export function wordsAndNotes(view) {
   const parts = finalPartsOf(view);
-  if (parts) return { words: parts.words, notes: [parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true };
+  if (parts) return { words: parts.words, notes: [parts.gateNotice, parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true };
   return { words: typeof view?.finalText === 'string' ? view.finalText : '', notes: [], recorded: false };
 }

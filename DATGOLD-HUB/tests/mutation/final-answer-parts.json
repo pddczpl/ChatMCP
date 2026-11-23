@@ -282,14 +282,14 @@
       "name": "M38",
       "what": "a record is trusted by the readers of the handoff and the card whatever text it came with",
       "patches": [
-        { "file": "lib/final-text.mjs", "old": "if (parts) return { words: parts.words, notes: [parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true };", "new": "if (view?.finalParts) return { words: view.finalParts.words, notes: [view.finalParts.verificationNotice, view.finalParts.hookNotice].filter(Boolean), recorded: true };" }
+        { "file": "lib/final-text.mjs", "old": "if (parts) return { words: parts.words, notes: [parts.gateNotice, parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true };", "new": "if (view?.finalParts) return { words: view.finalParts.words, notes: [view.finalParts.verificationNotice, view.finalParts.hookNotice].filter(Boolean), recorded: true };" }
       ]
     },
     {
       "name": "M39",
       "what": "the Hub's sentences are told in the other order: the hook's note before the verification notice",
       "patches": [
-        { "file": "lib/final-text.mjs", "old": "notes: [parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true", "new": "notes: [parts.hookNotice, parts.verificationNotice].filter(Boolean), recorded: true" }
+        { "file": "lib/final-text.mjs", "old": "notes: [parts.gateNotice, parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true", "new": "notes: [parts.gateNotice, parts.hookNotice, parts.verificationNotice].filter(Boolean), recorded: true" }
       ]
     }
   ]

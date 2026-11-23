@@ -173,8 +173,8 @@
    "patches": [
     {
      "file": "lib/agent.mjs",
-     "old": "completion: classifyTaskCompletion(task.goalPlan, task.progress) }),",
-     "new": "completion: (task.verificationOutcome = assessCompletionEvidence(task.goalPlan, task.progress), classifyTaskCompletion(task.goalPlan, task.progress)) }),"
+     "old": "completion: gateCompletion(classifyTaskCompletion(task.goalPlan, task.progress), gated.result) }),",
+     "new": "completion: (task.verificationOutcome = assessCompletionEvidence(task.goalPlan, task.progress), gateCompletion(classifyTaskCompletion(task.goalPlan, task.progress), gated.result)) }),"
     }
    ]
   },
