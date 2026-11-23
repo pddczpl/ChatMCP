@@ -17,7 +17,7 @@
 //     records of the interrupted call and run
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -244,7 +244,8 @@ try {
   {
     // The Hub's data folder inside the workspace: every ledger write would change the tree it records. Refused (docs/PROOF-BASELINE.md).
     const repo = await makeRepo('inside');
-    for (const hubDir of [path.join(repo, '.hub-state'), repo, path.join(repo, 'a', 'b')]) {
+    // `..hub` and `...` are names inside the workspace that only start with two dots (audit of #154, N1).
+    for (const hubDir of [path.join(repo, '.hub-state'), repo, path.join(repo, 'a', 'b'), path.join(repo, '..hub'), path.join(repo, '...'), path.join(repo, '..hub', 'state')]) {
       const service = new ProofService({ hubDir, root: repo });
       assert.equal(service.disabled, 'state_inside_workspace', hubDir);
       assert.equal(await service.begin('task-inside'), null);
@@ -252,8 +253,11 @@ try {
       assert.equal(await service.end('task-inside', { status: 'completed' }), null);
     }
     await assert.rejects(fs.stat(path.join(repo, '.hub-state', 'proof')), { code: 'ENOENT' }, 'nothing was written');
+    await assert.rejects(fs.stat(path.join(repo, '..hub', 'proof')), { code: 'ENOENT' }, 'nothing was written in ..hub');
     const beside = new ProofService({ hubDir: `${repo}-hub`, root: repo });
     assert.equal(beside.disabled, null, 'a folder whose name only starts like the workspace is outside it');
+    assert.equal(new ProofService({ hubDir: path.dirname(repo), root: repo }).disabled, null, 'the folder that holds the workspace is outside it');
+    assert.equal(new ProofService({ hubDir: path.join(path.dirname(repo), 'state'), root: repo }).disabled, null, 'a sibling of the workspace is outside it');
     // Through a link: the path names a folder outside, the disk puts it inside (a junction needs no privilege on Windows).
     await fs.mkdir(path.join(repo, 'linked-state'), { recursive: true });
     const link = path.join(temp, 'inside-link');
@@ -333,6 +337,35 @@ try {
     assert.match(lines[0], /ledger_broken/);
     assert.equal(await new ProofService({ hubDir, root: repo }).begin(taskId), null, 'a broken ledger is not begun again');
     ok('a ledger broken during a task: one log line, no more snapshots or appends for it, the next run is not begun on it');
+  }
+  {
+    // A call id or tool name longer than the ledger takes (audit of #154, N2): cut, with the sha256 of the whole, so the run is never dropped.
+    const repo = await makeRepo('long-names');
+    const hubDir = path.join(temp, 'long-names-hub');
+    const service = new ProofService({ hubDir, root: repo });
+    const taskId = 'task-long-names';
+    await service.begin(taskId);
+    const sha = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
+    const longId = `call-${'x'.repeat(300)}`;
+    const longTool = `ext.${'y'.repeat(300)}`;
+    const info = await service.afterCall(await service.beforeCall({ taskId, callId: longId, name: longTool, category: 'workspace_edit' }), { outcome: 'ok' });
+    assert.ok(info, 'the call with long names is recorded');
+    const edge = await service.afterCall(await service.beforeCall({ taskId, callId: 'a'.repeat(200), name: 'b'.repeat(201), category: 'workspace_edit' }), { outcome: 'ok' });
+    assert.ok(edge);
+    const next = await service.afterCall(await service.beforeCall({ taskId, callId: 'call-short', name: 'local.write_file', category: 'workspace_edit' }), { outcome: 'ok' });
+    assert.ok(next, 'and the run goes on');
+    assert.ok(await service.end(taskId, { status: 'completed' }), 'and ends');
+    const entries = await ledgerOf(hubDir, taskId);
+    assert.deepEqual(typesOf(entries), ['task_start', 'tree:task_start', 'tree:call_start', 'call', 'tree:call_start', 'call', 'tree:call_start', 'call', 'tree:task_end', 'task_end']);
+    const [first, second, third] = callsOf(entries).map((entry) => entry.record);
+    assert.equal(first.callId, `${longId.slice(0, 120)}…sha256:${sha(longId)}`, 'a call id over 200 characters: its first 120 and the sha256 of the whole');
+    assert.equal(first.tool, `${longTool.slice(0, 120)}…sha256:${sha(longTool)}`);
+    assert.equal(entries[2].record.callId, first.callId, 'the call_start record names the call the same way');
+    assert.equal(info.callId, first.callId);
+    assert.equal(second.callId, 'a'.repeat(200), 'a name of 200 characters is whole');
+    assert.equal(second.tool, `${'b'.repeat(120)}…sha256:${sha('b'.repeat(201))}`, 'one of 201 is cut');
+    assert.deepEqual([third.callId, third.tool], ['call-short', 'local.write_file']);
+    ok('a call id or tool name over 200 characters is cut to its first 120 and the sha256 of the whole: the record is written and the run goes on to its end');
   }
   {
     // A registered secret that occurs inside a tree id: the ids of tree and call records are kept whole, the other strings are masked.
