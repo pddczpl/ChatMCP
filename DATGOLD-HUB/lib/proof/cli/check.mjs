@@ -5,9 +5,11 @@
 // command or writes a file; --tree takes one tree snapshot of the workspace into the state folder.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { AcceptanceError, parseAcceptance } from '../acceptance.mjs';
 import { sha256Hex, verifyChain } from '../ledger.mjs';
-import { STATEMENT_TYPE, SUBJECT_NAMES, canonicalJson, statementDigest, validateStatement } from '../pack.mjs';
+import { PackError, STATEMENT_TYPE, SUBJECT_NAMES, canonicalJson, rollUpCriteria, statementDigest, validateStatement } from '../pack.mjs';
 import { compileSchema } from '../schema-validate.mjs';
+import { CHECK_CHANGES_FORMAT } from '../tamper.mjs';
 import { TreeSnapshotter } from '../tree-snapshot.mjs';
 import { stop } from './codes.mjs';
 
@@ -121,10 +123,94 @@ function bindLedger(bytes, predicate) {
   return entries;
 }
 
+// ------------------------------------------------------------------------------------------------------------- the roll-up again
+// validateStatement holds a statement to the receipts it lists; a run the statement leaves out (a failure on the final tree, say) is
+// beyond it. So check rolls the criteria up again from what the pack carries, with the spec's own rollUpCriteria, and refuses a statement
+// whose criteria are not the ones its ledger gives (audit F1 of #158). The ledger, the final tree and the acceptance file come from the
+// pack; three inputs exist in the pack only as facts of the statement itself, and are taken from it (docs/PROOF-CLI.md, "check"):
+// whether the acceptance file was trusted, the check-changes report (its summary and, per criterion, its check_changes_unknown and
+// checks_modified reasons), and the owner acceptances (their owner_accepted reasons; the tree of one for another tree is not recorded).
+const OTHER_AT = '1970-01-01T00:00:00Z';
+
+/** A finding of the check-changes report as its checks_modified reason wrote it: `<code> <path>`, or nothing. */
+function findingOf(reason) {
+  if (reason.detail === null) return {};
+  const space = reason.detail.indexOf(' ');
+  return space < 0 ? { code: reason.detail } : { code: reason.detail.slice(0, space), path: reason.detail.slice(space + 1) };
+}
+
+/** The inputs of rollUpCriteria, built from the pack (see above): {after, acceptance, checkChanges, ownerAcceptances}. */
+function rollUpInputs(statement, files) {
+  const { predicate } = statement;
+  const after = { status: 'ok', ...subjectTree(statement, 'after') };
+  let parsed = null;
+  try { parsed = files['acceptance.yml'] ? parseAcceptance(files['acceptance.yml']) : null; } catch (error) {
+    if (!(error instanceof AcceptanceError)) throw error;
+    throw stop('pack_invalid', { part: 'rollup', criterion: null, check: null, field: 'acceptance', errors: [{ path: '/files/acceptance.yml', keyword: 'rollup', message: `the acceptance file does not read: line ${error.line}, ${error.reason}` }] });
+  }
+  const acceptance = parsed ? { criteria: parsed.criteria, trusted: predicate.acceptance.trusted === true } : null;
+  const checkChanges = predicate.checkChanges.reported ? { format: CHECK_CHANGES_FORMAT, checks_modified: predicate.checkChanges.checksModified, criteria: [] } : null;
+  const ownerAcceptances = [];
+  const other = `${after.tree[0] === '0' ? '1' : '0'}${after.tree.slice(1)}`;
+  for (const criterion of predicate.criteria) {
+    const codes = criterion.reasons.map((reason) => reason.code);
+    if (checkChanges && !codes.includes('check_changes_unknown')) {
+      const modified = criterion.reasons.filter((reason) => reason.code === 'checks_modified');
+      // the findings left out (omittedReasons) are only counted: they are rolled up as findings without a text
+      checkChanges.criteria.push({ id: criterion.id, checks_modified: modified.length > 0, reasons: [...modified.map(findingOf), ...Array.from({ length: criterion.omittedReasons }, () => ({}))] });
+    }
+    if (codes.includes('owner_accepted')) ownerAcceptances.push({ criterionId: criterion.id, treeAlgorithm: after.treeAlgorithm, tree: after.tree, by: 'owner', at: OTHER_AT });
+    else if (codes.includes('owner_accepted_other_tree')) ownerAcceptances.push({ criterionId: criterion.id, treeAlgorithm: after.treeAlgorithm, tree: other, by: 'owner', at: OTHER_AT });
+  }
+  return { after, acceptance, checkChanges, ownerAcceptances };
+}
+
+/**
+ * Refuses (pack_invalid, part rollup) the first difference between the statement's criteria and the roll-up: the criteria and their
+ * order, each one's kind and status, each check's command, expected exit, repeat, result and passes, the reasons other than
+ * checks_modified (in order, with their check); a check's listed receipts must be among the ones the roll-up lists (all of them under
+ * the default limits; the pack does not record a lowered maxReceiptsPerCheck, under which the list is a part of it).
+ */
+function compareRollUp(stated, rolled) {
+  const differ = (path, criterion, check, field, statedValue, rolledValue) => stop('pack_invalid', {
+    part: 'rollup', criterion, check, field,
+    errors: [{ path, keyword: 'rollup', message: `${field} is ${JSON.stringify(statedValue)} in the statement, ${JSON.stringify(rolledValue)} by the ledger the pack carries` }],
+  });
+  const ids = (list) => list.map((criterion) => criterion.id);
+  if (JSON.stringify(ids(stated)) !== JSON.stringify(ids(rolled))) throw differ('/predicate/criteria', null, null, 'criteria', ids(stated), ids(rolled));
+  const codes = (criterion) => criterion.reasons.filter((reason) => reason.code !== 'checks_modified').map((reason) => `${reason.code}${reason.check === null ? '' : `#${reason.check}`}`);
+  for (const [at, mine] of stated.entries()) {
+    const theirs = rolled[at];
+    const where = `/predicate/criteria/${at}`;
+    for (const field of ['kind', 'status']) if (mine[field] !== theirs[field]) throw differ(`${where}/${field}`, mine.id, null, field, mine[field], theirs[field]);
+    if (mine.checks.length !== theirs.checks.length) throw differ(`${where}/checks`, mine.id, null, 'checks', mine.checks.length, theirs.checks.length);
+    for (const [index, check] of mine.checks.entries()) {
+      const other = theirs.checks[index];
+      for (const field of ['commandSha256', 'expectExit', 'repeat', 'result', 'passes']) {
+        if (check[field] !== other[field]) throw differ(`${where}/checks/${index}/${field}`, mine.id, index, field, check[field], other[field]);
+      }
+      const unknown = check.receipts.find((seq) => !other.receipts.includes(seq));
+      if (unknown !== undefined) throw differ(`${where}/checks/${index}/receipts`, mine.id, index, 'receipts', check.receipts, other.receipts);
+    }
+    if (JSON.stringify(codes(mine)) !== JSON.stringify(codes(theirs))) throw differ(`${where}/reasons`, mine.id, null, 'reasons', codes(mine), codes(theirs));
+  }
+}
+
+/** The criteria the pack's own ledger, final tree and acceptance file give, against the statement's (see above). */
+function checkRollUp(statement, files) {
+  let rolled;
+  try { rolled = rollUpCriteria({ ...rollUpInputs(statement, files), ledger: files['ledger.jsonl'] }).criteria; } catch (error) {
+    if (!(error instanceof PackError)) throw error;
+    throw stop('pack_invalid', { part: 'rollup', criterion: null, check: null, field: 'input', errors: [{ path: '', keyword: 'rollup', message: String(error.message).slice(0, 300) }] });
+  }
+  compareRollUp(statement.predicate.criteria, rolled);
+}
+
 /**
  * Reads and checks a pack file. Throws, first failure wins: pack_unreadable (too large, not UTF-8, not JSON, a statement alone, not
  * canonical), pack_invalid (the pack's schema), pack_digest_mismatch, pack_file_mismatch (a file against its size and sha256),
- * pack_invalid (the statement against the spec's schema and rules), pack_file_mismatch (a file against the statement), pack_ledger_broken.
+ * pack_invalid (the statement against the spec's schema and rules), pack_file_mismatch (a file against the statement), pack_ledger_broken,
+ * pack_invalid (part rollup: the criteria are not the ones the pack's ledger gives).
  * The cheap checks come first, so that a changed byte is found before the statement's rules run. Resolves {pack, statement, digest, files,
  * entries}, `files` by name ({'change.diff', 'ledger.jsonl', 'acceptance.yml'?}).
  */
@@ -153,6 +239,7 @@ export function readPackFile(bytes, { maxBytes = PACK_FILE_MAX_BYTES } = {}) {
   if ((acceptanceSha === null) !== !files['acceptance.yml']) throw fileMismatch('acceptance.yml', 'presence', acceptanceSha !== null, Boolean(files['acceptance.yml']));
   if (acceptanceSha !== null && sha256Hex(files['acceptance.yml']) !== acceptanceSha) throw fileMismatch('acceptance.yml', 'statement', acceptanceSha, sha256Hex(files['acceptance.yml']));
   const entries = bindLedger(ledgerEntries, statement.predicate);
+  checkRollUp(statement, files);
   return { pack: value, statement, digest, files, entries };
 }
 

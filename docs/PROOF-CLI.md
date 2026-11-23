@@ -362,6 +362,17 @@ failure wins (every one is exit 3):
    the hash of its line, its time, the sha256 of its command and arguments, its exit code, timeout, cancel and signal, its duration, the
    sha256, size and cut of each output stream, its trees (`pack_ledger_broken`, `detail.why` `chain`, `summary` or `receipt`, with
    `brokenAt`, `field`, `seq`). The texts of a receipt are not compared: the statement holds them masked and cut.
+8. **The criteria, rolled up again**: the spec's rules hold a statement to the receipts it lists, so a run it leaves out (a failure on
+   the final tree, say) is beyond them. check re-derives the criteria with the spec's own `rollUpCriteria` from what the pack carries:
+   the whole ledger, the final tree (`workspace-tree-after` and `trees.after`) and the acceptance file. The statement's criteria must be
+   exactly those: their ids and order, each one's kind and status, each check's command, expected exit, repeat, result and number of
+   passes, and the reasons other than `checks_modified`, in order; a check's listed receipts must be among the ones the roll-up lists
+   (all of them under the default limits: a pack does not record a lowered `maxReceiptsPerCheck`, under which a statement lists fewer).
+   The first difference is `pack_invalid` with `detail.part` `rollup` and `detail.criterion`, `detail.check`, `detail.field`. Three
+   inputs of the roll-up are in a pack only as facts of the statement itself, and are taken from it: whether the acceptance file was
+   trusted (`acceptance.trusted`), the check-changes report (`checkChanges.reported` and, per criterion, its `check_changes_unknown` and
+   `checks_modified` reasons; findings beyond the 64 listed only as their count) and the owner acceptances (their `owner_accepted`
+   reasons; the tree of one made for another tree is not recorded). An acceptance file that does not read is `field` `acceptance`.
 
 The cheap steps come first, so a changed byte is found before the spec's rules run; the suite changes every byte of a pack, one at a
 time, and each one is refused with exit 3. Then:
@@ -375,9 +386,11 @@ time, and each one is refused with exit 3. Then:
 
 **What check proves, and what it does not.** A pack is not signed (the spec's v0.1). check proves that the pack is whole and holds
 together: nothing in it was changed on its own, its receipts are the records of a ledger whose chain verifies, its statement obeys the
-spec, and its patch and acceptance file are the ones the statement names. It does not prove who made it: a pack made again from start to
-end, every hash and the digest recomputed, verifies (the suite shows one). That needs signing (a later version of the spec), or
-`reproduce`.
+spec, its criteria are the ones the spec's roll-up gives from the ledger the pack carries (step 8: a failure the statement leaves out of
+its receipts is found), and its patch and acceptance file are the ones the statement names. It takes three facts from the statement
+itself (step 8: the trust flag, the check-changes findings, the owner acceptances), since the pack holds them nowhere else. It does not
+prove who made it: a pack made again from start to end, every hash and the digest recomputed, verifies (the suite shows one). That needs
+signing (a later version of the spec), or `reproduce`.
 
 ### `reproduce`
 
@@ -655,7 +668,7 @@ network, as may the setup and the checks `reproduce` runs once the person truste
 | `patch_does_not_reproduce` | 3 | the patch applied to the baseline tree does not give the final tree (`reproduce`: does not apply, or gives another tree than the pack's; `detail.why`) |
 | `store_object_mismatch` | 3 | a blob of the baseline store does not hash to its id |
 | `pack_unreadable` | 3 | the pack file is not canonical JSON of at most 256 MiB, or is a statement alone (`detail.why`) |
-| `pack_invalid` | 3 | the pack, or its statement, fails its schema or the spec's rules (`detail.part`, `detail.errors`) |
+| `pack_invalid` | 3 | the pack, or its statement, fails its schema or the spec's rules, or its criteria are not the roll-up of the ledger it carries (`detail.part`, `detail.errors`) |
 | `pack_digest_mismatch` | 3 | the statement does not have the digest the pack records |
 | `pack_file_mismatch` | 3 | a file of the pack does not have its recorded size and sha256, or is not the one the statement names (`detail.file`, `detail.why`) |
 | `pack_ledger_broken` | 3 | the pack's ledger does not verify, or does not hold the statement's summary and receipts (`detail.why`) |

@@ -181,13 +181,13 @@ const acceptanceOf = (criteria, setup = ['node setup.mjs']) => [
  * A real session of the maker: a repository of `files` and `acceptance`, committed; trusted, snapshot, a copy of the base folder; the
  * `before` checks on the base tree, the agent's `change`, the `after` checks; then pack. Resolves {repo, base, packFile, pack, statement}.
  */
-async function makePack(label, { files = PROJECT, acceptance, before = [], change = FIX, after = [], env = {}, setup = true } = {}) {
+async function makePack(label, { files = PROJECT, acceptance, before = [], change = FIX, after = [], env = {}, setup = true, trust = true } = {}) {
   const repo = real(newRepo(label));
   writeFiles(repo, files);
   if (acceptance !== null) writeFiles(repo, { '.chatmcp/acceptance.yml': acceptance });
   git(repo, ['add', '-A']);
   git(repo, ['commit', '-q', '-m', 'base']);
-  if (acceptance !== null) expectAnswer(await ask(['verify', 'trust', '--sha256', sha256(acceptance)], { cwd: repo }), 0, 'trusted', `${label}: trust`);
+  if (acceptance !== null && trust) expectAnswer(await ask(['verify', 'trust', '--sha256', sha256(acceptance)], { cwd: repo }), 0, 'trusted', `${label}: trust`);
   expectAnswer(await ask(['verify', 'snapshot'], { cwd: repo }), 0, 'snapshot_taken', `${label}: snapshot`);
   const base = folder(`${label}-base`);
   writeFiles(base, files);
@@ -198,7 +198,7 @@ async function makePack(label, { files = PROJECT, acceptance, before = [], chang
   for (const command of after) await ask(['verify', 'run', '--', command], { cwd: repo, env });
   const pack = await ask(['verify', 'pack'], { cwd: repo });
   assert.ok([0, 1].includes(pack.exitCode), `${label}: pack ${pack.code} ${pack.message}`);
-  return { repo, base, packFile: pack.data.packFile, pack, statement: pack.data.statement };
+  return { label, repo, base, packFile: pack.data.packFile, pack, statement: pack.data.statement };
 }
 const isIntegrity = (error) => error instanceof CliStop && CODES[error.code] === 'integrity';
 
@@ -271,6 +271,7 @@ const isIntegrity = (error) => error instanceof CliStop && CODES[error.code] ===
 const GOOD_ACCEPTANCE = acceptanceOf([['unit', 'node test.mjs'], ['known-bug', 'node fails.mjs', 1]]);
 const good = await makePack('good', { acceptance: GOOD_ACCEPTANCE, before: ['node test.mjs'], after: ['node test.mjs', 'node fails.mjs', 'node -e "0"'] });
 let goodBytes;
+let tampered; // an honest pack whose checks were modified and whose other criterion failed (section 3), forged again in section 4
 {
   const { repo, packFile, pack, statement } = good;
   expectAnswer(pack, 0, 'pack_evidenced', 'the pack of the good session');
@@ -336,11 +337,13 @@ let goodBytes;
   assert.notEqual(moved.data.tree.tree, moved.data.subjects.after);
   assert.equal(moved.message, MESSAGES.tree_mismatch.en({ actual: moved.data.tree.tree, expected: moved.data.subjects.after }));
   fs.rmSync(path.join(good.repo, 'src', 'later.mjs'));
+  // a plain folder with the very files of the final tree: raw-v1 gives the same id here, but ids of two algorithms are not comparable
   const plain = folder('plain-tree');
-  writeFiles(plain, PROJECT);
+  writeFiles(plain, { ...PROJECT, ...FIX, '.chatmcp/acceptance.yml': GOOD_ACCEPTANCE });
   const unlike = await ask(['verify', 'check', good.packFile, '--tree', '--workspace', plain]);
   expectAnswer(unlike, 1, 'tree_mismatch', 'check --tree in a plain folder (another tree algorithm)');
   assert.equal(unlike.data.tree.treeAlgorithm, 'raw-v1');
+  assert.equal(unlike.data.tree.tree, unlike.data.subjects.after, 'the same id: only the algorithm tells them apart');
   // a pack whose criteria are not all evidenced verifies, and says so (exit 1)
   const stale = await makePack('stale', { acceptance: acceptanceOf([['unit', 'node test.mjs']]), before: ['node test.mjs'] });
   expectAnswer(stale.pack, 1, 'pack_unverified', 'a pack whose only receipt ran on the base tree');
@@ -348,7 +351,21 @@ let goodBytes;
   expectAnswer(checkedStale, 1, 'pack_not_evidenced', 'check of an intact pack that is not evidenced');
   assert.deepEqual(checkedStale.data.criteria, [{ id: 'unit', status: 'stale' }]);
   assert.equal(checkedStale.message, MESSAGES.pack_not_evidenced.en({ total: 1, notEvidenced: 1 }));
-  ok('check --tree: a workspace that moved on and a plain folder are tree_mismatch (exit 1); an intact pack that is not evidenced is pack_not_evidenced (exit 1)');
+  // honest packs of every other status verify too: check rolls their criteria up again from their ledger and finds the same
+  tampered = await makePack('modified', {
+    acceptance: acceptanceOf([['unit', 'node test.mjs'], ['bug', 'node fails.mjs']]), change: { ...FIX, 'test.mjs': `${PROJECT['test.mjs']}// the agent was here\n` },
+    after: ['node test.mjs', 'node fails.mjs'],
+  });
+  const untrusted = await makePack('untrusted', { acceptance: acceptanceOf([['unit', 'node test.mjs'], ['manual-free', 'node -e "0"']], ['node setup.mjs', 'node -e "1"']), after: ['node test.mjs'], trust: false });
+  const statuses = [];
+  for (const made of [tampered, untrusted]) {
+    const answer = await ask(['verify', 'check', made.packFile]);
+    expectAnswer(answer, 1, 'pack_not_evidenced', `check of the honest ${made.label} pack`);
+    assert.deepEqual(answer.data.criteria, made.statement.predicate.criteria.map(({ id, status }) => ({ id, status })));
+    statuses.push(...answer.data.criteria.map((criterion) => criterion.status));
+  }
+  assert.deepEqual(statuses, ['checks_modified', 'failed', 'unverified', 'unverified'], 'checks modified, a failed check, an untrusted file');
+  ok('check --tree: a workspace that moved on and a plain folder are tree_mismatch (exit 1); intact packs that are not evidenced (stale, checks modified, failed, untrusted) are pack_not_evidenced (exit 1)');
 }
 function write1(root, relative, content) { writeFiles(root, { [relative]: content }); }
 
@@ -357,7 +374,7 @@ function write1(root, relative, content) { writeFiles(root, { [relative]: conten
  * `command` again, on the same final tree, with exit 1. The statement's ledger summary is updated to the new chain; its criteria and
  * receipts are left as they were, and the pack is encoded again with its digest. Every hash in it holds; only the roll-up does not.
  */
-async function failureAppended(bytes, command) {
+async function failureAppended(bytes, command, exit = 1) {
   const { statement, files } = readPackFile(bytes);
   const scratchLedger = path.join(folder('forged-ledger'), 'ledger.jsonl');
   fs.writeFileSync(scratchLedger, files['ledger.jsonl']);
@@ -365,7 +382,7 @@ async function failureAppended(bytes, command) {
   const passing = entries.findLast((entry) => entry.type === 'check' && entry.record.command === command && entry.record.exit === 0);
   assert.ok(passing, `a passing run of ${command} to copy`);
   const ledger = new ProofLedger({ file: scratchLedger, now: () => new Date() });
-  await ledger.append('check', { ...passing.record, exit: 1 });
+  await ledger.append('check', { ...passing.record, exit });
   const ledgerBytes = fs.readFileSync(scratchLedger);
   const report = verifyChain(ledgerBytes);
   assert.ok(report.ok, 'the forged ledger verifies');
@@ -375,6 +392,14 @@ async function failureAppended(bytes, command) {
   });
   assert.deepEqual(validateStatement(forged), { valid: true, errors: [] }, 'the forged statement passes the spec\'s rules: they see only the listed receipts');
   return encodePackFile({ statement: forged, diff: files['change.diff'], ledger: ledgerBytes, acceptance: files['acceptance.yml'] ?? null });
+}
+
+/** A pack whose statement `edit` changed, encoded again (its digest recomputed); `acceptance` replaces the acceptance file. */
+function reencoded(bytes, edit, { acceptance } = {}) {
+  const { statement, files } = readPackFile(bytes);
+  const forged = structuredClone(statement);
+  edit(forged);
+  return encodePackFile({ statement: forged, diff: files['change.diff'], ledger: files['ledger.jsonl'], acceptance: acceptance ?? files['acceptance.yml'] ?? null });
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 4. tampering
@@ -486,11 +511,33 @@ async function failureAppended(bytes, command) {
     assert.match(error.detail.errors[0].message, /failed/, `${label}: the roll-up says failed`);
     assert.ok(readPackFile(bytes).statement, `${label} itself still verifies`);
   }
+  // each part of the comparison on its own: a statement that differs from its roll-up only there
+  const twoAcceptance = 'version: 1\ncriteria:\n  - id: two\n    text: two checks\n    checks:\n      - run: node fails.mjs\n      - run: node test.mjs\n';
+  const two = fs.readFileSync((await makePack('two-checks', { acceptance: twoAcceptance, after: ['node fails.mjs', 'node test.mjs'] })).packFile);
+  const eleven = await makePack('eleven', { acceptance: acceptanceOf([['unit', 'node test.mjs']]), after: Array.from({ length: 11 }, () => 'node test.mjs') });
+  const unitOf = (statement) => statement.predicate.criteria[0].checks[0];
+  assert.deepEqual([unitOf(eleven.statement).passes, unitOf(eleven.statement).receipts.length], [11, 10], 'eleven passes, the latest ten listed');
+  const oldest = eleven.statement.predicate.receipts.find((receipt) => receipt.command === 'node test.mjs' && receipt.exit === 0).seq;
+  const tamperedBytes = fs.readFileSync(tampered.packFile);
+  const parts = [
+    ['a check failed on the final tree, in a criterion that failed already', await failureAppended(two, 'node test.mjs'), 'two', 1, 'result'],
+    ['one more pass on the final tree', await failureAppended(goodBytes, 'node test.mjs', 0), 'unit', 0, 'passes'],
+    ['an older pass listed instead of a newer one', reencoded(fs.readFileSync(eleven.packFile), (copy) => { unitOf(copy).receipts = [oldest, ...unitOf(copy).receipts.slice(1)]; }), 'unit', 0, 'receipts'],
+    ['a reason the roll-up does not give', reencoded(tamperedBytes, (copy) => { copy.predicate.criteria[1].reasons.push({ code: 'acceptance_untrusted', check: null, detail: null }); }), 'bug', null, 'reasons'],
+    ['a criterion renamed', reencoded(goodBytes, (copy) => { copy.predicate.criteria[0].id = 'unit-renamed'; }), null, null, 'criteria'],
+    ['a check left out', reencoded(two, (copy) => { copy.predicate.criteria[0].checks.pop(); }), 'two', null, 'checks'],
+    ['an acceptance file that does not read', reencoded(goodBytes, (copy) => { copy.predicate.acceptance.baselineSha256 = sha256('version: 2\n'); }, { acceptance: Buffer.from('version: 2\n') }), null, null, 'acceptance'],
+  ];
+  for (const [label, forgedPack, criterion, check, field] of parts) {
+    const error = refusal(forgedPack);
+    assert.deepEqual([error?.code, error?.detail?.part, error?.detail?.criterion, error?.detail?.check, error?.detail?.field], ['pack_invalid', 'rollup', criterion, check, field],
+      `${label}: ${error?.code} ${JSON.stringify(error?.detail)}`);
+  }
   const consistent = remade((copy) => { copy.statement.predicate.agent.name = 'someone else'; });
   assert.equal(readPackFile(consistent).statement.predicate.agent.name, 'someone else', 'a pack re-made consistently verifies: a pack is not signed');
   // encodePackFile refuses a pack over its limit
   assert.throws(() => encodePackFile({ statement: parsed.statement, diff: Buffer.alloc(64), ledger: Buffer.alloc(64), acceptance: null, maxBytes: 1000 }), (error) => error.code === 'pack_too_large');
-  ok(`${forged.length} packs re-made with their digest recomputed are refused by the ledger, the files or the spec's rules; a consistent one verifies (unsigned, as documented)`);
+  ok(`${forged.length} packs re-made with their digest recomputed are refused by the ledger, the files or the spec's rules; a ledger with a failure the statement hides (audit F1) and ${parts.length} statements that differ from the roll-up of their own ledger in one part each are refused (pack_invalid, rollup); a consistent one verifies (unsigned, as documented)`);
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 5. trust --pack
