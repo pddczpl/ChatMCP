@@ -417,7 +417,10 @@ try {
     const folder = baselineFolder(path.join(kept.hubDirectory, 'proof', 'gate'), kept.workspace);
     const other = '20261123T000000000Z-11111111';
     for (const id of [kept.task.proofBaseline.id, other]) { await fs.mkdir(path.join(folder, `${id}.git`), { recursive: true }); await fs.writeFile(path.join(folder, `${id}.json`), '{}'); }
-    await kept.gate.forget({ workspace: { path: kept.workspace }, proofBaseline: { ...kept.task.proofBaseline, id: '../..' } });
+    const victim = path.join(folder, '..', 'victim.json');
+    await fs.writeFile(victim, '{}');
+    await kept.gate.forget({ workspace: { path: kept.workspace }, proofBaseline: { ...kept.task.proofBaseline, id: '../victim' } });
+    await fs.access(victim); // (an id that is a path removes nothing: it would throw here)
     await kept.gate.forget({ workspace: { path: kept.workspace }, proofBaseline: null });
     await kept.gate.forget({ proofBaseline: kept.task.proofBaseline });
     assert.equal((await fs.readdir(folder)).length, 4, 'a record that is not one removes nothing');

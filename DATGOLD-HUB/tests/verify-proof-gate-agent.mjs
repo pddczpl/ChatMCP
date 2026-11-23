@@ -170,6 +170,7 @@ try {
     const late = await run(manager, dir, [answer('Done.')]);
     await fs.rm(hooksFile(manager));
     equal([late.view.proofGate.status, late.view.completionOutcome.gate, late.view.completionOutcome.requirements, late.view.verificationOutcome.ready], ['stale', 'stale', 'unverified', false], 'the pass was on another tree than the one the run ended on');
+    check(late.view.verificationOutcome.missing.includes('The files changed after the owner\'s trusted acceptance checks passed'), 'what is missing says so');
     check(/\[Done-gate notice\] The files changed after the owner's trusted acceptance checks passed/.test(late.view.finalText));
     equal(late.view.runs.at(-1).finalText, late.view.finalText, 'the run keeps the answer as it reads');
   });
