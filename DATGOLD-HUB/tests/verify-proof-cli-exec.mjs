@@ -296,8 +296,9 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   assert.deepEqual([slow.marker, slow.markerTimedOut], [null, true], 'a pattern stopped at its time limit is no claim');
   assert.ok(performance.now() - started < 5000, 'and it is stopped within its limit');
 
-  // the corpus reads the claim with the same function (corpus/tools/marker.mjs is a bridge), when the corpus is there
-  const corpusMarker = path.join(REPO, 'corpus', 'tools', 'marker.mjs');
+  // the corpus reads the claim with the same function (corpus/tools/marker.mjs is a bridge), when the corpus stands beside this Hub (a
+  // mutation copy has none: there the bridge would load the repository's own lib/proof/marker.mjs, another module)
+  const corpusMarker = path.join(HUB, '..', 'corpus', 'tools', 'marker.mjs');
   if (fs.existsSync(corpusMarker)) {
     const bridged = await import(pathToFileURL(corpusMarker).href);
     assert.equal(bridged.parseFinalMarker, parseFinalMarker, 'corpus/tools/marker.mjs passes on the Hub\'s parseFinalMarker');
