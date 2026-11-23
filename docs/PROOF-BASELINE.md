@@ -20,6 +20,8 @@ const base = await snapshotBaseline({ hubDir, root });        // under the works
 const diff = await diffBaseline({ hubDir, root, id: base.id, expectSha256: base.sha256 });
 // diff.patch = { status: 'ok', reason: null, sha256, bytes, reproduces: true, git } | { status: 'unavailable', reason }
 // diff.patchBytes = the patch (a Buffer) | null
+// diff.final = the final snapshot: { treeAlgorithm, objectFormat, tree, rawTree, engineReason, ignoreRules, files, bytes, excluded, limitations, takenAt, durationMs }
+//              (excluded and limitations since pod-24: the pack's `after` tree needs them)
 await loadBaseline({ hubDir, root, id, expectSha256 });       // { record, sha256, verifiedAgainst: 'anchor' | 'self', file, entries }
 await listBaselines({ hubDir, root });                         // [{ id, createdAt, file, store }], oldest first
 await pruneBaselines({ hubDir, root });                        // { removed, kept }

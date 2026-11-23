@@ -7,6 +7,8 @@
 * text=auto
 *.cmd  eol=crlf
 *.ps1  eol=crlf
+# The command line of the Hub starts with a shebang: a CR after it would name the program "node\r" on Linux and macOS.
+DATGOLD-HUB/bin/* eol=lf
 # The license text is distributed byte for byte (it is compared with the canonical Apache-2.0 text).
 LICENSE eol=lf
 NOTICE  eol=lf
