@@ -811,8 +811,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "  tree: new Set([['tree', 'tree'], ['tree', 'rawTree']].map((at) => JSON.stringify(at))),",
-     "new": "  tree: new Set(),"
+     "old": "  tree: kept([['event'], ['category'], ...ids('tree')]),",
+     "new": "  tree: kept([['event'], ['category']]),"
     }
    ]
   },
@@ -822,8 +822,8 @@
    "patches": [
     {
      "file": "lib/proof/ledger.mjs",
-     "old": "  call: new Set([['treeBefore', 'tree'], ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at))),",
-     "new": "  call: new Set(),"
+     "old": "  call: kept([['category'], ['outcome'], ...ids('treeBefore', 'treeAfter')]),",
+     "new": "  call: kept([['category'], ['outcome']]),"
     }
    ]
   },
@@ -1000,6 +1000,39 @@
      "file": "lib/proof/ledger.mjs",
      "old": "  if (!sameFields(record, TREE_RECORD_FIELDS)) return `a tree record has exactly the fields ${TREE_RECORD_FIELDS.join(', ')}`;",
      "new": ""
+    }
+   ]
+  },
+  {
+   "name": "PL-tree-words-masked",
+   "what": "a registered secret that is part of the event or the category of a tree record is masked there",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  tree: kept([['event'], ['category'], ...ids('tree')]),",
+     "new": "  tree: kept([...ids('tree')]),"
+    }
+   ]
+  },
+  {
+   "name": "PL-call-words-masked",
+   "what": "a registered secret that is part of the category or the outcome of a call record is masked there",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "  call: kept([['category'], ['outcome'], ...ids('treeBefore', 'treeAfter')]),",
+     "new": "  call: kept([...ids('treeBefore', 'treeAfter')]),"
+    }
+   ]
+  },
+  {
+   "name": "PL-raw-ids-masked",
+   "what": "a registered secret inside a raw tree id of a tree or call record is masked",
+   "patches": [
+    {
+     "file": "lib/proof/ledger.mjs",
+     "old": "const ids = (...names) => names.flatMap((name) => [[name, 'tree'], [name, 'rawTree']]);",
+     "new": "const ids = (...names) => names.flatMap((name) => [[name, 'tree']]);"
     }
    ]
   }

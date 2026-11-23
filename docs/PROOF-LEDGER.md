@@ -60,8 +60,8 @@ Which fields are masked:
 | Record | Masked | Written as they are |
 |---|---|---|
 | `check` | `command`, `cwd`, `shell`, `stdout.preview`, `stderr.preview`, the `toolchain` versions, and every string of `treeBefore` and `treeAfter` but the two ids (`status`, `treeAlgorithm`, `objectFormat`, `engineReason`, `limitations`, `takenAt`, `unbounded`) | the digests `commandSha256`, `argsSha256`, `stdout.sha256`, `stderr.sha256`, and the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
-| `tree` | `event`, `callId`, `tool`, `category`, and every string of `tree` but its two ids | the Git object ids `tree.tree`, `tree.rawTree` |
-| `call` | `callId`, `tool`, `category`, `outcome`, and every string of `treeBefore` and `treeAfter` but the two ids | the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
+| `tree` | `callId`, `tool`, and every string of `tree` but its two ids | the words `event` and `category`, the Git object ids `tree.tree`, `tree.rawTree` |
+| `call` | `callId`, `tool`, and every string of `treeBefore` and `treeAfter` but the two ids | the words `category` and `outcome`, the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
 | the five other types | every string, at any depth | nothing |
 
 The digests and ids are hex that the Hub computed, not text. A registered secret may be as short as 4 characters, and a short one
@@ -69,7 +69,10 @@ occurs inside a random digest by chance (a 4-digit one in about one sha256 of a 
 64 hex digits, the receipt would fail its own schema and the append would throw, losing the receipt of a command that already ran.
 A digest also leaks nothing of the text it was made of. The schema holds each of them to hex (64 digits; a tree id 40 or 64 digits, or
 null), so no text passes through them unmasked. The tree ids of `tree` and `call` records are kept by the same rule (a registered secret
-cut out of a real tree id leaves it whole there, `tests/verify-proof-ledger.mjs` section 6). The other types have no schema here, so a
+cut out of a real tree id leaves it whole there, `tests/verify-proof-ledger.mjs` section 6), and so are the words the Hub picks from fixed
+lists (`event`, `category`, `outcome`): a short secret that is part of a word (`start` in `call_start`) would otherwise leave a record its
+schema refuses, and the schema holds each of them to a word. The open types are masked whole, words included: an `uncertain` reason that
+holds a registered secret is written masked. The other types have no schema here, so a
 digest in one of them is masked like any string; a pod that needs one kept gives its type a schema first.
 
 Masking can make a field longer (`[REDACTED]` in place of a 4-character secret). When the ledger masks a secret the receipt's builder

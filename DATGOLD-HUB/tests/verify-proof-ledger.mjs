@@ -584,14 +584,24 @@ try {
       ['a call id of 300 characters', { ...callRecord, callId: 'x'.repeat(300) }],
       ['a negative scan time', { ...callRecord, scanMs: -5 }],
     ]) assert.notEqual(validateRecord('call', bad), null, `call: ${label}`);
-    // The ids are kept whole when a registered secret occurs in them; every other string is masked.
-    const secrets = [tree.tree.tree.slice(4, 9), callRecord.treeAfter.tree.slice(20, 25), 'write_file'];
+    // The ids and the words the Hub picks from fixed lists are kept whole when a registered secret occurs in them; every other string is masked.
+    const withRaw = { ...tree, tree: { ...tree.tree, rawTree: id('raw of the start') } };
+    const threw = { ...callRecord, outcome: 'threw', treeBefore: { ...callRecord.treeBefore, rawTree: id('raw before') }, treeAfter: { ...callRecord.treeAfter, rawTree: id('raw after') } };
+    const secrets = [tree.tree.tree.slice(4, 9), callRecord.treeAfter.tree.slice(20, 25), withRaw.tree.rawTree.slice(10, 15), threw.treeBefore.rawTree.slice(30, 35),
+      threw.treeAfter.rawTree.slice(2, 7), 'write_file', 'space', 'start', 'threw'];
     const ledger = ProofLedger.forTask(hub, 'task_pod17', { secrets: () => secrets });
     await ledger.append('tree', tree);
     await ledger.append('call', callRecord);
+    await ledger.append('tree', withRaw);
+    await ledger.append('call', threw);
     const written = entriesOf(await fs.readFile(ledgerPath(hub, 'task_pod17')));
+    assert.equal(written.length, 4, 'every record was accepted');
     assert.equal(written[0].record.tree.tree, tree.tree.tree, 'the tree id of a tree record is whole');
     assert.deepEqual([written[1].record.treeBefore.tree, written[1].record.treeAfter.tree], [callRecord.treeBefore.tree, callRecord.treeAfter.tree], 'both ids of a call record are whole');
+    assert.equal(written[2].record.tree.rawTree, withRaw.tree.rawTree, 'the raw tree id of a tree record is whole');
+    assert.deepEqual([written[3].record.treeBefore.rawTree, written[3].record.treeAfter.rawTree], [threw.treeBefore.rawTree, threw.treeAfter.rawTree], 'both raw tree ids of a call record are whole');
+    assert.deepEqual([written[0].record.event, written[0].record.category, written[1].record.category, written[3].record.outcome], ['call_start', 'workspace_edit', 'workspace_edit', 'threw'],
+      'the event, the category and the outcome are whole although a registered secret is part of them');
     assert.equal(written[0].record.tool, 'local.[REDACTED]', 'the tool name is masked');
     assert.equal(written[1].record.tool, 'local.[REDACTED]');
     const strict = ProofLedger.forTask(hub, 'task_pod17_strict');

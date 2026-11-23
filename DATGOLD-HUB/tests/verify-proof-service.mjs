@@ -192,6 +192,8 @@ try {
     assert.deepEqual(typesOf(resumed).slice(8), ['tree:run_start', 'tree:task_end', 'task_end']);
     assert.equal(resumed.filter((entry) => entry.type === 'task_start').length, 1, 'one task_start per ledger');
     assert.deepEqual([resumed[8].record.run, resumed.at(-1).record.run, resumed.at(-1).record.status, resumed.at(-1).record.errorCode], [2, 2, 'failed', 'task_failed']);
+    assert.equal(resumed[8].record.tree.full, true, 'the snapshot of a resumed run\'s start is a full one too (the snapshotter has a cache by then)');
+    assert.match(resumed[8].record.tree.rawTree, /^[0-9a-f]{40}$/);
     assert.equal(verifyChain(await fs.readFile(ledgerPath(hubDir, taskId))).records, 11);
     ok('one task: task_start, the full task-start tree, a call_start tree and a call record (treeBefore, treeAfter, changed) per scanned call, the full final tree and task_end; reads and other tasks unrecorded; a later run continues the same chain without a second task_start');
   }

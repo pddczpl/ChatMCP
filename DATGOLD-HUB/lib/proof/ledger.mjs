@@ -100,11 +100,14 @@ function cutChars(text, maxChars) {
 // nothing. They are written as they are; the schema holds each of them to hex, so no text passes through them unmasked.
 const CHECK_DIGESTS = new Set([['commandSha256'], ['argsSha256'], ['stdout', 'sha256'], ['stderr', 'sha256'], ['treeBefore', 'tree'],
   ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at)));
-// The tree ids of the proof service's records, for the same reason; their schemas hold each of them to hex.
+// The proof service's records keep their tree ids for the same reason (their schemas hold each of them to hex), and the words the Hub picks
+// from fixed lists (event, category, outcome): masked, a short secret that is part of a word would leave a record its schema refuses.
+const ids = (...names) => names.flatMap((name) => [[name, 'tree'], [name, 'rawTree']]);
+const kept = (paths) => new Set(paths.map((at) => JSON.stringify(at)));
 const KEPT_WHOLE = Object.freeze({
   check: CHECK_DIGESTS,
-  tree: new Set([['tree', 'tree'], ['tree', 'rawTree']].map((at) => JSON.stringify(at))),
-  call: new Set([['treeBefore', 'tree'], ['treeBefore', 'rawTree'], ['treeAfter', 'tree'], ['treeAfter', 'rawTree']].map((at) => JSON.stringify(at))),
+  tree: kept([['event'], ['category'], ...ids('tree')]),
+  call: kept([['category'], ['outcome'], ...ids('treeBefore', 'treeAfter')]),
 });
 
 /** Every string of `value` masked, but for the strings at the paths `keep` names (JSON of the list of keys; nothing inside an array). */
