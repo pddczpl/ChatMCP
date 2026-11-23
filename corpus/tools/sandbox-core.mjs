@@ -306,6 +306,28 @@ export async function applyToCheckout({ base, context, layout, dest, patch }) {
   return result.code === 0 ? { ok: true, error: null } : { ok: false, error: firstLine(result.stderr) || `git apply exited ${result.code}` };
 }
 
+const CHANGE = Object.freeze({ A: 'added', D: 'deleted', M: 'modified', T: 'modified' });
+const checkoutRepo = (dest, base) => ({ gitDir: path.join(dest, '.git'), workTree: dest, indexFile: path.join(dest, '.git', 'index'), objectFormat: base.objectFormat });
+
+/** What the index of the checkout in `dest` changed against commit `from`: [{path, change: added | modified | deleted}], in code-unit order. */
+export async function checkoutChanges({ base, context, layout, dest, from }) {
+  const result = await git(context, layout, ['diff', '--cached', '--no-renames', '--name-status', '-z', from], checkoutRepo(dest, base));
+  const fields = result.stdout.toString('utf8').split('\0');
+  const changes = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) changes.push({ path: fields[index + 1], change: CHANGE[fields[index][0]] ?? 'modified' });
+  return changes.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/** Puts `changes` of the checkout back to commit `from`, index and files: an added path is removed, a modified or deleted one restored. */
+export async function restoreToBase({ base, context, layout, dest, from, changes }) {
+  const repo = checkoutRepo(dest, base);
+  const pathspecs = (list) => list.map((change) => `:(literal)${change.path}`).join('\0');
+  const added = changes.filter((change) => change.change === 'added');
+  const others = changes.filter((change) => change.change !== 'added');
+  if (added.length) await git(context, layout, ['rm', '--quiet', '--force', '--pathspec-from-file=-', '--pathspec-file-nul'], { ...repo, input: pathspecs(added) });
+  if (others.length) await git(context, layout, ['checkout', from, '--pathspec-from-file=-', '--pathspec-file-nul'], { ...repo, input: pathspecs(others) });
+}
+
 // ---- the profile -------------------------------------------------------------------------------------------------------------------
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;

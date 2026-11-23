@@ -179,8 +179,8 @@ happened; a thrown `SandboxError` carries the same `cleanup`. If the tools thems
 
 ## Scoring
 
-`scoreCheckout({task, gitSource, root, patch, hiddenArchive, runs, setup, extraEnv, env, signal})` never reads the run's folder (it is gone)
-or anything the agent wrote outside its diff:
+`scoreCheckout({task, gitSource, root, patch, hiddenArchive, runs, setup, extraEnv, env, signal})` never reads the run's folder (it is gone),
+anything the agent wrote outside its diff, or the part of its diff outside the task's `allowed_paths`:
 
 1. The hidden test archive is read from `hiddenArchive` (a private folder, never the corpus) and must have the sha256 the task registered
    (`hidden_archive_missing`, `hidden_archive_mismatch`); it is read by the strict reader (`hidden_archive_invalid`).
@@ -190,12 +190,23 @@ or anything the agent wrote outside its diff:
    apply to the base tree, so this outcome means the diff was changed after the run, made on another base, or is not a diff at all (`git
    apply` also refuses a path into `.git` and a path through a link). The scoring (pod-38) reports it as a scoring error, apart from the
    agent's failures, and never as a pass.
-4. **The clean install**: the task's setup commands in the fresh checkout, with the setup environment (no credential). A failing command is
+4. **Only the part of the diff inside `allowed_paths` is scored.** Every path the diff added, modified or deleted that no entry of the
+   task's `allowed_paths` matches is put back to the base (an added file removed, a modified or deleted one restored, index and file)
+   before anything runs, and listed in `outOfScope` as `{path, change: added | modified | deleted}` in code-unit order, for the
+   `out_of_scope` metric of pod-38. The entries are matched as the Hub matches `protected` globs (`globMatches` of
+   `DATGOLD-HUB/lib/glob-match.mjs` in path mode: `src/**` is everything under `src/`, a plain `src` is that one path). Without this, a
+   diff could change the harness that judges it: the setup script, a package script a check runs (`npm test`), a public test, a
+   `conftest.py`, a Makefile; the clean install could then write an ignored file, which reopens the hole the clean room closes. A diff
+   whose every change is out of scope scores like the null diff. `patchSha256` stays the hash of the whole diff as given. **A task that
+   lists a package manifest, a lockfile, a build file or a test folder in `allowed_paths` accepts that setup and the checks run the
+   agent's version of it**; the task's author decides that per task.
+5. **The clean install**: the task's setup commands in the fresh checkout, with the setup environment (no credential). A failing command is
    the outcome `setup_failed`, `hidden_pass` false; the agent's diff may have broken the lockfile.
-5. **The hidden tests are copied in**, file by file, at their archive paths. Whatever the diff put at one of those paths, or where one
+6. **The hidden tests are copied in**, file by file, at their archive paths. Whatever the diff put at one of those paths, or where one
    needs a folder (a file, a link), is removed first and listed in `overwritten`: the hidden tests always win, and nothing is written
-   through a link.
-6. **The checks**: every check of the task's acceptance file, read from the corpus copy loaded by `loadTask` (never from the checkout),
+   through a link. (Outside `allowed_paths` such a file was already put back in step 4; this step matters for a task whose
+   `allowed_paths` cover the tests.)
+7. **The checks**: every check of the task's acceptance file, read from the corpus copy loaded by `loadTask` (never from the checkout),
    with its `cwd`, `timeout`, `expect.exit` and `repeat`, `runs` times (default: the protocol's `hidden_test_runs`, 3), in the same
    checkout. The hidden archive must put its tests where those commands find them (`node --test` finds `test/hidden/*.test.mjs`); a task
    without a runnable check is refused (`no_checks`).
@@ -203,7 +214,7 @@ or anything the agent wrote outside its diff:
 The outcome: `pass` when every run passes (then `hidden_pass` is true), `fail` when none does, `flaky` when some do (not a pass; the
 protocol reports it as flaky), `patch_does_not_apply`, `setup_failed`. The score: `{format: "datgold.corpus-score/1", taskId, baseTree,
 baseCommit, patchSha256, patchBytes, hiddenSha256, outcome, hiddenPass, passes, requiredRuns, runs: [{run, pass, checks: [...]}],
-setup, applyError, overwritten, cleanup}`.
+setup, applyError, outOfScope, overwritten, cleanup}`.
 
 **Offline.** The tools never fetch. A real task's setup (`npm ci`, `pip install -r`) needs its packages: the plan's answer to network
 and drift is pinned caches, passed through `extraEnv` (`npm_config_cache` with `npm ci --offline`, a wheel folder with `pip install
@@ -262,7 +273,9 @@ is `score-checkout.mjs --patch <task dir>/oracle.patch`, the null agent's is an 
 `DATGOLD-HUB/tests/verify-corpus-sandbox.mjs` (run by `tests/run-all.mjs` and CI on Windows and Linux) builds a fixture task in a temporary
 folder (a Git source and a tarball twin, a hidden archive, a lockfile "install") and runs scripted agents, no model: the null agent fails
 and the oracle passes 3 of 3 through the whole checkout path; an agent that solves the task in a Git-ignored path passes the public tests
-in its own tree and still scores like the null agent; a diff that writes a hidden test's path is overwritten; a real profile full of fake
+in its own tree and still scores like the null agent; a diff that changes the setup script, a public test, package.json or the
+lockfile outside `allowed_paths` has those changes put back and listed (a diff with nothing else scores like the null agent); a diff
+that writes a hidden test's path is overwritten; a real profile full of fake
 credentials (files and variables) reaches neither the agent nor setup; the wall limit, a cancel and a child left behind after the agent
 exits are killed; every refusal leaves the root empty; diffs that do not apply; the path budget with a 152-character path; the tar
 reader's refusals; the command lines; this page. `DATGOLD-HUB/tests/mutation/corpus-sandbox.json` breaks the tools one change at a time

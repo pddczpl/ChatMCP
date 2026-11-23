@@ -15,13 +15,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { globMatches } from './acceptance-parser.mjs';
 import { windowsProcessTree } from './hub-process.mjs';
 import { CorpusError, loadTask } from './load.mjs';
 import { PROTOCOL } from './protocol.mjs';
 import { checkCommands, checkRoot } from './run-sandbox.mjs';
 import {
-  SandboxError, applyToCheckout, buildBase, checkPathBudget, checkVariables, checkoutBase, defaultMaxPath, defaultSandboxRoot, inspectBase,
-  makeProfile, makeRunFolder, openGit, profileEnvironment, reapTrees, removeRunFolder, runCommand, runSetup, sha256,
+  SandboxError, applyToCheckout, buildBase, checkPathBudget, checkVariables, checkoutBase, checkoutChanges, defaultMaxPath, defaultSandboxRoot,
+  inspectBase, makeProfile, makeRunFolder, openGit, profileEnvironment, reapTrees, removeRunFolder, restoreToBase, runCommand, runSetup, sha256,
 } from './sandbox-core.mjs';
 import { TarError, readTar } from './tar.mjs';
 
@@ -31,6 +32,11 @@ export const OUTCOMES = Object.freeze(['pass', 'fail', 'flaky', 'patch_does_not_
 /** The checks of the task's acceptance file, in order: [{criterionId, index, run, cwd, timeout, expect: {exit}, repeat}]. */
 export function scoringChecks(task) {
   return task.acceptance.criteria.flatMap((criterion) => (criterion.checks ?? []).map((check, index) => ({ criterionId: criterion.id, index, ...check })));
+}
+
+/** True when a path of the repository matches one of the task's allowed_paths, by the rule `protected` globs are matched with (path mode). */
+export function inAllowedPaths(task, file) {
+  return task.task.allowed_paths.some((glob) => globMatches(glob, file, { path: true }));
 }
 
 /** Writes the hidden files into `dest`; whatever stands at one of their paths (or where one needs a folder) is removed first. */
@@ -109,13 +115,18 @@ export async function scoreCheckout(options = {}) {
     await checkoutBase({ base, built, context, layout, dest: layout.work });
     result = {
       format: SCORE_FORMAT, taskId: task.id, baseTree: built.tree, baseCommit: built.commit, patchSha256: sha256(patch), patchBytes: patch.length,
-      hiddenSha256, outcome: null, hiddenPass: false, passes: 0, requiredRuns: runs, runs: [], setup: [], applyError: null, overwritten: [],
+      hiddenSha256, outcome: null, hiddenPass: false, passes: 0, requiredRuns: runs, runs: [], setup: [], applyError: null, outOfScope: [], overwritten: [],
     };
     const applied = await applyToCheckout({ base, context, layout, dest: layout.work, patch });
     if (!applied.ok) {
       result.outcome = 'patch_does_not_apply';
       result.applyError = applied.error;
     } else {
+      // Only the part of the diff inside allowed_paths is scored: the setup script, the package scripts, the public tests and every other
+      // file outside it go back to the base before anything runs, so that the diff cannot change the harness that judges it.
+      const changes = await checkoutChanges({ base, context, layout, dest: layout.work, from: built.commit });
+      result.outOfScope = changes.filter((change) => !inAllowedPaths(task, change.path));
+      if (result.outOfScope.length) await restoreToBase({ base, context, layout, dest: layout.work, from: built.commit, changes: result.outOfScope });
       await makeProfile(layout);
       const environment = profileEnvironment({ layout, env, extraEnv }).setup;
       result.setup = await runSetup({ commands: setupCommands, dir: layout.work, env: environment, layout, timeoutSeconds: setupTimeoutSeconds, signal, roots });

@@ -476,10 +476,17 @@ try {
     ok('an agent that solves the task in a Git-ignored path passes the public tests in its own tree, but its diff is empty and its score is the null agent\'s');
 
     // ==== the hidden tests always win =====================================================================================================
-    const preEmpt = await score(PRE_EMPT);
+    // A task that lets the agent write its tests: the diff's file reaches the checkout, and the hidden test still replaces it.
+    const TESTS_ALLOWED = { ...TASK, task: { ...TASK.task, allowed_paths: ['src/**', 'test/**'] } };
+    const preEmpt = await score(PRE_EMPT, { task: TESTS_ALLOWED });
     assert.equal(preEmpt.outcome, 'fail', 'the agent\'s own file at the hidden test\'s path was replaced');
     assert.deepEqual(preEmpt.overwritten, [HIDDEN_PATH]);
-    const blocked = await score(BLOCK_FOLDER);
+    assert.deepEqual(preEmpt.outOfScope, []);
+    const preEmptOut = await score(PRE_EMPT);
+    assert.equal(preEmptOut.outcome, 'fail');
+    assert.deepEqual(preEmptOut.outOfScope, [{ path: HIDDEN_PATH, change: 'added' }], 'outside allowed_paths the file is put back (removed) before the hidden tests come');
+    assert.deepEqual(preEmptOut.overwritten, []);
+    const blocked = await score(BLOCK_FOLDER, { task: TESTS_ALLOWED });
     assert.equal(blocked.outcome, 'fail');
     assert.deepEqual(blocked.overwritten, ['test/hidden'], 'the file where the hidden tests need a folder was removed');
     nothingLeft('after the pre-empting patch');

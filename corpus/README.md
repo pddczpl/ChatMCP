@@ -205,9 +205,9 @@ tools use a few synthetic bytes written to a temporary folder; no real archive e
 - A tag is only evidence once it is published; a local tag can be deleted and made again with a later time. Its time comes from the
   machine's clock.
 - Hidden archives are verified by hash at freeze time; keeping them private until publication is up to the owner.
-- The loader checks the text of `allowed_paths`; whether an agent's changes stay inside them is the scoring's job (pod-38). Whether the
-  oracle patch passes and the null agent fails is checked by `tools/score-checkout.mjs` (pod-36, [SANDBOX.md](SANDBOX.md)), not by the
-  loader.
+- The loader checks the text of `allowed_paths`. `tools/score-checkout.mjs` (pod-36, [SANDBOX.md](SANDBOX.md)) scores only the part of
+  an agent's diff inside them, puts the rest back to the base and lists it (`outOfScope`), and checks that the oracle patch passes and the
+  null agent fails; reporting `out_of_scope` per run is the scoring's job (pod-38).
 - Agent versions are what the config file says; freeze does not run the vendor CLIs to check them.
 
 ## Relation to PoD-24
@@ -222,12 +222,13 @@ The plan puts this corpus in a separate public repository (Apache-2.0). **Creati
 the owner's decision, still pending.** Until then the tooling lives here, ready to be split:
 
 - The code it takes from DatGold comes through two bridge files and nowhere else: `tools/acceptance-parser.mjs` (the acceptance reader,
-  from `DATGOLD-HUB/lib/proof/acceptance.mjs` and `DATGOLD-HUB/lib/proof/yaml-subset.mjs`) and `tools/hub-process.mjs` (pod-36: `killTree`,
+  from `DATGOLD-HUB/lib/proof/acceptance.mjs` and `DATGOLD-HUB/lib/proof/yaml-subset.mjs`, and `globMatches` from `DATGOLD-HUB/lib/glob-match.mjs`,
+  which matches `allowed_paths` as the Hub matches `protected`) and `tools/hub-process.mjs` (pod-36: `killTree`,
   `scrubEnv`, `BoundedCapture` and `ShellRunner` from `DATGOLD-HUB/lib/shell-runner.mjs`, `processTreeLeft` and `windowsProcessTree`
   from `DATGOLD-HUB/lib/studio-terminal.mjs`, `runGit`, `pinnedArgs`, `pinnedEnv` and `treeId` from
   `DATGOLD-HUB/lib/proof/git-plumbing.mjs`). A test checks that no other corpus tool imports anything outside `corpus/tools` but `node:`
   modules, and that each bridge imports only its own files.
-- **The vendoring plan:** copy `acceptance.mjs`, `yaml-subset.mjs` and `lib/project-check-discovery.mjs` (which `acceptance.mjs` imports for
+- **The vendoring plan:** copy `acceptance.mjs`, `yaml-subset.mjs`, `lib/glob-match.mjs` and `lib/project-check-discovery.mjs` (which `acceptance.mjs` imports for
   its proposal helper), and for the second bridge `shell-runner.mjs`, `studio-terminal.mjs` and `proof/git-plumbing.mjs` with what they
   import (`powershell-environment.mjs`, `runtime.mjs`, `studio-sandbox.mjs`), byte for byte to `vendor/datgold/` in the new repository,
   record each file's sha256 and the DatGold commit they came from in `vendor/datgold/SOURCE.json` with a test that checks them, change

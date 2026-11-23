@@ -427,7 +427,7 @@ try {
     const problems = [];
     // acceptance-parser.mjs: the acceptance reader; hub-process.mjs (pod-36): the shell runner, the process tree and the pinned Git process.
     const bridges = new Map([
-      ['acceptance-parser.mjs', new Set(['../../DATGOLD-HUB/lib/proof/acceptance.mjs', '../../DATGOLD-HUB/lib/proof/yaml-subset.mjs'])],
+      ['acceptance-parser.mjs', new Set(['../../DATGOLD-HUB/lib/proof/acceptance.mjs', '../../DATGOLD-HUB/lib/proof/yaml-subset.mjs', '../../DATGOLD-HUB/lib/glob-match.mjs'])],
       ['hub-process.mjs', new Set(['../../DATGOLD-HUB/lib/shell-runner.mjs', '../../DATGOLD-HUB/lib/studio-terminal.mjs', '../../DATGOLD-HUB/lib/proof/git-plumbing.mjs'])],
     ]);
     const files = readdirSync(TOOLS).filter((name) => name.endsWith('.mjs'));
