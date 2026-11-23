@@ -4,10 +4,11 @@
 end, tree snapshots, tool calls, checks (commands run as evidence), permission decisions, outbound transfers and the moments the Hub
 could not be sure of something. It also builds the **check receipt** of a command run through `ShellRunner`.
 
-**Status: a module and its API.** Nothing in the agent writes a ledger yet; the wiring into the task lifecycle is pod-17's, the receipts
-that bind to a pack are pod-18's, the verify CLI is pod-24's. What changed for every task today is smaller: `run_command`,
-`tasks_run`/`tasks_status`, `test_run`/`test_results` and `build_run` report the hash of the command and of its output (below). The
-ledger makes no claim to users yet, so it adds nothing to [THREAT-MODEL.md](THREAT-MODEL.md) or [CLAIMS.md](CLAIMS.md).
+**Status: written for every task, read by nothing yet.** The proof service of pod-17 writes each task's ledger at the guard seam
+([PROOF-SERVICE.md](PROOF-SERVICE.md): the run's start and end, a `tree` and a `call` record around every call that can change files);
+the receipts that bind to a pack are pod-18's, the verify CLI is pod-24's. `run_command`, `tasks_run`/`tasks_status`,
+`test_run`/`test_results` and `build_run` report the hash of the command and of its output (below). The ledger makes no claim to users
+yet, so it adds nothing to [THREAT-MODEL.md](THREAT-MODEL.md) or [CLAIMS.md](CLAIMS.md).
 
 ## The file
 
@@ -33,9 +34,18 @@ One line per record, UTF-8, LF only:
 
 `task_start`, `tree`, `call`, `check`, `permission`, `outbound`, `uncertain`, `task_end`. Any other type is refused on append
 (`ledger_bad_record`) and reported as `unknown_type` by `verifyChain`: a reader that cannot interpret a record cannot vouch for it, and a
-new type comes with a new `v`. A record is a JSON object (a value that is not JSON, such as a BigInt, is refused). Only `check` has a
-schema of its own here (below); the fields of the seven others belong to the pods that write them (pod-17, pod-18). `uncertain` is also
-written by the ledger itself, after a torn last line (below).
+new type comes with a new `v`. A record is a JSON object (a value that is not JSON, such as a BigInt, is refused). Three types have a
+closed schema of their own here: `check` (below), and `tree` and `call`, the records of the proof service (pod-17,
+[PROOF-SERVICE.md](PROOF-SERVICE.md)); the fields of the five others belong to the pods that write them (pod-17's `task_start`,
+`task_end` and `uncertain` are described there). `uncertain` is also written by the ledger itself, after a torn last line (below).
+
+| Type | Exactly these fields |
+|---|---|
+| `tree` | `event` (a word: `task_start`, `run_start`, `call_start`, `task_end`), `run` (from 1), `callId` and `tool` (text of at most 256 characters, or null), `category` (a word or null), `tree` (a tree reference, below; never null), `scanMs` (a count) |
+| `call` | `run`, `callId`, `tool`, `category` as above, `outcome` (a word: `ok`, `error`, `threw`), `treeBefore` and `treeAfter` (a tree reference or null), `changed` (boolean or null), `overlapped` (boolean), `scanMs` (a count), `beforeSeq` (a seq or null) |
+
+A word is `[a-z][a-z0-9_]{0,31}`. A tree reference has exactly the fields of `treeRef` (below), with `tree` and `rawTree` null or a Git
+object id in hex (40 or 64 digits). No field of either type can hold a tool's arguments or output.
 
 ### Masking
 
@@ -50,14 +60,20 @@ Which fields are masked:
 | Record | Masked | Written as they are |
 |---|---|---|
 | `check` | `command`, `cwd`, `shell`, `stdout.preview`, `stderr.preview`, the `toolchain` versions, and every string of `treeBefore` and `treeAfter` but the two ids (`status`, `treeAlgorithm`, `objectFormat`, `engineReason`, `limitations`, `takenAt`, `unbounded`) | the digests `commandSha256`, `argsSha256`, `stdout.sha256`, `stderr.sha256`, and the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
-| the seven other types | every string, at any depth | nothing |
+| `tree` | `callId`, `tool`, and every string of `tree` but its two ids | the words `event` and `category`, the Git object ids `tree.tree`, `tree.rawTree` |
+| `call` | `callId`, `tool`, and every string of `treeBefore` and `treeAfter` but the two ids | the words `category` and `outcome`, the Git object ids `treeBefore.tree`, `treeBefore.rawTree`, `treeAfter.tree`, `treeAfter.rawTree` |
+| the five other types | every string, at any depth | nothing |
 
 The digests and ids are hex that the Hub computed, not text. A registered secret may be as short as 4 characters, and a short one
 occurs inside a random digest by chance (a 4-digit one in about one sha256 of a thousand): masked there, the digest would no longer be
 64 hex digits, the receipt would fail its own schema and the append would throw, losing the receipt of a command that already ran.
 A digest also leaks nothing of the text it was made of. The schema holds each of them to hex (64 digits; a tree id 40 or 64 digits, or
-null), so no text passes through them unmasked. The other types have no schema here, so a digest in one of them is masked like any
-string; a pod that needs one kept gives its type a schema first.
+null), so no text passes through them unmasked. The tree ids of `tree` and `call` records are kept by the same rule (a registered secret
+cut out of a real tree id leaves it whole there, `tests/verify-proof-ledger.mjs` section 6), and so are the words the Hub picks from fixed
+lists (`event`, `category`, `outcome`): a short secret that is part of a word (`start` in `call_start`) would otherwise leave a record its
+schema refuses, and the schema holds each of them to a word. The open types are masked whole, words included: an `uncertain` reason that
+holds a registered secret is written masked. The other types have no schema here, so a
+digest in one of them is masked like any string; a pod that needs one kept gives its type a schema first.
 
 Masking can make a field longer (`[REDACTED]` in place of a 4-character secret). When the ledger masks a secret the receipt's builder
 did not know, it cuts the command again to 4,096 characters (`commandTruncated` becomes true) and each preview to 2 KiB
@@ -174,7 +190,8 @@ toolchain of the workspace, builds the receipt and appends it as one `check` lin
 ## Decisions
 
 - No agent wiring: the plan gives it to pod-17; this pod's narrow option is the module, the hashes in the tool results and
-  `recordCheck` for pod-17 to call.
+  `recordCheck` for pod-17 to call. (pod-17 added since: [PROOF-SERVICE.md](PROOF-SERVICE.md), and the closed `tree` and `call`
+  schemas. The tests that used `call` as an example of an open type use `outbound` now.)
 - `build_run` lives in `lib/workflow-extensions.mjs`, so that file got the three fields too.
 - A torn tail is repaired by the next append rather than refused: the dropped bytes were never a committed record, and the `uncertain`
   record keeps their size and hash.
@@ -184,7 +201,7 @@ toolchain of the workspace, builds the receipt and appends it as one `check` lin
 
 ## Tests
 
-`tests/verify-proof-ledger.mjs` (16 checks): real commands through `ShellRunner` (text, empty, binary and not UTF-8, 50,000 bytes over a
+`tests/verify-proof-ledger.mjs` (17 checks; the last one is the `tree` and `call` schemas of pod-17): real commands through `ShellRunner` (text, empty, binary and not UTF-8, 50,000 bytes over a
 1,000-byte capture, multibyte, a timeout) and the four tools; the receipt and its schema; secrets in the command line and the output;
 short secrets inside every digest and tree id of a receipt; every-byte flips; rewritten, deleted, swapped, unknown-type and malformed lines; the torn tail and its repair; concurrent appends;
 refusals; the toolchain probe with a fake `PATH` and on the real machine; `recordCheck` with the pod-15 engine on a real repository.

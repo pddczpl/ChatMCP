@@ -7,6 +7,7 @@ import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { buildInternalCatalog, fingerprint } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
 import { externalToolName } from './permissions.mjs';
+import { ProofService } from './proof/service.mjs';
 
 export const VERSION = '3.11.2';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
@@ -83,6 +84,11 @@ export class HubManager {
     // instead of Stop (lib/lifecycle-hooks.mjs). { kind: 'subagent', role, parentTaskId, conversationId, workflowId, phaseId }; null for the
     // conversations a person started, which end with Stop.
     this.lifecycleAgent = null;
+    // The proof ledger of Proof-of-Done (lib/proof/service.mjs, docs/PROOF-SERVICE.md): one service per workspace of this manager, made when a
+    // task first opens a session. Every manager has its own (a side chat's or a spawned agent's is keyed by its worktree, its ledgers are in its
+    // own data folder). `proofOptions` ({clock, budget}) is handed to it; a manager that works for another one is given the same options.
+    this.proof = null;
+    this.proofOptions = null;
   }
 
   log(message) {
@@ -297,6 +303,30 @@ export class HubManager {
   }
   releaseTask(id) { if (this.taskId === id) this.taskId = null; }
 
+  /** The proof service of the current workspace, made again when the workspace changed; null without a workspace. */
+  proofService() {
+    if (!this.workspace) return null;
+    if (this.proof?.root !== path.resolve(this.workspace)) {
+      this.proof = new ProofService({ hubDir: this.hubDirectory, root: this.workspace, secrets: () => this.secrets, log: (line) => this.log(line), ...(this.proofOptions ?? {}) });
+    }
+    return this.proof;
+  }
+
+  /**
+   * The end of a run of `taskId` in its proof ledger: the full final snapshot and task_end, for every status (a cancelled or failed task
+   * too). The runner calls it before releaseTask, while the workspace is still its own. Never throws.
+   */
+  async finishProof(taskId, { status, errorCode = null } = {}) {
+    try { return (await this.proof?.end(taskId, { status, errorCode })) ?? null; }
+    catch (error) { this.log(`Sổ bằng chứng: không ghi được phần kết của tác vụ (${error?.code ?? error?.message}).`); return null; }
+  }
+
+  /** After a restart: the uncertain records the ledger of an interrupted task lacks (ProofService.recover). Never throws; resolves with their count. */
+  async recoverProof(taskId) {
+    try { return await ProofService.recover({ hubDir: this.hubDirectory, taskId, secrets: () => this.secrets }); }
+    catch (error) { this.log(`Sổ bằng chứng: không khôi phục được sổ của tác vụ bị gián đoạn (${error?.code ?? error?.message}).`); return 0; }
+  }
+
   #binding() {
     const binding = { taskId: this.taskId, workspace: this.workspace, generation: this.generation, instanceId: this.instanceId };
     const check = () => {
@@ -315,6 +345,10 @@ export class HubManager {
       try { await this.mcp.prepare({ signal }); }
       catch (error) { if (signal?.aborted) throw error; this.log(`MCP: preflight failed (${error?.code ?? error?.message}).`); }
     }
+    signal?.throwIfAborted();
+    // The start of this run in the task's proof ledger: task_start for a new task, a full snapshot of the workspace (lib/proof/service.mjs).
+    // Every runner opens its session here once the task holds the workspace, so they all get it. It never fails the task.
+    await this.proofService()?.begin(this.taskId, { signal });
     signal?.throwIfAborted();
     return this.#createLocalSession();
   }
@@ -375,7 +409,8 @@ export class HubManager {
 
   /**
    * Every call an agent makes passes through here, whatever the backend: workspace binding, permission
-   * decision, the owner's PreToolUse hooks, workflow timeline, a checkpoint before changes, then the tool itself,
+   * decision, the owner's PreToolUse hooks, workflow timeline, a checkpoint before changes, a tree snapshot for the
+   * proof ledger before and after a call that can change files (lib/proof/service.mjs), then the tool itself,
    * then the PostToolUse hooks. A refusal and a failed checkpoint are returned as results that say nothing was
    * executed, so a model can react to them.
    *
@@ -385,8 +420,8 @@ export class HubManager {
   #guardCalls(session, { catalog, binding, checkBinding, external }) {
     const refused = (code, message) => ({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { error: { code, message }, executed: false } });
     session.callTool = async (name, args, callerOptions = {}) => {
-      // `onDecision`, `onCheckpoint` and `toolUseId` are for this guard only; the tool itself receives the transport options (signal, timeout).
-      const { onDecision, onCheckpoint, toolUseId: suppliedId, ...options } = callerOptions;
+      // `onDecision`, `onCheckpoint`, `onProof` and `toolUseId` are for this guard only; the tool itself receives the transport options (signal, timeout).
+      const { onDecision, onCheckpoint, onProof, toolUseId: suppliedId, ...options } = callerOptions;
       checkBinding();
       const definition = catalog.tools.find((tool) => tool.name === name);
       if (!definition) throw new Error('Unknown tool ' + name);
@@ -415,6 +450,9 @@ export class HubManager {
         if (options.signal?.aborted) throw error;
         return refused('checkpoint_failed', 'Could not create pre-operation checkpoint: ' + error.message + ' The operation was NOT executed.');
       }
+      // The proof ledger: a tree snapshot right before the call and right after it (before any PostToolUse hook can touch a file), for a call
+      // of a category that can change files. Its failure never fails the call; only a stop during the snapshot does (the call has not run).
+      const proof = await this.#proofBefore(name, decision, binding, toolUseId, options.signal);
       let result;
       try {
         // `decision.guard` is what the owner was shown when the gate asked about a file change: the call is held to those files (a file that changed since is not written).
@@ -422,11 +460,13 @@ export class HubManager {
           : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
             : await external(name, args, options);
       } catch (error) {
+        await this.#proofAfter(proof, 'threw', onProof);
         await this.#noteAfter(checkpoint); // a call that threw may have changed files before it did
         // A stopped call is not a failure of the tool; any other exception is, and the hooks are told before it travels on.
         if (!options.signal?.aborted) await this.#postToolHooks('PostToolUseFailure', { name, args, binding, toolUseId, error: error?.message ?? String(error), signal: options.signal });
         throw error;
       }
+      await this.#proofAfter(proof, result?.isError === true ? 'error' : 'ok', onProof);
       await this.#noteAfter(checkpoint);
       const structured = result?.structuredContent;
       const verified = (name === 'studio.diff_check' && structured?.ok === true)
@@ -500,7 +540,7 @@ export class HubManager {
    */
   async #checkpointBefore(name, args, decision, binding, onCheckpoint) {
     // An external call gets the bounded workspace snapshot only when the owner flagged its server touchesWorkspace (RR-42).
-    const externalWrite = decision.category === 'external' && this.mcp?.store?.touchesWorkspace?.(externalToolName(name)?.server) === true;
+    const externalWrite = this.#touchesWorkspace(name, decision);
     if (!this.studio || (!CHECKPOINT_CATEGORIES.has(decision.category) && !externalWrite)) return;
     const label = `Before ${name} · ${binding.taskId}`;
     let request = { label, taskId: binding.taskId, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };
@@ -546,5 +586,31 @@ export class HubManager {
     if (!checkpoint?.targeted) return;
     try { await this.studio.recordAfterState(checkpoint.id); }
     catch (error) { this.log(`Không ghi được trạng thái sau thao tác của checkpoint ${checkpoint.id}: ${error.message}`); }
+  }
+
+  /** An external call whose server the owner flagged touchesWorkspace in mcp-servers.json: checkpointed and scanned like a file edit. */
+  #touchesWorkspace(name, decision) {
+    return decision.category === 'external' && this.mcp?.store?.touchesWorkspace?.(externalToolName(name)?.server) === true;
+  }
+
+  /** The snapshot before a call, when the task's run is recorded (ProofService.beforeCall decides by the category); null when not. */
+  async #proofBefore(name, decision, binding, callId, signal) {
+    const service = this.proof;
+    if (!service || service.active !== binding.taskId) return null;
+    const token = await service.beforeCall({ taskId: binding.taskId, callId, name, category: decision.category ?? null, touchesWorkspace: this.#touchesWorkspace(name, decision), signal });
+    return token ? { service, token } : null;
+  }
+
+  /**
+   * The snapshot after the call and its `call` record; the caller's `onProof` is told the trees, awaited like onDecision and onCheckpoint, and
+   * before the result is returned. That is how a runner learns them: they are never put in the result, which a model reads. The call has run,
+   * so an onProof that throws changes nothing of what is returned.
+   */
+  async #proofAfter(proof, outcome, onProof) {
+    if (!proof) return;
+    const info = await proof.service.afterCall(proof.token, { outcome });
+    if (!info || typeof onProof !== 'function') return;
+    try { await onProof(info); }
+    catch (error) { this.log(`Sổ bằng chứng: bên gọi không lưu được bằng chứng của ${info.tool} (${error?.message ?? error}).`); }
   }
 }

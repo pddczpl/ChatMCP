@@ -4,7 +4,7 @@
 tree**: a Git tree id of the files the workspace holds at one moment. Later Proof-of-Done pieces bind to such an id (the receipts of
 pod-18, the ledger of pod-16, the agent wiring of pod-17, the verify CLI of pod-24).
 
-**Status: an engine and its API only. Nothing in the Hub or the agent calls it yet**, so it makes no claim to users and adds none to
+**Status: called by the proof service at the guard seam** ([PROOF-SERVICE.md](PROOF-SERVICE.md), pod-17: a full snapshot at the start and the end of every run of a task, a cached one around every call that can change files); it makes no claim to users and adds none to
 [THREAT-MODEL.md](THREAT-MODEL.md) or [CLAIMS.md](CLAIMS.md). Today's receipts (`lib/verification-receipt.mjs`) are unchanged.
 
 ## API

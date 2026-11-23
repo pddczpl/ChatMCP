@@ -1,6 +1,6 @@
 // A content identity of the workspace tree: the Git tree id of the files the workspace holds right now.
 //
-// Later receipts (P4 pod-16/17/18) bind to such an id. This module only computes it; nothing in the agent calls it yet. See
+// Later receipts (P4 pod-16/17/18) bind to such an id. The proof service (lib/proof/service.mjs, pod-17) takes snapshots around calls. See
 // docs/PROOF-TREE.md for the contract.
 //
 // Two engines:

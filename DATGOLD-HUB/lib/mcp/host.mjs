@@ -352,6 +352,8 @@ export class McpHost {
     if (this.#writer === slot) this.#writer = null;
     slot.gate.shutdown();
     await slot.session.close().catch(() => {});
+    // The end of the client's task in its proof ledger (lib/proof/service.mjs): the guard seam recorded its calls, the final snapshot closes the run.
+    await slot.manager.finishProof?.(slot.taskId, { status: 'closed' });
     slot.manager.releaseTask(slot.taskId);
     await slot.manager.shutdown().catch(() => {});
   }
