@@ -982,6 +982,39 @@
   ]
  },
  {
+  "name": "PG-sweep-none",
+  "what": "the scratch folders of a Hub that died stay",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "    await this.#sweep(hubDir);\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "name": "PG-sweep-in-use",
+  "what": "a scratch folder in use is removed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (stat && Date.now() - stat.mtimeMs > SCRATCH_MAX_AGE_MS) await",
+    "new": "      if (stat) await"
+   }
+  ]
+ },
+ {
+  "name": "PG-sweep-all",
+  "what": "other old folders are removed",
+  "patches": [
+   {
+    "file": "lib/proof/gate.mjs",
+    "old": "      if (!name.startsWith(SCRATCH)) continue;\n",
+    "new": ""
+   }
+  ]
+ },
+ {
   "name": "PG-rounds-three",
   "what": "the agent is sent back twice",
   "patches": [

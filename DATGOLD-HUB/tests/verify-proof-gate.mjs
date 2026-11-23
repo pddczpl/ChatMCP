@@ -402,6 +402,15 @@ try {
     noAnchor.task.proofBaseline = { id: '20261123T000000000Z-00000000', sha256: 'short', acceptanceSha256: acceptanceSha256(ACCEPT()) };
     await noAnchor.begin();
     assert.deepEqual([noAnchor.calls.load.length, noAnchor.calls.baseline], [0, 1], 'a baseline without its anchor is not loaded');
+    // what a Hub that died left of a report's scratch folder is removed by a later run; a folder in use is not
+    const swept = await rig();
+    const gateFolder = path.join(swept.hubDirectory, 'proof', 'gate');
+    for (const name of ['work-old', 'work-now', 'proof']) await fs.mkdir(path.join(gateFolder, name), { recursive: true });
+    const hours = (n) => new Date(Date.now() - n * 3_600_000);
+    await fs.utimes(path.join(gateFolder, 'work-old'), hours(25), hours(25));
+    await fs.utimes(path.join(gateFolder, 'proof'), hours(25), hours(25));
+    await swept.begin();
+    assert.deepEqual((await fs.readdir(gateFolder)).sort(), ['proof', 'work-now']);
     // a deleted conversation takes its baseline with it, and nothing else
     const kept = await rig();
     await kept.begin();

@@ -44,6 +44,8 @@ const GATE_RETENTION = Object.freeze({ maxPerWorkspace: 5 });
 const BASELINE_NOTICE_MS = 3000;
 const BASELINE_ID = /^\d{8}T\d{9}Z-[0-9a-f]{8}$/;
 const LOCK_WAIT_MS = 30_000;
+const SCRATCH = 'work-';
+const SCRATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const JUDGED = new Set([GATE_STATUS.passed, GATE_STATUS.failed, GATE_STATUS.unproven, GATE_STATUS.stale]);
 
 const judged = (result) => Boolean(result) && JUDGED.has(result.status);
@@ -292,7 +294,7 @@ async function checkChangesOf({ manager, hubDir, baseline, acceptance, current }
   const root = path.resolve(manager.workspace);
   const env = manager.localTools?.shell?.env ?? process.env;
   const loaded = await loadBaseline({ hubDir, root, id: baseline.id, expectSha256: baseline.sha256 });
-  const scratch = path.join(hubDir, `work-${randomUUID()}`);
+  const scratch = path.join(hubDir, `${SCRATCH}${randomUUID()}`);
   try {
     await fs.mkdir(path.join(scratch, 'store'), { recursive: true, mode: 0o700 });
     const { objectFormat } = loaded.record;
@@ -416,6 +418,15 @@ export class DoneGate {
     } catch (error) { this.log(`Cổng bằng chứng: không lưu được bản sao ${ACCEPTANCE_FILE} (${error?.code ?? error?.message}).`); }
   }
 
+  /** The scratch folders of reports that a Hub which died left behind. Never throws. */
+  async #sweep(hubDir) {
+    for (const name of await fs.readdir(hubDir).catch(() => [])) {
+      if (!name.startsWith(SCRATCH)) continue;
+      const stat = await fs.stat(path.join(hubDir, name)).catch(() => null);
+      if (stat && Date.now() - stat.mtimeMs > SCRATCH_MAX_AGE_MS) await fs.rm(path.join(hubDir, name), { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
+    }
+  }
+
   /** The baseline of the task's start: the saved one, else a new one. A Read Only run, and a Hub that records no proof, take none. */
   async #baseline({ run, task, saved, signal, say }) {
     const { manager } = this;
@@ -423,6 +434,7 @@ export class DoneGate {
     if (!service || service.disabled || manager.permissions?.mode === 'readonly') return;
     const root = path.resolve(manager.workspace);
     const hubDir = this.#hubDir();
+    await this.#sweep(hubDir);
     const armed = `Cổng bằng chứng: ${run.checks} kiểm tra của ${ACCEPTANCE_FILE} (chủ máy đã tin) sẽ chạy trên cây thư mục cuối trước khi tác vụ được coi là xong.`;
     let again = false;
     if (saved?.id) {

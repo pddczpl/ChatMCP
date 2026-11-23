@@ -204,5 +204,6 @@ is `completed` (the run ended with an answer), as for every other verdict about 
 ## Tests
 
 `tests/verify-proof-gate.mjs` (the rules alone), `tests/verify-proof-gate-agent.mjs` (the real HubManager, AgentRunner, check runner, baseline
-store and hooks, a scripted model) and `tests/verify-proof-gate-e2e.mjs` (a real Hub process, the real `chatmcp verify trust`, the strict mock
-model; the four scenarios of the plan). Mutation lists: `tests/mutation/proof-gate.json` and `tests/mutation/proof-gate-agent.json`.
+store and hooks, a scripted model), `tests/verify-proof-gate-places.mjs` (where it runs and what interrupts it) and `tests/verify-proof-gate-e2e.mjs` (a real Hub process, the real `chatmcp verify trust`, the strict mock
+model; the four scenarios of the plan). Mutation lists: `tests/mutation/proof-gate.json`,
+`proof-gate-agent.json` and `proof-gate-places.json`.
