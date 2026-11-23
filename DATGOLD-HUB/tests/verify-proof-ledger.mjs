@@ -16,7 +16,9 @@
 //   4. concurrent appends from two ledger objects on one file keep one gap-free chain; a refused record writes nothing; a broken
 //      ledger refuses every append;
 //   5. treeBefore/treeAfter come from the pod-15 snapshot engine; the toolchain versions are probed once per workspace, with absolute
-//      program paths only.
+//      program paths only;
+//   6. the tree and call records of the proof service (pod-17, docs/PROOF-SERVICE.md) have closed schemas, and their tree ids are kept
+//      whole when a registered secret occurs in them.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -216,7 +218,7 @@ try {
     await ledger.append('check', masked);
     // The ledger masks again: a receipt built without the registered secrets still does not carry them into the file.
     await ledger.append('check', checkReceipt({ command: secretCommand, result: secretRun }));
-    await ledger.append('call', { tool: 'run_command', args: { command: `curl -H "Authorization: Bearer abcdefghijklmnop1234" https://example.com ${REGISTERED}` } });
+    await ledger.append('outbound', { tool: 'run_command', args: { command: `curl -H "Authorization: Bearer abcdefghijklmnop1234" https://example.com ${REGISTERED}` } });
     const written = await fs.readFile(ledgerPath(hub, 'task_secret'), 'utf8');
     for (const secret of [REGISTERED, PATTERN_KEY, 'sk-abcdefghijklmnopqrstuvwx', 'abcdefghijklmnop1234']) assert.ok(!written.includes(secret), `${secret} reached the ledger`);
     assert.ok(written.includes('[REDACTED]'));
@@ -253,7 +255,7 @@ try {
     await digestLedger.append('check', plain);
     await digestLedger.append('check', checkReceipt({ command: 'node emit.cjs text', result: textRun, treeBefore: snapshot('sha1', 'before'),
       treeAfter: snapshot('sha256', 'after'), secrets: inside }));
-    await digestLedger.append('call', { tool: 'run_command', commandSha256: plain.commandSha256, stdout: { sha256: plain.stdout.sha256 } });
+    await digestLedger.append('outbound', { tool: 'run_command', commandSha256: plain.commandSha256, stdout: { sha256: plain.stdout.sha256 } });
     const digestEntries = entriesOf(await fs.readFile(ledgerPath(hub, 'task_digests')));
     for (const entry of digestEntries.slice(0, 2)) {
       assert.deepEqual(digests(entry.record), digests(plain), 'the digests and tree ids are written as they are');
@@ -306,7 +308,7 @@ try {
     const entries = [];
     entries.push(await ledger.append('task_start', { taskId: 'task_main' }));
     entries.push(await ledger.append('check', checkReceipt({ command: 'node emit.cjs text', result: textRun })));
-    entries.push(await ledger.append('call', { tool: 'read_file', args: { path: 'emit.cjs' } }));
+    entries.push(await ledger.append('outbound', { tool: 'read_file', args: { path: 'emit.cjs' } }));
     entries.push(await ledger.append('permission', { tool: 'run_command', decision: 'allow' }));
     entries.push(await ledger.append('task_end', { status: 'completed' }));
     assert.deepEqual(entries.map((entry) => entry.seq), [1, 2, 3, 4, 5]);
@@ -359,16 +361,16 @@ try {
     const unknown = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'nonsense', record: {} });
     const withUnknown = verifyChain(Buffer.concat([bytes, Buffer.from(`${unknown}\n`)]));
     assert.deepEqual([withUnknown.ok, withUnknown.brokenAt, withUnknown.reason, withUnknown.records], [false, 6, 'unknown_type', 5]);
-    const badVersion = lineFor({ v: 3, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'call', record: {} });
+    const badVersion = lineFor({ v: 3, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'outbound', record: {} });
     assert.equal(verifyChain(Buffer.concat([bytes, Buffer.from(`${badVersion}\n`)])).reason, 'bad_version');
     const badCheck = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'check', record: { exit: 0 } });
     assert.equal(verifyChain(Buffer.concat([bytes, Buffer.from(`${badCheck}\n`)])).reason, 'bad_record');
-    const badTime = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: 'yesterday', type: 'call', record: {} });
+    const badTime = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: 'yesterday', type: 'outbound', record: {} });
     assert.equal(verifyChain(Buffer.concat([bytes, Buffer.from(`${badTime}\n`)])).reason, 'bad_envelope');
-    const extraBody = JSON.stringify({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'call', record: {}, note: 'x' });
+    const extraBody = JSON.stringify({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'outbound', record: {}, note: 'x' });
     const extra = `${extraBody.slice(0, -1)},"hash":"${sha(Buffer.from(extraBody))}"}`;
     assert.deepEqual([verifyChain(Buffer.concat([bytes, Buffer.from(`${extra}\n`)])).brokenAt, verifyChain(Buffer.concat([bytes, Buffer.from(`${extra}\n`)])).reason], [6, 'bad_envelope']);
-    const arrayRecord = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'call', record: [] });
+    const arrayRecord = lineFor({ v: 2, seq: 6, prev: parsed[4].hash, ts: '2026-11-21T10:00:06.000Z', type: 'outbound', record: [] });
     assert.equal(verifyChain(Buffer.concat([bytes, Buffer.from(`${arrayRecord}\n`)])).reason, 'bad_record');
     const notUtf8 = Buffer.concat([bytes, Buffer.from('{"v":2,"seq":6,'), Buffer.from([0xc3, 0x28]), Buffer.from('}\n')]);
     assert.deepEqual([verifyChain(notUtf8).brokenAt, verifyChain(notUtf8).reason], [6, 'not_utf8']);
@@ -379,7 +381,7 @@ try {
 
   {
     const torn = ProofLedger.forTask(hub, 'task_torn');
-    for (let i = 0; i < 3; i += 1) await torn.append('call', { tool: 'read_file', n: i });
+    for (let i = 0; i < 3; i += 1) await torn.append('outbound', { tool: 'read_file', n: i });
     const file = ledgerPath(hub, 'task_torn');
     const bytes = await fs.readFile(file);
     const lines = linesOf(bytes);
@@ -394,12 +396,12 @@ try {
     assert.deepEqual([whole.reason, whole.brokenAt, whole.records, whole.torn.bytes], ['torn_tail', 3, 2, Buffer.byteLength(lines[2])], 'a line is committed only with its line end');
     await fs.writeFile(file, cut);
     const again = ProofLedger.forTask(hub, 'task_torn');
-    const next = await again.append('call', { tool: 'read_file', n: 'after' });
+    const next = await again.append('outbound', { tool: 'read_file', n: 'after' });
     assert.equal(next.seq, 4);
     const repaired = await fs.readFile(file);
     assert.equal(verifyChain(repaired).ok, true);
     const entries = entriesOf(repaired);
-    assert.deepEqual(entries.map((entry) => entry.type), ['call', 'call', 'uncertain', 'call']);
+    assert.deepEqual(entries.map((entry) => entry.type), ['outbound', 'outbound', 'uncertain', 'outbound']);
     assert.deepEqual(entries[2].record, { reason: 'torn_tail', bytes: 10, sha256: sha(cut.subarray(third)) });
     assert.equal(repaired.subarray(0, third).equals(bytes.subarray(0, third)), true, 'the committed lines are kept byte for byte');
     ok('a crash that tore the last line: verifyChain reports torn_tail at that seq with the verified prefix; the next append drops only the uncommitted bytes and records them as uncertain');
@@ -408,7 +410,7 @@ try {
   {
     const one = ProofLedger.forTask(hub, 'task_conc');
     const two = ProofLedger.forTask(hub, 'task_conc');
-    const results = await Promise.all(Array.from({ length: 40 }, (_, n) => (n % 2 ? one : two).append('call', { tool: 'grep', n })));
+    const results = await Promise.all(Array.from({ length: 40 }, (_, n) => (n % 2 ? one : two).append('outbound', { tool: 'grep', n })));
     assert.deepEqual(results.map((entry) => entry.seq).sort((a, b) => a - b), Array.from({ length: 40 }, (_, i) => i + 1));
     const bytes = await fs.readFile(ledgerPath(hub, 'task_conc'));
     assert.equal(verifyChain(bytes).ok, true);
@@ -422,13 +424,13 @@ try {
     const file = ledgerPath(hub, 'task_refuse');
     const before = await fs.readFile(file);
     assert.equal(await rejection(ledger.append('nonsense', {})), 'ledger_bad_record');
-    assert.equal(await rejection(ledger.append('call', 'text')), 'ledger_bad_record');
-    assert.equal(await rejection(ledger.append('call', [1, 2])), 'ledger_bad_record');
-    assert.equal(await rejection(ledger.append('call', null)), 'ledger_bad_record');
-    assert.equal(await rejection(ledger.append('call', { big: 10n })), 'ledger_bad_record');
-    assert.equal(await rejection(ledger.append('call', { blob: 'x'.repeat(70_000) })), 'ledger_record_too_large');
+    assert.equal(await rejection(ledger.append('outbound', 'text')), 'ledger_bad_record');
+    assert.equal(await rejection(ledger.append('outbound', [1, 2])), 'ledger_bad_record');
+    assert.equal(await rejection(ledger.append('outbound', null)), 'ledger_bad_record');
+    assert.equal(await rejection(ledger.append('outbound', { big: 10n })), 'ledger_bad_record');
+    assert.equal(await rejection(ledger.append('outbound', { blob: 'x'.repeat(70_000) })), 'ledger_record_too_large');
     assert.equal((await fs.readFile(file)).equals(before), true, 'refused records write nothing');
-    assert.equal((await ledger.append('call', { tool: 'grep' })).seq, 2, 'and the chain goes on after them');
+    assert.equal((await ledger.append('outbound', { tool: 'grep' })).seq, 2, 'and the chain goes on after them');
 
     const broken = Buffer.from(await fs.readFile(file));
     broken[5] ^= 0x01;
@@ -437,7 +439,7 @@ try {
     // 15.6 ms, so an edit right after an append can keep it (docs/PROOF-LEDGER.md, limits); here the edit is a minute later.
     const later = new Date(Date.now() + 60_000);
     await fs.utimes(file, later, later);
-    assert.equal(await rejection(ProofLedger.forTask(hub, 'task_refuse').append('call', { tool: 'grep' })), 'ledger_broken');
+    assert.equal(await rejection(ProofLedger.forTask(hub, 'task_refuse').append('outbound', { tool: 'grep' })), 'ledger_broken');
     assert.equal((await fs.readFile(file)).equals(broken), true, 'nothing is appended to a broken ledger');
     ok('an unknown type, a record that is not an object or not JSON, a record over 64 KiB are refused and write nothing; a broken ledger refuses every append');
   }
@@ -534,6 +536,69 @@ try {
     assert.deepEqual(entriesOf(bytes).map((entry) => entry.record.treeAfter?.tree ?? null), [touch.receipt.treeAfter.tree, quiet.receipt.treeAfter.tree, null]);
     for (const entry of entriesOf(bytes)) assert.match(entry.record.stdout.sha256, HEX64);
     ok('recordCheck: treeBefore/treeAfter from the pod-15 snapshot engine (a new file changes the tree, a quiet command does not), toolchain, one check line each');
+  }
+
+  // ---------------------------------------------------------------- 6. tree and call records (pod-17, docs/PROOF-SERVICE.md)
+  {
+    const id = (text) => createHash('sha1').update(text).digest('hex');
+    const ref = (label) => treeRef({ status: 'ok', treeAlgorithm: 'git-pinned-v1', objectFormat: 'sha1', tree: id(`${label} tree`), rawTree: null, full: false,
+      files: 2, bytes: 9, limitations: [], takenAt: '2026-11-23T10:00:00.000Z' });
+    const tree = { event: 'call_start', run: 1, callId: 'call-1', tool: 'local.write_file', category: 'workspace_edit', tree: ref('before'), scanMs: 12 };
+    const callRecord = { run: 1, callId: 'call-1', tool: 'local.write_file', category: 'workspace_edit', outcome: 'ok', treeBefore: ref('before'), treeAfter: ref('after'),
+      changed: true, overlapped: false, scanMs: 25, beforeSeq: 3 };
+    assert.equal(validateRecord('tree', tree), null);
+    assert.equal(validateRecord('tree', { ...tree, event: 'task_start', callId: null, tool: null, category: null }), null);
+    assert.equal(validateRecord('tree', { ...tree, tree: { ...tree.tree, rawTree: id('raw') } }), null);
+    assert.equal(validateRecord('call', callRecord), null);
+    assert.equal(validateRecord('call', { ...callRecord, treeBefore: null, changed: null, beforeSeq: null }), null, 'a call without a before tree');
+    assert.equal(validateRecord('call', { ...callRecord, treeAfter: treeRef({ status: 'failed', engineReason: 'root_unreadable' }), changed: null }), null, 'a failed snapshot');
+    for (const [label, bad] of [
+      ['an extra field', { ...tree, note: 'x' }],
+      ['a missing field', (({ scanMs: _drop, ...rest }) => rest)(tree)],
+      ['no tree', { ...tree, tree: null }],
+      ['a tree id that is text', { ...tree, tree: { ...tree.tree, tree: 'not a tree id' } }],
+      ['a raw tree id that is text', { ...tree, tree: { ...tree.tree, rawTree: 'xyz' } }],
+      ['a tree reference with another field', { ...tree, tree: { ...tree.tree, path: 'a.txt' } }],
+      ['an event that is not a word', { ...tree, event: 'Call Start!' }],
+      ['run 0', { ...tree, run: 0 }],
+      ['run as text', { ...tree, run: '1' }],
+      ['a call id that is a number', { ...tree, callId: 7 }],
+      ['a tool that is a number', { ...tree, tool: 7 }],
+      ['a category of 40 characters', { ...tree, category: 'c'.repeat(40) }],
+      ['a negative scan time', { ...tree, scanMs: -1 }],
+      ['a fractional scan time', { ...tree, scanMs: 1.5 }],
+      ['an array', [tree]],
+    ]) assert.notEqual(validateRecord('tree', bad), null, `tree: ${label}`);
+    for (const [label, bad] of [
+      ['an extra field', { ...callRecord, args: { path: 'a.txt' } }],
+      ['output text', { ...callRecord, output: 'hello' }],
+      ['a missing field', (({ overlapped: _drop, ...rest }) => rest)(callRecord)],
+      ['changed as text', { ...callRecord, changed: 'yes' }],
+      ['overlapped null', { ...callRecord, overlapped: null }],
+      ['a tree id that is text', { ...callRecord, treeAfter: { ...callRecord.treeAfter, tree: 'abc' } }],
+      ['a tree before that is text', { ...callRecord, treeBefore: 'abc' }],
+      ['beforeSeq 0', { ...callRecord, beforeSeq: 0 }],
+      ['run as text', { ...callRecord, run: '1' }],
+      ['an outcome that is not a word', { ...callRecord, outcome: 'it went fine' }],
+      ['a tool name of 300 characters', { ...callRecord, tool: 'x'.repeat(300) }],
+      ['a call id of 300 characters', { ...callRecord, callId: 'x'.repeat(300) }],
+      ['a negative scan time', { ...callRecord, scanMs: -5 }],
+    ]) assert.notEqual(validateRecord('call', bad), null, `call: ${label}`);
+    // The ids are kept whole when a registered secret occurs in them; every other string is masked.
+    const secrets = [tree.tree.tree.slice(4, 9), callRecord.treeAfter.tree.slice(20, 25), 'write_file'];
+    const ledger = ProofLedger.forTask(hub, 'task_pod17', { secrets: () => secrets });
+    await ledger.append('tree', tree);
+    await ledger.append('call', callRecord);
+    const written = entriesOf(await fs.readFile(ledgerPath(hub, 'task_pod17')));
+    assert.equal(written[0].record.tree.tree, tree.tree.tree, 'the tree id of a tree record is whole');
+    assert.deepEqual([written[1].record.treeBefore.tree, written[1].record.treeAfter.tree], [callRecord.treeBefore.tree, callRecord.treeAfter.tree], 'both ids of a call record are whole');
+    assert.equal(written[0].record.tool, 'local.[REDACTED]', 'the tool name is masked');
+    assert.equal(written[1].record.tool, 'local.[REDACTED]');
+    const strict = ProofLedger.forTask(hub, 'task_pod17_strict');
+    assert.equal(await rejection(strict.append('call', { ...callRecord, output: 'hello' })), 'ledger_bad_record');
+    assert.equal(await rejection(strict.append('tree', { ...tree, tree: { ...tree.tree, tree: 'not hex' } })), 'ledger_bad_record');
+    await assert.rejects(fs.stat(ledgerPath(hub, 'task_pod17_strict')), { code: 'ENOENT' });
+    ok('tree and call records (pod-17) have closed schemas: tree references with hex ids only, no field that could carry output; their tree ids stay whole when a registered secret occurs in them, the other strings are masked');
   }
 
   console.log(`verify-proof-ledger: ${passed} checks passed`);
