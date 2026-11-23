@@ -296,13 +296,17 @@ function evaluateCheck(check, index, context) {
   const cwd = normalCwd(check.cwd ?? '.');
   const expectExit = Number.isSafeInteger(check.expect?.exit) ? check.expect.exit : 0;
   const repeat = Number.isSafeInteger(check.repeat) && check.repeat >= 1 ? check.repeat : 1;
+  const onFinal = (ref) => sameTree(ref, context.after) && ref.tree === context.after.tree;
   const matching = (context.byCommand.get(hash) ?? []).filter((receipt) => receipt.cwd === cwd);
-  const current = matching.filter((receipt) => sameTree(receipt.treeBefore, context.after) && receipt.treeBefore.tree === context.after.tree);
-  const passes = current.filter((receipt) => passed(receipt, expectExit)).length;
+  const current = matching.filter((receipt) => onFinal(receipt.treeBefore));
+  // A pass counts only when the run also left the final tree as it found it: a command that changed the tree is no evidence that the
+  // tree passes (a formatter that fixes what it checks exits 0). A failure on the final tree counts whatever the run did afterwards.
+  const counted = current.filter((receipt) => passed(receipt, expectExit) && onFinal(receipt.treeAfter));
+  const passes = counted.length;
   let result;
   let reason = null;
   let named = null; // the run the reason names: listed whatever the cap, so the pack holds the receipt its result rests on
-  if (current.length > passes) {
+  if (current.some((receipt) => !passed(receipt, expectExit))) {
     result = 'failed';
     named = current.findLast((receipt) => !passed(receipt, expectExit));
     reason = { code: 'check_failed', detail: failure(named, expectExit) };
@@ -310,14 +314,16 @@ function evaluateCheck(check, index, context) {
   else if (passes > 0) { result = 'repeats_short'; reason = { code: 'check_repeats_short', detail: `${passes} of ${repeat} runs passed on the final tree` }; }
   else if (matching.some((receipt) => sameTree(receipt.treeBefore, context.after))) {
     result = 'stale';
-    named = matching.findLast((receipt) => sameTree(receipt.treeBefore, context.after));
-    reason = { code: 'check_stale', detail: `ran on tree ${named.treeBefore.tree}, not the final tree` };
+    // the latest run that started on the final tree (it passed and changed the tree), else the latest run on another comparable tree
+    named = current.at(-1) ?? matching.findLast((receipt) => sameTree(receipt.treeBefore, context.after));
+    reason = { code: 'check_stale', detail: onFinal(named.treeBefore) ? 'ran on the final tree but did not leave it as it found it' : `ran on tree ${named.treeBefore.tree}, not the final tree` };
   } else if (matching.length) { result = 'tree_unknown'; reason = { code: 'check_tree_unknown', detail: 'ran on a tree that cannot be compared with the final tree' }; }
   else { result = 'not_run'; reason = { code: 'check_not_run', detail: null }; }
-  // The latest runs on the final tree (or, without any, the latest runs at all), the named run in place of the oldest of them when the
-  // cap left it out; it is older than all of them, so the list stays in ledger order.
+  // The runs a result rests on (the counted passes of a passed check, the runs on the final tree of a failed one, else the matching
+  // runs), latest first, the named run in place of the oldest of them when the cap left it out; it is older than all of them, so the
+  // list stays in ledger order.
   const max = context.limits.maxReceiptsPerCheck;
-  const pool = current.length ? current : matching;
+  const pool = result === 'failed' ? current : result === 'passed' || result === 'repeats_short' ? counted : matching;
   let kept = pool.slice(-max);
   if (named && !kept.includes(named)) kept = [named, ...(max > 1 ? pool.slice(-(max - 1)) : [])];
   const listed = kept.map((receipt) => receipt.seq);
@@ -468,11 +474,7 @@ function cut(value, max) {
  *   complete}); secrets (a list, or a function returning one: masked in every text of the pack); limits (lower bounds than PACK_LIMITS).
  * Throws PackError 'pack_bad_input' for an input it cannot read, never guesses; the statement it returns validates.
  */
-export function buildAgentChangeStatement(input = {}) {
-  if (!isPlainObject(input)) throw fault('pack_bad_input', 'the inputs are an object');
-  const { agent, model = null, baseCommit = null, commit = null, trees, diff, acceptance = null, checkChanges = null, ledger = null, ownerAcceptances = [], cost = null,
-    secrets = [], limits = {} } = input;
-  // limits
+function readLimits(limits) {
   if (!isPlainObject(limits)) throw fault('pack_bad_input', 'limits is an object');
   const L = { ...PACK_LIMITS };
   for (const [name, value] of Object.entries(limits)) {
@@ -481,10 +483,77 @@ export function buildAgentChangeStatement(input = {}) {
     }
     L[name] = value;
   }
-  // secrets, and the masking every text goes through
+  return L;
+}
+
+/** The masking every text of a pack goes through. */
+function readMasker(secrets) {
   const secretList = typeof secrets === 'function' ? secrets() : secrets;
   if (!Array.isArray(secretList) || !secretList.every((secret) => typeof secret === 'string')) throw fault('pack_bad_input', 'secrets is a list of texts (or a function returning one)');
   const maskText = (value, max) => cut(maskSecrets(String(value), secretList), max);
+  return maskText;
+}
+
+function readAcceptanceInputs(acceptance, checkChanges) {
+  if (acceptance !== null && (!isPlainObject(acceptance) || !Array.isArray(acceptance.criteria))) throw fault('pack_bad_input', 'acceptance is the result of resolveAcceptance (lib/proof/acceptance.mjs) or null');
+  if (checkChanges !== null && (!isPlainObject(checkChanges) || checkChanges.format !== CHECK_CHANGES_FORMAT || !Array.isArray(checkChanges.criteria))) {
+    throw fault('pack_bad_input', `checkChanges is a ${CHECK_CHANGES_FORMAT} report of detectCheckChanges (lib/proof/tamper.mjs) or null`);
+  }
+}
+
+function readCriteriaCounts(acceptance) {
+  if ((acceptance?.criteria.length ?? 0) > MAX_CRITERIA) throw fault('pack_bad_input', `at most ${MAX_CRITERIA} criteria`);
+  for (const criterion of acceptance?.criteria ?? []) {
+    if (!isPlainObject(criterion) || typeof criterion.id !== 'string') throw fault('pack_bad_input', 'a criterion has an id');
+    if (criterion.checks !== undefined && criterion.checks !== null && (!Array.isArray(criterion.checks) || criterion.checks.length > MAX_CHECKS)) throw fault('pack_bad_input', `criterion ${criterion.id}: at most ${MAX_CHECKS} checks`);
+  }
+}
+
+/** Every criterion against the check receipts of the ledger; the inputs are read already. */
+function evaluateCriteria({ acceptance, checkChanges, ledger, owners, after, limits, maskText }) {
+  const checkEntries = ledger.entries.filter((entry) => entry.type === 'check');
+  const context = {
+    after, limits, owners, text: maskText,
+    trusted: acceptance?.trusted === true,
+    changes: checkChanges ? new Map(checkChanges.criteria.filter(isPlainObject).map((row) => [String(row.id), row])) : null,
+    ledger: ledger.summary,
+    byCommand: new Map(), // commandSha256 -> the receipts of that exact command, in ledger order, cwd normalised once
+  };
+  for (const entry of checkEntries) {
+    const receipt = { ...entry.record, seq: entry.seq, cwd: normalCwd(entry.record.cwd), treeBefore: treeRefOf(entry.record.treeBefore), treeAfter: treeRefOf(entry.record.treeAfter) };
+    if (!context.byCommand.has(receipt.commandSha256)) context.byCommand.set(receipt.commandSha256, []);
+    context.byCommand.get(receipt.commandSha256).push(receipt);
+  }
+  return { criteria: (acceptance?.criteria ?? []).map((criterion) => evaluateCriterion(criterion, context)), checkEntries, context };
+}
+
+/**
+ * The per-criterion roll-up of a pack without the pack: `criteria` exactly as buildAgentChangeStatement writes them (status, checks with
+ * result, passes and receipts, reasons) and `ledger` {present, verified, records, lastHash, brokenAt, reason}. The check runner
+ * (lib/proof/check-runner.mjs, docs/PROOF-CHECKS.md) reports with it, so its roll-up and the pack's are one function.
+ * Inputs: after (the pod-15 snapshot of the final tree), acceptance, checkChanges, ledger, ownerAcceptances, secrets and limits, read as
+ * buildAgentChangeStatement reads them. Throws PackError 'pack_bad_input' for an input it cannot read.
+ */
+export function rollUpCriteria(input = {}) {
+  if (!isPlainObject(input)) throw fault('pack_bad_input', 'the inputs are an object');
+  const { after, acceptance = null, checkChanges = null, ledger = null, ownerAcceptances = [], secrets = [], limits = {} } = input;
+  const L = readLimits(limits);
+  const maskText = readMasker(secrets);
+  const final = readTree(after, 'after');
+  readAcceptanceInputs(acceptance, checkChanges);
+  const ledgerResult = readLedger(ledger);
+  const owners = readOwners(ownerAcceptances);
+  readCriteriaCounts(acceptance);
+  const { criteria } = evaluateCriteria({ acceptance, checkChanges, ledger: ledgerResult, owners, after: final, limits: L, maskText });
+  return { criteria, ledger: ledgerResult.summary };
+}
+
+export function buildAgentChangeStatement(input = {}) {
+  if (!isPlainObject(input)) throw fault('pack_bad_input', 'the inputs are an object');
+  const { agent, model = null, baseCommit = null, commit = null, trees, diff, acceptance = null, checkChanges = null, ledger = null, ownerAcceptances = [], cost = null,
+    secrets = [], limits = {} } = input;
+  const L = readLimits(limits);
+  const maskText = readMasker(secrets);
   // agent and model
   if (!isPlainObject(agent) || typeof agent.name !== 'string' || !agent.name || typeof agent.version !== 'string' || !agent.version) throw fault('pack_bad_input', 'agent is {name, version}, both text');
   if (model !== null && !isPlainObject(model)) throw fault('pack_bad_input', 'model is {provider, id, profileRevision} or null');
@@ -502,34 +571,14 @@ export function buildAgentChangeStatement(input = {}) {
   const after = readTree(trees.after, 'after');
   if (!(typeof diff === 'string' || diff instanceof Uint8Array)) throw fault('pack_bad_input', 'diff is the bytes or the text of the change');
   // acceptance (pod-20), check changes (pod-22), ledger (pod-16), owner acceptances, cost
-  if (acceptance !== null && (!isPlainObject(acceptance) || !Array.isArray(acceptance.criteria))) throw fault('pack_bad_input', 'acceptance is the result of resolveAcceptance (lib/proof/acceptance.mjs) or null');
-  if (checkChanges !== null && (!isPlainObject(checkChanges) || checkChanges.format !== CHECK_CHANGES_FORMAT || !Array.isArray(checkChanges.criteria))) {
-    throw fault('pack_bad_input', `checkChanges is a ${CHECK_CHANGES_FORMAT} report of detectCheckChanges (lib/proof/tamper.mjs) or null`);
-  }
+  readAcceptanceInputs(acceptance, checkChanges);
   const readLedgerResult = readLedger(ledger);
   const owners = readOwners(ownerAcceptances);
   const costValue = readCost(cost);
-  if ((acceptance?.criteria.length ?? 0) > MAX_CRITERIA) throw fault('pack_bad_input', `at most ${MAX_CRITERIA} criteria`);
-  for (const criterion of acceptance?.criteria ?? []) {
-    if (!isPlainObject(criterion) || typeof criterion.id !== 'string') throw fault('pack_bad_input', 'a criterion has an id');
-    if (criterion.checks !== undefined && criterion.checks !== null && (!Array.isArray(criterion.checks) || criterion.checks.length > MAX_CHECKS)) throw fault('pack_bad_input', `criterion ${criterion.id}: at most ${MAX_CHECKS} checks`);
-  }
+  readCriteriaCounts(acceptance);
 
   const entries = readLedgerResult.entries;
-  const checkEntries = entries.filter((entry) => entry.type === 'check');
-  const context = {
-    after, limits: L, owners, text: maskText,
-    trusted: acceptance?.trusted === true,
-    changes: checkChanges ? new Map(checkChanges.criteria.filter(isPlainObject).map((row) => [String(row.id), row])) : null,
-    ledger: readLedgerResult.summary,
-    byCommand: new Map(), // commandSha256 -> the receipts of that exact command, in ledger order, cwd normalised once
-  };
-  for (const entry of checkEntries) {
-    const receipt = { ...entry.record, seq: entry.seq, cwd: normalCwd(entry.record.cwd), treeBefore: treeRefOf(entry.record.treeBefore) };
-    if (!context.byCommand.has(receipt.commandSha256)) context.byCommand.set(receipt.commandSha256, []);
-    context.byCommand.get(receipt.commandSha256).push(receipt);
-  }
-  const criteria = (acceptance?.criteria ?? []).map((criterion) => evaluateCriterion(criterion, context));
+  const { criteria, checkEntries, context } = evaluateCriteria({ acceptance, checkChanges, ledger: readLedgerResult, owners, after, limits: L, maskText });
 
   // receipts: every one a check lists, then the latest others up to the limit
   const referenced = new Set(criteria.flatMap((criterion) => criterion.checks.flatMap((check) => check.receipts)));
@@ -624,6 +673,8 @@ function receiptRules(check, where, add, { bySeq, finalTree, after }) {
   const comparable = (receipt) => receipt.treeBefore !== null && receipt.treeBefore.tree !== null
     && receipt.treeBefore.treeAlgorithm === after.treeAlgorithm && receipt.treeBefore.objectFormat === after.objectFormat;
   const onFinal = (receipt) => comparable(receipt) && receipt.treeBefore.tree === finalTree;
+  const leftFinal = (receipt) => receipt.treeAfter !== null && receipt.treeAfter.tree === finalTree
+    && receipt.treeAfter.treeAlgorithm === after.treeAlgorithm && receipt.treeAfter.objectFormat === after.objectFormat;
   const ranOk = (receipt) => receipt.exit === check.expectExit && !receipt.timedOut && !receipt.cancelled && receipt.signal === null;
   const rows = check.receipts.map((seq, item) => ({ path: `${where}/receipts/${item}`, receipt: bySeq.get(seq) })).filter((row) => row.receipt);
   for (const { path, receipt } of rows) {
@@ -632,7 +683,7 @@ function receiptRules(check, where, add, { bySeq, finalTree, after }) {
   const receipts = rows.map((row) => row.receipt);
   switch (check.result) {
     case 'passed': case 'repeats_short':
-      for (const { path, receipt } of rows) if (!onFinal(receipt) || !ranOk(receipt)) add(path, 'passed_receipt', `receipt ${receipt.seq} is not a passing run on the final tree`);
+      for (const { path, receipt } of rows) if (!onFinal(receipt) || !ranOk(receipt) || !leftFinal(receipt)) add(path, 'passed_receipt', `receipt ${receipt.seq} is not a passing run that started and ended on the final tree`);
       if (check.receipts.length > check.passes) add(`${where}/receipts`, 'passed_receipt', `${check.receipts.length} receipts listed for ${check.passes} passing runs`);
       break;
     case 'failed':
@@ -641,7 +692,8 @@ function receiptRules(check, where, add, { bySeq, finalTree, after }) {
       break;
     case 'stale': case 'tree_unknown':
       for (const { path, receipt } of rows) {
-        if (onFinal(receipt)) add(path, 'stale_receipt', `receipt ${receipt.seq} ran on the final tree`);
+        // A stale check may list a run that started on the final tree only when it passed and changed the tree: that run counts neither way.
+        if (onFinal(receipt) && (!ranOk(receipt) || leftFinal(receipt))) add(path, 'stale_receipt', `receipt ${receipt.seq} ran on the final tree`);
         else if (check.result === 'tree_unknown' && comparable(receipt)) add(path, 'stale_receipt', `receipt ${receipt.seq} ran on a tree that can be compared with the final tree`);
       }
       if (check.result === 'stale' && !receipts.some(comparable)) add(`${where}/receipts`, 'stale_receipt', 'a stale check lists its run on another tree of the same algorithm');

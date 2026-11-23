@@ -57,6 +57,8 @@ const TOOLS = {
   'tools/started.js': "require('fs').writeFileSync(process.argv[2], String(process.pid)); setTimeout(() => {}, 60000);\n",
   'tools/sleeper.js': "require('fs').writeFileSync(process.argv[2], String(process.pid)); setInterval(() => {}, 1000);\n",
   'tools/marker.js': "require('fs').writeFileSync(process.argv[2], 'ran');\n",
+  // changes the tree on its 2nd run only (counted in a file outside the workspace)
+  'tools/second.js': "const fs = require('fs'); const file = process.argv[2]; const n = (fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0) + 1; fs.writeFileSync(file, String(n)); if (n === 2) fs.writeFileSync('second.txt', '2\\n');\n",
 };
 
 const q = (text) => JSON.stringify(text);
@@ -157,11 +159,12 @@ async function gone(pids, ms) {
   const reused = [...rows, { pid: 20, ppid: 99, created: T + 50 }, { pid: 70, ppid: 20, created: T + 60 }];
   assert.deepEqual(processTreeOf(reused, 10, T).map((row) => `${row.pid}@${row.created - T}`), ['20@10', '30@20', '40@30']);
   // the root's own pid reused by a newer process: what that process starts is not ours
-  const rootReused = [...rows, { pid: 10, ppid: 3, created: T + 35 }, { pid: 80, ppid: 10, created: T + 45 }];
+  const rootReused = [...rows, { pid: 10, ppid: 3, created: T + 5000 }, { pid: 80, ppid: 10, created: T + 5010 }];
   assert.deepEqual(processTreeOf(rootReused, 10, T).map((row) => row.pid), [20, 30, 40]);
   // the root seen alive is listed; a parent and its child created in the same millisecond, in any order
-  const same = [{ pid: 31, ppid: 30, created: T + 20 }, { pid: 10, ppid: 1, created: T + 1 }, ...rows];
-  assert.deepEqual(processTreeOf(same, 10, T).map((row) => row.pid).sort((a, b) => a - b), [10, 20, 30, 31, 40]);
+  // (the child has the lower pid, so it comes first in the table's order)
+  const same = [{ pid: 29, ppid: 30, created: T + 20 }, { pid: 10, ppid: 1, created: T + 1 }, ...rows];
+  assert.deepEqual(processTreeOf(same, 10, T).map((row) => row.pid).sort((a, b) => a - b), [10, 20, 29, 30, 40]);
   // a table that could not be read is unknown, and the same row twice is listed once
   assert.equal(processTreeOf(null, 10, T), null);
   assert.deepEqual(processTreeOf([...rows, ...rows], 10, T).map((row) => row.pid), [20, 30, 40]);
@@ -174,7 +177,7 @@ async function gone(pids, ms) {
     { id: 'pass', checks: [{ run: 'node tools/pass.js' }, { run: 'node tools/exit3.js', exit: 3, timeout: 3600 }] },
     { id: 'fail', checks: [{ run: 'node tools/fail.js' }] },
     { id: 'slow', checks: [{ run: 'node tools/sleep.js 30000', timeout: 1 }] },
-    { id: 'big', checks: [{ run: 'node tools/big.js 300000' }] },
+    { id: 'big', checks: [{ run: 'node tools/big.js 100000' }] }, // under ShellRunner's default budget, over the 4,096 bytes asked for
     { id: 'flaky', checks: [{ run: 'node tools/flaky.js ../basic.flaky-2 2', repeat: 3 }] },
     { id: 'flaky-late', checks: [{ run: 'node tools/flaky.js ../basic.flaky-3 3', repeat: 3 }] },
     { id: 'nowhere', checks: [{ run: 'node tools/pass.js nowhere', cwd: 'nowhere' }, { run: 'node tools/pass.js after' }] },
@@ -191,6 +194,8 @@ async function gone(pids, ms) {
   });
   const c = byId(report);
   assert.deepEqual(c.pass.checks.map((check) => [check.result, check.passes]), [['passed', 1], ['passed', 1]]);
+  assert.deepEqual(attemptsOf(report, 'pass', 1).map((attempt) => [attempt.exit, attempt.passed]), [[3, true]], 'exit 3 is a pass where 3 is expected');
+  assert.deepEqual(attemptsOf(report, 'fail').map((attempt) => [attempt.exit, attempt.passed]), [[1, false]]);
   assert.equal(c.fail.reasons[0].detail, 'exit 1, expected 0');
   assert.equal(c.slow.reasons[0].detail, 'timed out');
   // the flaky checks: never retried after the failure, and the failure is the result
@@ -228,8 +233,8 @@ async function gone(pids, ms) {
   // the cut output: the receipt hashes and counts every byte, and the result is the exit code's
   const big = lines.find((line) => line.seq === attemptsOf(report, 'big')[0].seq).record;
   assert.equal(big.stdout.truncated, true);
-  assert.equal(big.stdout.bytes, 300_000);
-  assert.equal(big.stdout.sha256, sha256('x'.repeat(300_000)));
+  assert.equal(big.stdout.bytes, 100_000);
+  assert.equal(big.stdout.sha256, sha256('x'.repeat(100_000)));
   assert.deepEqual(c.big.checks.map((check) => check.result), ['passed']);
   // toolchain versions: none without a probe
   assert.ok(lines.every((line) => line.record.toolchain === null));
@@ -240,12 +245,22 @@ async function gone(pids, ms) {
 // ------------------------------------------------------------------ 2. checks that change the tree
 {
   const s = await scenario('settle', [
+    { id: 'second', checks: [{ run: 'node tools/second.js ../settle.second', repeat: 2 }] },
     { id: 'early', checks: [{ run: 'node tools/pass.js' }] },
     { id: 'settle', checks: [{ run: 'node tools/write-once.js' }] },
     { id: 'late', checks: [{ run: 'node tools/pass.js late' }] },
   ]);
-  const report = await run(s);
-  assert.deepEqual(statusOf(report), { early: 'stale', settle: 'evidenced', late: 'evidenced' });
+  const roots = [];
+  const toolchain = { versions: async (root) => { roots.push(root); return { node: process.versions.node, python: null, dotnet: null, git: 'probe-test' }; } };
+  const report = await run(s, { toolchain });
+  assert.deepEqual(statusOf(report), { second: 'stale', early: 'stale', settle: 'evidenced', late: 'evidenced' });
+  const lines = ledgerChecks(s);
+  assert.ok(lines.every((line) => line.record.toolchain.node === process.versions.node && line.record.toolchain.git === 'probe-test'), 'every attempt records the toolchain');
+  assert.equal(roots.length, lines.length);
+  assert.ok(roots.every((root) => root === fs.realpathSync.native(s.root)), 'probed in the workspace folder');
+  // a change of the tree starts the count of `repeat` again: the pass before it was on another tree
+  assert.deepEqual(attemptsOf(report, 'second').map((attempt) => attempt.treeChanged), [false, true, false, false]);
+  assert.equal(runsOf(report, 'second').unreliable, false);
   assert.deepEqual(attemptsOf(report, 'settle').map((attempt) => attempt.treeChanged), [true, false], 'run again once on the new tree, where it settles');
   assert.equal(runsOf(report, 'settle').unreliable, false);
   assert.equal(byId(report).early.reasons[0].code, 'check_stale');
@@ -283,7 +298,8 @@ async function gone(pids, ms) {
   assert.equal(fs.existsSync(untrusted.outside('marker')), false, 'the check never ran');
   assert.equal(fs.existsSync(untrusted.ledger.file), false, 'nothing was recorded');
   assert.deepEqual(statusOf(u), { marker: 'unverified' });
-  assert.deepEqual(byId(u).marker.reasons.map((reason) => reason.code), ['check_not_run', 'acceptance_untrusted']);
+  // no ledger was written at all, so it is also not verified
+  assert.deepEqual(byId(u).marker.reasons.map((reason) => reason.code), ['check_not_run', 'acceptance_untrusted', 'ledger_not_verified']);
   await packOf(untrusted, u);
 
   const edited = await scenario('edited', criteria('edited'));
