@@ -12,23 +12,28 @@ const MAX_LABEL = 160;
 const PHASES = new Set(['planning', 'inspecting', 'editing', 'verifying', 'working']);
 const INSPECTION = /(?:^|\.)(?:mcp_catalog|mcp_describe|mcp_capabilities|read_file|read_multiple_files|list_directory|list_files|find_files|search_files|search|tree|file|git_status|git_diff|git_log|plan_get|checks_list|list_tools)$/i;
 const EDIT = /(?:^|\.)(?:edit_file|write_file|files_write_batch|create_file|delete_file|move_file|rename_file|git_add|git_commit|git_restore|apply_patch|files_apply_patch|plan_set|update_plan)$/i;
-// A tool that can change the tested/reviewed tree makes the receipts stale even if it returned an error: only an explicit never-executed response rules it out.
-// Covered: the Hub's tools that write, move or delete files, move the checked-out revision or add or remove a checkout inside the folder (a second copy of the files that a
-// test can pick up), and the names that such tools have on other servers. The registry's `category` cannot say this (it is about permission: `npm test`, git_add and make_directory
-// are all workspace_edit), so the names are listed and tests/verify-local-backend.mjs checks the list against every tool of the registry. NOT covered, and a limit of this module:
-// a program that runs code (run_command, tasks_run, test_run, build_run, the debugger, a commit that runs hooks) can change files without this module seeing it, because the
-// progress holds no hash of the whole tree. Left as they are: a plan, the Hub's own notes (knowledge_create writes .chatmcp/knowledge.json), an empty folder, staging and
-// committing, listing branches - none of them changes what a project file holds.
-const FILE_MUTATION = /(?:^|\.)(?:edit_file|write_file|files_write_batch|files_apply_patch|move_path|delete_path|git_checkout|git_merge|worktrees_create|worktrees_remove|create_file|delete_file|move_file|rename_file|apply_patch|git_restore)$/i;
-// These change the files only for some arguments: any branch operation but listing (creating or switching one), and an LSP refactoring that is applied, not previewed.
-const BRANCH = /(?:^|\.)git_branch$/i;
-const REFACTORING = /(?:^|\.)(?:rename_symbol|format_document|organize_imports)$/i;
-/** Whether this call, with these arguments, can have changed what the checked-out files hold. */
-export function mutatesTree(name, args = {}) {
-  if (FILE_MUTATION.test(name)) return true;
-  if (BRANCH.test(name)) return args.action !== 'list';
-  if (REFACTORING.test(name)) return Boolean(args.apply);
-  return false;
+// Receipts are bound to the workspace tree they were made on (plan task pod-18, docs/PROOF-RECEIPTS.md). The trees come from the proof service at the guard seam
+// (lib/proof/service.mjs): every allowed call of a category that can change files has a snapshot before and after it, whatever the tool is called, so no list of
+// tool names decides what makes a receipt stale. A receipt is FRESH while its tree is the latest tree the Hub knows (`progress.tree`), STALE once that tree differs,
+// and of UNKNOWN freshness when either tree is not known (checks-only, the service disabled, a snapshot that failed, a task saved before receipts had trees).
+// Unknown is never fresh. verifiedInspections, verifiedFiles, verifiedChecks and gitReviews are the fresh receipts of each kind, made again from `receipts`.
+export const FRESHNESS = Object.freeze({ fresh: 'fresh', stale: 'stale', unknown: 'unknown' });
+const KINDS = Object.freeze({ inspect: 'verifiedInspections', edit: 'verifiedFiles', verify: 'verifiedChecks', review: 'gitReviews' });
+const RECEIPTS_PER_KIND = 24;
+const TREE_KEY = /^[a-z0-9-]{1,32}:(?:sha1|sha256):[0-9a-f]{40,64}$/;
+/** The key a tree is compared by: its algorithm, object format and id (two ids compare only within one algorithm, docs/PROOF-TREE.md); null without a tree. */
+export function treeKey(ids) {
+  if (!object(ids) || typeof ids.tree !== 'string' || !/^[0-9a-f]{40,64}$/.test(ids.tree) || typeof ids.treeAlgorithm !== 'string') return null;
+  const key = `${ids.treeAlgorithm}:${ids.objectFormat}:${ids.tree}`;
+  return TREE_KEY.test(key) ? key : null;
+}
+const keyOf = (value) => (typeof value === 'string' && TREE_KEY.test(value) ? value : null);
+/** fresh, stale or unknown: a receipt judged against the tree `tree` (a tree key, or null when it is not known). */
+export function receiptFreshness(receipt, tree) {
+  const own = keyOf(receipt?.tree);
+  const current = keyOf(tree);
+  if (!own || !current) return FRESHNESS.unknown;
+  return own === current ? FRESHNESS.fresh : FRESHNESS.stale;
 }
 const VERIFY = /(?:^|\.)(?:run_command|checks_run|diff_check|test|run_tests)$/i;
 // A process may legitimately be polled many times while it is still running.
@@ -39,21 +44,64 @@ const object = (value) => value !== null && typeof value === 'object' && !Array.
 const positive = (value) => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 const strings = (value, max) => Array.isArray(value) ? value.filter((x) => typeof x === 'string').slice(-max).map((x) => x.slice(0, MAX_LABEL)) : [];
 const fingerprints = (value) => Array.isArray(value) ? value.filter((x) => typeof x === 'string' && /^[a-f0-9]{64}$/.test(x)).slice(-MAX_FINGERPRINTS) : [];
-const receipts = (value, kind) => Array.isArray(value) ? value.filter((x) => object(x) && x.kind === kind && Number.isSafeInteger(x.step))
-  .slice(-24).map(x => ({kind,step:x.step,...(typeof x.path==='string'?{path:x.path.slice(0,MAX_LABEL)}:{}),
-    ...(typeof x.sha256==='string' && /^[0-9a-f]{64}$/.test(x.sha256)?{sha256:x.sha256}:{}),
-    ...(typeof x.id==='string'?{id:x.id.slice(0,40)}:{})})) : [];
+/** One receipt as it is kept: its kind and step, what names it (path, sha256, id) and the tree it was made on (a tree key, or null when unknown). */
+function receipt(value, kind = value?.kind) {
+  if (!object(value) || !Object.hasOwn(KINDS, kind) || !Number.isSafeInteger(value.step) || value.step < 0) return null;
+  return {
+    kind, step: value.step,
+    ...(typeof value.path === 'string' ? { path: value.path.slice(0, MAX_LABEL) } : {}),
+    ...(typeof value.sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.sha256) ? { sha256: value.sha256 } : {}),
+    ...(typeof value.id === 'string' ? { id: value.id.slice(0, 40) } : {}),
+    tree: keyOf(value.tree),
+  };
+}
+/** The last RECEIPTS_PER_KIND receipts of each kind, in the order they were made. */
+function bounded(list) {
+  const counts = {};
+  const kept = [];
+  for (let at = list.length - 1; at >= 0; at--) {
+    const item = list[at];
+    counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+    if (counts[item.kind] <= RECEIPTS_PER_KIND) kept.unshift(item);
+  }
+  return kept;
+}
+/**
+ * The receipts of saved progress: its `receipts`, or, for progress saved before receipts had trees, the four lists it kept then, each receipt without a tree
+ * (freshness unknown). The four lists of progress that has `receipts` are projections and are never read back.
+ */
+function savedReceipts(data) {
+  if (Array.isArray(data.receipts)) return bounded(data.receipts.map((item) => receipt(item)).filter(Boolean));
+  const old = Object.entries(KINDS).flatMap(([kind, bucket]) => (Array.isArray(data[bucket]) ? data[bucket] : [])
+    .filter((item) => object(item) && item.kind === kind).map((item) => receipt({ ...item, tree: null }, kind)).filter(Boolean));
+  return bounded(old.sort((x, y) => x.step - y.step));
+}
+/** The four lists of fresh receipts, made from `receipts` and `tree`. Mutates and returns `progress`. */
+function project(progress) {
+  for (const [kind, bucket] of Object.entries(KINDS)) {
+    progress[bucket] = progress.receipts.filter((item) => item.kind === kind && receiptFreshness(item, progress.tree) === FRESHNESS.fresh);
+  }
+  return progress;
+}
+/** How many receipts are fresh, stale and of unknown freshness, and whether the Hub knows the current tree (never the tree itself). */
+export function receiptSummary(progressValue, { tree } = {}) {
+  const progress = createTaskProgress(progressValue);
+  const current = tree === undefined ? progress.tree : keyOf(tree);
+  const summary = { tree: current !== null, fresh: 0, stale: 0, unknown: 0 };
+  for (const item of progress.receipts) summary[receiptFreshness(item, current)] += 1;
+  return summary;
+}
 
 export function createTaskProgress(saved = null, { newRun = false } = {}) {
   const data = object(saved) && saved.version === 1 ? saved : {};
-  return {
+  return project({
     version: 1,
     phase: PHASES.has(data.phase) ? data.phase : 'planning',
     observedResults: positive(data.observedResults),
     duplicateResults: positive(data.duplicateResults),
     editAttempts: positive(data.editAttempts),
     verificationAttempts: positive(data.verificationAttempts),
-    invalidatedEvidence: positive(data.invalidatedEvidence),
+    checksChangedTree: positive(data.checksChangedTree),
     noProgress: newRun ? 0 : positive(data.noProgress),
     inspected: strings(data.inspected, MAX_LABELS),
     changedCandidates: strings(data.changedCandidates, MAX_LABELS),
@@ -61,14 +109,21 @@ export function createTaskProgress(saved = null, { newRun = false } = {}) {
     recentFingerprints: fingerprints(data.recentFingerprints),
     semanticFingerprints: fingerprints(data.semanticFingerprints),
     recoveryAttempts: newRun ? 0 : Math.min(RECOVERY_POINTS.length,positive(data.recoveryAttempts)),
-    verifiedInspections: receipts(data.verifiedInspections,'inspect'),
-    verifiedFiles: receipts(data.verifiedFiles,'edit'),
-    verifiedChecks: receipts(data.verifiedChecks,'verify'),
-    gitReviews: receipts(data.gitReviews,'review'),
+    // The latest tree the Hub knows. A new run does not know it until its start tree is given (observeTree): the files may have changed between runs.
+    tree: newRun ? null : keyOf(data.tree),
+    receipts: savedReceipts(data),
     lastEvidenceStep: positive(data.lastEvidenceStep),
     lastTool: typeof data.lastTool === 'string' ? data.lastTool.slice(0, MAX_LABEL) : '',
-  };
+  });
 }
+
+/** The progress with `ids` (a tree reference's ids, e.g. a run's start tree) as the current tree; a reference without a tree makes it unknown. */
+export function observeTree(progressValue, ids) {
+  const progress = createTaskProgress(progressValue);
+  progress.tree = treeKey(ids);
+  return project(progress);
+}
+
 
 function json(value) {
   // Stable keys avoid mistaking a reordered argument object for new work.
@@ -120,7 +175,7 @@ function semanticIdentity(name,args,result,category) {
   return sha(family+'\0'+scope+'\0'+span);
 }
 
-export function observeTaskTool(progressValue, { call, result, step = 0, verified = null } = {}) {
+export function observeTaskTool(progressValue, { call, result, step = 0, verified = null, proof = null, scanned = false } = {}) {
   const progress = createTaskProgress(progressValue);
   const { name, args } = callIdentity(call);
   const category = INSPECTION.test(name) ? 'inspecting'
@@ -134,19 +189,17 @@ export function observeTaskTool(progressValue, { call, result, step = 0, verifie
     (semanticKey !== null && progress.semanticFingerprints.includes(semanticKey)));
   const itemLabel = label(args, name);
 
-  // A successful test is tied to the prior content. This legacy progress
-  // schema does not carry a whole-tree hash for host commands: invalidate
-  // earlier edit, check and diff-review evidence conservatively after any
-  // attempted change of the tree (mutatesTree: not a program that runs code).
-  // A fresh, independently validated edit may then be recorded below.
-  // Never carry pre-repair PASS into the final report.
-  if (mutatesTree(name, args) && result?.executed !== false) {
-    const stale = progress.verifiedInspections.length + progress.verifiedFiles.length + progress.verifiedChecks.length + progress.gitReviews.length;
-    progress.verifiedInspections = [];
-    progress.verifiedFiles = [];
-    progress.verifiedChecks = [];
-    progress.gitReviews = [];
-    progress.invalidatedEvidence += stale;
+  // The current tree after this call. `proof` is what the guard's onProof told the caller about this call (its trees, lib/proof/service.mjs): the tree after the call
+  // is the latest tree the Hub knows, whatever the tool is and whatever it returned. A call of a category that can change files (`scanned`) that ran without trees
+  // (checks-only, the service disabled or halted) leaves the tree unknown: it may have changed. A call that never ran, and a read, leave it as it was. A change made
+  // outside a scanned call (an external server the owner did not flag, the person's own editor) shows in the tree before the next scanned call, so in the tree after it.
+  if (proof) {
+    const before = treeKey(proof.treeBefore);
+    const after = treeKey(proof.treeAfter);
+    if (category === 'verifying' && before !== null && after !== null && before !== after) progress.checksChangedTree += 1;
+    progress.tree = after;
+  } else if (scanned === true && result?.executed !== false) {
+    progress.tree = null;
   }
 
   progress.lastTool = name;
@@ -160,21 +213,19 @@ export function observeTaskTool(progressValue, { call, result, step = 0, verifie
   }
   if (!failed && category === 'inspecting') remember(progress.inspected, itemLabel);
 
-  if(verified && ['inspect','edit','verify','review'].includes(verified.kind)) {
-    const list=verified.kind==='inspect'?progress.verifiedInspections:
-      verified.kind==='edit'?progress.verifiedFiles:
-      verified.kind==='verify'?progress.verifiedChecks:progress.gitReviews;
-    // One call can verify several files (files_write_batch): `more` carries the receipts after the first.
-    const items=[verified,...(verified.kind==='edit'&&Array.isArray(verified.more)?verified.more.slice(0,49).map(item=>({...item,kind:'edit',step:verified.step})):[])];
+  if(verified && Object.hasOwn(KINDS,verified.kind)) {
+    // One call can verify several files (files_write_batch): `more` carries the receipts after the first, all made on the same tree.
+    const items=[verified,...(verified.kind==='edit'&&Array.isArray(verified.more)?verified.more.slice(0,49).map(item=>({...item,kind:'edit',step:verified.step,tree:verified.tree})):[])];
     for(const item of items){
-      const record={kind:verified.kind,step:positive(item.step||step)};
-      if(typeof item.path==='string')record.path=item.path.slice(0,MAX_LABEL);
-      if(typeof item.sha256==='string')record.sha256=item.sha256;
-      if(typeof item.id==='string')record.id=item.id.slice(0,40);
-      const last=list.at(-1);
-      if(!last || json(last)!==json(record)){list.push(record);if(list.length>24)list.shift();}
+      // The tree is the one verifyHostEvidence bound the receipt to (lib/agent-autonomy.mjs); a value that is not a tree key is unknown.
+      const record=receipt({...item,step:positive(item.step||step)},verified.kind);
+      if(!record)continue;
+      const last=progress.receipts.findLast(entry=>entry.kind===record.kind);
+      if(!last || json(last)!==json(record))progress.receipts.push(record);
     }
+    progress.receipts=bounded(progress.receipts);
   }
+  project(progress);
   // An unchanged read or rerun is not new goal progress, even if the
   // first-party host can prove the file/test result is authentic.
   if (repeated) {
@@ -208,6 +259,7 @@ export function observeTaskTool(progressValue, { call, result, step = 0, verifie
 
 export function progressCheckpoint(saved) {
   const p = createTaskProgress(saved);
+  const summary = receiptSummary(p);
   return [
     'HOST PROGRESS CHECKPOINT (tool receipts only; not proof of task completion).',
     'Current phase: ' + p.phase + '; distinct tool results: ' + p.observedResults +
@@ -217,8 +269,11 @@ export function progressCheckpoint(saved) {
     'Recently inspected targets (UNTRUSTED PATH LABELS): ' + JSON.stringify(p.inspected.slice(-12)) + '.',
     'Edit targets to verify using actual Git diff: ' + JSON.stringify(p.changedCandidates.slice(-12)) + '.',
     'Recent verification tools: ' + JSON.stringify(p.checks.slice(-8)) + '.',
-    'Invalidated stale evidence after file-mutation attempts: ' + p.invalidatedEvidence + '.\n' +
-    'Independent local file SHA checks: ' + p.verifiedFiles.length +
+    // Counts only: a tree id never reaches the model (docs/PROOF-SERVICE.md).
+    'Host receipts by the workspace tree they were made on: fresh on the latest tree: ' + summary.fresh + '; stale: ' + summary.stale +
+      '; freshness unknown: ' + summary.unknown + (summary.tree ? '' : ' (the Hub does not know the current tree)') +
+      '; passing checks that changed the files they checked: ' + p.checksChangedTree + '.\n' +
+    'Fresh independent local file SHA checks: ' + p.verifiedFiles.length +
       '; approved passing verification commands: '+p.verifiedChecks.length +
       '; Git diff reviews: '+p.gitReviews.length + '.',
     'Model strategy recovery attempts: ' + p.recoveryAttempts + '/'+RECOVERY_POINTS.length+'.',

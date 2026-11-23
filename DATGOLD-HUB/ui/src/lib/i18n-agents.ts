@@ -220,6 +220,9 @@ export const agentsVi = {
   agents_ribbon_cost_estimate_hint: 'Ước tính từ giá trong danh mục model ({source}), không phải hóa đơn. Giá do bạn nhập sẽ thay thế nó. Retry và lỗi có thể phát sinh phí chưa rõ.',
   agents_ribbon_unverified: 'Yêu cầu chưa xác minh',
   agents_ribbon_missing: 'Kiểm tra còn thiếu',
+  agents_ribbon_freshness: 'Biên nhận còn mới',
+  agents_ribbon_freshness_hint: 'Mới trên cây thư mục sau cùng Hub biết: {fresh}; lỗi thời (file đã đổi sau đó): {stale}; chưa rõ: {unknown}.',
+  agents_ribbon_freshness_unknown: 'Hub không biết cây thư mục hiện tại (không có ảnh chụp cây, hoặc tác vụ từ phiên bản cũ): không biên nhận nào được tính là còn mới.',
 
   // The conversation screen (components/conversation/ConversationView.tsx) and the sidebar (components/sessions/SessionSidebar.tsx): first-screen code, so
   // these stay in the first part of the dictionary. This is the text they always showed, letter for letter (ui/e2e/agents.spec.mjs and readability.spec.mjs
@@ -395,6 +398,7 @@ export const agentsVi = {
   agents_obj_status: 'Trạng thái: {status}',
   agents_obj_waiting: ' · chờ mục tiêu trước',
   agents_obj_choose: 'Chọn một biên nhận đã xác minh',
+  agents_obj_freshness: 'Chỉ biên nhận còn mới (làm trên cây thư mục sau cùng Hub biết) mới chọn được. Lỗi thời: {stale}; chưa rõ độ mới: {unknown}.',
   agents_obj_confirm: 'Xác nhận',
   agents_obj_step: 'bước',
   agents_obj_aria: 'Bằng chứng chấp nhận {key}',
@@ -718,6 +722,9 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   agents_ribbon_cost_estimate_hint: 'An estimate from the prices in the model catalog ({source}), not a bill. Prices you enter replace it. Retries and errors can produce unknown charges.',
   agents_ribbon_unverified: 'Requirements unverified',
   agents_ribbon_missing: 'Checks missing',
+  agents_ribbon_freshness: 'Fresh receipts',
+  agents_ribbon_freshness_hint: 'Fresh on the latest tree the Hub knows: {fresh}; stale (the files changed after them): {stale}; unknown: {unknown}.',
+  agents_ribbon_freshness_unknown: 'The Hub does not know the current tree (no tree snapshots, or a task from an older version): no receipt counts as fresh.',
 
   agents_conv_loading: 'Loading the conversation…',
   agents_conv_empty: 'No conversation content has been saved yet.',
@@ -884,6 +891,7 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   agents_obj_status: 'Status: {status}',
   agents_obj_waiting: ' · waiting for predecessor',
   agents_obj_choose: 'Choose a verified receipt',
+  agents_obj_freshness: 'Only fresh receipts (made on the latest tree the Hub knows) can be chosen. Stale: {stale}; freshness unknown: {unknown}.',
   agents_obj_confirm: 'Confirm',
   agents_obj_step: 'step',
   agents_obj_aria: 'Acceptance evidence {key}',
