@@ -30,7 +30,7 @@ corpus/
   schema/task.schema.json      the JSON Schema of task.yml
   tools/load.mjs               loader and validator (library and CLI)
   tools/freeze.mjs             pre-registration: preregistration.json and a local annotated tag
-  tools/marker.mjs             the marker contract and parseFinalMarker()
+  tools/marker.mjs             the third bridge into DatGold: the marker contract and parseFinalMarker() (see "The marker contract")
   tools/protocol.mjs           the pre-registered protocol: metrics, repeats, thresholds, the kill rule
   tools/schema-check.mjs       the checker of the schema subset (no dependency)
   tools/acceptance-parser.mjs  a bridge into DatGold: the acceptance file reader (see "Splitting out the corpus")
@@ -123,7 +123,7 @@ of all its files in code-unit order of the names (the format of `sha256sum`). Th
 
 ## The marker contract
 
-Every prompt ends with this text, exactly (`tools/marker.mjs`, version 1):
+Every prompt ends with this text, exactly (`tools/marker.mjs`, version 1; the code is `DATGOLD-HUB/lib/proof/marker.mjs`, below):
 
 ```text
 When you are finished, the last line of your final message must be exactly one of:
@@ -140,6 +140,11 @@ Everything else (`done`, `**DONE**`, `DONE.`, ` DONE`, `Status: DONE`, a marker 
 counts as no claim, never as done. The reading takes time linear in the length of the message, also for long runs of white space (the
 suite times a million of them). The contract is a prompt change that every agent gets in the same words; the report states it as a
 limitation.
+
+The contract and its reader live in `DATGOLD-HUB/lib/proof/marker.mjs`, and `tools/marker.mjs` is a bridge that passes them on: the
+scoring and `chatmcp verify exec` (DatGold's exec wrapper for any external agent, `docs/PROOF-CLI.md`) read a claim with the same
+function. The CLI is packaged from the Hub's `bin/` and `lib/` only and nothing there imports `corpus/`, so the code is on the Hub's side
+of the boundary, and one copy means the two readers cannot drift apart.
 
 ## Validating a corpus
 
@@ -221,18 +226,20 @@ through each vendor's official CLI, frozen and published. The two share the fals
 The plan puts this corpus in a separate public repository (Apache-2.0). **Creating or publishing that repository, and pushing any tag, is
 the owner's decision, still pending.** Until then the tooling lives here, ready to be split:
 
-- The code it takes from DatGold comes through two bridge files and nowhere else: `tools/acceptance-parser.mjs` (the acceptance reader,
+- The code it takes from DatGold comes through three bridge files and nowhere else: `tools/acceptance-parser.mjs` (the acceptance reader,
   from `DATGOLD-HUB/lib/proof/acceptance.mjs` and `DATGOLD-HUB/lib/proof/yaml-subset.mjs`, and `globMatches` from `DATGOLD-HUB/lib/glob-match.mjs`,
   which matches `allowed_paths` as the Hub matches `protected`) and `tools/hub-process.mjs` (pod-36: `killTree`,
   `scrubEnv`, `BoundedCapture` and `ShellRunner` from `DATGOLD-HUB/lib/shell-runner.mjs`, `processTreeLeft` and `windowsProcessTree`
   from `DATGOLD-HUB/lib/studio-terminal.mjs`, `runGit`, `pinnedArgs`, `pinnedEnv` and `treeId` from
-  `DATGOLD-HUB/lib/proof/git-plumbing.mjs`). A test checks that no other corpus tool imports anything outside `corpus/tools` but `node:`
-  modules, and that each bridge imports only its own files.
+  `DATGOLD-HUB/lib/proof/git-plumbing.mjs`) and `tools/marker.mjs` (pod-26: the marker contract and `parseFinalMarker` from
+  `DATGOLD-HUB/lib/proof/marker.mjs`, which `chatmcp verify exec` reads a claim with too). A test checks that no other corpus tool imports
+  anything outside `corpus/tools` but `node:` modules, and that each bridge imports only its own files.
 - **The vendoring plan:** copy `acceptance.mjs`, `yaml-subset.mjs`, `lib/glob-match.mjs` and `lib/project-check-discovery.mjs` (which `acceptance.mjs` imports for
-  its proposal helper), and for the second bridge `shell-runner.mjs`, `studio-terminal.mjs` and `proof/git-plumbing.mjs` with what they
-  import (`powershell-environment.mjs`, `runtime.mjs`, `studio-sandbox.mjs`), byte for byte to `vendor/datgold/` in the new repository,
+  its proposal helper), for the second bridge `shell-runner.mjs`, `studio-terminal.mjs` and `proof/git-plumbing.mjs` with what they
+  import (`powershell-environment.mjs`, `runtime.mjs`, `studio-sandbox.mjs`), and for the third `proof/marker.mjs`, byte for byte to
+  `vendor/datgold/` in the new repository,
   record each file's sha256 and the DatGold commit they came from in `vendor/datgold/SOURCE.json` with a test that checks them, change
-  the paths in the two bridge files, and copy `.gitattributes`' `-text` rule. Updating the vendored code is then a reviewed change of
+  the paths in the three bridge files, and copy `.gitattributes`' `-text` rule. Updating the vendored code is then a reviewed change of
   its own.
 - In the new repository the corpus root is the repository root (freeze records the path `.`), and the tests move with the tools.
 

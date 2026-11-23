@@ -15,6 +15,9 @@ const flag = { type: 'boolean' };
 const list = (items, maxItems = 1000) => ({ type: 'array', items, maxItems });
 
 const acceptanceState = closed({ present: flag, sha256: nullable(hex64), trusted: flag });
+const criterionStatus = { enum: ['evidenced', 'owner_accepted', 'unverified', 'failed', 'stale', 'checks_modified'] };
+const evidenceStream = closed({ sha256: hex64, bytes: count, logged: count, truncated: flag });
+const cost = { oneOf: [{ const: 'unknown' }, closed({ currency: { type: 'string', pattern: '^[A-Z]{3}$' }, knownSubtotal: { type: 'number', minimum: 0, maximum: 1e9 }, complete: flag })] };
 const paths = closed({ session: text(), ledger: text(), baseline: text(), acceptanceCopy: nullable(text()) });
 const stream = closed({ sha256: hex64, bytes: count, truncated: flag, preview: text(8192), previewTruncated: flag });
 const baselineSummary = closed({
@@ -73,7 +76,32 @@ export const CLI_DATA_SCHEMAS = deepFreeze({
   }),
   pack: closed({
     taskId: text(160), file: text(), digest: hex64, statement: { type: 'object' },
-    criteria: list(closed({ id: text(128), status: { enum: ['evidenced', 'owner_accepted', 'unverified', 'failed', 'stale', 'checks_modified'] } })),
+    criteria: list(closed({ id: text(128), status: criterionStatus })),
     changes: closed({ added: count, modified: count, deleted: count }), receipts: count,
+  }),
+  exec: closed({
+    taskId: text(160), baselineId: text(64), command: text(8192), commandTruncated: flag, shell: { enum: ['bash', 'sh', 'powershell'] },
+    agent: closed({
+      name: text(200), version: text(200), exit: nullable({ type: 'integer' }), signal: nullable(text(32)), timedOut: flag, interrupted: flag, lingering: flag,
+      treeLeft: nullable(flag), durationMs: count, timeoutMs: count, stdout: evidenceStream, stderr: evidenceStream,
+    }),
+    claim: closed({
+      marker: { enum: ['DONE', 'BLOCKED', null] }, reason: nullable(text(500)), from: { enum: ['stdout', 'adapter'] }, rule: { enum: ['contract', 'claim-marker'] },
+      pattern: nullable(text(200)), line: nullable(text(1000)), markerTimedOut: flag,
+    }),
+    adapter: nullable(closed({
+      name: { enum: ['claude', 'codex', 'opencode'] }, version: { type: 'integer', minimum: 1 }, checked: text(10), recognized: flag, reason: nullable(text(64)),
+      isError: nullable(flag), model: nullable(text(200)), agentVersion: nullable(text(64)),
+    })),
+    cost, costSource: { enum: ['option', 'adapter', null] },
+    record: closed({ seq: { type: 'integer', minimum: 1 }, hash: hex64 }),
+    checks: list(closed({
+      criterion: text(128), index: count, run: text(), cwd: text(), attempt: count, seq: nullable({ type: 'integer', minimum: 1 }), exit: nullable({ type: 'integer' }),
+      timedOut: flag, passed: flag, error: nullable(text(64)),
+    }), 2000),
+    criteria: list(closed({ id: text(128), status: criterionStatus })), checksModified: nullable(flag),
+    pack: nullable(closed({ file: text(), digest: hex64, receipts: count, changes: closed({ added: count, modified: count, deleted: count }) })),
+    statement: nullable({ type: 'object' }),
+    paths: closed({ session: text(), ledger: text(), baseline: text(), acceptanceCopy: nullable(text()), evidence: text(), stdoutLog: text(), stderrLog: text() }),
   }),
 });

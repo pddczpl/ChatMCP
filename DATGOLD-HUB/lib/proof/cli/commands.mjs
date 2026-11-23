@@ -1,7 +1,8 @@
 // The commands of `chatmcp verify` (docs/PROOF-CLI.md). Each one wires the module that does the work: proposeAcceptance and the trust store
 // (pod-20), snapshotBaseline / loadBaseline / diffBaseline (pod-25), the ledger and recordCheck (pod-16) with ShellRunner over the
-// StudioWorkspace shim, detectCheckChanges (pod-22) and buildAgentChangeStatement (pod-29). A command returns {code, data, params, ...} or
-// throws a CliStop; it writes into the workspace only in `init`, and only .chatmcp/acceptance.yml.
+// StudioWorkspace shim, detectCheckChanges (pod-22) and buildAgentChangeStatement (pod-29); exec (pod-26, ./exec.mjs) runs an agent
+// between a snapshot and a pack. A command returns {code, data, params, ...} or throws a CliStop; the CLI itself writes into the workspace
+// only in `init`, and only .chatmcp/acceptance.yml (the agent exec runs writes where it likes).
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -17,6 +18,7 @@ import { TreeSnapshotter } from '../tree-snapshot.mjs';
 import { createTrustStore } from '../trust-store.mjs';
 import { CODES, NOT_BUILT, SESSION_FORMAT, stop } from './codes.mjs';
 import { joinCommand } from './args.mjs';
+import { execCommand } from './exec.mjs';
 import { usage } from './messages.mjs';
 import { loadSession, readAcceptance, resolveWorkspace, stateOf, workspaceShim, writeAtomic, writeSession } from './session.mjs';
 import { storeSide } from './store-side.mjs';
@@ -127,8 +129,12 @@ async function trust(ctx) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------ snapshot
-async function snapshot(ctx) {
-  const { root, state, shim } = await place(ctx);
+/**
+ * Takes the baseline and starts a proof session (snapshot and exec): the acceptance file read on both sides of the snapshot, its raw
+ * bytes copied, the ledger's task_start naming `source`, session.json pointing at it. Resolves {base, record, taskId, acceptance,
+ * acceptanceBytes, ledgerFile}.
+ */
+async function startSession(ctx, { root, state, shim, source }) {
   const before = await readAcceptance(shim);
   if (before.state === 'outside') throw stop('acceptance_outside');
   const base = await snapshotBaseline({ hubDir: state.hubDir, root, env: ctx.env, now: () => ctx.now() });
@@ -142,11 +148,18 @@ async function snapshot(ctx) {
   if (bytes) await writeAtomic(state.acceptanceCopy(taskId), bytes);
   const ledger = ProofLedger.forTask(state.hubDir, taskId, { now: () => ctx.now() });
   await ledger.append('task_start', {
-    format: SESSION_FORMAT, source: 'chatmcp verify snapshot', baselineId: base.id, baselineSha256: base.sha256,
+    format: SESSION_FORMAT, source, baselineId: base.id, baselineSha256: base.sha256,
     treeAlgorithm: record.treeAlgorithm, objectFormat: record.objectFormat, tree: record.tree, acceptance,
   });
   await writeSession(state, { taskId, baselineId: base.id, root, startedAt: record.createdAt });
   Object.assign(ctx, { taskId, baselineId: base.id });
+  return { base, record, taskId, acceptance, acceptanceBytes: bytes, ledgerFile: ledger.file };
+}
+
+async function snapshot(ctx) {
+  const { root, state, shim } = await place(ctx);
+  const { base, record, taskId, acceptance, acceptanceBytes: bytes, ledgerFile } = await startSession(ctx, { root, state, shim, source: 'chatmcp verify snapshot' });
+  const ledger = { file: ledgerFile };
   const trusted = bytes ? (await createTrustStore(state.hubDir).isTrusted(acceptance.sha256)) === true : false;
   return {
     code: 'snapshot_taken',
@@ -163,16 +176,20 @@ async function snapshot(ctx) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------ run
+/** The shell asked for (null: ShellRunner's default), or shell_unavailable. */
+async function resolveShell(runner, requested) {
+  try { return await runner.resolveShell(requested ?? undefined); } catch (error) {
+    if (['no_shell', 'shell_unavailable'].includes(error?.code)) throw stop('shell_unavailable', { shell: requested });
+    throw error;
+  }
+}
+
 async function run(ctx) {
   const { root, state, shim } = await place(ctx);
   const loaded = await session(ctx, state, { allowTorn: true });
   const { options } = ctx.args;
   const runner = new ShellRunner({ workspace: shim, stateDirectory: state.shellState, env: ctx.env, secrets: () => [] });
-  let shell;
-  try { shell = await runner.resolveShell(options.shell ?? undefined); } catch (error) {
-    if (['no_shell', 'shell_unavailable'].includes(error?.code)) throw stop('shell_unavailable', { shell: options.shell });
-    throw error;
-  }
+  const shell = await resolveShell(runner, options.shell);
   const command = joinCommand(ctx.args.words, shell.name);
   if (command.length > runner.maxCommandChars || command.includes('\0')) throw stop('bad_command', { max: runner.maxCommandChars });
   let cwd;
@@ -243,8 +260,11 @@ async function show(ctx) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------ pack
-async function pack(ctx) {
-  const { root, state, shim } = await place(ctx);
+/**
+ * Builds the statement of the current session (pack and exec) and writes it canonically to the state folder. Resolves {loaded,
+ * statement, file, digest, criteria: [{id, status}], changes}.
+ */
+async function buildPack(ctx, { root, state, shim, agent, model = null, cost = null }) {
   const loaded = await session(ctx, state);
   const baseline = await anchoredBaseline(state, root, loaded);
   const { record } = baseline;
@@ -273,29 +293,40 @@ async function pack(ctx) {
     await fs.rm(work, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
   }
   const statement = buildAgentChangeStatement({
-    agent: { name: ctx.args.options.agent, version: ctx.args.options.agentVersion },
+    agent,
+    model,
     baseCommit: typeof record.git?.head === 'string' && GIT_ID.test(record.git.head) ? record.git.head : null,
     trees: {
       before: { status: 'ok', treeAlgorithm: record.treeAlgorithm, objectFormat: record.objectFormat, tree: record.tree, rawTree: record.rawTree, ...record.snapshot },
       after: { status: 'ok', ...diff.final },
     },
-    diff: diff.patchBytes, acceptance, checkChanges, ledger: loaded.ledgerBytes, ownerAcceptances: [], cost: null, secrets: [],
+    diff: diff.patchBytes, acceptance, checkChanges, ledger: loaded.ledgerBytes, ownerAcceptances: [], cost, secrets: [],
   });
   const file = state.statement(loaded.taskId);
   await writeAtomic(file, `${canonicalJson(statement)}\n`);
   const criteria = statement.predicate.criteria.map((criterion) => ({ id: criterion.id, status: criterion.status }));
+  return { loaded, statement, file, digest: statementDigest(statement), criteria, changes: diff.counts };
+}
+
+async function pack(ctx) {
+  const { root, state, shim } = await place(ctx);
+  const { loaded, statement, file, digest, criteria, changes } = await buildPack(ctx, { root, state, shim, agent: { name: ctx.args.options.agent, version: ctx.args.options.agentVersion } });
   const evidenced = criteria.filter((criterion) => criterion.status === 'evidenced' || criterion.status === 'owner_accepted').length;
   return {
     code: criteria.length > 0 && evidenced === criteria.length ? 'pack_evidenced' : 'pack_unverified',
-    data: { taskId: loaded.taskId, file, digest: statementDigest(statement), statement, criteria, changes: diff.counts, receipts: statement.predicate.receipts.length },
+    data: { taskId: loaded.taskId, file, digest, statement, criteria, changes, receipts: statement.predicate.receipts.length },
     params: { file, total: criteria.length, notEvidenced: criteria.length - evidenced },
     lines: criteria.map((criterion) => `  ${criterion.id}: ${criterion.status}`),
   };
 }
+
+// ------------------------------------------------------------------------------------------------------------------------------ exec
+/** chatmcp verify exec (./exec.mjs), handed the steps it shares with the other commands. */
+const exec = (ctx) => execCommand(ctx, { place, parsedOrStop, resolveShell, startSession, buildPack });
 
 // ------------------------------------------------------------------------------------------------------------------------------ not built yet
 function notBuilt(ctx) {
   throw stop('not_built', { command: ctx.args.command, plannedIn: NOT_BUILT[ctx.args.command] });
 }
 
-export const COMMAND_TABLE = Object.freeze({ help, version, init, trust, snapshot, run, exec: notBuilt, check: notBuilt, show, pack });
+export const COMMAND_TABLE = Object.freeze({ help, version, init, trust, snapshot, run, exec, check: notBuilt, show, pack });

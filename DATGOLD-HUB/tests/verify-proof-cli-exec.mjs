@@ -30,7 +30,7 @@ import { validateStatement } from '../lib/proof/pack.mjs';
 import { verifyChain } from '../lib/proof/ledger.mjs';
 import { parseFinalMarker } from '../lib/proof/marker.mjs';
 import { CLI_DATA_SCHEMAS, CLI_FORMAT, CLI_OUTPUT_SCHEMA, CODES, EXIT, MESSAGES } from '../lib/proof/cli/index.mjs';
-import { CLAIM_WINDOW_BYTES, LOG_MAX_BYTES, claimText, readClaim, runCriteria } from '../lib/proof/cli/exec.mjs';
+import { CLAIM_WINDOW_BYTES, INTERRUPT_GRACE_MS, LOG_MAX_BYTES, claimText, outcomeOf, readClaim, runCriteria } from '../lib/proof/cli/exec.mjs';
 import { compileClaimMarker } from '../lib/proof/cli/args.mjs';
 import { ADAPTERS, ADAPTER_NAMES, readAgentOutput } from '../lib/proof/adapters/index.mjs';
 import { commitAll, newRepo, write } from './support/proof-tree-fixtures.mjs';
@@ -89,9 +89,10 @@ const GUARD_ARGS = ['--import', pathToFileURL(GUARD).href];
 const BASE_ENV = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:GIT_|CHATMCP_)/i.test(key)));
 Object.assign(BASE_ENV, { CHATMCP_STATE_DIR: STATE, PROOF_CLI_NETLOG: NETLOG });
 
-function spawnCollect(file, args, { cwd, env, onSpawn = null }) {
+function spawnCollect(file, args, { cwd, env, onSpawn = null, stdin = 'ignore' }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(file, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // stdin 'pipe' is left open until the process ends: what a CLI started by another program, never given an end of input, sees
+    const child = spawn(file, args, { cwd, env, windowsHide: true, stdio: [stdin, 'pipe', 'pipe'] });
     const out = [];
     const err = [];
     child.stdout.on('data', (chunk) => out.push(chunk));
@@ -102,7 +103,7 @@ function spawnCollect(file, args, { cwd, env, onSpawn = null }) {
   });
 }
 /** The CLI as a person runs it: `node bin/chatmcp.mjs <args>` in `cwd`. */
-const cli = (args, { cwd = SCRATCH, env = {}, onSpawn } = {}) => spawnCollect(process.execPath, [...GUARD_ARGS, BIN, ...args], { cwd, env: { ...BASE_ENV, ...env }, onSpawn });
+const cli = (args, { cwd = SCRATCH, env = {}, onSpawn, stdin } = {}) => spawnCollect(process.execPath, [...GUARD_ARGS, BIN, ...args], { cwd, env: { ...BASE_ENV, ...env }, onSpawn, stdin });
 
 const outputSchema = compileSchema(CLI_OUTPUT_SCHEMA);
 const dataSchemas = Object.fromEntries(Object.entries(CLI_DATA_SCHEMAS).map(([name, schema]) => [name, compileSchema(schema)]));
@@ -167,6 +168,8 @@ const ledgerEntries = (file) => fs.readFileSync(file, 'utf8').split('\n').filter
 // ------------------------------------------------------------------------------------------------------------------------- the fake agents
 // Each runs in the workspace (its cwd) as `node <file> [args]`, the way a person would wrap `claude -p ...`.
 const FIXED = 'export const add = (a, b) => a + b;\n';
+// shaped like a key so that the masker knows it; not a real one, and joined here so that no key-shaped literal is in the source
+const SECRET = ['sk', 'ant', 'api03', 'abcdefghijklmnopqrstuvwxyz0123456789'].join('-');
 const agent = (name, source) => { const file = path.join(AGENTS, `${name}.mjs`); fs.writeFileSync(file, source); return file; };
 const FIX = `fs.writeFileSync('src/add.mjs', ${JSON.stringify(FIXED)});`;
 const EDIT_OUT = 'I fixed the sign in add().\nDONE\n';
@@ -180,7 +183,18 @@ const A = {
   silent: agent('silent', `import fs from 'node:fs';\n${FIX}\nprocess.stdout.write('I changed add(). It should work.\\n');\n`),
   custom: agent('custom', `import fs from 'node:fs';\n${FIX}\nprocess.stdout.write('Work finished.\\nTASK COMPLETE\\n');\n`),
   claude: agent('claude', `import fs from 'node:fs';\n${FIX}\nconst init = { type: 'system', subtype: 'init', session_id: 's1', model: 'claude-test-model', claude_code_version: '2.9.9', cwd: process.cwd(), tools: [] };\nconst result = { type: 'result', subtype: 'success', is_error: false, result: 'Fixed add().\\nDONE', total_cost_usd: 0.0123, num_turns: 2, duration_ms: 1500, session_id: 's1', usage: {} };\nprocess.stdout.write(JSON.stringify(init) + '\\n' + JSON.stringify(result) + '\\n');\n`),
-  codex: agent('codex', `const events = [{ type: 'thread.started', thread_id: 't1' }, { type: 'turn.started' }, { type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'Looking.' } }, { type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'I cannot reach the registry.\\nBLOCKED: no network access' } }, { type: 'turn.completed', usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 } }];\nprocess.stdout.write(events.map((event) => JSON.stringify(event)).join('\\n') + '\\n');\n`),
+  codex: agent('codex', `const events = [{ type: 'thread.started', thread_id: 't1' }, { type: 'turn.started' }, { type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'Looking.' } }, { type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'I cannot reach the registry.\\nBLOCKED: no network access (${SECRET} was refused)' } }, { type: 'turn.completed', usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 } }];\nprocess.stdout.write(events.map((event) => JSON.stringify(event)).join('\\n') + '\\n');\n`),
+  // leaves a child behind that still holds its output pipes, and exits (on Windows a child that is not detached dies with a Node parent:
+  // libuv puts it in a job that is closed with the parent)
+  leftover: agent('leftover', `import fs from 'node:fs';\nimport { spawn } from 'node:child_process';\n${FIX}\nconst child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit', detached: process.platform === 'win32' });\nchild.unref();\nfs.writeFileSync(process.argv[2], JSON.stringify([child.pid]));\nprocess.stdout.write('done, a helper keeps running\\nDONE\\n');\nprocess.exit(0);\n`),
+  // a process that runs until it is killed, its pid written first
+  background: agent('background', `import fs from 'node:fs';\nfs.writeFileSync(process.argv[2] + '.tmp', JSON.stringify([process.pid]));\nfs.renameSync(process.argv[2] + '.tmp', process.argv[2]);\nsetInterval(() => {}, 1000);\n`),
+  // waits until that process has written its pid, then edits and claims DONE
+  afterBackground: agent('after-background', `import fs from 'node:fs';\nconst until = Date.now() + 20000;\nwhile (!fs.existsSync(process.argv[2]) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));\n${FIX}\nprocess.stdout.write('DONE\\n');\n`),
+  // reads its standard input to the end
+  stdin: agent('stdin', `import fs from 'node:fs';\n${FIX}\nconst input = fs.readFileSync(0);\nprocess.stdout.write('stdin held ' + input.length + ' bytes\\nDONE\\n');\n`),
+  // prints the words it was given, then DONE with no line break after it
+  argv: agent('argv', `import fs from 'node:fs';\n${FIX}\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\nDONE');\n`),
   big: agent('big', `import fs from 'node:fs';\n${FIX}\nconst line = 'x'.repeat(1023) + '\\n';\nconst block = line.repeat(1024);\nfor (let i = 0; i < 17; i += 1) process.stdout.write(block);\nprocess.stdout.write('DONE\\n');\n`),
   interrupt: agent('interrupt', `import fs from 'node:fs';\nimport { spawn } from 'node:child_process';\nconst child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });\nfs.writeFileSync(process.argv[2] + '.tmp', JSON.stringify([process.pid, child.pid]));\nfs.renameSync(process.argv[2] + '.tmp', process.argv[2]);\nprocess.stdout.write('working\\n');\nsetInterval(() => {}, 1000);\n`),
   ran: agent('ran', `import fs from 'node:fs';\nfs.writeFileSync(process.argv[2], 'the agent ran');\nprocess.stdout.write('DONE\\n');\n`),
@@ -269,7 +283,10 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   assert.equal(withCustom('DONE').marker, null, 'a custom marker replaces DONE');
   assert.deepEqual([withCustom('BLOCKED: stuck').marker, withCustom('BLOCKED: stuck').reason], ['BLOCKED', 'stuck'], 'BLOCKED stays the contract\'s');
   assert.equal(readClaim('BLOCKED: stuck', { pattern: compileClaimMarker('BLOCKED: .+') }).marker, 'BLOCKED', 'a custom marker never turns BLOCKED into DONE');
-  assert.equal(withCustom(`${'TASK COMPLETE'.padEnd(1001, ' ')}x`).marker, null, 'a line over 1,000 characters is not tested');
+  const xs = compileClaimMarker('x+');
+  assert.deepEqual([readClaim('x'.repeat(1000), { pattern: xs }).marker, readClaim('x'.repeat(1001), { pattern: xs }).marker], ['DONE', null], 'a line of 1,000 characters is tested, a longer one is not');
+  assert.equal(compileClaimMarker('a/b').claimMarker, 'a/b', 'the pattern is recorded as it was written');
+  assert.equal(readClaim('a/b', { pattern: compileClaimMarker('a/b') }).pattern, 'a/b');
   for (const bad of ['(', '', 'a'.repeat(201), '.*', 'x?', '\\', '[']) {
     assert.throws(() => compileClaimMarker(bad), (error) => error.code === 'bad_value' && error.detail.option === '--claim-marker', `--claim-marker ${JSON.stringify(bad.slice(0, 20))} is refused`);
   }
@@ -287,6 +304,28 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   }
   ok('the claim: the window rules (no false DONE from a cut), the contract, a custom DONE marker (anchored, never shadowing BLOCKED, refused when it matches nothing or everything), a runaway pattern stopped');
 }
+{
+  // the answer code: first match wins
+  const ran = { interrupted: false, timedOut: false, exit: 0, signal: null };
+  const done = { marker: 'DONE' };
+  const of = (agent, claim, statuses) => outcomeOf({ ...ran, ...agent }, claim, statuses.map((status, index) => ({ id: `c${index}`, status })));
+  const table = [
+    [{ interrupted: true, timedOut: true, exit: null, signal: 'SIGKILL' }, done, ['evidenced'], 'exec_interrupted'],
+    [{ timedOut: true, exit: null, signal: 'SIGKILL' }, done, ['evidenced'], 'agent_timed_out'],
+    [{ exit: 2 }, done, ['evidenced'], 'agent_failed'],
+    [{ exit: null, signal: 'SIGTERM' }, done, ['evidenced'], 'agent_failed'],
+    [{}, { marker: 'BLOCKED' }, ['evidenced'], 'agent_blocked'],
+    [{}, { marker: null }, ['evidenced'], 'no_claim'],
+    [{}, done, ['evidenced', 'failed'], 'claim_refuted'],
+    [{}, done, ['checks_modified', 'stale'], 'claim_refuted'],
+    [{}, done, ['evidenced', 'stale'], 'claim_unverified'],
+    [{}, done, ['unverified'], 'claim_unverified'],
+    [{}, done, [], 'claim_unverified'],
+    [{}, done, ['evidenced', 'owner_accepted'], 'exec_evidenced'],
+  ];
+  for (const [agent, claim, statuses, code] of table) assert.equal(of(agent, claim, statuses), code, `${JSON.stringify(agent)} ${claim.marker} ${statuses.join(',')} -> ${code}`);
+  ok(`the answer code of an exec, ${table.length} cases: Ctrl-C, the time limit, a failed agent, BLOCKED, no claim, then DONE against the criteria`);
+}
 
 // ------------------------------------------------------------------------------------------------------------------------- 3. the adapters
 {
@@ -298,7 +337,7 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
     cost: { currency: 'USD', knownSubtotal: 0.5, complete: false }, model: null, agentVersion: null, isError: false,
   });
   // stream-json: the init event names the model and the version, the last result event is the outcome
-  const stream = read('claude', [{ type: 'system', subtype: 'init', model: 'm-1', claude_code_version: '2.1.0' }, { type: 'assistant', message: {} },
+  const stream = read('claude', [{ type: 'system', subtype: 'hook_response', model: 'not-the-model' }, { type: 'system', subtype: 'init', model: 'm-1', claude_code_version: '2.1.0' }, { type: 'assistant', message: {} },
     { type: 'result', subtype: 'success', is_error: false, result: 'first', total_cost_usd: 1 }, { type: 'result', subtype: 'success', is_error: false, result: 'second\nDONE', total_cost_usd: 2 }]);
   assert.deepEqual([stream.recognized, stream.finalMessage, stream.cost.knownSubtotal, stream.model, stream.agentVersion], [true, 'second\nDONE', 2, 'm-1', '2.1.0']);
   const failed = read('claude', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true, errors: ['too many turns'], total_cost_usd: 0.1 }));
@@ -313,7 +352,8 @@ const exec = (repo, words, options = [], extra = {}) => ask(['verify', 'exec', .
   assert.equal(read('claude', [{ type: 'system', subtype: 'init', claude_code_version: 'v'.repeat(100) }, { type: 'result', result: 'x' }]).agentVersion.length, 64, 'a version is cut to 64 characters');
   // Codex: JSON Lines; the last agent message is the final one; no cost is documented
   const codex = read('codex', [{ type: 'thread.started', thread_id: 't' }, { type: 'item.completed', item: { type: 'agent_message', text: 'one' } },
-    { type: 'item.completed', item: { type: 'command_execution', command: 'ls' } }, { type: 'item.completed', item: { type: 'agent_message', text: 'two\nDONE' } }, { type: 'turn.completed', usage: {} }]);
+    { type: 'item.completed', item: { type: 'command_execution', command: 'ls' } }, { type: 'item.completed', item: { type: 'agent_message', text: 'two\nDONE' } },
+    { type: 'item.completed', item: { type: 'reasoning', text: 'thinking about it' } }, { type: 'turn.completed', usage: {} }]);
   assert.deepEqual([codex.recognized, codex.finalMessage, codex.cost, codex.isError, codex.model], [true, 'two\nDONE', null, false, null]);
   assert.equal(read('codex', [{ type: 'turn.started' }, { type: 'turn.failed', error: {} }]).isError, true, 'turn.failed is an error');
   assert.equal(read('codex', [{ type: 'thread.started' }, { type: 'error', message: 'x' }]).isError, true, 'an error event is an error');
@@ -406,12 +446,19 @@ async function trustAcceptance(repo) {
 
 // ------------------------------------------------------------------------------------------------------------------------- 6. the fake agents
 {
-  const repos = Object.fromEntries(['edit', 'tamper', 'falseDone', 'crash', 'hang', 'blocked', 'silent', 'claude', 'codex', 'custom', 'cost', 'big', 'human'].map((name) => [name, buggyRepository(`exec-${name}`)]));
+  const names = ['edit', 'tamper', 'falseDone', 'crash', 'hang', 'blocked', 'silent', 'claude', 'codex', 'custom', 'cost', 'big', 'human', 'fallback', 'leftover', 'stdin', 'argv'];
+  const repos = Object.fromEntries(names.map((name) => [name, buggyRepository(`exec-${name}`)]));
   await trustAcceptance(repos.edit);
   const hangPids = path.join(MARKS, 'hang.pids');
+  const leftoverPids = path.join(MARKS, 'leftover.pids');
+  const shellLeftoverPid = path.join(MARKS, 'shell-leftover.pids');
+  // Windows: PowerShell starts a process with Start-Process and ends; the command is one word, which PowerShell gets as it is
+  const powershellLine = `Start-Process -NoNewWindow -FilePath '${process.execPath}' -ArgumentList '"${A.background}"', '"${shellLeftoverPid}"'; node '${A.afterBackground}' '${shellLeftoverPid}'`;
+  const shellLeftoverRun = process.platform !== 'win32' ? Promise.resolve(null)
+    : ask(['verify', 'exec', '--shell', 'powershell', '--', powershellLine], { cwd: buggyRepository('exec-shell-leftover') });
   const editBefore = fingerprint(repos.edit);
   const started = performance.now();
-  const [edit, tamper, falseDone, crash, hang, blocked, silent, claude, codex, custom, cost, big, human] = await Promise.all([
+  const [edit, tamper, falseDone, crash, hang, blocked, silent, claude, codex, custom, cost, big, human, fallback, leftover, stdin, argv] = await Promise.all([
     exec(repos.edit, [A.edit], ['--agent', 'fake-edit', '--agent-version', '1.0.0']),
     exec(repos.tamper, [A.tamper]),
     exec(repos.falseDone, [A.falseDone]),
@@ -425,7 +472,12 @@ async function trustAcceptance(repo) {
     exec(repos.cost, [A.edit], ['--cost-usd', '1.25']),
     exec(repos.big, [A.big]),
     cli(['verify', 'exec', '--', 'node', A.edit], { cwd: repos.human }),
+    exec(repos.fallback, [A.edit], ['--adapter', 'claude']),
+    exec(repos.leftover, [A.leftover, leftoverPids]),
+    exec(repos.stdin, [A.stdin], ['--timeout', '30'], { stdin: 'pipe' }),
+    cli(['verify', 'exec', '--lang', 'vi', '--', 'node', A.argv, '/not/a/path', 'a b', "it's"], { cwd: repos.argv }),
   ]);
+  const shellLeftover = await shellLeftoverRun;
   const wall = performance.now() - started;
 
   // the agent that edits: every criterion evidenced, exit 0
@@ -433,6 +485,7 @@ async function trustAcceptance(repo) {
   const { data } = edit;
   assert.deepEqual(data.claim, { marker: 'DONE', reason: null, from: 'stdout', rule: 'contract', pattern: null, line: 'DONE', markerTimedOut: false });
   assert.deepEqual([data.agent.exit, data.agent.signal, data.agent.timedOut, data.agent.interrupted], [0, null, false, false]);
+  assert.equal(data.agent.timeoutMs, 3_600_000, 'an hour unless --timeout says otherwise');
   assert.deepEqual([data.agent.name, data.agent.version], ['fake-edit', '1.0.0']);
   assert.deepEqual(data.agent.stdout, { sha256: sha256(EDIT_OUT), bytes: Buffer.byteLength(EDIT_OUT), logged: Buffer.byteLength(EDIT_OUT), truncated: false }, 'the stdout hash is of the exact bytes the agent wrote');
   assert.equal(data.agent.stderr.bytes, 0);
@@ -487,6 +540,7 @@ async function trustAcceptance(repo) {
   assert.ok(hang.data.agent.durationMs >= 3900 && hang.data.agent.durationMs < 20_000, `stopped at its timeout (${hang.data.agent.durationMs} ms)`);
   const pids = JSON.parse(fs.readFileSync(hangPids, 'utf8'));
   assert.ok(await goneWithin(pids, 10_000), `the agent and its child are gone (${pids.join(', ')})`);
+  assert.notEqual(hang.data.agent.treeLeft, true, 'killTree took the whole tree at the timeout: nothing was left for the sweep after it');
   assert.deepEqual(hang.data.criteria, [{ id: 'unit', status: 'failed' }]);
   // BLOCKED
   expectAnswer(blocked, 1, 'agent_blocked', 'the agent that says BLOCKED');
@@ -507,7 +561,40 @@ async function trustAcceptance(repo) {
   assert.equal(claude.data.statement.predicate.model.id, 'claude-test-model');
   // Codex's JSON Lines: BLOCKED in its last agent message
   expectAnswer(codex, 1, 'agent_blocked', 'the Codex-like JSON Lines through --adapter codex');
-  assert.deepEqual([codex.data.claim.reason, codex.data.claim.from, codex.data.cost], ['no network access', 'adapter', 'unknown']);
+  assert.deepEqual([codex.data.claim.from, codex.data.cost], ['adapter', 'unknown']);
+  // the reason held something shaped like a key: masked in the answer and in the ledger alike
+  assert.equal(codex.data.claim.reason, 'no network access ([REDACTED] was refused)', `the reason is masked: ${codex.data.claim.reason}`);
+  assert.deepEqual(ledgerEntries(codex.data.paths.ledger)[1].record.claim, codex.data.claim, 'the answer gives what the ledger holds');
+  assert.ok(!JSON.stringify(codex).includes(SECRET), 'the key-shaped text is nowhere in the answer');
+  // an adapter that does not recognise the output: nothing of it is used, the claim comes from stdout as text
+  expectAnswer(fallback, 0, 'exec_evidenced', 'plain text output through --adapter claude');
+  assert.deepEqual([fallback.data.adapter.recognized, fallback.data.adapter.reason, fallback.data.claim.from, fallback.data.cost], [false, 'not_json', 'stdout', 'unknown']);
+  // a child left behind that holds the output pipes: the streams are let go after the linger, the child is killed on Linux and macOS (its
+  // process group); on Windows its parent, the agent, is gone, so nothing links it to the tree (docs/PROOF-CLI.md says so)
+  expectAnswer(leftover, 0, 'exec_evidenced', 'an agent that leaves a child behind');
+  assert.equal(leftover.data.agent.lingering, true, 'the child kept the pipes open: exec stopped waiting for them');
+  const leftoverChild = JSON.parse(fs.readFileSync(leftoverPids, 'utf8'));
+  if (process.platform !== 'win32') {
+    assert.equal(leftover.data.agent.treeLeft, true, 'something of the tree was left');
+    assert.ok(await goneWithin(leftoverChild, 10_000), 'and it was killed before the checks ran');
+  } else {
+    for (const pid of leftoverChild) { try { process.kill(pid); } catch { /* gone */ } }
+  }
+  // on Windows, a process the shell started and left (PowerShell's Start-Process) is linked to the agent's root and killed
+  if (shellLeftover) {
+    expectAnswer(shellLeftover, 0, 'exec_evidenced', 'a shell that leaves a process behind');
+    assert.equal(shellLeftover.data.agent.treeLeft, true, 'the process the shell left was found');
+    assert.ok(await goneWithin(JSON.parse(fs.readFileSync(shellLeftoverPid, 'utf8')), 10_000), 'and killed before the checks ran');
+  }
+  // standard input is closed: an agent that reads it to the end gets nothing at once, even when exec's own input never ends
+  expectAnswer(stdin, 0, 'exec_evidenced', 'an agent that reads its standard input');
+  assert.match(fs.readFileSync(stdin.data.paths.stdoutLog, 'utf8'), /^stdin held 0 bytes\n/, 'it read an empty input');
+  assert.ok(stdin.data.agent.durationMs < 20_000, `and did not wait for exec's own input (${stdin.data.agent.durationMs} ms)`);
+  // the words reach the agent unchanged (no path conversion through Git Bash), and the answer starts on a line of its own
+  assert.equal(argv.status, 0, `exec of the argv agent exits 0: ${argv.stderr}`);
+  const printed = `${JSON.stringify(['/not/a/path', 'a b', "it's"])}\nDONE`;
+  assert.ok(argv.stdout.startsWith(`${printed}\n`), `the words arrived unchanged and the answer begins on a new line: ${JSON.stringify(argv.stdout.slice(0, 120))}`);
+  assert.ok(argv.stdout.includes(MESSAGES.exec_evidenced.vi({ total: 1, file: '' }).slice(0, 30)), 'in Vietnamese');
   // a custom DONE marker
   expectAnswer(custom, 0, 'exec_evidenced', 'a custom marker through --claim-marker');
   assert.deepEqual([custom.data.claim.rule, custom.data.claim.pattern], ['claim-marker', 'TASK COMPLETE']);
@@ -527,7 +614,7 @@ async function trustAcceptance(repo) {
   assert.ok(human.stdout.startsWith(EDIT_OUT), `the agent's output comes first: ${human.stdout.slice(0, 200)}`);
   assert.match(human.stdout.slice(EDIT_OUT.length), /DONE/, 'then the answer');
   assert.ok(wall < 120_000, `the agents ran in parallel within the budget (${Math.round(wall)} ms)`);
-  ok('the fake agents through the real CLI: edit (0), tamper (checks_modified), false DONE (failed, claim recorded), crash, hang (tree killed at --timeout), BLOCKED, no marker; the Claude and Codex adapters, a custom marker, --cost-usd, 17 MiB of output, the human output');
+  ok('the fake agents through the real CLI: edit (0), tamper (checks_modified), false DONE (failed, claim recorded), crash, hang (tree killed at --timeout), BLOCKED, no marker; the Claude and Codex adapters and an unrecognised output, a custom marker, --cost-usd, 17 MiB of output, a child left behind, a closed standard input, the words unchanged, the human output');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- 6b. the criteria step alone
@@ -558,25 +645,37 @@ import { EventEmitter } from 'node:events';
 const { main } = await import(process.env.CLI_URL);
 const signals = new EventEmitter();
 const ready = process.env.READY_FILE;
-const timer = setInterval(() => { if (fs.existsSync(ready)) { clearInterval(timer); signals.emit('SIGINT'); } }, 50);
+const times = Number(process.env.INTERRUPTS);
+const timer = setInterval(() => { if (fs.existsSync(ready)) { clearInterval(timer); for (let i = 0; i < times; i += 1) signals.emit('SIGINT'); } }, 50);
 process.exitCode = await main(process.argv.slice(2), { signals });
 clearInterval(timer);
 `);
-  const repo = buggyRepository('interrupt-injected');
-  await trustAcceptance(repo);
-  const ready = path.join(MARKS, 'injected.pids');
-  const injected = answerOf(await spawnCollect(process.execPath, [...GUARD_ARGS, driver, 'verify', 'exec', '--json', '--', 'node', A.interrupt, ready], {
-    cwd: repo, env: { ...BASE_ENV, CLI_URL: pathToFileURL(path.join(HUB, 'lib', 'proof', 'cli', 'index.mjs')).href, READY_FILE: ready },
-  }), 'exec interrupted (injected)');
+  const interrupted = async (label, times) => {
+    const repo = buggyRepository(`interrupt-${label}`);
+    await trustAcceptance(repo);
+    const ready = path.join(MARKS, `${label}.pids`);
+    const answer = answerOf(await spawnCollect(process.execPath, [...GUARD_ARGS, driver, 'verify', 'exec', '--json', '--timeout', '60', '--', 'node', A.interrupt, ready], {
+      cwd: repo, env: { ...BASE_ENV, CLI_URL: pathToFileURL(path.join(HUB, 'lib', 'proof', 'cli', 'index.mjs')).href, READY_FILE: ready, INTERRUPTS: String(times) },
+    }), `exec interrupted ${times} time(s) (injected)`);
+    return { answer, pids: JSON.parse(fs.readFileSync(ready, 'utf8')) };
+  };
+  const [once, twice] = await Promise.all([interrupted('once', 1), interrupted('twice', 2)]);
+  const injected = once.answer;
   expectAnswer(injected, 1, 'exec_interrupted', 'Ctrl-C while the agent runs (injected)');
   assert.equal(injected.data.agent.interrupted, true);
+  assert.equal(injected.data.agent.timedOut, false, 'stopped by the interrupt, not by --timeout');
+  assert.ok(injected.data.agent.durationMs < INTERRUPT_GRACE_MS + 10_000, `stopped within the grace (${injected.data.agent.durationMs} ms)`);
   assert.equal(injected.data.pack, null, 'no pack is built after a Ctrl-C');
+  assert.equal(injected.data.statement, null);
   assert.deepEqual(injected.data.checks, [], 'no check runs after a Ctrl-C');
-  const pids = JSON.parse(fs.readFileSync(ready, 'utf8'));
-  assert.ok(await goneWithin(pids, 10_000), `the agent and its child are gone (${pids.join(', ')})`);
+  assert.ok(await goneWithin(once.pids, 10_000), `the agent and its child are gone (${once.pids.join(', ')})`);
   const entries = ledgerEntries(injected.data.paths.ledger);
   assert.deepEqual(entries.map((entry) => entry.type), ['task_start', 'call'], 'the agent\'s run is recorded, nothing after it');
   assert.equal(entries[1].record.interrupted, true);
+  // a second Ctrl-C does not wait for the grace
+  expectAnswer(twice.answer, 1, 'exec_interrupted', 'two Ctrl-C while the agent runs (injected)');
+  assert.ok(twice.answer.data.agent.durationMs < INTERRUPT_GRACE_MS, `the second one killed the tree at once (${twice.answer.data.agent.durationMs} ms)`);
+  assert.ok(await goneWithin(twice.pids, 10_000), `the agent and its child are gone (${twice.pids.join(', ')})`);
   let real = 'not run: Windows has no way to send a Ctrl-C to one process';
   if (process.platform !== 'win32') {
     // a real SIGINT, as a terminal sends it to the CLI

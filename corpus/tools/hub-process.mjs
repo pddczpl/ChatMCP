@@ -1,5 +1,6 @@
-// The second and last bridge from the corpus tools into DatGold (corpus/README.md, "Splitting out the corpus"): the process half the run
-// sandbox and the scoring checkout use (corpus/SANDBOX.md). The first bridge, acceptance-parser.mjs, is the acceptance reader.
+// The second bridge from the corpus tools into DatGold (corpus/README.md, "Splitting out the corpus"): the process half the run
+// sandbox and the scoring checkout use (corpus/SANDBOX.md). The first bridge, acceptance-parser.mjs, is the acceptance reader; the third,
+// marker.mjs, the marker contract and its reader.
 //
 //   killTree, scrubEnv, BoundedCapture, ShellRunner   DATGOLD-HUB/lib/shell-runner.mjs: kill a process tree, drop credential-looking
 //                                                     variables, bounded output, the shell the Hub's checks run in
