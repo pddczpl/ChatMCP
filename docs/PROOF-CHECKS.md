@@ -86,6 +86,28 @@ When the tree is unknown, nothing can be fresh:
 - without a final tree (no snapshot engine, or the last snapshot failed) the runner rolls nothing up: `criteria` is `null`, and nothing
   is evidenced.
 
+**Outputs a check writes: a plain folder.** Which writes change the tree depends on the snapshot engine ([PROOF-TREE.md](PROOF-TREE.md)).
+
+- **A Git workspace** uses `git-pinned-v1`. An untracked path that `.gitignore` excludes is not in the tree, so a check that writes
+  only ignored outputs leaves the tree as it found it.
+- **A plain folder** (no Git repository) uses `raw-v1` with no ignore rules (`ignoreRules: 'none'`). The same holds when Git is
+  missing, and when the repository's configuration makes the Hub refuse to start Git at all (`repository_config_refused`). Other
+  `raw-v1` fallbacks still let Git list the files and keep the ignore rules. Without ignore rules every byte a check writes into the
+  workspace is part of the tree: `__pycache__`, `.pytest_cache`, a coverage report, `node_modules/.cache`, build output.
+
+A run that wrote such outputs changed the tree, so its pass is not evidence. The runner runs the check again on the new tree:
+
+- if the re-run writes the same bytes (compiled `.pyc` files of unchanged sources, say), the tree is unchanged and the re-run counts;
+- if every run writes new bytes (a coverage report with a time stamp, a cache that records the last run), the check stays unreliable
+  and its criterion is never `evidenced`.
+
+The ways out:
+
+- make the workspace a Git repository and list the outputs in `.gitignore` (`__pycache__/`, `.pytest_cache/`, `.coverage`,
+  `coverage/`);
+- or make the check write nothing into the workspace, for example
+  `run: "PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider"`, or a coverage report written outside the workspace.
+
 A check whose receipts are on an older tree because a later check changed the tree is `stale`. The runner does not go back and run it
 again. A caller that wants fresh evidence runs the checks again once the tree no longer changes.
 
@@ -131,6 +153,8 @@ What each case of the test plan gives (`tests/verify-proof-checks.mjs` runs each
 | changes the tree on its 2nd run only, `repeat: 2` | 4 (the count starts again) | `stale` when a later check changed the tree | `stale` |
 | ran before another check changed the tree | 1 | `stale` | `stale` |
 | keeps changing the tree | 3, `unreliable` | `stale` | `stale` |
+| writes new bytes on every run, into a folder `.gitignore` lists (Git workspace) | 1 | `passed` | `evidenced` |
+| the same check in a plain folder (`raw-v1`, no ignore rules) | 3, `unreliable` | `stale` | `stale` |
 | toggles a file | 3, `unreliable` | `stale` | `stale` |
 | its folder is missing | 0, `error: bad_cwd` | `not_run` | `unverified` |
 | leaves a child process behind (quiet, or holding the output) | 1, the child reaped | as its exit code | `evidenced` |

@@ -703,29 +703,53 @@ const matrix = buildAgentChangeStatement(matrixInput());
 {
   // a run that changed the tree (pod-21, docs/PROOF-CHECKS.md): a pass counts only when the run started AND ended on the final tree; a
   // failure that started on it counts whatever it did; the runs a passed check lists are its counted passes
-  const text = ['version: 1', 'criteria:', ...['settled', 'changed', 'changed-fail', 'after-unknown'].flatMap((id) => [
+  const ids = ['toggle', 'prettier', 'rerun', 'settled', 'changed', 'changed-fail', 'after-unknown'];
+  const text = ['version: 1', 'criteria:', ...ids.flatMap((id) => [
     `  - id: c-${id}`, `    text: "${id}"`, '    checks:', `      - run: "node ${id}.js"`]), ''].join('\n');
   const hub = fresh('changed-hub');
   const store = createTrustStore(hub);
   await store.trust(acceptanceSha256(text), { approvedBy: 'owner', at: AT });
   const changedLedger = ProofLedger.forTask(hub, 'changed', { now: () => new Date(AT) });
   const append = (command, result, treeBefore, treeAfter) => changedLedger.append('check', checkReceipt({ command, result, treeBefore, treeAfter }));
-  await append('node settled.js', runResult(), FINAL, OTHER); // 1: passed, but changed the tree
-  await append('node settled.js', runResult(), FINAL, FINAL); // 2: the run that counts
-  await append('node settled.js', runResult(), OTHER, FINAL); // 3: started on another tree
-  await append('node changed.js', runResult(), FINAL, OTHER); // 4: the run on the final tree, changing it: the one the reason names
-  await append('node changed.js', runResult(), OTHER, FINAL); // 5: a later run on another tree
-  await append('node changed-fail.js', runResult({ exitCode: 1 }), FINAL, OTHER); // 6: a failure counts
-  await append('node after-unknown.js', runResult(), FINAL, null); // 7: no tree after it
-  const statement = buildAgentChangeStatement(matrixInput({ acceptance: await resolveAcceptance({ baseline: text, current: text, trustStore: store }), checkChanges: null, ledger: fs.readFileSync(changedLedger.file), ownerAcceptances: [] }));
+  // FINAL is the final tree (A), OTHER another tree (B)
+  await append('node toggle.js', runResult(), OTHER, FINAL); // 1: the toggle: B->A,
+  await append('node toggle.js', runResult(), FINAL, OTHER); // 2:   A->B (started on the final tree, exit 0, changed it),
+  await append('node toggle.js', runResult(), OTHER, FINAL); // 3:   B->A
+  await append('node prettier.js', runResult(), FINAL, OTHER); // 4: `prettier --write` fixed A into B; a later step put A back
+  await append('node rerun.js', runResult(), OTHER, FINAL); // 5: changed the tree on its first attempt,
+  await append('node rerun.js', runResult(), FINAL, FINAL); // 6:   then ran stable on the new final tree
+  await append('node settled.js', runResult(), FINAL, OTHER); // 7: passed, but changed the tree
+  await append('node settled.js', runResult(), FINAL, FINAL); // 8: the run that counts
+  await append('node settled.js', runResult(), OTHER, FINAL); // 9: started on another tree
+  await append('node changed.js', runResult(), FINAL, OTHER); // 10: the run on the final tree, changing it: the one the reason names
+  await append('node changed.js', runResult(), OTHER, FINAL); // 11: a later run on another tree
+  await append('node changed-fail.js', runResult({ exitCode: 1 }), FINAL, OTHER); // 12: a failure counts
+  await append('node after-unknown.js', runResult(), FINAL, null); // 13: no tree after it
+  const side = memorySide({ '.chatmcp/acceptance.yml': text, 'src/app.js': 'v1\n' });
+  const changes = await detectCheckChanges({ baseline: side, final: side, acceptance: parseAcceptance(text) });
+  const input = matrixInput({ acceptance: await resolveAcceptance({ baseline: text, current: text, trustStore: store }), checkChanges: changes, ledger: fs.readFileSync(changedLedger.file), ownerAcceptances: [] });
+  const statement = buildAgentChangeStatement(input);
   valid(statement);
   const row = (id) => criterionOf(statement, `c-${id}`).checks[0];
-  assert.deepEqual(['settled', 'changed', 'changed-fail', 'after-unknown'].map((id) => `${row(id).result}/${row(id).passes}/${row(id).receipts.join(',')}`),
-    ['passed/1/2', 'stale/0/4,5', 'failed/0/6', 'stale/0/7']);
+  assert.deepEqual(ids.map((id) => `${row(id).result}/${row(id).passes}/${row(id).receipts.join(',')}`),
+    ['stale/0/1,2,3', 'stale/0/4', 'passed/1/6', 'passed/1/8', 'stale/0/10,11', 'failed/0/12', 'stale/0/13']);
+  assert.deepEqual(ids.map((id) => criterionOf(statement, `c-${id}`).status), ['stale', 'stale', 'evidenced', 'evidenced', 'stale', 'failed', 'stale'],
+    'the toggle and the reverted formatter are never evidenced; the check that changed the tree once and then ran stable on it is');
   const detail = (id) => criterionOf(statement, `c-${id}`).reasons[0].detail;
-  assert.equal(detail('changed'), 'ran on the final tree but did not leave it as it found it', 'the stale reason names the run on the final tree');
+  for (const id of ['toggle', 'prettier', 'changed']) assert.equal(detail(id), 'ran on the final tree but did not leave it as it found it', `${id}: the reason names the run on the final tree`);
   assert.equal(detail('changed-fail'), 'exit 1, expected 0');
-  ok('a run that changed the tree: a pass counts only when it started and ended on the final tree, a failure on the final tree counts whatever it did; a passed check lists only its counted passes');
+  // the same two cases forged as passed (the old rule's answer) are refused by validateStatement
+  for (const [id, seq] of [['toggle', 2], ['prettier', 4]]) {
+    const forged = clone(statement);
+    const criterion = forged.predicate.criteria.find((item) => item.id === `c-${id}`);
+    const at = forged.predicate.criteria.indexOf(criterion);
+    Object.assign(criterion.checks[0], { result: 'passed', passes: 1, receipts: [seq] });
+    Object.assign(criterion, { status: 'evidenced', reasons: [] });
+    const result = validateStatement(forged);
+    assert.equal(result.valid, false, `${id} forged as passed`);
+    assert.deepEqual(result.errors.map((error) => `${error.path} ${error.keyword}`), [`/predicate/criteria/${at}/checks/0/receipts/0 semantic:passed_receipt`]);
+  }
+  ok('a run that changed the tree: a toggling check and a formatter whose fix was reverted are stale, never evidenced, and forged as passed they are refused; a check that changed the tree once and then ran stable on it is evidenced; a failure on the final tree counts whatever it did; a passed check lists only its counted passes');
 }
 
 // =====================================================================================================================

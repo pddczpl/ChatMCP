@@ -57,6 +57,8 @@ const TOOLS = {
   'tools/started.js': "require('fs').writeFileSync(process.argv[2], String(process.pid)); setTimeout(() => {}, 60000);\n",
   'tools/sleeper.js': "require('fs').writeFileSync(process.argv[2], String(process.pid)); setInterval(() => {}, 1000);\n",
   'tools/marker.js': "require('fs').writeFileSync(process.argv[2], 'ran');\n",
+  // writes new bytes into the workspace on every run, like a coverage report with a time stamp
+  'tools/stamp.js': "const fs = require('fs'); fs.mkdirSync('cache', { recursive: true }); fs.writeFileSync('cache/stamp.txt', String(process.hrtime.bigint()));\n",
   // changes the tree on its 2nd run only (counted in a file outside the workspace)
   'tools/second.js': "const fs = require('fs'); const file = process.argv[2]; const n = (fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0) + 1; fs.writeFileSync(file, String(n)); if (n === 2) fs.writeFileSync('second.txt', '2\\n');\n",
 };
@@ -79,13 +81,13 @@ function acceptanceText(criteria) {
 }
 
 /** A committed repository with the tools and an acceptance file, its ShellRunner, snapshot engine, ledger and trust store. */
-async function scenario(label, criteria, { trust = true, snapshots = true } = {}) {
-  const root = newRepo(label);
-  for (const [file, content] of Object.entries(TOOLS)) write(root, file, content);
+async function scenario(label, criteria, { trust = true, snapshots = true, git: repository = true, files = {} } = {}) {
+  const root = repository ? newRepo(label) : fresh(label);
+  for (const [file, content] of Object.entries({ ...TOOLS, ...files })) write(root, file, content);
   write(root, 'README.md', `# ${label}\n`);
   const baselineText = acceptanceText(criteria);
   write(root, '.chatmcp/acceptance.yml', baselineText);
-  commitAll(root);
+  if (repository) commitAll(root);
   const hub = fresh(`${label}-hub`);
   const state = fresh(`${label}-state`);
   const workspace = new StudioWorkspace({ manager: { workspace: root }, directory: state });
@@ -286,6 +288,24 @@ async function gone(pids, ms) {
   assert.equal(byId(report).toggle.reasons[0].detail, 'ran on the final tree but did not leave it as it found it');
   await packOf(s, report);
   ok(`a check that keeps changing the tree is run again at most ${TREE_RERUNS} times and is unreliable; a toggling check passed on the final tree but changed it: never evidenced; the pack agrees`);
+}
+
+{
+  // outputs a check writes: ignored in a Git workspace, part of the tree in a plain folder (raw-v1, no ignore rules)
+  const criteria = [{ id: 'stamp', checks: [{ run: 'node tools/stamp.js' }] }];
+  const ignored = await scenario('ignored', criteria, { files: { '.gitignore': 'cache/\n' } });
+  const g = await run(ignored);
+  assert.equal(g.finalTree.treeAlgorithm, 'git-pinned-v1');
+  assert.deepEqual(attemptsOf(g, 'stamp').map((attempt) => attempt.treeChanged), [false], 'an ignored output leaves the tree as it was');
+  assert.deepEqual(statusOf(g), { stamp: 'evidenced' });
+  await packOf(ignored, g);
+  const plain = await scenario('plain', criteria, { git: false });
+  const p = await run(plain, { checkChanges: null });
+  assert.equal(p.finalTree.treeAlgorithm, 'raw-v1');
+  assert.deepEqual(attemptsOf(p, 'stamp').map((attempt) => attempt.treeChanged), [true, true, true]);
+  assert.equal(runsOf(p, 'stamp').unreliable, true);
+  assert.deepEqual(p.criteria.map((criterion) => [criterion.id, criterion.status, criterion.checks[0].result]), [['stamp', 'stale', 'stale']]);
+  ok('a check writing new bytes on every run: evidenced in a Git workspace that ignores the output, unreliable and never evidenced in a plain folder (raw-v1 applies no ignore rules)');
 }
 
 // ------------------------------------------------------------------ 3. nothing runs without trust, with an edit, without a file

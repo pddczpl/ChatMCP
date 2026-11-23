@@ -127,10 +127,20 @@ The builder reads the outputs of the merged Proof-of-Done pieces and nothing els
   written with `/`, without a leading `./` or a trailing `/`, the root being `.`.
 - A matching receipt **started on the final tree** when its `treeBefore` has the final tree's `treeAlgorithm`, object format and id:
   the command ran on exactly the content the pack names. It **ended on the final tree** when its `treeAfter` has them too.
-- A failure counts when its run started on the final tree, whatever the run did afterwards. A pass counts only when its run started
-  **and** ended on the final tree: a command that changed the tree is no evidence that the tree passes (a formatter run as a check fixes
-  what it checks and exits 0; [PROOF-CHECKS.md](../PROOF-CHECKS.md)). Changed on 2026-11-23 with the check runner (pod-21); before that
-  date a passing run counted for the tree it started from even when it changed the tree.
+- A failure counts when its run started on the final tree, whatever the run did afterwards: it failed on exactly that content.
+- A pass counts only when its run started **and** ended on the final tree. A command that changed the tree is no evidence that the
+  tree passes, because what it checked is not what it left. Two cases show why counting it for the tree it started from was wrong:
+  - a check that toggles a file runs T1→T0, T0→T1, T1→T0, ... When the final tree is T1, a run that started on T1 exited 0, yet the
+    check never leaves T1 as it found it;
+  - a formatter run as a check (`prettier --write`) fixes what it checks and exits 0. When a later check or step puts the unformatted
+    file back, the final tree is the tree the formatter started from, and its exit 0 would claim a formatted tree that is not there.
+
+  The check runner ([PROOF-CHECKS.md](../PROOF-CHECKS.md)) runs a check that changed the tree again on the new tree, so such a check
+  can still be evidenced by a later run that leaves the tree unchanged.
+
+> **Change, 2026-11-23, before any release:** a passing run must leave the final tree unchanged. Until then a passing run counted for
+> the tree it started from even when it changed the tree. The fields and the schema are unchanged; `validateStatement` checks the new
+> rule (`passed_receipt`, `stale_receipt` below).
 - A run **passed** when `exit` equals the check's expected exit code, and it neither timed out, nor was cancelled, nor ended by a signal.
 
 The `result` of a check, first match wins:
