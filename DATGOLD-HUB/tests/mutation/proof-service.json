@@ -567,6 +567,50 @@
      "new": ""
     }
    ]
+  },
+  {
+   "name": "PS-inside-dotdot-prefix",
+   "what": "a name inside the workspace that starts with two dots (..hub) counts as outside (audit of #154, N1)",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));",
+     "new": "  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));"
+    }
+   ]
+  },
+  {
+   "name": "PS-inside-parent",
+   "what": "the folder that holds the workspace counts as inside it",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));",
+     "new": "  return relative === '' || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));"
+    }
+   ]
+  },
+  {
+   "name": "PS-names-uncut",
+   "what": "a call id or tool name over 200 characters is written whole, and the ledger refuses the record (audit of #154, N2)",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "const fitName = (value) => (value.length > NAME_KEEP ?",
+     "new": "const fitName = (value) => (false ?"
+    }
+   ]
+  },
+  {
+   "name": "PS-name-cut-at-200",
+   "what": "a name of exactly 200 characters is cut",
+   "patches": [
+    {
+     "file": "lib/proof/service.mjs",
+     "old": "const fitName = (value) => (value.length > NAME_KEEP ?",
+     "new": "const fitName = (value) => (value.length >= NAME_KEEP ?"
+    }
+   ]
   }
  ]
 }

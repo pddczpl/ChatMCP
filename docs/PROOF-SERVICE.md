@@ -115,6 +115,12 @@ their trees: both records say `overlapped: true`.
 
 **A data folder inside the workspace is refused** (`disabled: 'state_inside_workspace'`, checked on the path and again with both paths
 resolved on disk, so a junction or a short name counts): every ledger line would change the tree it records. Nothing is written then.
+Only `..` itself or a relative path that starts with `..` and a separator leaves the workspace: `<workspace>/..hub` and `<workspace>/...`
+are inside it (audit of #154, N1; the same test as `lib/proof/cli/session.mjs`).
+
+A call id or tool name over 200 characters is written as its first 120 characters, `…sha256:` and the sha256 of the whole name: the
+ledger refuses more than 256 characters, and a record it refused would stop the run's recording (audit of #154, N2). Today the guard's ids
+(`chatmcp_<uuid>`) and the catalog's names are far shorter.
 
 A ledger that cannot be written (broken by an edit, a full disk) stops the service for that run: one line in the Hub log, no more
 snapshots or appends, and the calls go on. The proof ledger is evidence, not a gate: it never refuses a call. A ledger that is broken
@@ -135,8 +141,8 @@ compared with.
 
 ## Tests
 
-`DATGOLD-HUB/tests/verify-proof-service.mjs` (15 checks): the service alone on real Git repositories (the records of a run, a resumed run in
-the same chain, recovery once, a recovery that died half way, the data folder inside the workspace and through a junction, a registered
+`DATGOLD-HUB/tests/verify-proof-service.mjs` (16 checks): the service alone on real Git repositories (the records of a run, a resumed run in
+the same chain, recovery once, a recovery that died half way, the data folder inside the workspace (`..hub` too) and through a junction, a call id and a tool name over 200 characters, a registered
 secret inside a tree id, overlapping calls, a failed snapshot, `end()` while a call runs and after it outlasts the wait, a ledger broken
 during a task, the budget at exactly 1,500 ms, at 1,501 ms and with `minScans`); the guard through a real session (the awaited `onProof`,
 reads, refused and invalid calls, an error and a call that throws); a real `AgentRunner` with the strict Chat Completions mock (a

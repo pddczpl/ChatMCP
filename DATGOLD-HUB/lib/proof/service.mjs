@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { LEDGER_FOLDER, ProofLedger, treeRef, verifyChain } from './ledger.mjs';
+import { LEDGER_FOLDER, ProofLedger, sha256Hex, treeRef, verifyChain } from './ledger.mjs';
 import { TreeSnapshotter } from './tree-snapshot.mjs';
 import { workspaceKey } from './baseline.mjs';
 
@@ -54,10 +54,16 @@ export async function readLedgerEntries(file) {
   return { report, entries };
 }
 
+// `..hub` and `...` are names inside `parent`: only `..` itself or a path that starts with `..` and a separator leaves it.
 const inside = (parent, child) => {
   const relative = path.relative(parent, child);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 };
+// A call id or tool name the ledger can always take (it refuses more than 256 characters; masking a registered secret can make a text
+// longer): over NAME_KEEP characters, the first NAME_CUT and the sha256 of the whole.
+const NAME_KEEP = 200;
+const NAME_CUT = 120;
+const fitName = (value) => (value.length > NAME_KEEP ? `${value.slice(0, NAME_CUT)}…sha256:${sha256Hex(value)}` : value);
 const caseKey = (file) => (process.platform === 'win32' ? file.toLowerCase() : file);
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const meanOf = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0);
@@ -181,7 +187,10 @@ export class ProofService {
   async beforeCall({ taskId, callId = null, name, category = null, touchesWorkspace = false, signal = null } = {}) {
     const task = this.task;
     if (!task || task.id !== taskId || task.halted || task.granularity !== GRANULARITY.calls || !scannedCall({ category, touchesWorkspace })) return null;
-    const token = { service: this, task, callId: String(callId ?? `proof_${randomUUID()}`), name: String(name), category, before: null, beforeSeq: null, beforeMs: 0, overlapped: false, orphaned: false, done: deferred() };
+    const token = {
+      service: this, task, callId: fitName(String(callId ?? `proof_${randomUUID()}`)), name: fitName(String(name)), category,
+      before: null, beforeSeq: null, beforeMs: 0, overlapped: false, orphaned: false, done: deferred(),
+    };
     const key = caseKey(this.root);
     if (!inFlight.has(key)) inFlight.set(key, new Set());
     const peers = inFlight.get(key);
