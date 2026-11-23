@@ -36,6 +36,7 @@ import { workspaceKey } from '../lib/proof/baseline.mjs';
 import { VERSION } from '../lib/manager.mjs';
 import { CLI_DATA_SCHEMAS, CLI_FORMAT, CLI_OUTPUT_SCHEMA, CODES, COMMANDS, EXIT, MESSAGES, joinCommand } from '../lib/proof/cli/index.mjs';
 import { commitAll, newRepo, write } from './support/proof-tree-fixtures.mjs';
+import { powerShellChildEnvironment, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Under the mutation runner the Hub is a copy without the repository around it; the runner says where it came from.
@@ -234,10 +235,13 @@ const listing = (dir) => (fs.existsSync(dir) ? Object.keys(fingerprint(dir)).sor
   assert.equal(joinCommand(['node', 'x'], 'sh'), 'node x', 'sh: safe words stay as they are');
   assert.equal(joinCommand(['node -e "1"'], 'bash'), 'node -e "1"', 'one word is the command text, unchanged');
   assert.equal(joinCommand(['node -e "1"'], 'powershell'), 'node -e "1"', 'one word is the command text, unchanged, for PowerShell too');
-  const ps = joinCommand(['node', '-e', 'process.exit(0)', 'a b', "it's", '$HOME', 'a,b', '@x', '--%', 'C:\\x', 'one\u2019s'], 'powershell');
-  assert.equal(ps, "node -e 'process.exit(0)' 'a b' 'it''s' '$HOME' 'a,b' '@x' '--%' C:\\x 'one\u2019\u2019s'", 'powershell: single quotes, a quote doubled (curly ones too)');
-  for (const [words, why] of [[['node', 'say "hi"'], 'a double quote'], [['node', ''], 'an empty word']]) {
-    assert.throws(() => joinCommand(words, 'powershell'), (error) => error.code === 'unsafe_argument', `powershell refuses ${why}`);
+  const ps = joinCommand(['node', '-e', 'process.exit(0)', 'a b', "it's", '$HOME', 'a,b', '@x', 'x--%', 'C:\\x', 'C:\\Program Files\\x', 'trail\\', 'one\u2019s'], 'powershell');
+  assert.equal(ps, "node -e 'process.exit(0)' 'a b' 'it''s' '$HOME' 'a,b' '@x' 'x--%' C:\\x 'C:\\Program Files\\x' trail\\ 'one\u2019\u2019s'", 'powershell: single quotes, a quote doubled (curly ones too)');
+  // what Windows PowerShell 5.1 was measured to change on the way to a program (tests/verify-proof-cli.mjs probes, docs/PROOF-CLI.md)
+  for (const [word, why] of [['say "hi"', 'double_quote'], ['', 'empty'], ['--%', 'stop_parsing'], ['a b\\', 'trailing_backslash'], ['C:\\Program Files\\', 'trailing_backslash'],
+    ['tab\t\\\\', 'trailing_backslash'], ['a\u00a0b\\', 'trailing_backslash']]) {
+    assert.throws(() => joinCommand(['node', word], 'powershell'), (error) => error.code === 'unsafe_argument' && error.detail.why === why, `powershell refuses ${JSON.stringify(word)} (${why})`);
+    if (why !== 'double_quote' && why !== 'empty') assert.equal(joinCommand(['node', word], 'bash'), word === '--%' ? 'node --%' : `node '${word}'`, `bash takes ${JSON.stringify(word)}`);
   }
   for (const words of [[], [''], ['   ']]) assert.throws(() => joinCommand(words, 'bash'), (error) => error.code === 'missing_command_text', `no command text: ${JSON.stringify(words)}`);
   ok('joinCommand: one word unchanged; several joined with bash/sh or PowerShell quoting; what PowerShell 5.1 would change is refused');
@@ -578,7 +582,7 @@ const head = (repo) => fs.readFileSync(path.join(repo, '.git', fs.readFileSync(p
 {
   const plain = plainFolder; // its session is still open (section 4)
   const PRINT = 'process.stdout.write(JSON.stringify(process.argv.slice(1)))';
-  const words = ['a b', "it's", 'x"y', '$HOME', '*', ''];
+  const words = ['a b', "it's", 'x"y', '$HOME', '*', '', '$(echo hi)', '`id`', 'a;b|c&d', '~', 'multi\nline', 'Tiếng Việt', 'C:\\Program Files\\', '--%'];
   const bash = await ask(['verify', 'run', '--', 'node', '-e', PRINT, ...words], { cwd: plain });
   expectAnswer(bash, 0, 'check_passed', 'run with several words through the default shell');
   assert.equal(bash.data.command, joinCommand(['node', '-e', PRINT, ...words], bash.data.shell), 'the command text is the join of the words');
@@ -588,18 +592,18 @@ const head = (repo) => fs.readFileSync(path.join(repo, '.git', fs.readFileSync(p
   assert.equal(single.data.command, "node -e \"process.stdout.write('one')\"", 'one word is the command text, unchanged');
   assert.equal(single.data.receipt.stdout.preview, 'one');
   // PowerShell: where there is one, the join reaches the program; a word PowerShell 5.1 would change is refused before anything runs
-  const psWords = ['a b', "it's", '$HOME', 'a,b'];
+  const psWords = ['a b', "it's", '$HOME', 'a,b', '$(echo hi)', '`n', 'a;b|c&d', 'Tiếng Việt', 'C:\\Program Files\\x', 'trail\\', 'x--%'];
   const ps = await ask(['verify', 'run', '--shell', 'powershell', '--', 'node', '-e', PRINT, ...psWords], { cwd: plain });
-  const unsafe = await ask(['verify', 'run', '--shell', 'powershell', '--', 'node', '-e', PRINT, 'say "hi"'], { cwd: plain });
+  const unsafe = await Promise.all(['say "hi"', 'C:\\Program Files\\', '--%'].map((word) => ask(['verify', 'run', '--shell', 'powershell', '--', 'node', '-e', PRINT, word], { cwd: plain })));
   if (ps.code === 'shell_unavailable') {
     expectAnswer(ps, 4, 'shell_unavailable', 'run --shell powershell where there is none');
-    expectAnswer(unsafe, 4, 'shell_unavailable', 'the same answer before any quoting');
+    for (const answer of unsafe) expectAnswer(answer, 4, 'shell_unavailable', 'the same answer before any quoting');
     assert.notEqual(process.platform, 'win32', 'Windows always has Windows PowerShell');
   } else {
     expectAnswer(ps, 0, 'check_passed', 'run --shell powershell with several words');
     assert.equal(ps.data.shell, 'powershell');
     assert.equal(ps.data.receipt.stdout.preview, JSON.stringify(psWords), 'every word reached the program unchanged (powershell)');
-    expectAnswer(unsafe, 2, 'unsafe_argument', 'a double quote in a word for PowerShell');
+    for (const answer of unsafe) expectAnswer(answer, 2, 'unsafe_argument', `a word PowerShell 5.1 would change: ${answer.detail?.argument}`);
   }
   // typed command lines: cmd.exe and powershell.exe on Windows, sh elsewhere
   const node = process.execPath;
@@ -611,11 +615,12 @@ const head = (repo) => fs.readFileSync(path.join(repo, '.git', fs.readFileSync(p
     typed.push(['cmd.exe', await spawnCollect(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${line}"`], { cwd: plain, env, verbatim: true }), ['a b', "it's", 'x"y']]);
     const script = `& '${node}' --import '${guardUrl}' '${BIN}' verify run --json -- node -e '${PRINT}' 'a b' "it's"`;
     const encoded = Buffer.from(script, 'utf16le').toString('base64');
-    const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    typed.push(['powershell.exe', await spawnCollect(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { cwd: plain, env }), ['a b', "it's"]]);
+    const powershell = windowsPowerShellPath();
+    const psEnv = powerShellChildEnvironment({}, env);
+    typed.push(['powershell.exe', await spawnCollect(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { cwd: plain, env: psEnv }), ['a b', "it's"]]);
     // the recipe the doc gives for Windows PowerShell 5.1: the whole command as one word, single quotes inside
     const recipe = `& '${node}' --import '${guardUrl}' '${BIN}' verify run --json -- "node -e 'process.stdout.write(String(1+1))'"`;
-    const recipeRun = await spawnCollect(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(recipe, 'utf16le').toString('base64')], { cwd: plain, env });
+    const recipeRun = await spawnCollect(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(recipe, 'utf16le').toString('base64')], { cwd: plain, env: psEnv });
     const recipeAnswer = answerOf(recipeRun, 'the PowerShell recipe');
     expectAnswer(recipeAnswer, 0, 'check_passed', 'the PowerShell recipe');
     assert.equal(recipeAnswer.data.command, "node -e 'process.stdout.write(String(1+1))'");
