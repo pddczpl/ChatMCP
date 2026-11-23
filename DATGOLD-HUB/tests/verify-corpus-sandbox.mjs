@@ -131,6 +131,8 @@ for (const [name, text] of Object.entries(FILES)) {
   await fs.mkdir(path.dirname(path.join(SOURCE, name)), { recursive: true });
   await fs.writeFile(path.join(SOURCE, name), text);
 }
+// Executable on disk too: off Windows (core.fileMode on) every later `git add -A` of sourcePatch would otherwise stage a mode change.
+await fs.chmod(path.join(SOURCE, 'bin', 'tool.sh'), 0o755);
 git(SOURCE, ['add', '-A']);
 git(SOURCE, ['update-index', '--chmod=+x', 'bin/tool.sh']);
 git(SOURCE, ['commit', '-q', '-m', 'base']);
@@ -146,6 +148,7 @@ async function sourcePatch(edit) {
   return patch;
 }
 const ORACLE = await sourcePatch((dir) => fs.writeFile(path.join(dir, 'src', 'sum.mjs'), SOLVED_SUM));
+assert.deepEqual(ORACLE.toString('utf8').match(/^diff --git .*$/gm), ['diff --git a/src/sum.mjs b/src/sum.mjs'], 'the fixture\'s oracle changes src/sum.mjs alone (no mode change on any system)');
 const FAKE_HIDDEN = "import test from 'node:test';\ntest('a hidden test the agent wrote itself', () => {});\n";
 const HIDDEN_PATH = 'test/hidden/sum.hidden.test.mjs';
 const PRE_EMPT = await sourcePatch(async (dir) => {
