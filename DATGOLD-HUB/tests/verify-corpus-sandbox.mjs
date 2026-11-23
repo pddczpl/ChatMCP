@@ -153,6 +153,18 @@ const PRE_EMPT = await sourcePatch(async (dir) => {
   await fs.writeFile(path.join(dir, ...HIDDEN_PATH.split('/')), FAKE_HIDDEN);
 });
 const BLOCK_FOLDER = await sourcePatch((dir) => fs.writeFile(path.join(dir, 'test', 'hidden'), 'a file where the hidden tests need a folder\n'));
+// Out of scope (allowed_paths is src/**): the clean install itself is made to write the ignored override that the base src/sum.mjs loads.
+const HARNESS = await sourcePatch((dir) => fs.appendFile(path.join(dir, 'scripts', 'install.mjs'),
+  `mkdirSync('local', { recursive: true });\nwriteFileSync('local/sum.mjs', ${JSON.stringify(SOLVED_SUM)});\n`));
+// The oracle's in-scope change plus four out-of-scope ones that would each break the score: a public test made to fail, package.json
+// changed, a failing test added, the lockfile the install reads deleted.
+const ORACLE_AND_HARNESS = await sourcePatch(async (dir) => {
+  await fs.writeFile(path.join(dir, 'src', 'sum.mjs'), SOLVED_SUM);
+  await fs.writeFile(path.join(dir, 'test', 'sum.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('broken', () => assert.equal(1, 2));\n");
+  await fs.writeFile(path.join(dir, 'package.json'), '{ "name": "sum-fixture", "private": true, "type": "module", "scripts": { "test": "exit 0" } }\n');
+  await fs.writeFile(path.join(dir, 'test', 'extra.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('added by the agent', () => assert.fail('out of scope'));\n");
+  await fs.rm(path.join(dir, 'deps.lock'));
+});
 
 // ---- the hidden tests and the tasks -------------------------------------------------------------------------------------------------
 const HIDDEN_TEST = [
@@ -472,6 +484,24 @@ try {
     assert.deepEqual(blocked.overwritten, ['test/hidden'], 'the file where the hidden tests need a folder was removed');
     nothingLeft('after the pre-empting patch');
     ok('a diff that writes a file at a hidden test\'s path, or where the hidden tests need a folder, is overwritten by the hidden tests, and the score lists the path');
+
+    // ==== changes outside allowed_paths never reach the score ==========================================================================
+    const harness = await score(HARNESS);
+    assert.equal(harness.outcome, nullScore.outcome, 'a diff that only changes the setup script scores like the null diff');
+    assert.equal(harness.hiddenPass, false);
+    assert.deepEqual(harness.runs.map((run) => run.checks.map((check) => check.pass)), nullScore.runs.map((run) => run.checks.map((check) => check.pass)));
+    assert.deepEqual(harness.outOfScope, [{ path: 'scripts/install.mjs', change: 'modified' }]);
+    assert.equal(harness.patchSha256, sha256(HARNESS), 'the sha256 is the whole diff\'s, as given');
+    const mixed = await score(ORACLE_AND_HARNESS);
+    assert.equal(mixed.outcome, 'pass', `the in-scope change is kept and the four out-of-scope ones are put back: ${JSON.stringify(mixed.setup.concat(mixed.runs))}`);
+    assert.deepEqual(mixed.outOfScope, [
+      { path: 'deps.lock', change: 'deleted' }, { path: 'package.json', change: 'modified' },
+      { path: 'test/extra.test.mjs', change: 'added' }, { path: 'test/sum.test.mjs', change: 'modified' },
+    ]);
+    assert.deepEqual(oracleScore.outOfScope, [], 'the oracle stays inside allowed_paths');
+    assert.deepEqual(nullScore.outOfScope, []);
+    nothingLeft('after the out-of-scope diffs');
+    ok('every path a diff changes outside allowed_paths (the setup script, a public test, package.json, an added test, the lockfile) is put back to the base before setup, listed in outOfScope with what the diff did, and never reaches the score: a diff with only such changes scores like the null diff');
 
     // ==== the other outcomes ===============================================================================================================
     const flaky = await score(ORACLE, { task: FLAKY_TASK, hiddenArchive: FLAKY.file, runs: 3 });
