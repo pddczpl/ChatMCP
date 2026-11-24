@@ -375,6 +375,34 @@ function stepBlock(job, name) {
   return end < 0 ? rest : rest.slice(0, end + 2);
 }
 
+/**
+ * The header of hub-tests, its steps and the evidence check of verify, line by line: these are new, so the frozen 3.11.2 does not hold them, and a
+ * check that only looks for its lines does not see another line in front of them (exit 0, a git checkout, a command between the suites and the
+ * look at their exit code).
+ */
+function exactText(count) {
+  const folder = '$env:RUNNER_TEMP/native-release-evidence';
+  const install = (prefix, what) => [`npm ci --ignore-scripts --no-audit --no-fund --prefix ${prefix}`, `if ($LASTEXITCODE -ne 0) { throw '${what} installation failed' }`];
+  const step = (name, lines) => [`      - name: ${name}`, ...lines.map((line) => `        ${line}`)].join('\n');
+  const script = (lines) => ['run: |', ...lines.map((line) => `  ${line}`)];
+  return {
+    header: ['  hub-tests:', `    name: Complete no-skip Hub regression (${SHARD}/${count})`, '    needs: resolve', '    runs-on: windows-latest', '    timeout-minutes: 75', '    strategy:', '      fail-fast: false', '      matrix:',
+      `        shard: [${Array.from({ length: count }, (_, i) => i + 1).join(', ')}]`, '    defaults:', '      run:', '        shell: pwsh', '    steps:', ''].join('\n'),
+    guard: step(SHARD_STEPS.guard, script(["$ErrorActionPreference = 'Stop'", `New-Item -ItemType Directory "${folder}" -Force | Out-Null`, `$env:GITHUB_SHA | Set-Content "${folder}/commit.txt" -Encoding utf8`,
+      "if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'Wrong checkout' }"])),
+    acp: step(SHARD_STEPS.acp, script(install('DATGOLD-HUB/tests/acp-tools', 'ACP test tools'))),
+    mcp: step(SHARD_STEPS.mcp, script([...install('scripts/mcp-runtime', 'MCP client SDK'), ...install('DATGOLD-HUB/tests/fixtures/mcp-reference', 'MCP reference servers')])),
+    run: step(SHARD_STEPS.run, script(['python -m pip install -r DATGOLD-HUB/tests/requirements-e2e.txt', "if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }",
+      "git config --global user.email 'ci@example.invalid'", "git config --global user.name 'ci'",
+      `node DATGOLD-HUB/tests/run-all.mjs --no-skip all --shard "${SHARD}/${count}" --json "${folder}/node-summary.json" 2>&1 | Tee-Object "${folder}/node-all.log"`, "if ($LASTEXITCODE -ne 0) { throw 'Hub regression failed' }"])),
+    clean: step(SHARD_STEPS.clean, script(['git diff HEAD --stat --exit-code', "if ($LASTEXITCODE -ne 0) { throw 'A Hub suite changed a tracked file' }"])),
+    keep: step(SHARD_STEPS.keep, ['if: always()', 'uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02', 'with:', '  name: ${{ needs.resolve.outputs.artifact_prefix }}-hub-evidence-shard' + SHARD, '  path: ${{ runner.temp }}/native-release-evidence',
+      '  if-no-files-found: error']),
+    check: step(EVIDENCE_CHECK, ['shell: bash', ...script(['set -euo pipefail', 'gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "$ARTIFACT_PREFIX-hub-evidence-shard*" --dir "$RUNNER_TEMP/hub-evidence"',
+      `node scripts/verify-release-evidence.mjs --evidence "$RUNNER_TEMP/hub-evidence" --shards ${count} --commit "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"`])]),
+  };
+}
+
 export function shardProblems(text) {
   const problems = [];
   const code = text.replace(/^\s*#.*$/gm, '').replace(/\n{2,}/g, '\n'); // without the full-line comments
@@ -421,6 +449,12 @@ export function shardProblems(text) {
   need(check.includes('        shell: bash\n        run: |\n          set -euo pipefail\n'), 'verify: the evidence check must stop at its first failing command (bash, set -euo pipefail: tee would hide an exit code)');
   need(check.includes('          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "$ARTIFACT_PREFIX-hub-evidence-shard*" --dir "$RUNNER_TEMP/hub-evidence"\n'), 'verify: it must download the evidence of every shard of this run');
   need(check.includes(`          node scripts/verify-release-evidence.mjs --evidence "$RUNNER_TEMP/hub-evidence" --shards ${count} --commit "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"\n`), `verify: scripts/verify-release-evidence.mjs must check the evidence of ${count} shards at $GITHUB_SHA`);
+
+  // and nothing else beside those lines
+  const exact = exactText(count);
+  need(job.startsWith(exact.header), 'hub-tests: its header must be exactly the one in exactText (an env, a container or another key could change what every step does)');
+  for (const key of Object.keys(SHARD_STEPS)) need(steps[key].trimEnd() === exact[key], `hub-tests: the step "${SHARD_STEPS[key]}" must be exactly the one in exactText`);
+  need(check.trimEnd() === exact.check, `verify: the step "${EVIDENCE_CHECK}" must be exactly the one in exactText`);
   return problems;
 }
 {
@@ -471,6 +505,17 @@ export function shardProblems(text) {
     ['the evidence check in a dry run only', inStep(EVIDENCE_CHECK, (b) => first(b, '        if: ${{ inputs.dry_run }}'))],
     ['the evidence check without pipefail', inStep(EVIDENCE_CHECK, (b) => b.replace('set -euo pipefail', 'set -eu'))],
     ['the evidence of one shard only', (t) => t.replace('-hub-evidence-shard*"', '-hub-evidence-shard1"')],
+    // a line in front of a check that ends the step, or undoes what the check looks at: every pinned line is still there
+    ['the commit guard ended before it looks', inStep(SHARD_STEPS.guard, (b) => b.replace("          $ErrorActionPreference = 'Stop'\n", (line) => `${line}          exit 0\n`))],
+    ['the test tools not installed', inStep(SHARD_STEPS.acp, (b) => b.replace('          npm ci', '          exit 0\n          npm ci'))],
+    ['the Hub step ended before the suites', inStep(SHARD_STEPS.run, (b) => b.replace('          python -m pip', '          exit 0\n          python -m pip'))],
+    ['another command between the suites and their exit code', inStep(SHARD_STEPS.run, (b) => b.replace("          if ($LASTEXITCODE -ne 0) { throw 'Hub regression failed' }\n", (line) => `          cmd /c exit 0\n${line}`))],
+    ['the source check ended before it looks', inStep(SHARD_STEPS.clean, (b) => b.replace('          git diff HEAD', '          exit 0\n          git diff HEAD'))],
+    ['the changed source put back before the source check', inStep(SHARD_STEPS.clean, (b) => b.replace('          git diff HEAD', '          git checkout HEAD -- .\n          git diff HEAD'))],
+    ['the source check in another folder', inStep(SHARD_STEPS.clean, (b) => first(b, '        working-directory: docs'))],
+    ['the evidence check ended before it looks', inStep(EVIDENCE_CHECK, (b) => b.replace('          gh run download', '          exit 0\n          gh run download'))],
+    ['evidence made by the verify job itself', inStep(EVIDENCE_CHECK, (b) => b.replace('          node scripts/', '          cp -r "$RUNNER_TEMP/hub-evidence" "$RUNNER_TEMP/copy"\n          node scripts/'))],
+    ['a variable for all the steps of the shards', inJob('hub-tests', (b) => b.replace('    timeout-minutes: 75\n', (line) => `${line}    env:\n      NODE_OPTIONS: --no-warnings\n`))],
     ['the evidence held against another commit', (t) => t.replace(/(verify-release-evidence\.mjs [^\n]*--commit )"\$GITHUB_SHA"/, (_, head) => `${head}"$(git rev-parse HEAD~1)"`)],
   ];
   for (const [label, change] of mutations) {
@@ -478,7 +523,7 @@ export function shardProblems(text) {
     assert.notEqual(after, releaseText, `the mutation "${label}" changed nothing`);
     assert.notDeepEqual(shardProblems(after), [], `the defect "${label}" was not detected`);
   }
-  ok(`${mutations.length} defects put into an in-memory copy of release.yml (a shard dropped, repeated, added or excluded; numbers that disagree; a filter, retry, bail or narrower no-skip; a second run; a condition or a tolerated failure; no commit or source guard; evidence that is shared, dropped, partial, empty or of another commit; a verify job that does not wait or does not check) are each detected`);
+  ok(`${mutations.length} defects put into an in-memory copy of release.yml (a shard dropped, repeated, added or excluded; numbers that disagree; a filter, retry, bail or narrower no-skip; a second run; a condition or a tolerated failure; no commit or source guard; evidence that is shared, dropped, partial, empty or of another commit; a line or a key more in a step, in front of the check it makes; a verify job that does not wait or does not check) are each detected`);
 }
 
 console.log(`PASS: ${checks} release workflow checks (release.yml against the frozen publish-v3.11.2.yml)`);

@@ -85,12 +85,12 @@ and `--shards` of the evidence check; `tests/verify-release-workflow.mjs` fails 
 `ci.yml`; the rule of the split and its weights are the same ([CI-HEALTH.md](CI-HEALTH.md)).
 
 What checks it: `tests/verify-release-workflow.mjs` (the shards, the job names, the command, the order of the steps, what `verify` waits for
-and checks, and 41 defects put into a copy of the workflow), `tests/verify-release-evidence.mjs` (43 defects put into evidence that the real
+and checks, the new steps line by line, and 51 defects put into a copy of the workflow), `tests/verify-release-evidence.mjs` (43 defects put into evidence that the real
 runner wrote) and `tests/mutation/release-evidence.json` (47 mutations of the script). The script also accepted the evidence of two real CI
 runs, rebuilt from their Windows, Node 24 summaries and job logs (45335588884 in three shards, 45248300952 in two).
 
-**Not verified: the sharded path itself.** GitHub starts this workflow only from the default branch, so no release run with shards has
-happened yet. The next dry run on `main` is its first.
+**Not verified: the sharded path itself.** No release run with shards had happened when this was written (a dry run may start on any branch, now
+that the file is on the default branch; none was started). The next dry run on `main` is its first.
 
 ## The first run after the switch
 
