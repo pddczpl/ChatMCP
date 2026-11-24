@@ -18,6 +18,7 @@ const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 const RUNNER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'run-all.mjs');
 const GATE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'ci-flaky-gate.mjs');
 const WEIGHTS_TOOL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'ci-shard-weights.mjs');
+const CI_WORKFLOW = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.github', 'workflows', 'ci.yml');
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-runner-'));
 const suites = path.join(root, 'suites');
 await fs.mkdir(suites);
@@ -382,20 +383,25 @@ try {
     ok('--shard usage errors exit 2 (0/2, 3/2, 1/0, words, three parts, negatives, fractions, empty, no value); a broken shard-weights.json is an error when --shard reads it and is never read without --shard');
   }
   {
-    // The real suites of this folder and the committed weights: two shards cover the full list, and the heavier shard is within the bound
-    // that this greedy split always meets: total / n + (1 - 1/n) x the heaviest suite.
+    // The real suites of this folder and the committed weights: the shards CI runs cover the full list, each suite in exactly one, and the
+    // heaviest shard is within the bound that this greedy split always meets: total / n + (1 - 1/n) x the heaviest suite. n is the length of
+    // the shard axis of ci.yml (verify-ci-triggers holds the command to the same n); a copy of the Hub alone has no ci.yml, and there it is 3.
+    const axis = existsSync(CI_WORKFLOW) ? readFileSync(CI_WORKFLOW, 'utf8').match(/^ {8}shard: \[(\d+(?:, \d+)*)\]\r?$/m) : null;
+    assert.equal(Boolean(axis), existsSync(CI_WORKFLOW), 'ci.yml has a shard axis');
+    const count = axis ? axis[1].split(', ').length : 3;
+    assert.ok(count >= 3, `ci.yml runs the suites in ${count} shards; docs/CI-HEALTH.md ("Three shards") says why two are too few`);
     const real = (args) => {
       const result = spawnSync(process.execPath, [RUNNER, '--list', ...args], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
       assert.equal(result.status, 0, result.stderr);
       return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     };
     const full = real([]);
-    const halves = [real(['--shard', '1/2']), real(['--shard', '2/2'])];
-    const flat = halves.flat();
-    assert.equal(new Set(flat).size, flat.length, 'no real suite is in both shards');
-    assert.deepEqual([...flat].sort(), [...full].sort(), 'the two shards of the real suites are the full list');
+    const shards = Array.from({ length: count }, (_, i) => real(['--shard', `${i + 1}/${count}`]));
+    const flat = shards.flat();
+    assert.equal(new Set(flat).size, flat.length, 'no real suite is in two shards');
+    assert.deepEqual([...flat].sort(), [...full].sort(), `the ${count} shards of the real suites are the full list`);
     // In the fixtures above the heavier suites also come first by name; here they do not, so this is where placement order would show.
-    for (const half of halves) assert.deepEqual(half, [...half].sort(), 'a shard of the real suites runs in name order, not in the order the split placed them');
+    for (const shard of shards) assert.deepEqual(shard, [...shard].sort(), 'a shard of the real suites runs in name order, not in the order the split placed them');
     const file = path.join(path.dirname(RUNNER), 'shard-weights.json');
     assert.ok(existsSync(file), 'tests/shard-weights.json is committed');
     const seconds = JSON.parse(readFileSync(file, 'utf8')).seconds;
@@ -403,11 +409,11 @@ try {
     assert.ok(listed.length * 2 > full.length, `tests/shard-weights.json lists ${listed.length} of the ${full.length} suites; with fewer than half the split is close to a split by count (refresh it: docs/CI-HEALTH.md)`);
     const mean = listed.reduce((sum, name) => sum + seconds[name], 0) / listed.length;
     const weight = (name) => (Object.hasOwn(seconds, name) ? seconds[name] : mean);
-    const totals = halves.map((half) => half.reduce((sum, name) => sum + weight(name), 0));
-    const total = totals[0] + totals[1];
-    const bound = total / 2 + Math.max(...full.map(weight)) / 2;
-    assert.ok(Math.max(...totals) <= bound + 1e-9, `the heavier shard (${Math.max(...totals).toFixed(1)} s) is above the bound ${bound.toFixed(1)} s`);
-    ok(`the real suites: ${halves[0].length} + ${halves[1].length} = ${full.length} (${full.length - listed.length} not in tests/shard-weights.json); predicted ${totals[0].toFixed(0)} s / ${totals[1].toFixed(0)} s on the Windows runner (heavier shard ${(Math.max(...totals) / total * 100).toFixed(1)}% of ${total.toFixed(0)} s, bound ${(bound / total * 100).toFixed(1)}%)`);
+    const totals = shards.map((shard) => shard.reduce((sum, name) => sum + weight(name), 0));
+    const total = totals.reduce((sum, value) => sum + value, 0);
+    const bound = total / count + (1 - 1 / count) * Math.max(...full.map(weight));
+    assert.ok(Math.max(...totals) <= bound + 1e-9, `the heaviest shard (${Math.max(...totals).toFixed(1)} s) is above the bound ${bound.toFixed(1)} s`);
+    ok(`the real suites in the ${count} shards CI runs: ${shards.map((shard) => shard.length).join(' + ')} = ${full.length} (${full.length - listed.length} not in tests/shard-weights.json); predicted ${totals.map((value) => `${value.toFixed(0)} s`).join(' / ')} on the Windows runner (heaviest shard ${(Math.max(...totals) / total * 100).toFixed(1)}% of ${total.toFixed(0)} s, bound ${(bound / total * 100).toFixed(1)}%)`);
   }
 
   // ---- scripts/ci-shard-weights.mjs: the weights file is rebuilt from the Windows summaries CI uploads ----------------------------------
@@ -492,11 +498,11 @@ try {
     assert.match(failing.stdout, /^FAIL: FLAKY suites in 3 runs of main in a row/m);
     assert.equal(cli(['--limit', '4']).status, 1, 'a limit of 4 reads three earlier runs: this one and those three are four flaky runs');
     assert.equal(cli(['--limit', '5']).status, 0, 'only three earlier runs exist, so a streak of five cannot be shown');
-    // ci.yml runs the Hub suites in two shards per OS and Node version, so this run has one summary per shard; the job says how many it expects.
+    // ci.yml runs the Hub suites in three shards per OS and Node version, so this run has one summary per shard; the job says how many it expects.
     assert.equal(cli(['--expect-summaries', '2']).status, 1, 'both summaries of this run are there: the streak decides');
-    const short = cli(['--expect-summaries', '8']);
+    const short = cli(['--expect-summaries', '12']);
     assert.equal(short.status, 2, 'fewer summaries than jobs is an error, not a verdict on part of the run');
-    assert.match(short.stderr, /2 summaries[^\n]*expected 8/);
+    assert.match(short.stderr, /2 summaries[^\n]*expected 12/);
     for (const bad of ['0', 'two', '-1']) assert.equal(cli(['--expect-summaries', bad]).status, 2, `--expect-summaries ${bad}`);
     await write(path.join(prior, '202', 'hub-test-summary-ubuntu-latest-node22'), 'summary.json', summaryOf(0));
     assert.equal(cli([]).status, 0, 'a clean run in between');
