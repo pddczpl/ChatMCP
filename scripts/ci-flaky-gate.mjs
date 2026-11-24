@@ -7,7 +7,7 @@
 //                                  [--previous-dir <dir>] [--expect-summaries N]
 //
 // <dir> holds the summary.json files of the jobs of one run, in any folder layout (`gh run download` writes one folder per artifact).
-// --expect-summaries N: this run must have exactly N readable summaries (ci.yml: one per hub-tests job, 2 OS x 2 Node x 2 shards); any other
+// --expect-summaries N: this run must have exactly N readable summaries (ci.yml: one per hub-tests job, 2 OS x 2 Node x 3 shards); any other
 // number is an error (exit 2), so a misnamed or missing shard artifact cannot make the gate judge part of the run as if it were all of it.
 // The previous runs come from GitHub (`gh run list`, then `gh run download` of their `hub-test-summary-*` artifacts), or, for tests, from
 // --previous-dir: one sub-folder per run, named by run id, newest = highest id. The script only READS GitHub (allow-list below); the

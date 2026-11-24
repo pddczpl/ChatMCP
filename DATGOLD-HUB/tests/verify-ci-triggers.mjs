@@ -297,11 +297,12 @@ const releaseRules = (text) => {
 }
 
 // ---- 8. the Hub suites run in shards: every suite on every OS and Node version, each job within 30 minutes -----------------------------------
-// The Windows jobs of hub-tests reached 30 minutes with about 218 suites (docs/CI-HEALTH.md, "The Hub tests job and its time limit"). The matrix has
+// The Windows jobs of hub-tests reached 30 minutes with about 218 suites, and two shards 27 with 240 (docs/CI-HEALTH.md, "Three shards"). The matrix has
 // a shard axis and each job runs `tests/run-all.mjs --shard <i>/<n>`; verify-test-runner proves that the n shards of a list are the whole list.
-// What is checked here is that the workflow uses that correctly: n in the command equals the number of shards in the matrix, every OS x Node
+// What is checked here is that the workflow uses that correctly: at least three shards, n in the command equals their number, every OS x Node
 // cell runs every shard, each job uploads under a name of its own (two jobs uploading the same name fail the second upload), and the flaky gate
 // downloads all of them and knows how many to expect.
+const MIN_SHARDS = 3;
 export function hubTestsProblems(text) {
   const problems = [];
   const block = (header) => {
@@ -322,7 +323,8 @@ export function hubTestsProblems(text) {
   if (!os || !['ubuntu-latest', 'windows-latest'].every((name) => os.includes(name))) problems.push(`hub-tests: the os axis is ${JSON.stringify(os)}; it must keep ubuntu-latest and windows-latest`);
   if (!node || !['22', '24'].every((version) => node.includes(version))) problems.push(`hub-tests: the node axis is ${JSON.stringify(node)}; it must keep Node 22 and 24`);
   const count = shard?.length ?? 0;
-  if (!shard || count < 2 || shard.join(',') !== Array.from({ length: count }, (_, i) => String(i + 1)).join(',')) problems.push(`hub-tests: the shard axis is ${JSON.stringify(shard)}; it must be [1, 2, ...] up to the number of shards`);
+  if (count < MIN_SHARDS) problems.push(`hub-tests: ${count} shards; with fewer than ${MIN_SHARDS} a Windows job nears its 30 minutes (docs/CI-HEALTH.md, "Three shards")`);
+  if (!shard || shard.join(',') !== Array.from({ length: count }, (_, i) => String(i + 1)).join(',')) problems.push(`hub-tests: the shard axis is ${JSON.stringify(shard)}; it must be [1, 2, ...] up to the number of shards`);
   if (/^ {6,}(include|exclude):/m.test(job)) problems.push('hub-tests: an include or exclude in the matrix could drop a shard of one OS or Node version');
   if (!/^ {6}fail-fast: false$/m.test(job)) problems.push('hub-tests: fail-fast must stay false (a red shard must not cancel the others)');
   const name = job.match(/^ {4}name: Hub tests \(\$\{\{ matrix\.os \}\}, Node \$\{\{ matrix\.node \}\}, \$\{\{ matrix\.shard \}\}\/(\d+)\)$/m);
@@ -353,26 +355,35 @@ export function hubTestsProblems(text) {
 {
   const text = source['ci.yml'];
   assert.deepEqual(hubTestsProblems(text), []);
-  ok('hub-tests: the shard axis [1, 2] runs on every OS and Node version, run-all gets --shard ${{ matrix.shard }}/2, the job name and every artifact name carry the shard, the limit is 30 minutes, and the flaky gate expects one summary per job');
+  const count = Number(text.match(/ --shard \$\{\{ matrix\.shard \}\}\/(\d+)/)[1]);
+  const axis = (n) => `        shard: [${Array.from({ length: n }, (_, i) => i + 1).join(', ')}]`;
+  const argument = (n) => `--shard \${{ matrix.shard }}/${n}`;
+  ok(`hub-tests: ${count} shards (at least ${MIN_SHARDS}) run on every OS and Node version, run-all gets ${argument(count)}, the job name and every artifact name carry the shard, the limit is 30 minutes, and the flaky gate expects one summary per job`);
   const mutations = [
     ['the shard axis dropped', (t) => t.replace(/\n {8}shard: \[[^\]]*\]/, '')],
-    ['a third shard in the matrix only', (t) => t.replace(/( {8}shard: \[)1, 2\]/, '$11, 2, 3]')],
-    ['run-all told there are three shards', (t) => t.replace('--shard ${{ matrix.shard }}/2', '--shard ${{ matrix.shard }}/3')],
-    ['run-all without --shard', (t) => t.replace(' --shard ${{ matrix.shard }}/2', '')],
+    ['one more shard in the matrix only', (t) => t.replace(axis(count), axis(count + 1))],
+    ['one shard fewer in the matrix only', (t) => t.replace(axis(count), axis(count - 1))],
+    ['run-all told there is one more shard', (t) => t.replace(argument(count), () => argument(count + 1))],
+    ['run-all told there is one shard fewer', (t) => t.replace(argument(count), () => argument(count - 1))],
+    // Every place agrees on two and every suite still runs once: only the floor sees it.
+    ['two shards again, in every place', (t) => t.replace(axis(count), axis(2)).replaceAll(`\${{ matrix.shard }}/${count}`, () => '${{ matrix.shard }}/2').replace(/--expect-summaries \d+/, '--expect-summaries 8')],
+    ['run-all without --shard', (t) => t.replace(` ${argument(count)}`, '')],
     ['a shard excluded on Windows', (t) => t.replace(/( {8}shard: \[[^\]]*\]\n)/, '$1        exclude:\n          - os: windows-latest\n            shard: 2\n')],
     ['the summary artifact without the shard', (t) => t.replace(/(name: hub-test-summary-\$\{\{ matrix\.os \}\}-node\$\{\{ matrix\.node \}\})-shard\$\{\{ matrix\.shard \}\}/, '$1')],
     ['the summary artifact renamed away from the gate pattern', (t) => t.replace('name: hub-test-summary-', 'name: hub-summary-')],
     ['the time limit raised again', (t) => t.replace(/(\n {2}hub-tests:\n[\s\S]*? {4}timeout-minutes: )30/, '$145')],
-    ['the gate expecting the old four summaries', (t) => t.replace(/--expect-summaries \d+/, '--expect-summaries 4')],
-    ['the job name without the shard', (t) => t.replace(/(name: Hub tests \(\$\{\{ matrix\.os \}\}, Node \$\{\{ matrix\.node \}\}), \$\{\{ matrix\.shard \}\}\/2\)/, '$1)')],
-    ['a filter in the shard run', (t) => t.replace('--shard ${{ matrix.shard }}/2', '--shard ${{ matrix.shard }}/2 --filter e2e')],
+    ['the gate expecting the four summaries of unsplit jobs', (t) => t.replace(/--expect-summaries \d+/, '--expect-summaries 4')],
+    ['the gate expecting the eight summaries of two shards', (t) => t.replace(/--expect-summaries \d+/, '--expect-summaries 8')],
+    ['the job name without the shard', (t) => t.replace(/(name: Hub tests \(\$\{\{ matrix\.os \}\}, Node \$\{\{ matrix\.node \}\}), \$\{\{ matrix\.shard \}\}\/\d+\)/, '$1)')],
+    ['the job name with the number of shards of before', (t) => t.replace(/(name: Hub tests \([^\n]*\$\{\{ matrix\.shard \}\}\/)\d+\)/, '$12)')],
+    ['a filter in the shard run', (t) => t.replace(argument(count), () => `${argument(count)} --filter e2e`)],
   ];
   for (const [label, change] of mutations) {
     const after = change(text);
     assert.notEqual(after, text, `the mutation "${label}" changed nothing`);
     assert.notDeepEqual(hubTestsProblems(after), [], `the defect "${label}" was not detected`);
   }
-  ok(`${mutations.length} defects put into an in-memory copy of ci.yml (no shard axis, a matrix or a command that disagrees on the number of shards, no --shard, an excluded shard, an artifact name without the shard or outside the gate pattern, 45 minutes, the old expected count, a name without the shard, a filter) are each detected`);
+  ok(`${mutations.length} defects put into an in-memory copy of ci.yml (no shard axis, a matrix or a command that disagrees on the number of shards, two shards again in every place, no --shard, an excluded shard, an artifact name without the shard or outside the gate pattern, 45 minutes, an old expected count, a name without the shard or with the old number, a filter) are each detected`);
 }
 
 console.log(`PASS: ${checks} CI trigger checks over ${files.length} workflows (modelled GitHub rules; GitHub itself confirms on the first pull requests)`);
