@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Rebuild DATGOLD-HUB/tests/shard-weights.json, the seconds per suite that `tests/run-all.mjs --shard i/n` balances by (docs/CI-HEALTH.md,
-// "Two shards"), from the summaries CI uploads.
+// "Three shards"), from the summaries CI uploads.
 //
 //   gh run download <run id> --repo pddczpl/ChatMCP --pattern 'hub-test-summary-windows-*' --dir <dir>     (one or more runs of main)
 //   node scripts/ci-shard-weights.mjs --from <dir> --out DATGOLD-HUB/tests/shard-weights.json [--note "runs 1, 2 on main"] [--date YYYY-MM-DD]
@@ -64,7 +64,7 @@ async function main(argv = process.argv.slice(2)) {
     seconds[name] = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length / 100) / 10;
   }
   const weights = {
-    about: 'Seconds per suite that tests/run-all.mjs --shard balances by (the rule is in the header of run-all.mjs; docs/CI-HEALTH.md, "Two shards"). Written by scripts/ci-shard-weights.mjs: the mean time of each suite over the Windows summaries below, PASS results only, rounded to 0.1 s. A suite not listed here weighs the mean of the listed ones.',
+    about: 'Seconds per suite that tests/run-all.mjs --shard balances by (the rule is in the header of run-all.mjs; docs/CI-HEALTH.md, "Three shards"). Written by scripts/ci-shard-weights.mjs: the mean time of each suite over the Windows summaries below, PASS results only, rounded to 0.1 s. A suite not listed here weighs the mean of the listed ones.',
     measured: { date: options.date, ...(options.note ? { note: options.note } : {}), summaries: read },
     seconds,
   };

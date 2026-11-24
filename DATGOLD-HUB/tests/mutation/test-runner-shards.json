@@ -1,6 +1,6 @@
 {
   "suite": "verify-test-runner.mjs",
-  "description": "The --shard option of tests/run-all.mjs (CI runs the Hub suites of each OS and Node version in two jobs): the split rule (listed suites heaviest first to the lightest shard, ties to the lower number, then unlisted suites by name at the mean of the listed suites that exist), the filter after the split, the shard a job takes, name order inside a shard, the weights file and its checks, the usage check, and summary.shard, judged by tests/verify-test-runner.mjs (worked examples for 2 and 3 shards, coverage for 1 to 13 shards, the real suites against the committed weights).",
+  "description": "The --shard option of tests/run-all.mjs (CI runs the Hub suites of each OS and Node version in three jobs): the split rule (listed suites heaviest first to the lightest shard, ties to the lower number, then unlisted suites by name at the mean of the listed suites that exist), the filter after the split, the shard a job takes, name order inside a shard, the weights file and its checks, the usage check, and summary.shard, judged by tests/verify-test-runner.mjs (worked examples for 2 and 3 shards, coverage for 1 to 13 shards, the real suites against the committed weights).",
   "mutations": [
     {
       "name": "TRS-tie-to-higher-shard",

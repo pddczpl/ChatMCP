@@ -33,10 +33,11 @@ concurrency:
 
 jobs:
   hub-tests:
-    # Two shards per OS and Node version (docs/CI-HEALTH.md, "Two shards"): `run-all.mjs --shard <i>/2` splits the suites by the seconds in
-    # tests/shard-weights.json, and the two shards of one OS and Node version run every suite once between them. As one job the Windows suites
-    # reached 30 minutes; when a shard nears 25, add a shard (the axis, the /2 below and --expect-summaries of flaky-gate) rather than raise the limit.
-    name: Hub tests (${{ matrix.os }}, Node ${{ matrix.node }}, ${{ matrix.shard }}/2)
+    # Three shards per OS and Node version (docs/CI-HEALTH.md, "Three shards"): `run-all.mjs --shard <i>/3` splits the suites by the seconds in
+    # tests/shard-weights.json, and the three shards of one OS and Node version run every suite once between them. As one job the Windows suites
+    # reached 30 minutes, as two 27; when a shard nears 25, refresh the weights, then add a shard (the axis, the /3 below twice and
+    # --expect-summaries of flaky-gate) rather than raise the limit.
+    name: Hub tests (${{ matrix.os }}, Node ${{ matrix.node }}, ${{ matrix.shard }}/3)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -44,7 +45,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         node: ['22', '24']
-        shard: [1, 2]
+        shard: [1, 2, 3]
     defaults:
       run:
         shell: bash
@@ -84,7 +85,7 @@ jobs:
       # --retry-failed-once runs a suite that failed a second time. One that passes then is FLAKY: never PASS, a ::warning annotation, a line in
       # the step summary and a count in summary.json (docs/CI-HEALTH.md). The run is still red for a suite that fails twice.
       - name: Run the suites of this shard
-        run: node tests/run-all.mjs --no-skip all --retry-failed-once --shard ${{ matrix.shard }}/2 --json test-results/summary.json
+        run: node tests/run-all.mjs --no-skip all --retry-failed-once --shard ${{ matrix.shard }}/3 --json test-results/summary.json
       # One artifact per job: two jobs of a run that upload the same name make the second upload fail.
       - name: Upload test summary
         if: always()
@@ -94,7 +95,7 @@ jobs:
           path: DATGOLD-HUB/test-results/summary.json
           if-no-files-found: ignore
       # The G4 latency budgets of the tree snapshot engine (docs/PROOF-TREE.md), measured on this runner by tests/verify-proof-tree.mjs (only the
-      # shard that holds that suite writes the file; the other uploads nothing)
+      # shard that holds that suite writes the file; the others upload nothing)
       - name: Upload the proof tree budget
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -143,7 +144,7 @@ jobs:
   flaky-gate:
     # A retry hides one timing accident, not a habit: this fails a run of main when FLAKY suites showed up in this run and in the two runs of main
     # before it (scripts/ci-flaky-gate.mjs reads the hub-test-summary-* artifacts of those runs; it only reads GitHub). Not for pull requests.
-    # This run has one summary per hub-tests job (2 OS x 2 Node x 2 shards = 8); --expect-summaries makes a missing one an error instead of half a verdict.
+    # This run has one summary per hub-tests job (2 OS x 2 Node x 3 shards = 12); --expect-summaries makes a missing one an error instead of half a verdict.
     name: Flaky suites (3 runs of main in a row fail)
     if: ${{ !cancelled() && needs.hub-tests.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: hub-tests
@@ -164,7 +165,7 @@ jobs:
       - name: Fail when the last three runs of main each needed a retry
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci-flaky-gate.mjs --current flaky-current --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --workflow CI --branch main --limit 3 --expect-summaries 8
+        run: node scripts/ci-flaky-gate.mjs --current flaky-current --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --workflow CI --branch main --limit 3 --expect-summaries 12
 
   frontend-build:
     name: Frontend TypeScript / Vite build
