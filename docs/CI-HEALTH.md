@@ -300,6 +300,17 @@ What changed:
 | `shard-weights.json` | 218 suites, measured 2026-11-21 | 240 suites, the eight Windows summaries of runs 45248300952 and 45243351005 |
 | `timeout-minutes` | 30 | 30 |
 
+Measured after the change, on the first run of the pull request (run 45333197196, commit `fa06f8bc`, 240 suites): minutes of each job, and in brackets the seconds of its suites.
+
+| | 1/3 | 2/3 | 3/3 |
+|---|---|---|---|
+| windows-latest, Node 22 | **17.8** (957) | 15.0 (795) | 14.6 (785) |
+| windows-latest, Node 24 | 17.5 (932) | 14.8 (793) | 17.0 (910) |
+| ubuntu-latest, Node 22 | 9.5 (536) | 6.6 (374) | 6.6 (354) |
+| ubuntu-latest, Node 24 | 8.1 (447) | 7.2 (399) | 7.3 (405) |
+
+The twelve summaries hold 80 + 80 + 80 suites in each of the four cells, each of the 240 suites exactly once and all PASS, and each job ran the list that `--list --shard <i>/3` prints for it. The slowest job took 17.8 minutes (27.4 and 26.6 before), no job waited more than 2 seconds for a machine, and the run took 17.9 minutes. The heaviest Windows shard was 37.7% (Node 22) and 35.4% (Node 24) of the suite time, not the predicted 33.3%, mostly because the machines differ: the median suite took 0.89 to 1.05 of its weight depending on the job. This is one run.
+
 The limit, the rule of the split and the list of suites are as before. Branch protection: `main` has none and no ruleset (read with `gh api` on 2026-11-24), so no required check waits for the old names. If required checks are added later, they need the twelve new names.
 
 **The split.** `tests/run-all.mjs --shard i/n` takes the i-th of n parts of the suite list. The suites listed in `DATGOLD-HUB/tests/shard-weights.json` (seconds per suite) are placed heaviest first, by name among equals, each on the shard with the least weight so far (the lower number among equals); then the suites the file does not list, by name, each weighing the mean of the listed suites that exist. Every job computes the same parts from the same list and file (whole milliseconds, code-unit name order: nothing depends on the machine), the parts together are the whole list with each suite once, a new suite never moves a listed one, and `--filter` picks from a shard after the split. Without the file every suite weighs the same. With the committed file the shards are 80 + 80 + 80 suites (877 s each by the weights). `tests/verify-test-runner.mjs` holds the rule with worked examples (2 and 3 shards, an unlisted suite, a stale entry), the coverage for 1 to 13 shards, `--filter`, `--retry-failed-once` and `--no-skip` inside a shard, `summary.shard` in the JSON, and the real list, in as many shards as the axis of `ci.yml` has: each suite in exactly one of them, and the heaviest shard within the bound that this greedy split always meets (at most total / n + (1 - 1/n) x the heaviest suite: 35.8% for three shards today); `tests/mutation/test-runner-shards.json` breaks the rule 13 ways and each is caught. `tests/verify-ci-triggers.mjs` holds the workflow to it: at least three shards, the shard axis on every cell, the same n in the command, the job and artifact names, 30 minutes, the expected count of the gate.
@@ -315,6 +326,6 @@ It takes the mean of each suite's time over the Windows summaries in which it pa
 
 ## Not verified here, and open
 
-- The durations of the twelve `hub-tests` shard jobs on GitHub. From the summaries above, a Windows shard should take 13-16 minutes of suites plus about 2 of setup, an Ubuntu shard 6-9 minutes; the first run of the pull request that made the split is the measurement, not this estimate.
+- The flaky gate with twelve summaries: it runs on pushes to `main` only, so the first push after the split is its first run. The shard durations above are of one run; the weights are refreshed when later runs drift apart.
 - The first real run of `docs-gates.yml`, of the changed concurrency expressions, and of the claims job: nothing here can start a GitHub run. They are checked by the trigger model and by running the same commands locally (`verify-docs`, `verify-trust-labels`, `verify-notices`, `verify-threat-model`).
 - `publish-v*.yml`: these 24 release workflows (one per release up to v3.11.2) started on **every** push to `main` (18 files) or every completion of CI on `main` (6 files) and ended "skipped" unless the commit message named their release, so each merge to `main` cost 24 extra runs. They were replaced by the one hand-started `release.yml` ([RELEASING.md](RELEASING.md)); `tests/verify-ci-triggers.mjs` fails when a `publish-v*.yml` comes back or `release.yml` gets a `push` trigger. The run count per merge on `main` after the change is measured by `scripts/ci-health.mjs` on GitHub, not here.
