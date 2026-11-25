@@ -263,6 +263,25 @@ export function taskFiles(hub, taskId) {
   return { folder: found[0], json: path.join(found[0], 'task.json'), transcript: path.join(found[0], 'transcript.jsonl'), read: () => JSON.parse(fs.readFileSync(path.join(found[0], 'task.json'), 'utf8')) };
 }
 
+/** The permission history of the gate of a chat that runs beside the first (in that chat's own state folder), as [toolName, decision] of its task; null while there is none. */
+export function childHistory(hub, id) {
+  const search = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === 'worktree') continue;
+      const full = path.join(directory, entry.name);
+      const file = path.join(full, 'state', 'studio', 'permission-history.json');
+      if (entry.name === id && fs.existsSync(file)) return file;
+      const found = search(full);
+      if (found) return found;
+    }
+    return null;
+  };
+  const file = search(hub.stateDir);
+  return file === null ? null : JSON.parse(fs.readFileSync(file, 'utf8')).history.filter((row) => row.taskId === id).map((row) => [row.toolName, row.decision]);
+}
+/** The same calls through the router: a chat that runs beside another is offered a selection of the tools, and the router reaches every tool of the catalogue. */
+export const routed = (step) => ({ ...step, calls: step.calls.map(({ name, args }) => ({ name: 'mcp_call', args: { name: `local.${name}`, arguments_json: JSON.stringify(args) } })) });
+
 /** The same task id in the other case, as a careless or hostile client may spell it (an id of digits only has no other case). */
 export const otherCase = (id) => (id === id.toUpperCase() ? id.toLowerCase() : id.toUpperCase());
 

@@ -1,0 +1,150 @@
+{
+ "suite": "verify-plan-mode-inject.mjs",
+ "description": "What the suite about injected text, odd shapes and the plan file must notice: exit_plan_mode taking what is no plan, an answer about a revision the plan is not at, a plan file that is not a plan of this workspace.",
+ "mutations": [
+  {
+   "name": "I1",
+   "what": "exit_plan_mode takes other fields",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "||Object.keys(args).some((key)=>key!=='plan'&&key!=='expected_revision'))",
+     "new": ")"
+    }
+   ]
+  },
+  {
+   "name": "I2",
+   "what": "exit_plan_mode takes a blank plan",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if(typeof args.plan!=='string'||!args.plan.trim()||args.plan.length>PLAN_LIMITS.planChars||",
+     "new": "if(typeof args.plan!=='string'||args.plan.length>PLAN_LIMITS.planChars||"
+    }
+   ]
+  },
+  {
+   "name": "I3",
+   "what": "exit_plan_mode takes a plan over the limit",
+   "equivalent": "The check after masking (text.length > PLAN_LIMITS.planChars) refuses the same plan with the same code, invalid_arguments; this one only saves the masking of a huge text.",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if(typeof args.plan!=='string'||!args.plan.trim()||args.plan.length>PLAN_LIMITS.planChars||",
+     "new": "if(typeof args.plan!=='string'||!args.plan.trim()||"
+    }
+   ]
+  },
+  {
+   "name": "I4",
+   "what": "exit_plan_mode takes an expected_revision that is no whole number",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "        if(args.expected_revision!==undefined&&args.expected_revision!==null&&!(Number.isSafeInteger(args.expected_revision)&&args.expected_revision>=0))",
+     "new": "        if(false)"
+    }
+   ]
+  },
+  {
+   "name": "I5",
+   "what": "a plan that masking makes too long ends the run",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (text.length > PLAN_LIMITS.planChars) return {",
+     "new": "    if (false) return {"
+    }
+   ]
+  },
+  {
+   "name": "I6",
+   "what": "the plan decision takes a revision that is no whole number",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "            if(!(Number.isSafeInteger(payload.revision)&&payload.revision>=0))throw",
+     "new": "            if(false)throw"
+    }
+   ]
+  },
+  {
+   "name": "I7",
+   "what": "an approval is not held to the revision of the plan file",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "    if ((approved || revision !== null) && current.revision !== base) throw planConflict(current);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "I8",
+   "what": "any execution is taken",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "  if (execution !== undefined && execution !== null && !PLAN_EXECUTIONS.includes(execution)) throw",
+     "new": "  if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "I9",
+   "what": "an edited plan of any length is taken",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    if (typeof plan !== 'string' || !plan.trim() || plan.length > PLAN_LIMITS.planChars) throw error('bad_plan', `plan phải là",
+     "new": "    if (false) throw error('bad_plan', `plan phải là"
+    }
+   ]
+  },
+  {
+   "name": "I10",
+   "what": "the plan of another workspace is read",
+   "patches": [
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "      if(current.workspace!==this.root)throw fail('wrong_workspace','Kế hoạch thuộc workspace khác.',409);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "I11",
+   "what": "a held task is refused nothing",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    if(planned!==null)return this.#refuse(name,args,verdict,taskId,'policy',planned);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "I12",
+   "what": "a denial carries an execution",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    if(execution!==null&&(req.category!=='plan'||approved!==true))throw",
+     "new": "    if(false)throw"
+    }
+   ]
+  },
+  {
+   "name": "I13",
+   "what": "request_changes needs no feedback",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "            if(!approve&&feedback===null)throw",
+     "new": "            if(false)throw"
+    }
+   ]
+  }
+ ]
+}

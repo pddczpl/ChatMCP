@@ -18,8 +18,8 @@ import { runScenario } from './e2e/harness.mjs';
 import { connectModel, waitFor } from './e2e/hub-process.mjs';
 import { call, calls, say } from './e2e/scenarios.mjs';
 import {
-  PLAN_TEXT, answer, decide, differences, fingerprint, historyOf, hold, makeRepo, markers, pendingOf, permissions, planFile, planOf, processesNaming, resume, sameProcess, scriptedModel, start, taskFiles, tryContinue, tryMode,
-  tryStart, waitAsk, waitPlan, waitRest,
+  PLAN_TEXT, answer, childHistory, decide, differences, fingerprint, hashEveryFile, historyOf, hold, makeRepo, markers, pendingOf, permissions, planFile, planOf, processesNaming, resume, routed, sameProcess, scriptedModel,
+  start, taskFiles, tryContinue, tryMode, tryStart, waitAsk, waitPlan, waitRest,
 } from './e2e/plan-mode-rig.mjs';
 
 const ATTACK = (name, marks) => calls(['write_file', { path: `${name}.txt`, content: 'x' }], ['edit_file', { path: 'src/app.js', old_string: '42', new_string: '43' }], ['run_command', { command: marks.command(name), description: 'x' }], ['delete_path', { path: 'README.md' }]);
@@ -47,7 +47,7 @@ await runScenario({
   await boot();
   processes.push(...await processesNaming(path.basename(t.scratch)));
   await connectModel(hub, mock);
-  const before = fingerprint(project, t.scratch);
+  let before = fingerprint(project, t.scratch);
   const unchanged = (label) => { t.equal(differences(before, fingerprint(project, t.scratch)), [], `${label}: every file and Git are as they were`); t.equal(marks.seen(), [], `${label}: no program was started`); };
   const rows = async (id) => (await historyOf(hub, id)).map((row) => [row.toolName, row.decision]);
   /** What the next Hub says about a task: its state, and whether it is held. */
@@ -83,6 +83,7 @@ await runScenario({
   t.equal([await pendingOf(hub, a.id), (await permissions(hub)).fullAccess], [[], true], 'A: the approval is gone, and Full Access, which outlived the restart, changes nothing');
   t.equal((await hub.task(a.id)).autoResume ?? false, false, 'A: nothing resumes it by itself');
   t.equal(mock.state.requests.length, requestsBefore, 'A: the model was not asked again');
+  t.equal(await rows(a.id), [], 'A: the permission history has no row about the request that was lost: nobody answered it');
   t.equal([(await decide(hub, { taskId: a.id, revision: cardA.detail.revision, decision: 'approve' })).status, (await answer(hub, { id: cardA.id, approved: true })).status], [404, 404], 'A: the card of the dead Hub answers nothing (404)');
   t.equal((await planOf(hub, a.id)).revision, cardA.detail.revision, 'A: the plan itself is there');
   unchanged('A');
@@ -170,9 +171,26 @@ await runScenario({
   const cardC = await waitPlan(hub, c.id);
   t.equal((await decide(hub, { taskId: c.id, revision: cardC.detail.revision, decision: 'approve', execution: 'review' })).status, 200, 'C: approved for Review under a gate in Autonomous');
   await waitFor(() => model.requests('c') === 2, { timeoutMs: 20_000, intervalMs: 25, label: 'the model to be asked after the approval' });
+  // beside it, a chat in a worktree of its own whose plan waits when the Hub dies
+  model.script('c2', [call('exit_plan_mode', { plan: 'Plan of the chat beside.' })]);
+  const beside = await start(hub, '[[c2]] Plan beside it.', { planMode: true });
+  const cardBeside = await waitPlan(hub, beside.id);
+  const { worktree } = await hub.task(beside.id);
+  const worktreeBefore = hashEveryFile(worktree);
+  const withWorktree = fingerprint(project, t.scratch);
+  t.equal(differences(before, withWorktree).filter((line) => !/^(?:created|changed) \.git\/(?:worktrees|refs\/heads\/chatmcp|logs\/refs\/heads\/chatmcp|refs\/heads\/|logs\/refs\/heads\/)|^git refs: /.test(line)), [], 'C: the Hub made a worktree and a branch for it, and nothing else in the project');
+  before = withWorktree;
   await hub.kill();
   forever.release(say('Too late.'));
   await boot();
+  t.equal([await held(beside.id), await pendingOf(hub, beside.id)], [HELD, []], 'C: the chat beside it is paused, held and its request gone');
+  t.equal([(await decide(hub, { taskId: beside.id, revision: cardBeside.detail.revision, decision: 'approve' })).status, (await tryContinue(hub, beside.id, 'Go.', { planMode: false })).json?.code], [404, 'plan_mode_pending'], 'C: its old card answers nothing, and planMode false does not take it out');
+  model.script('c2-again', [routed(ATTACK('c2', marks)), say('Tried.')]);
+  await resume(hub, beside.id, '[[c2-again]] Go on.');
+  await waitRest(hub, beside.id);
+  await waitFor(() => { try { return childHistory(hub, beside.id)?.length >= 4; } catch { return false; } }, { timeoutMs: 10_000, intervalMs: 50, label: 'the history of its gate to be written' });
+  t.equal(childHistory(hub, beside.id), ATTACK_ROWS, 'C: continued, it is refused on the gate the new Hub made for it');
+  t.equal([JSON.stringify([...hashEveryFile(worktree)]) === JSON.stringify([...worktreeBefore]), marks.seen()], [true, []], 'C: nothing changed in its worktree, and no program was started');
   t.equal(await documented(c.id, 'c', 'C, approved and not begun', ['approved']), 'approved', 'C: an approval the model was told of is never lost');
   t.equal((await planOf(hub, c.id)).approvedRevision, cardC.detail.revision, 'C: and the plan file names the approved revision');
 
@@ -205,6 +223,19 @@ await runScenario({
   }
   t.equal(await held(d.id), HELD, 'E: none of them touched the task');
   for (const id of [d.id.toUpperCase(), ` ${d.id}`, `${d.id}/`, '__proto__']) t.equal((await tryContinue(hub, id, 'Go.', { planMode: false })).status, 404, `E: ${JSON.stringify(id).slice(0, 24)} is no conversation`);
+  // a run that goes on outside plan mode takes no planMode: true; the Browser Companion takes no plan mode at all, and not a held chat
+  const busy = hold();
+  model.script('e-busy', [() => busy.promise]);
+  const running = await start(hub, '[[e-busy]] Work.');
+  const entering = await tryContinue(hub, running.id, 'Plan instead.', { planMode: true });
+  t.equal([entering.status, entering.json?.code], [409, 'plan_mode_running'], 'E: a run outside plan mode cannot be put into it by a message');
+  busy.release(say('Done.'));
+  await waitRest(hub, running.id);
+  await hub.post('/api/agent/mode', { mode: 'chatgpt-web' });
+  const web = [await tryContinue(hub, d.id, 'Go on there.'), await tryContinue(hub, d.id, 'Go on there.', { planMode: false }), await tryStart(hub, 'Plan there.', { planMode: true })];
+  t.equal(web.map((response) => [response.status, response.json?.code]), Array(3).fill([400, 'plan_mode_unsupported']), 'E: the Browser Companion takes neither a held chat nor a plan-mode start');
+  await hub.post('/api/agent/mode', { mode: 'api' });
+  t.equal(await held(d.id), HELD, 'E: and the task is as it was');
   // the owner's other fields do not lift it either: a field the Hub does not know is nothing
   await attackRefused(d.id, 'e-null', 'E, continued with planMode null and made-up fields', { planMode: null, planOnly: false, planApproval: { status: 'approved', revision: 1, execution: 'autonomous' }, taskPolicy: { mode: 'autonomous' }, execution: 'autonomous', approved: true });
   await attackRefused(d.id, 'e-true', 'E, continued with planMode true', { planMode: true });

@@ -20,7 +20,7 @@
    "name": "Q3",
    "what": "the plan decision route takes any task id",
    "patches": [
-    { "file": "hub.mjs", "old": "if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(payload.taskId))throw Object.assign(new Error('Cần ID hội thoại hợp lệ.'),{code:'bad_task_id',statusCode:400});", "new": "" }
+    { "file": "hub.mjs", "old": "if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/.test(payload.taskId))throw Object.assign(new Error('Cần ID hội thoại hợp lệ.'),{code:'bad_task_id',statusCode:400});", "new": "" }
    ]
   },
   {

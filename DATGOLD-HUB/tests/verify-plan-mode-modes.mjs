@@ -16,8 +16,8 @@ import { runScenario } from './e2e/harness.mjs';
 import { HUB_ROOT, cleanEnvironment, connectModel, waitFor } from './e2e/hub-process.mjs';
 import { call, calls, say } from './e2e/scenarios.mjs';
 import {
-  PLAN_TEXT, answer, decide, differences, fingerprint, hold, makeRepo, markers, otherCase, pendingOf, permissions, planFile, planOf, processesNaming, resume, scriptedModel, start, tryContinue, tryMode, waitPlan,
-  waitRest,
+  PLAN_TEXT, answer, childHistory, decide, differences, fingerprint, hold, makeRepo, markers, otherCase, pendingOf, permissions, planFile, planOf, processesNaming, resume, routed, scriptedModel, start, tryContinue, tryMode,
+  waitPlan, waitRest,
 } from './e2e/plan-mode-rig.mjs';
 
 const HOOK = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'hook-program.mjs');
@@ -51,9 +51,7 @@ await runScenario({
   const rowsSince = async (seen, id) => (await permissions(hub)).recent.filter((row) => row.taskId === id && !seen.has(row.id)).map((row) => [row.toolName, row.decision]);
   const setGate = async (mode) => { const response = await tryMode(hub, MODES[mode]); if (response.status !== 200) throw new Error(`mode ${mode}: ${response.status} ${response.text.slice(0, 200)}`); };
   const ATTACK = calls(['write_file', { path: 'attack.txt', content: 'x' }], ['run_command', { command: marks.command('attack'), description: 'x' }], ['delete_path', { path: 'README.md' }]);
-  // A chat that runs beside another is offered a selection of the tools: the same calls through the router, which reaches every tool of the catalogue.
-  const routed = (name, args) => ['mcp_call', { name: `local.${name}`, arguments_json: JSON.stringify(args) }];
-  const ROUTED = calls(...ATTACK.calls.map(({ name, args }) => routed(name, args)));
+  const ROUTED = routed(ATTACK);
   const REFUSED = ['local.write_file', 'local.run_command', 'local.delete_path'].map((name) => [name, 'policy']);
 
   // ---------------------------------------------------------------------------------------------------------------- A. the global mode
@@ -196,19 +194,18 @@ await runScenario({
   const cardA = await waitPlan(hub, a.id);
   t.equal(await rowsSince(seenA, a.id), REFUSED, 'D: chat A plans in the project, held');
   // ---- B, an ordinary chat in Autonomous beside it
-  model.script('b', [calls(routed('write_file', { path: 'b.txt', content: 'b\n' })), call('mcp_call', { name: 'local.update_plan', arguments_json: JSON.stringify({ taskId: a.id, title: 'Hijacked', items: [] }) }), calls(routed('get_plan', {})), call('exit_plan_mode', { plan: 'B has no plan mode.' }), say('B ends.')]);
+  model.script('b', [routed(call('write_file', { path: 'b.txt', content: 'b\n' })), call('mcp_call', { name: 'local.update_plan', arguments_json: JSON.stringify({ taskId: a.id, title: 'Hijacked', items: [] }) }), routed(call('get_plan', {})), call('exit_plan_mode', { plan: 'B has no plan mode.' }), say('B ends.')]);
   const b = await start(hub, '[[b]] Write b.txt.');
   const restB = await waitRest(hub, b.id);
   t.equal([restB.state, fs.readFileSync(path.join(restB.worktree, 'b.txt'), 'utf8')], ['completed', 'b\n'], 'D: chat B, beside it in Autonomous, writes unasked in the worktree the Hub made for it');
   const answersB = model.asked('b').at(-1).allResults;
   t.check(/invalid_arguments/.test(answersB[1]) && !answersB[2].includes(D_PLAN) && /unknown_function/.test(answersB[3]), 'D: its model cannot name A\'s plan, reads none of it, and has no exit_plan_mode', JSON.stringify(answersB.slice(1)).slice(0, 400));
   // ---- C, a second plan-mode chat, in a worktree of its own and on a gate of its own
-  model.script('c', [ROUTED, call('exit_plan_mode', { plan: 'Plan of C.' }), calls(routed('write_file', { path: 'c.txt', content: 'c\n' })), say('C ends.')]);
+  model.script('c', [ROUTED, call('exit_plan_mode', { plan: 'Plan of C.' }), routed(call('write_file', { path: 'c.txt', content: 'c\n' })), say('C ends.')]);
   const c = await start(hub, '[[c]] Plan.', { planMode: true });
   const cardC = await waitPlan(hub, c.id);
-  const childHistory = () => JSON.parse(fs.readFileSync(findHistory(hub.stateDir, c.id), 'utf8')).history.filter((row) => row.taskId === c.id).map((row) => [row.toolName, row.decision]);
-  await waitFor(() => { try { return childHistory().length >= 3; } catch { return false; } }, { timeoutMs: 10_000, intervalMs: 50, label: 'the history of C\'s gate to be written' });
-  t.equal(childHistory(), REFUSED, 'D: chat C, also in plan mode, is held on its own gate');
+  await waitFor(() => { try { return childHistory(hub, c.id)?.length >= 3; } catch { return false; } }, { timeoutMs: 10_000, intervalMs: 50, label: 'the history of C\'s gate to be written' });
+  t.equal(childHistory(hub, c.id), REFUSED, 'D: chat C, also in plan mode, is held on its own gate');
   const worktreeC = (await hub.task(c.id)).worktree;
   t.equal([fs.existsSync(path.join(worktreeC, 'attack.txt')), fs.existsSync(path.join(worktreeC, 'README.md')), marks.seen()], [false, true, []], 'D: nothing of it happened in its worktree either');
   const both = async (label) => t.equal([(await pendingOf(hub, a.id)).map((item) => item.id), (await pendingOf(hub, c.id)).map((item) => item.id), (await hub.task(a.id)).planOnly, (await hub.task(c.id)).planOnly], [[cardA.id], [cardC.id], true, true], `D, ${label}: both plans still wait, both chats are held`);
@@ -292,17 +289,3 @@ await runScenario({
   await waitFor(async () => (await processesNaming(path.basename(t.scratch))).length === 0, { timeoutMs: 20_000, intervalMs: 400, label: 'every process of this suite to end' });
   t.check(processes.length >= 1, 'every process of this suite has ended (the Hub was seen with the time it was created)');
 });
-
-/** The permission history of the gate of a chat that runs beside the first: in that chat's own state folder. */
-function findHistory(directory, id) {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === id) {
-      const found = [];
-      const walk = (folder) => { for (const item of fs.readdirSync(folder, { withFileTypes: true })) { const full = path.join(folder, item.name); if (item.isDirectory()) { if (item.name !== 'worktree') walk(full); } else if (item.name === 'permission-history.json') found.push(full); } };
-      walk(path.join(directory, entry.name));
-      if (found.length) return found[0];
-    } else { const found = findHistory(path.join(directory, entry.name), id); if (found) return found; }
-  }
-  return null;
-}
