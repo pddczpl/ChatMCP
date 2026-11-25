@@ -870,7 +870,8 @@ export class StudioWorkspace {
    * has not read. The read, the check and the write are one step per task (#planStep), so two writes from one base save one.
    */
   async plan({taskId,operation='get',items=[],title='',text,expectedRevision=null,by='agent',revision}={}){
-    if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(taskId))throw fail('bad_task_id','Cần ID hội thoại hợp lệ.');
+    // Exactly as the Hub writes a task id: the same id in another case would be the same file under another lock (#planStep) on a file system that ignores case.
+    if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/.test(taskId))throw fail('bad_task_id','Cần ID hội thoại hợp lệ.');
     if(!['get','set','text','approve'].includes(operation))throw fail('bad_operation','operation phải là get, set, text hoặc approve.');
     const writes=operation==='set'||operation==='text';
     if(writes&&!PLAN_AUTHORS.includes(by))throw fail('bad_author','by phải là agent hoặc user.');

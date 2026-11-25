@@ -355,7 +355,7 @@ try {
       ['equal', '3.10.2', '3.10.2', false], ['older', '3.10.1', '3.10.2', false], ['an older minor', '3.9.9', '3.10.2', false], ['a newer patch', '3.10.3', '3.10.2', true], ['a newer minor', '3.11.0', '3.10.2', true],
       ['a newer major', '4.0.0', '3.10.2', true], ['a newer minor but a smaller patch', '3.11.0', '3.10.9', true], ['numbers, not text', '3.10.10', '3.10.9', true], ['numbers, not text, downwards', '3.9.0', '3.10.0', false],
       ['a running pre-release of the release', '3.11.0', '3.11.0-rc.1', true], ['a running pre-release below an older release', '3.10.9', '3.11.0-rc.1', false], ['a running build with metadata', '3.10.2', '3.10.2+local', false],
-      ['a running pre-release, a newer release', '3.12.0', '3.11.0-rc.1', true],
+      ['a running pre-release, a newer release', '3.99.0', '3.11.0-rc.1', true],
     ];
     for (const [label, latest, current, expected] of cases) {
       feed.publish(feedManifest({ version: latest }));

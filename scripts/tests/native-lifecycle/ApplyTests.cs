@@ -297,7 +297,7 @@ internal static class ApplyTests
         Stops("running tasks", "tasks_running", () => { var s = MakeState("tasks"); var e = new List<string>(); return (s, Shell(s, e, preflight: () => new UpdatePreflight("Stop active DatGold tasks before installing or uninstalling. Nothing was cancelled.", "3.11.0")), e); });
         Stops("a Hub that cannot be asked", "hub_unreachable", () => { var s = MakeState("unreachable"); var e = new List<string>(); return (s, Shell(s, e, preflight: () => throw new HttpRequestException("refused")), e); });
         Stops("nothing on offer by the Hub", "stale", () => { var s = MakeState("nothing offered"); var e = new List<string>(); return (s, Shell(s, e, preflight: () => new UpdatePreflight(null, null)), e); });
-        Stops("another version on offer than the folder holds", "stale", () => { var s = MakeState("another offered"); var e = new List<string>(); return (s, Shell(s, e, preflight: () => new UpdatePreflight(null, "3.12.0")), e); });
+        Stops("another version on offer than the folder holds", "stale", () => { var s = MakeState("another offered"); var e = new List<string>(); return (s, Shell(s, e, preflight: () => new UpdatePreflight(null, "3.99.0")), e); });
         Stops("no update downloaded", "no_update", () => { var s = MakeState("empty state", write: false); var e = new List<string>(); return (s, Shell(s, e), e); });
         Stops("tasks that start while the file is being checked", "tasks_running", () =>
         {

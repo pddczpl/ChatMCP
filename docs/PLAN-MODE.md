@@ -1,9 +1,9 @@
-# Plan mode (P9 ac-9, ac-10, ac-11)
+# Plan mode (P9 ac-9, ac-10, ac-11, ac-12)
 
 A task the owner starts in **plan mode** reads the workspace and writes a plan, and nothing else, until the owner approves the plan.
 This document describes the per-task policy of `PermissionGate`, the `exit_plan_mode` tool, how plan mode is kept across follow-ups and
 restarts (ac-9); the plan model v2, its revision and the edit and decision routes, and the execution choice of an approval (ac-10); the page:
-the composer's Plan entry, the approval card and the editable Plan tab (ac-11); and what is not covered.
+the composer's Plan entry, the approval card and the editable Plan tab (ac-11); the hostile scenarios (ac-12); and what is not covered.
 
 ## Starting it and keeping it
 
@@ -36,7 +36,8 @@ second chat runs on a gate of its own anyway.
 `authorize()` reads the policy right after the two refusals that need no rule (a protected file, `isolationRequired`) and **before every rule
 that can let a call run or ask about it**: the owner's rules for external MCP tools, Full Access, the mode, and a hook's `forceAsk`. For a
 held task a call runs only if it is one of the Hub's own tools (a tool that `LocalTools` has, or a `studio.*` tool) whose category is `read`
-or `checkpoint` (reads, searches, `get_plan`, `update_plan`, `studio.plan_get`, `studio.plan_set`, `studio.checkpoint`). Everything else is
+or `checkpoint` (reads, searches, `get_plan`, `update_plan`, `studio.plan_get`, `studio.plan_set`, `studio.checkpoint`, `token_profile`,
+`debug_breakpoint`; every tool and its decision is in `tests/verify-plan-mode-tools.mjs`). Everything else is
 refused without a question and recorded as a policy refusal; the reason the model sees names `exit_plan_mode`:
 
 - every command tool (`run_command`, `tasks_run`, and any tool named like a shell), a command that only reads included;
@@ -68,10 +69,14 @@ plan the owner edited after the request was raised is a 409 `plan_conflict` unle
   `planApproval = {status: 'approved', at, revision, editedByUser, execution}` (`revision` is the one approved; `editedByUser` is true
   when that is a later revision than the proposal: the owner edited the plan, its text or only its checklist, before approving it), marks the
   plan file (`approvedAt`, `approvedRevision`), persists the task, and gives the model the approved plan (the owner's edit when there is one)
-  as a user message that names the revision; the next calls follow the ordinary rules of the mode, or of the mode chosen;
+  as a user message that names the revision; the next calls follow the ordinary rules of the mode, or of the mode chosen. **The calls behind
+  `exit_plan_mode` in the same model turn do not run** (ac-12): they were made before the model could read the plan as it was approved, so each gets
+  the `plan_mode` result, whatever it is (a read, `spawn_agent` and a second `exit_plan_mode` too); nothing is asked, and the next turn is normal;
 - **denied**: the tool result carries the owner's feedback, `planApproval.status` is `denied`, and the task stays read-only;
 - **expired** (no answer within the approval timeout): a denial, status `expired`;
 - **cancelled** (the task stopped) or **unanswerable** (a context where nobody can be asked): the task stays read-only.
+
+A plan that is longer than 40,000 characters once the secrets in it are masked is not proposed: the model gets an `invalid_arguments` result and the run goes on.
 
 Nothing the model writes can approve a plan: no tool result, file or web page text is read by the gate, and the policy is cleared only on
 the gate's decide path.
@@ -90,6 +95,9 @@ the owner's edit of it), under **one revision number**:
 | `updatedBy` | who wrote last: `agent` (the model, the Hub on its behalf) or `user` (the owner, through a route); null before the first write |
 | `updatedAt` | when |
 | `approvedAt`, `approvedRevision` | when the owner last approved a plan of this task, and which revision; recording it is not a write (no new revision) |
+
+**The id.** A plan is addressed by its task id exactly as the Hub writes it (lower case); any other spelling is 400 `bad_task_id`, to read, to write and
+to decide. On a file system that ignores case another spelling would be the same file under another lock.
 
 **Optimistic concurrency.** A write may name the revision it is based on: the owner's `baseRevision`, the model's `expected_revision`. Any
 other revision is a `409 plan_conflict` that carries the revision the plan is at (and who wrote it), and nothing is written. A write of the
@@ -209,6 +217,10 @@ A Hub that dies while a plan waits loses the request (it lived in that process).
 `process_interrupted`, with `planMode` and no approval, and holds it read-only on its gate at once; a continue (by the owner or the automatic
 resume) is a plan-mode run again. ac-18 builds the resume semantics on this.
 
+A Hub that dies while an approval is under way leaves one of two states: no approval (the task is held, also when the owner's page had already been answered 200:
+the answer is given before the approval is written down), or the approval with its execution choice (the task follows it). The plan file alone never lifts
+anything: one that says `approvedRevision` beside a task that has no approval is a held task. Once the model has been told of the approval it is on disk.
+
 ## Paths that do not go through the gate
 
 | Path | In plan mode |
@@ -219,7 +231,10 @@ resume) is a plan-mode run again. ac-18 builds the resume semantics on this.
 | `mcp_call` | goes through the gate like a direct call |
 | `ConcurrentApiAgent` worktree creation for a second chat | goes through the gate of the workspace's owner, as before (see Decisions) |
 | `lib/execution-contract.mjs` (`local.run_command` of a registry run) | goes through the gate: a command, refused |
-| delegates, dynamic delegates, the coding orchestrator, the terminal | started only by the owner's HTTP routes; no tool of the model reaches them |
+| delegates, dynamic delegates, the coding orchestrator, the terminal | started only by the owner's HTTP routes; no tool of the model reaches them (409 while the plan waits) |
+| agents, workflows and background commands (`tasks_run`) the chat started BEFORE it entered plan mode | go on as they were started: an agent in its own worktree and on its own gate. Stop them if they should not |
+| the owner's hooks | run around every call, a refused one too (they are the owner's programs); what they answer lifts nothing |
+| an approved external server | is connected at the start of a run and its lists are read, as for every run; none of its tools, prompts or resources is called |
 
 ## Transports
 
@@ -268,6 +283,22 @@ real Hub and the scripted model (start in plan mode, edit a step and the text in
 feedback is in the model's next turn and a plan approved for Review asks before it writes; a draft that outlives the refetch and a tab, a conflict with another
 window, the keyboard; a plan that moved on behind the card: the Hub's 409; the Companion and a held follow-up; the English screen). The plan asked for browser scenarios in `tests/verify-react-ui.py`,
 which the repository no longer has (its successor is `ui/e2e`).
+
+### Hostile scenarios (ac-12)
+
+Four suites on a **real Hub process** (`tests/e2e/hub-process.mjs`) with the strict scripted model, `run-all --filter plan-mode`. Each scenario asserts the bytes of every file
+of the workspace (`.git` included), Git's status, HEAD, refs and index, the permission history, the pending requests and the programs that were started (marks, and
+the process table by creation time), never the model's text (`tests/e2e/plan-mode-rig.mjs`).
+
+| Suite | Scenarios | Mutation list |
+|---|---|---|
+| `verify-plan-mode-hub` | SIGKILL while the approval is open, before the first answer, with the decision half sent, sent, answered and recorded, with a second chat waiting for its worktree or its plan; the automatic resume; a follow-up with `planMode` absent, true, false and garbage; a transcript resume, a checkpoint resume and damaged journals; a new plan on an approved task; a stop; the Companion | `plan-mode-hub.json` |
+| `verify-plan-mode-inject` | a model that obeys injected approvals from instruction files, a file, a search, the Git log, a diff, an attachment, a skill, a queued message and itself; `exit_plan_mode` in 36 odd shapes; the plan file changed behind the Hub in 14 ways, hidden characters, the length limit, 16 revisions that are not the current one on both routes | `plan-mode-inject.json` |
+| `verify-plan-mode-modes` | every global mode before, during and after the run and while the plan waits; the execution table; the calls behind a proposal; hooks; trusted checks; chats beside each other, another task's revision and card, ids in another case, decisions at once, after the end | `plan-mode-modes.json` |
+| `verify-plan-mode-tools` | every tool of the live catalogue under four gate modes against an explicit decision (a tool without one fails the suite), spellings that are no tool, an allowed and trusted external server, children, the owner's worker routes | `plan-mode-tools.json` |
+
+Limits these suites pin: the text under the current revision is what the plan file holds (a file changed on disk under the same revision is what the page shows, what
+is approved and what the model is given: a program that can write the Hub's data folder is trusted); a message that enters plan mode does not stop what was started before.
 
 Not verified: two Hub processes that share a state folder are not serialized (the plan lock is per process). No real model was run. The page was not
 tried in the WebView2 shell or with a screen reader (names, focus and status regions are asserted in Chromium).

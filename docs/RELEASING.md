@@ -97,9 +97,27 @@ single attempt passed from start to end. In attempt 1 the `windows` job failed w
 (the release was there, unchanged, and the same step had passed in `ci.yml` on that commit; the cause is not known, and attempt 2 downloaded it).
 "Re-run failed jobs" ran `windows` and `verify` again and `verify` took the evidence of the shards from attempt 1.
 
-**Not verified: the end of `verify`.** Attempt 2 stopped at "Require regular CI success on this exact release commit", as it must: `ci.yml` had
-failed on that commit ([CI-HEALTH.md](CI-HEALTH.md), "A port fetch refuses"). The download of the built assets and the check of their hashes come
-after that gate and did not run with shards. No tag and no release appeared. A green dry run is still owed before the first real release.
+Attempt 2 stopped at "Require regular CI success on this exact release commit", as it must: `ci.yml` had failed on that commit
+([CI-HEALTH.md](CI-HEALTH.md), "A port fetch refuses"). No tag and no release appeared.
+
+**The first green run with shards (dry run 45533264616, 2026-11-25, `4a17f06d`, 241 suites, attempt 1):** 1079 s (18.0 min) from start to end,
+`publish` skipped, no tag and no release.
+
+| Job | Seconds |
+|---|---|
+| `resolve` | 7 |
+| `browser` | 33 |
+| `hub-tests` 1/3, 2/3, 3/3 (in the suites) | 769 (729), 1027 (973), 718 (682) |
+| `windows` (upgrade step 702, installer build 160, native regression 123) | 1052 |
+| `verify` | 12 |
+
+`verify` ran to its end: the evidence of the shards (each of the 241 suites exactly once, every one `PASS`), the CI of that commit, the download of
+the built assets and their hashes (two assets match `RELEASE-MANIFEST.json`). The baseline download that failed in the run before took 6 s. In both
+runs the slowest shard came near the `windows` job (1047 of 1167 s, 1027 of 1052 s) and differed from run to run; a fourth shard would shorten the
+run only once a shard is the longest job.
+
+**Not verified: `publish`.** It runs only in a real release, and none has happened with `release.yml`. A dry run also says nothing about a commit other
+than its own: when `main` moves, wait for its CI and run it again.
 
 ## The first run after the switch
 
@@ -123,6 +141,7 @@ The first dry run (2026-11-21, run 44816344277 on `7dda49d7`) did its job: `reso
 tools were not installed, and `--no-skip` counts a skip as a failure. `publish-v3.11.2.yml`, which `release.yml` copies, predates those
 suites. The fix installs the same folders as the Hub tests job of `ci.yml` (ACP test tools, MCP client SDK, MCP reference servers), and
 `tests/verify-release-workflow.mjs` now fails when the two lists differ. A second dry run on `main` is needed after that fix.
+(It ran the same night and passed: 44837370220.)
 
 ## Steps for the owner
 

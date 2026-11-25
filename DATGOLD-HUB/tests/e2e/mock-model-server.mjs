@@ -82,6 +82,8 @@ function describeMessages(messages, tools) {
     turn: results.length,
     results,
     last: results.at(-1) ?? '',
+    // Every tool result of the conversation, oldest first: the Hub may put a message of its own between two model turns, and `results` starts over after it.
+    allResults: messages.filter((message) => message?.role === 'tool').map(contentText),
     tools,
     system: messages.filter((message) => message?.role === 'system').map(contentText).join('\n'),
   };
@@ -216,7 +218,8 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       // A call that the limit cut off carries half of its arguments (a JSON text that does not parse).
       calls: list.map((entry) => {
         state.callCounter += 1;
-        const json = JSON.stringify(entry.args ?? {});
+        // `argumentsText` is sent as it is (Chat Completions): a model can send arguments that are no JSON, or JSON that is no object.
+        const json = typeof entry.argumentsText === 'string' ? entry.argumentsText : JSON.stringify(entry.args ?? {});
         return { id: `${protocol === 'anthropic' ? 'toolu' : 'call'}_mock_${state.callCounter}`, name: entry.name, args: entry.args ?? {}, argumentsJson: truncated ? json.slice(0, Math.max(1, Math.floor(json.length / 2))) : json };
       }),
       usage, truncated,

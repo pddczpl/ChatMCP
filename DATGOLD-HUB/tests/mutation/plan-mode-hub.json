@@ -1,0 +1,177 @@
+{
+ "suite": "verify-plan-mode-hub.mjs",
+ "description": "What the suite about a Hub that dies must notice (P9 ac-12, docs/PLAN-MODE.md \"Hostile scenarios\"): a hold that is not kept by a restart, a continue, a new plan or a second chat; an approval or a choice that is lost or made up; a request that outlives its task.",
+ "mutations": [
+  {
+   "name": "H1",
+   "what": "a run of a held task is not held",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (planOnly(task)) this.#holdPlan(task);",
+     "new": ""
+    },
+    {
+     "file": "lib/agent.mjs",
+     "old": "        if (planOnly(task)) this.manager.permissions?.setTaskPolicy?.(task.id, { planOnly: true });",
+     "new": "        if (planOnly(task)) { /* not held */ }"
+    }
+   ]
+  },
+  {
+   "name": "H2",
+   "what": "a plan that was denied ends plan mode",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "  return task?.planMode === true && task.planApproval?.status !== 'approved';",
+     "new": "  return task?.planMode === true && !task.planApproval;"
+    }
+   ]
+  },
+  {
+   "name": "H3",
+   "what": "an approved task stays held",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "  return task?.planMode === true && task.planApproval?.status !== 'approved';",
+     "new": "  return task?.planMode === true;"
+    }
+   ]
+  },
+  {
+   "name": "H4",
+   "what": "planMode false leaves plan mode",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (wanted === false && planOnly(task)) throw fault('plan_mode_pending',",
+     "new": "    if (wanted === false && planOnly(task)) task.planMode = false; else if (wanted === null && task === null) throw fault('plan_mode_pending',"
+    }
+   ]
+  },
+  {
+   "name": "H5",
+   "what": "a planMode that is no boolean is read as one",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "  if (typeof value !== 'boolean') throw fault('invalid_plan_mode',",
+     "new": "  if (typeof value !== 'boolean') return Boolean(value); if (value === undefined) throw fault('invalid_plan_mode',"
+    }
+   ]
+  },
+  {
+   "name": "H6",
+   "what": "a new plan on an approved task keeps the old approval",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "  if (existing && wantedPlan === true && !planOnly(task)) { task.planMode = true; task.planApproval = null; }",
+     "new": "  if (existing && wantedPlan === true && !planOnly(task)) { task.planMode = true; }"
+    }
+   ]
+  },
+  {
+   "name": "H7",
+   "what": "the mode chosen for the execution is not put back",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "  return PLAN_EXECUTIONS.includes(chosen) ? chosen : null;",
+     "new": "  return chosen === undefined ? null : null;"
+    }
+   ]
+  },
+  {
+   "name": "H8",
+   "what": "a continued run of a held task is no plan-mode run",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    context.planTool = planOnly(task);",
+     "new": "    context.planTool = planOnly(task) && !existing;"
+    }
+   ]
+  },
+  {
+   "name": "H9",
+   "what": "a message puts a running run into plan mode",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if(this.#planModeAfter(context.task,planMode)===true&&!planOnly(context.task))",
+     "new": "    if(false)"
+    }
+   ]
+  },
+  {
+   "name": "H10",
+   "what": "a held chat is carried to the Companion",
+   "patches": [
+    {
+     "file": "lib/dual-agent.mjs",
+     "old": "      if(this.mode==='chatgpt-web'&&(existing.planOnly===true||",
+     "new": "      if(this.mode==='chatgpt-web'&&(false||"
+    }
+   ]
+  },
+  {
+   "name": "H11",
+   "what": "the Companion starts a plan-mode task as an ordinary one",
+   "equivalent": "BrowserRunner.start (refusePlanMode) refuses the same request with the same code, plan_mode_unsupported: two layers, and either one alone gives the answer the suite asserts.",
+   "patches": [
+    {
+     "file": "lib/dual-agent.mjs",
+     "old": "    if(payload?.planMode!==undefined&&payload.planMode!==null&&payload.planMode!==false)throw PLAN_MODE_UNSUPPORTED();",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "H12",
+   "what": "a chat that waits for its worktree forgets plan mode",
+   "patches": [
+    {
+     "file": "lib/concurrent-api-agent.mjs",
+     "old": "      ...(plan===true?{planMode:true}:{}),",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "H13",
+   "what": "a chat that never ran leaves plan mode by a follow-up",
+   "patches": [
+    {
+     "file": "lib/concurrent-api-agent.mjs",
+     "old": "        if (plan === false && record.planMode === true)",
+     "new": "        if (false)"
+    }
+   ]
+  },
+  {
+   "name": "H14",
+   "what": "a stop leaves the request of its task on the stack",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "      const aborted=()=>{clearTimeout(timer);this.requests.delete(id);this.#record(request,'cancelled');reject(",
+     "new": "      const aborted=()=>{clearTimeout(timer);this.#record(request,'cancelled');reject("
+    }
+   ]
+  },
+  {
+   "name": "H15",
+   "what": "the choice of an approval is not recorded with the task",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      task.planApproval = { status: 'approved', at, revision: approvedRevision, editedByUser, execution };",
+     "new": "      task.planApproval = { status: 'approved', at, revision: approvedRevision, editedByUser, execution: null };"
+    }
+   ]
+  }
+ ]
+}

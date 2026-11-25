@@ -714,7 +714,7 @@ const SECTIONS = ['subject', 'criteria', 'receipts', 'diff', 'tamper', 'permissi
   }
   // the pack of a hostile maker names its ledger break only by code; the subject section names agent, model and trees
   const subject = sectionOf(checked, 'section.subject');
-  for (const value of ['DatGold', '3.12.0', 'mô-hình-1', READ.evidenced.statement.predicate.baseCommit, READ.evidenced.statement.subject[1].digest.gitTree]) assert.ok(subject.includes(`\`${value}\``), `the subject names ${value}`);
+  for (const value of ['DatGold', READ.evidenced.statement.predicate.agent.version, 'mô-hình-1', READ.evidenced.statement.predicate.baseCommit, READ.evidenced.statement.subject[1].digest.gitTree]) assert.ok(subject.includes(`\`${value}\``), `the subject names ${value}`);
   assert.ok(sectionOf(hostileBody, 'section.subject').includes(READ.hostile.statement.subject[3].digest.gitCommit), 'a commit of the change');
   assert.match(subject, says('subject.trusted'));
   assert.match(sectionOf(md(statementAlone(variant('evidenced', (p) => {
