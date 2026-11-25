@@ -10,22 +10,40 @@
 //
 // Keys of objects are structure and are left as they are. A string is masked wherever it stands, ids and paths included: the patterns do not alter ordinary ids, paths or URIs (the tests
 // pass names that say token and password through), and a list of "structural" fields would be one more thing that a new message could get wrong.
-import { maskSecrets } from '../permissions.mjs';
+//
+// The command of a call is the one text that a shell will read, and the person who answers in the editor has to see what a shell acts on: it is masked as the card of the Hub masks it (`maskCommand`), and so
+// are the title of the call and, in a question about it, the note that quotes it. The output of a call and a diff are texts like any other.
+import { maskCommand, maskSecrets } from '../permissions.mjs';
 
 const MAX_DEPTH = 64;
+const PROMPT = /^(?:tasks_run: )?\$ /; // what the Hub writes in front of a command in a summary
 const CUT = '[cut: nested too deeply or circular]';
 
 /** @param {{secrets?: () => string[]}} [options] the credentials to mask by value, asked for on every call */
 export function createMasker({ secrets = () => [] } = {}) {
   const text = (value) => maskSecrets(String(value), secrets());
-  const walk = (value, depth, ancestors) => {
-    if (typeof value === 'string') return text(value);
+  /** How the texts about the command of a call are masked; `say` for a call without one. */
+  const about = (call, say) => {
+    const command = call.rawInput?.command;
+    if (typeof command !== 'string') return say;
+    const shown = maskCommand(command, secrets());
+    return (value) => {
+      const prompt = PROMPT.exec(value)?.[0] ?? '';
+      return value === command ? shown : prompt + maskCommand(value.slice(prompt.length), secrets(), command, shown);
+    };
+  };
+  // `say`: how the strings here are masked; `question`: the value is the call that a question is about.
+  const walk = (value, depth, ancestors, say = text, question = false) => {
+    if (typeof value === 'string') return say(value);
     if (value === null || typeof value !== 'object') return value;
     if (depth >= MAX_DEPTH || ancestors.has(value)) return CUT;
     ancestors.add(value);
     try {
-      if (Array.isArray(value)) return value.map((item) => walk(item, depth + 1, ancestors));
-      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item, depth + 1, ancestors)]));
+      if (Array.isArray(value)) return value.map((item) => walk(item, depth + 1, ancestors, say));
+      const own = value.type === 'diff' ? text : say; // a diff is a text, beside a command too
+      const command = about(value, own);
+      const quotes = (key) => key === 'title' || key === 'rawInput' || (question && key === 'content');
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item, depth + 1, ancestors, quotes(key) ? command : own, key === 'toolCall')]));
     } finally { ancestors.delete(value); }
   };
   return {

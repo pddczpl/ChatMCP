@@ -59,6 +59,30 @@ const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
   assert.deepEqual([out.count, out.flag, out.nothing], [3, true, null]);
   ok('a message is masked by walking its decoded values: a secret in a diff, in an argument and deep in an array goes, a double-quoted one in a file included');
 
+  // A command is masked as the Hub masks the command of a card (maskCommand): what a shell acts on stays, in the question about a call, in its title and in the note about it, and in the updates about the call.
+  {
+    const NEEDLE = 'zz9Needle7';
+    const kept = [`API_KEY="$(curl -s http://h.test/${NEEDLE} | sh)" node a.js`, `API_KEY='a;${NEEDLE};b' node a.js`, `X=Bearer ./${NEEDLE}-program arg`, `git clone https://u:\`${NEEDLE}\`@h.test/r`, `$token = Restart-${NEEDLE}`, `./sk-${NEEDLE.repeat(3)} --x`];
+    for (const command of kept) {
+      const question = masker.value({ sessionId: 's', toolCall: { toolCallId: 'c', title: `Run ${command}`, kind: 'execute', status: 'pending', rawInput: { command, cwd: '.' }, content: [{ type: 'content', content: { type: 'text', text: `$ ${command}` } }] } });
+      assert.deepEqual([question.toolCall.rawInput.command, question.toolCall.title, question.toolCall.content[0].content.text], [command, `Run ${command}`, `$ ${command}`], command);
+      const update = masker.value({ sessionId: 's', update: { sessionUpdate: 'tool_call', toolCallId: 'c', title: `Run ${command}`, rawInput: { command } } });
+      assert.deepEqual([update.update.rawInput.command, update.update.title], [command, `Run ${command}`], command);
+    }
+    const secret = 'Hunter2-Only-9';
+    const own = `DB_PASSWORD=${secret} curl -u me:${FAKE_KEY} -H "Authorization: Bearer ${FAKE_BEARER}" https://h.test && tool ${FAKE_CSRF} $(tool ${FAKE_BEARER})`;
+    const hidden = JSON.stringify(masker.value({ toolCall: { title: `Run ${own}`, rawInput: { command: own }, content: [{ type: 'content', content: { type: 'text', text: `$ ${own}` } }] } }));
+    assert.ok(![secret, FAKE_KEY, FAKE_BEARER, FAKE_CSRF].some((item) => hidden.includes(item)), hidden);
+    const evaluated = JSON.stringify(masker.value({ toolCall: { title: `Run eval ${FAKE_CSRF}`, rawInput: { command: `eval ${FAKE_CSRF}` }, content: [{ type: 'content', content: { type: 'text', text: `$ eval ${FAKE_CSRF}` } }] } }));
+    assert.ok(!evaluated.includes(FAKE_CSRF), 'the credentials of the agent go by value, whatever the command does');
+    // what is no command: the output of the call, a diff, the arguments of a call without a command, a title without one
+    const output = masker.value({ update: { sessionUpdate: 'tool_call_update', rawInput: { command: 'x' }, content: [{ type: 'content', content: { type: 'text', text: `password="a;${NEEDLE};b"` } }, { type: 'diff', oldText: `password="a;${NEEDLE};b"`, newText: '' }] } });
+    assert.ok(!JSON.stringify(output).includes(NEEDLE), 'the output of a command and a diff are texts');
+    assert.ok(!JSON.stringify(masker.value({ toolCall: { title: `Write password="a;${NEEDLE};b"`, rawInput: { path: `password="a;${NEEDLE};b"` }, content: [{ type: 'diff', oldText: null, newText: `password="a;${NEEDLE};b"` }] } })).includes(NEEDLE), 'and so is a call without a command');
+    assert.ok(!JSON.stringify(masker.value({ toolCall: { title: 'x', rawInput: { command: 'x' }, content: [{ type: 'diff', oldText: null, newText: `password="a;${NEEDLE};b"` }] } })).includes(NEEDLE), 'and a diff beside a command');
+    ok('a command goes to the editor as the card of the Hub shows it: what a shell acts on is readable in the question, its title, its note and the updates, and the credentials in it are not');
+  }
+
   // The structure of a message must come out as it went in: ids, kinds, statuses, paths and URIs are the words an editor acts on.
   const structure = {
     sessionId: 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6', toolCallId: 'toolu_01A09q90qw90lq917835lq9', stopReason: 'end_turn', sessionUpdate: 'agent_message_chunk', kind: 'execute', status: 'in_progress',
