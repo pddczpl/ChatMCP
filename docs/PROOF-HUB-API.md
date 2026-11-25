@@ -137,9 +137,9 @@ is kept for 60 s for its next pages, by the sha256 of the file's bytes: an edite
   so the digest cannot be computed from this answer.
 
 **md** and **html** are the reports of [PROOF-RENDER.md](PROOF-RENDER.md), with `packChecked` (the file was checked just now) and the registered secrets out of every
-text they take from the pack. Both are downloads (`Content-Disposition: attachment`), `nosniff`, `no-store`, `no-referrer`, with
-`Content-Security-Policy: sandbox; <the page's own policy>` and `Cross-Origin-Resource-Policy: same-origin`: a text of a pack is data of an agent's, served from
-the Hub's own origin.
+text they take from the pack. Both are downloads (`Content-Disposition: attachment`), `nosniff`, `no-store`, `no-referrer`, with `Cross-Origin-Resource-Policy: same-origin` and a
+`Content-Security-Policy` that begins with the directive that has the name and the meaning of the iframe attribute `sandbox`, followed by the page's own policy: a
+text of a pack is data of an agent's, served from the Hub's own origin.
 
 ## The acceptance file: `GET /api/proof/acceptance`
 

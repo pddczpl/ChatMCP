@@ -224,6 +224,17 @@
    ]
   },
   {
+   "name": "HN-on-diff",
+   "what": "the diff is not asked about before anything is built from it",
+   "patches": [
+    {
+     "file": "lib/proof/pack-build.mjs",
+     "old": "  onDiff(diff);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
    "name": "HN-stop-delete",
    "what": "a delete does not stop the build",
    "patches": [

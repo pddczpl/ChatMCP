@@ -583,17 +583,6 @@
    ]
   },
   {
-   "name": "HP-pack-edit",
-   "what": "the diff is not asked about before anything is built from it",
-   "patches": [
-    {
-     "file": "lib/proof/pack-build.mjs",
-     "old": "  onDiff(diff);\n",
-     "new": ""
-    }
-   ]
-  },
-  {
    "name": "AR-ledger-ok",
    "what": "a ledger that does not verify is read",
    "patches": [

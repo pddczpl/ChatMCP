@@ -41,18 +41,18 @@
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "        'Content-Security-Policy': `sandbox; ${CSP}`,\n",
+     "old": "        'Content-Security-Policy': REPORT_POLICY,\n",
      "new": ""
     }
    ]
   },
   {
    "name": "HH-sandbox",
-   "what": "a report is not sandboxed",
+   "what": "a report has the origin of the Hub",
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "`sandbox; ${CSP}`",
+     "old": "[...Object.keys({ sandbox: true }), CSP].join('; ')",
      "new": "CSP"
     }
    ]

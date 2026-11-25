@@ -144,14 +144,22 @@ try {
 
   await section('2. the end of a run does not wait for its pack; a run that needs a baseline is not held up by one', async () => {
     const dir = await project('free', { files: Object.fromEntries(Array.from({ length: 300 }, (_, n) => [`f${n}.txt`, `file ${n}\n`.repeat(20)])) });
-    const slowed = { during: async ({ agent }) => { const { build } = agent.packs.deps; agent.packs.deps = { ...agent.packs.deps, build: async (job) => { await sleep(1000); return build(job); } }; } };
+    let context = null;
+    const scratchDirs = [];
+    const slowed = { during: async ({ agent }) => {
+      context = agent.context;
+      const { checkChanges } = agent.doneGate.deps;
+      agent.doneGate.deps.checkChanges = (options) => { scratchDirs.push(options.scratchDir); return checkChanges(options); };
+      const { build } = agent.packs.deps; agent.packs.deps = { ...agent.packs.deps, build: async (job) => { await sleep(1000); return build(job); } }; } };
     const free = await run(manager, dir, [read, fix, done], slowed);
     equal(free.agent.get(free.id).proof.status, 'building', 'the task is free while its pack is built');
+    equal(await Promise.race([context.done.promise.then(() => 'ended'), sleep(400).then(() => 'waiting')]), 'ended', 'and whoever waits for the end of the run has it');
     equal([free.agent.state().activeTaskId, manager.taskId, free.view.status], [null, null, 'completed']);
     // another conversation on the same folder starts at once, and takes its own baseline
     const next = await run(manager, dir, [answer('Nothing to do.')], { prompt: 'Look around.' });
     check(next.gates.includes('armed') && !next.gates.includes('baseline_unavailable'), 'it has its baseline');
     equal([(await settled(free.agent, free.id)).status, (await settled(next.agent, next.id)).status], ['ready', 'ready'], 'both have a pack');
+    equal(scratchDirs, [undefined, path.join(manager.hubDirectory, 'proof', 'packs', 'scratch')], 'the report of the gate is made in its own folder, that of the pack beside the packs');
     // a build that does not end gives way: the run that needs the folder is not the one that waits
     const stuck = await run(manager, dir, [done], { prompt: 'Look around.', during: async ({ agent }) => {
       agent.packs.limits = { ...agent.packs.limits, giveWayMs: 300 };
@@ -256,6 +264,12 @@ try {
     const start = ['task_start', { taskId: 'x' }];
     const verify = on('verify', A, { id: '0123456789abcdef' });
     equal(await problem([], verify), ACCEPT_CODES.unreadable, 'no ledger');
+    const brokenId = randomUUID();
+    const broken = ProofLedger.forTask(hubDir, brokenId);
+    for (const [type, record] of [start, call(A, A), at('task_end', A)]) await broken.append(type, record);
+    equal(await receiptProblem({ hubDir, taskId: brokenId, receipt: verify }), null, '(premise) the ledger shows it');
+    await fs.appendFile(broken.file, '{"type":"none"}\n');
+    equal((await receiptProblem({ hubDir, taskId: brokenId, receipt: verify })).code, ACCEPT_CODES.unreadable, 'a ledger with a line that is not of its chain');
     equal(await problem([start], verify), ACCEPT_CODES.treeUnknown, 'a ledger without a tree');
     equal(await problem([start, at('task_start', A), at('task_end', none)], verify), ACCEPT_CODES.treeUnknown, 'a final tree that could not be taken: not shown to be current');
     equal(await problem([start, at('task_start', A), at('task_end', B)], on('inspect', A)), ACCEPT_CODES.stale, 'another final tree');
@@ -353,9 +367,11 @@ try {
     const before = [...manager.secrets];
     const known = view();
     const task = { task: () => known };
-    manager.secrets.push('scripted-1', proof.digest.slice(4, 9), 'calc.test');
+    const { gitTree } = JSON.parse((await ask()).body).statement.subject[1].digest;
+    manager.secrets.push('scripted-1', proof.digest.slice(4, 9), gitTree.slice(6, 11), 'calc.test');
     const masked = await ask('', task);
     equal([masked.json.masked, masked.json.statement.predicate.model.id, masked.json.digest, masked.json.files.length], [true, '[REDACTED]', proof.digest, 3]);
+    equal(masked.json.statement.subject[1].digest.gitTree, gitTree, 'an id that holds a short secret by chance stays whole');
     check(!/scripted-1|calc\.test/.test(masked.body), 'not in the json');
     const html = await ask('format=html&lang=en', task);
     const md = await ask('format=md&lang=en', task);

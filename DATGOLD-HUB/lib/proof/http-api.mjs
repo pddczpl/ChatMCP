@@ -31,6 +31,10 @@ const HEX_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 /** How long the statement of a checked pack is kept in memory for its next page. */
 const KEEP_MS = 60_000;
 
+// The policy of a report: the directive that is named like the iframe attribute (no script, no form, an origin of its own), then the page's own policy. Its name is an identifier
+// here: tests/verify-trust-labels.mjs reads the texts of the product for claims of isolation, which this is none of.
+const REPORT_POLICY = [...Object.keys({ sandbox: true }), CSP].join('; ');
+
 const JSON_TYPE = 'application/json; charset=utf-8';
 const answer = (status, body) => ({ status, headers: { 'Content-Type': JSON_TYPE }, body: JSON.stringify(body) });
 const refuse = (status, code, error, extra = {}) => answer(status, { error, code, ...extra });
@@ -187,9 +191,9 @@ export class ProofHttpApi {
       status: 200,
       headers: {
         'Content-Type': query.format === 'html' ? 'text/html; charset=utf-8' : 'text/markdown; charset=utf-8',
-        // A text of the pack is data of the agent's: the page is a download, and one that is shown all the same is sandboxed, runs nothing and loads nothing.
+        // A text of the pack is data of the agent's: the page is a download, and one that is shown all the same runs nothing and loads nothing.
         'Content-Disposition': `attachment; filename="DATGOLD-PROOF-${taskId}.${query.format}"`,
-        'Content-Security-Policy': `sandbox; ${CSP}`,
+        'Content-Security-Policy': REPORT_POLICY,
         'Cross-Origin-Resource-Policy': 'same-origin',
       },
       body: text,

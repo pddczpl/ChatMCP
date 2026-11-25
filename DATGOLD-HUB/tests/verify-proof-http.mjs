@@ -263,7 +263,12 @@ await runScenario({
   let killed = null;
   for (let attempt = 0; attempt < 6 && !killed; attempt += 1) {
     const candidate = await startTask(hub, 'It is done, says the model again.');
-    const seen = await waitFor(async () => { const { proof } = await hub.task(candidate.id); return ['building', 'ready'].includes(proof?.status) ? proof.status : null; }, { timeoutMs: 60_000, intervalMs: 2, label: 'the pack to be built' });
+    // `building` is said before the run has let go of everything; what is wanted is the build behind a run that has ended.
+    const seen = await waitFor(async () => {
+      const { agent } = await hub.state();
+      const proof = agent.tasks.find((task) => task.id === candidate.id)?.proof;
+      return agent.activeTaskId !== candidate.id && ['building', 'ready'].includes(proof?.status) ? proof.status : null;
+    }, { timeoutMs: 60_000, intervalMs: 2, label: 'the pack to be built' });
     if (seen === 'building') killed = candidate;
     else await waitForState(hub, candidate.id, ['completed'], { timeoutMs: 20_000 });
   }
