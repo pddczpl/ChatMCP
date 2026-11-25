@@ -106,6 +106,18 @@ try {
     await two.agent.shutdown();
     inStop.push('stopped');
     equal(inStop, ['build', 'stopped'], 'and so does a stop of the Hub');
+    // a write that has begun ends first: the pack of a deleted conversation does not come after it
+    let begun;
+    const writing = new Promise((resolve) => { begun = resolve; });
+    const five = await run(manager, await good('late-write'), [done], { runner: await runner((agent) => {
+      const real = agent.packs.store;
+      const slow = { write: async (...args) => { begun(); await sleep(700); return real.write(...args); } };
+      Object.defineProperty(agent.packs, 'store', { value: new Proxy(real, { get: (target, name) => slow[name] ?? (typeof target[name] === 'function' ? target[name].bind(target) : target[name]) }) });
+    }), prompt: 'Look around.' });
+    await writing;
+    await five.agent.delete(five.id);
+    await sleep(1000);
+    equal(files(manager, five.id), [], 'a delete in the middle of the write leaves no pack');
     // a run that takes a baseline in the same workspace waits too
     const inBaseline = [];
     const three = await run(manager, await good('late-baseline'), [done], { runner: await runner((agent) => { late(inBaseline)(agent); agent.packs.limits = { ...agent.packs.limits, giveWayMs: 2000 }; }), prompt: 'Look around.' });

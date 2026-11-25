@@ -226,7 +226,6 @@
   {
    "name": "RC-stop-settled",
    "what": "a stop does not wait until the result is saved",
-   "equivalent": "the result of a build that was given up is saved in the microtasks and the one write after the abort, and delete() and shutdown() wait for the writes of the task themselves",
    "patches": [
     {
      "file": "lib/proof/hub-pack.mjs",
