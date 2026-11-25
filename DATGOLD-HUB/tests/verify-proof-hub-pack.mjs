@@ -23,11 +23,11 @@ import { readPackFile } from '../lib/proof/cli/check.mjs';
 import { HubPacks, PACK_REASONS, PACK_LIMITS, PackStore, loadedProof, publicProof } from '../lib/proof/hub-pack.mjs';
 import { ProofHttpApi } from '../lib/proof/http-api.mjs';
 import { ProofLedger, ledgerPath, treeRef } from '../lib/proof/ledger.mjs';
-import {
-  ACCEPT, WEAK, answer, approver, bundleRoot, check, count, createHub, diff, done, equal, fix, git, project, read, root, run, say, scripted, section, sleep, textsOf, tool, trust, until, write,
-} from './support/proof-gate-rig.mjs';
+import { ACCEPT, WEAK, answer, approver, bundleRoot, check, count, createHub, diff, done, equal, fix, git, packSettled, project, read, root, run as runOnly, say, scripted, section, sleep, textsOf, tool, trust, until, write } from './support/proof-gate-rig.mjs';
 
-const settled = (agent, id) => until(() => { const { proof } = agent.get(id); return proof && proof.status !== 'building' && proof.reason !== 'run_in_progress' && !agent.packs.running.has(id) ? proof : null; }, 'the proof to settle');
+const settled = packSettled;
+/** A run that does not wait for its pack: what goes on behind it is what these tests look at. */
+const run = (manager, dir, steps, options = {}) => runOnly(manager, dir, steps, { settle: false, ...options });
 const files = (manager, id) => { try { return fsSync.readdirSync(path.join(manager.hubDirectory, 'proof', 'packs', id)).map((name) => path.join(manager.hubDirectory, 'proof', 'packs', id, name)); } catch { return []; } };
 const packOf = (manager, id) => readPackFile(fsSync.readFileSync(files(manager, id)[0]));
 const cli = (file) => {

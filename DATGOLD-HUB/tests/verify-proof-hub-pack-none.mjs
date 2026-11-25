@@ -8,11 +8,11 @@ import path from 'node:path';
 import { AgentRunner } from '../lib/agent.mjs';
 import { HubPacks, PACK_REASONS, reasonOf } from '../lib/proof/hub-pack.mjs';
 import { ledgerPath } from '../lib/proof/ledger.mjs';
-import {
-  ACCEPT, answer, check, count, createHub, done, equal, fix, git, project, read, root, run, say, scripted, section, sleep, tool, trust, until, write,
-} from './support/proof-gate-rig.mjs';
+import { ACCEPT, answer, check, count, createHub, done, equal, fix, git, packSettled, project, read, root, run as runOnly, say, scripted, section, sleep, tool, trust, until, write } from './support/proof-gate-rig.mjs';
 
-const settled = (agent, id) => until(() => { const { proof } = agent.get(id); return proof && proof.status !== 'building' && proof.reason !== 'run_in_progress' && !agent.packs.running.has(id) ? proof : null; }, 'the proof to settle');
+const settled = packSettled;
+/** A run that does not wait for its pack: what goes on behind it is what these tests look at. */
+const run = (manager, dir, steps, options = {}) => runOnly(manager, dir, steps, { settle: false, ...options });
 const files = (manager, id) => { try { return fsSync.readdirSync(path.join(manager.hubDirectory, 'proof', 'packs', id)).map((name) => path.join(manager.hubDirectory, 'proof', 'packs', id, name)); } catch { return []; } };
 /** A project whose checks pass as it is. */
 const good = (name, { files: more = {}, ...options } = {}) => project(name, { ...options, files: { 'calc.js': 'exports.add = (a, b) => a + b;\n', ...more } });
@@ -160,7 +160,7 @@ try {
   await section('2. delete, stop and a new run while a pack is built; a restart', async () => {
     // a build that does not end, and does not look whether it was given up
     const forever = { build: () => new Promise(() => {}) };
-    const slow = { during: async ({ agent }) => { agent.packs.deps = { ...agent.packs.deps, ...forever }; }, prompt: 'Look around.' };
+    const slow = { during: async ({ agent }) => { agent.packs.deps = { ...agent.packs.deps, ...forever }; agent.packs.limits = { ...agent.packs.limits, stopMs: 500 }; }, prompt: 'Look around.' };
     const deleted = await run(manager, await good('deleted'), [done], slow);
     equal(deleted.agent.get(deleted.id).proof.status, 'building');
     check(fsSync.existsSync(path.dirname(taskFile(manager, deleted.id))), '(premise) the task is on disk');
@@ -179,9 +179,10 @@ try {
     equal([onDisk.status, onDisk.reason], ['none', 'hub_stopped'], 'and it is saved');
     // a new run of the same task while its pack is built
     const twice = await run(manager, await good('twice'), [done], slow);
+    for (const build of twice.agent.packs.going) build.giveWayMs = 300;
     twice.agent.packs.deps = { ...twice.agent.packs.deps, build: new HubPacks({ manager, gate: twice.agent.doneGate }).deps.build };
     const second = await run(manager, manager.workspace, [done], { runner: twice.agent, id: twice.id, prompt: 'Again.' });
-    const proof = await settled(second.agent, second.id);
+    const proof = await until(() => { const now = second.agent.get(second.id).proof; return now.status === 'ready' ? now : null; }, 'the pack of the later run');
     equal([proof.status, proof.run, proof.earlier], ['ready', 2, null], 'the later run has its pack, the build of the earlier one is given up');
     // a Hub that died: what a task file says of a pack that was being built, or of a run that went on
     for (const state of [{ status: 'building', reason: null }, { status: 'none', reason: 'run_in_progress' }]) {

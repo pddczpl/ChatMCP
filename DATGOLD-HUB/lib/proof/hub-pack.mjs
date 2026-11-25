@@ -12,7 +12,7 @@ import path from 'node:path';
 import { writeFileAtomic } from '../fs-safe.mjs';
 import { treeKey } from '../agent-progress.mjs';
 import { VERSION } from '../manager.mjs';
-import { loadBaseline } from './baseline.mjs';
+import { acquireWorkspaceLock, loadBaseline } from './baseline.mjs';
 import { readPackFile } from './cli/check.mjs';
 import { ledgerPath, verifyChain } from './ledger.mjs';
 import { CRITERION_STATUS } from './pack.mjs';
@@ -48,7 +48,7 @@ export const PACK_LIMITS = Object.freeze({
   maxPatchBytes: 32 * 1024 * 1024,
   lockMs: 30_000, // the wait for the lock of the workspace's baselines
   giveWayMs: 5000, // how long a run that needs that lock waits for a build before it is given up
-  stopMs: 5000, // how long a stop of the Hub or a delete waits for a build that was given up
+  stopMs: 3000, // how long a stop of the Hub or a delete waits for the end of a build that was given up
 });
 
 const TASK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -185,8 +185,14 @@ export async function buildHubPack({ taskId, number, inputs, ledgerBytes, final,
   const { hubDir, root, env, baseline, acceptance, current, trustStore, changes } = inputs;
   const { record } = await loadBaseline({ hubDir, root, id: baseline.id, expectSha256: baseline.sha256 });
   const coverage = coverageOf(ledgerBytes, record);
-  // The report on the checks reads the workspace before the diff takes the final tree: a file that changed meanwhile shows in that tree.
-  const report = await changes();
+  // The report on the checks reads the workspace before the diff takes the final tree: a file that changed meanwhile shows in that tree. It also reads the baseline's store,
+  // so it holds the lock of the workspace, as the diff does: whatever removes something there (the retention, a new baseline, a deleted conversation) takes that lock.
+  const held = await acquireWorkspaceLock({ hubDir, root, lock: { waitMs: limits.lockMs }, purpose: 'pack' });
+  let report;
+  try {
+    signal.throwIfAborted();
+    report = await changes(signal);
+  } finally { await held.release(); }
   signal.throwIfAborted();
   const built = await buildPackBytes({
     hubDir, root, baselineId: baseline.id, anchor: baseline.sha256, env, scratch: null, acceptanceBytes: acceptance, readCurrent: async () => current, trustStore, ledgerBytes,
@@ -220,18 +226,27 @@ function costOf(task, manager) {
   return { currency: 'USD', knownSubtotal: ledger.knownSubtotalUsd, complete: ledger.complete === true && agents === 0 };
 }
 
-// The builds that go on, per workspace, for the whole process: a run that needs the lock of the workspace's baselines is not the one that waits (giveWay).
+// The builds that go on, per workspace, for the whole process: a run that needs the lock of the workspace's baselines is not the one that waits (giveWay). One that was given
+// up goes on until it has come to its end.
 const builds = new Map();
 const rootKey = (root) => (process.platform === 'win32' ? path.resolve(root).toLowerCase() : path.resolve(root));
-const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref(); });
+/** Waits for the first of `promises`, at most `ms`. */
+async function atMost(ms, ...promises) {
+  let timer;
+  const over = new Promise((resolve) => { timer = setTimeout(resolve, ms); });
+  try { await Promise.race([...promises, over]); } finally { clearTimeout(timer); }
+}
 
-/** Waits a moment for the builds of the workspace `root`, then gives up those that go on. Called by the done-gate before it takes a baseline. Never throws. */
+/** Waits a moment for the builds of the workspace `root`, then gives up those that go on and waits as long for their end. Called by the done-gate before it takes a baseline. Never throws. */
 export async function giveWay(root, { signal = null } = {}) {
   const going = [...(builds.get(rootKey(root)) ?? [])];
   if (!going.length) return;
   const stopped = signal ? new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }); }) : new Promise(() => {});
-  await Promise.race([Promise.all(going.map((build) => build.settled)), wait(Math.max(...going.map((build) => build.giveWayMs))), stopped]);
-  for (const build of going) if (!build.done) build.controller.abort(fault('superseded', 'a run needs the workspace'));
+  const ended = Promise.all(going.map((build) => build.ended));
+  const limit = Math.max(...going.map((build) => build.giveWayMs));
+  await atMost(limit, ended, stopped);
+  for (const build of going) if (builds.get(rootKey(root))?.has(build)) build.giveUp('superseded');
+  await atMost(limit, ended, stopped);
 }
 
 /** `promise`, or the reason of `signal` as soon as it aborts; what the promise does later is nobody's. */
@@ -265,7 +280,7 @@ export class HubPacks {
     this.log = log;
     this.limits = { ...PACK_LIMITS, ...limits };
     this.deps = { build: buildHubPack, ...deps };
-    this.running = new Map(); // task id -> the build that goes on
+    this.going = new Set(); // the builds whose result is not saved yet, or that have not come to their end
   }
 
   /** The files; null when the manager has no data folder for them. */
@@ -291,7 +306,7 @@ export class HubPacks {
    */
   async prepare({ task, run, number, ended }) {
     const { manager } = this;
-    await this.stop(task.id, 'superseded');
+    await this.stop(task.id, 'superseded', { end: false }); // the lock orders what is left of it and the new one
     const service = manager.proofService();
     if (!service) return { reason: 'proof_unavailable' };
     if (service.disabled) return { reason: 'state_inside_workspace' };
@@ -320,28 +335,37 @@ export class HubPacks {
   /** Builds and writes the pack of `job` in the background, then calls `settle({facts} or {reason})`. Returns at once; the promise (never rejected) ends after `settle`. */
   start(job, settle) {
     const controller = new AbortController();
-    const build = { controller, done: false, giveWayMs: this.limits.giveWayMs, settled: null };
     const key = rootKey(job.inputs.root);
+    const work = Promise.resolve().then(() => this.deps.build({ ...job, limits: this.limits, signal: controller.signal }));
+    const build = {
+      taskId: job.taskId, giveWayMs: this.limits.giveWayMs,
+      giveUp: (why) => { if (!controller.signal.aborted) controller.abort(fault(why, why)); },
+      // `ended`: nothing of the workspace or of its baselines is used any more; whoever waits for the folder may go on
+      ended: work.then(() => {}, () => {}).then(() => {
+        builds.get(key)?.delete(build);
+        if (!builds.get(key)?.size) builds.delete(key);
+      }),
+      settled: null,
+    };
     if (!builds.has(key)) builds.set(key, new Set());
     builds.get(key).add(build);
-    this.running.set(job.taskId, build);
+    this.going.add(build);
     build.settled = (async () => {
-      const result = await this.#build(job, controller);
-      // from here on nothing of the workspace is used: whoever waits for the folder may go on
-      build.done = true;
-      builds.get(key)?.delete(build);
-      if (!builds.get(key)?.size) builds.delete(key);
+      const result = await this.#build(job, controller, work);
       try { await settle(result); } catch (error) { this.log(`Gói bằng chứng: không lưu được kết quả (${error?.code ?? error?.message}).`); }
-      if (this.running.get(job.taskId) === build) this.running.delete(job.taskId);
     })();
+    void Promise.all([build.settled, build.ended]).then(() => this.going.delete(build));
     return build.settled;
   }
 
-  async #build(job, controller) {
+  /** Whether a build of `taskId` goes on, or one that was given up has not come to its end. */
+  busy(taskId) { return [...this.going].some((build) => build.taskId === taskId); }
+
+  async #build(job, controller, work) {
     const { signal } = controller;
     const timer = setTimeout(() => controller.abort(fault('timeout', 'the pack took too long')), this.limits.timeoutMs);
     try {
-      const { bytes, facts } = await unless(signal, Promise.resolve().then(() => this.deps.build({ ...job, limits: this.limits, signal })));
+      const { bytes, facts } = await unless(signal, work);
       signal.throwIfAborted();
       const { store } = this;
       try { await store.write(job.taskId, facts.digest, bytes); } catch (error) { throw fault('write_failed', String(error?.code ?? error?.message)); }
@@ -354,16 +378,18 @@ export class HubPacks {
     } finally { clearTimeout(timer); }
   }
 
-  /** Gives up the build of `taskId` that goes on, if any, and waits for it (a build stops at once; its write, if it has begun, ends first). Never throws. */
-  async stop(taskId, why) {
-    const build = this.running.get(taskId);
-    if (!build) return;
-    if (!build.controller.signal.aborted) build.controller.abort(fault(why, why));
-    await Promise.race([build.settled, wait(this.limits.stopMs)]);
+  /**
+   * Gives up the builds of `taskId` that go on, if any, and waits for them, at most stopMs: until what became of them is saved (a write that has begun ends first) and, with
+   * `end`, until they have come to their end, which is when nothing of the workspace's baselines and no scratch file of theirs is in use any more. Never throws.
+   */
+  async stop(taskId, why, { end = true } = {}) {
+    const going = [...this.going].filter((build) => build.taskId === taskId);
+    for (const build of going) build.giveUp(why);
+    if (going.length) await atMost(this.limits.stopMs, Promise.all(going.flatMap((build) => (end ? [build.settled, build.ended] : [build.settled]))));
   }
 
   async stopAll(why) {
-    await Promise.all([...this.running.keys()].map((taskId) => this.stop(taskId, why)));
+    await Promise.all([...new Set([...this.going].map((build) => build.taskId))].map((taskId) => this.stop(taskId, why)));
   }
 
   /** The packs of a task that is deleted. Never throws. */

@@ -9,9 +9,11 @@ import { acquireWorkspaceLock, loadBaseline, workspaceKey } from '../lib/proof/b
 import { storeSide } from '../lib/proof/cli/store-side.mjs';
 import { findGit } from '../lib/proof/git-plumbing.mjs';
 import { workTreeSide } from '../lib/proof/tamper.mjs';
-import { ACCEPT, check, count, createHub, done, equal, project, root, run, scripted, section, sleep, trust, until } from './support/proof-gate-rig.mjs';
+import { ACCEPT, check, count, createHub, done, equal, packSettled, project, root, run as runOnly, scripted, section, sleep, trust, until } from './support/proof-gate-rig.mjs';
 
-const settled = (agent, id) => until(() => { const { proof } = agent.get(id); return proof && proof.status !== 'building' && proof.reason !== 'run_in_progress' && !agent.packs.running.has(id) ? proof : null; }, 'the proof to settle');
+const settled = packSettled;
+/** A run that does not wait for its pack: what goes on behind it is what these tests look at. */
+const run = (manager, dir, steps, options = {}) => runOnly(manager, dir, steps, { settle: false, ...options });
 const files = (manager, id) => { try { return fsSync.readdirSync(path.join(manager.hubDirectory, 'proof', 'packs', id)).map((name) => path.join(manager.hubDirectory, 'proof', 'packs', id, name)); } catch { return []; } };
 /** A project whose checks pass as it is. */
 const good = (name, { files: more = {}, ...options } = {}) => project(name, { ...options, files: { 'calc.js': 'exports.add = (a, b) => a + b;\n', ...more } });
