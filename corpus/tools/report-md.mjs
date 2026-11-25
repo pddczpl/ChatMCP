@@ -44,8 +44,8 @@ function blockOf(block) {
 export function renderMarkdown(report) {
   const banner = report.banner === null ? [] : [`**${inline(report.banner.title)}**`, '', ...report.banner.reasons.map((reason) => `- ${inline(reason)}`), ''];
   const blocks = (list) => list.flatMap((block) => [...blockOf(block), '']);
-  const parts = report.pages.flatMap((page) => [
-    `## ${inline(page.title)}`, '', ...banner, ...blocks(page.lead), ...page.sections.flatMap((section) => [`### ${inline(section.title)}`, '', ...blocks(section.blocks)]),
+  const parts = report.pages.flatMap((page, index) => [
+    `${index ? '##' : '#'} ${inline(page.title)}`, '', ...banner, ...blocks(page.lead), ...page.sections.flatMap((section) => [`### ${inline(section.title)}`, '', ...blocks(section.blocks)]),
   ]);
   return `${[...parts, inline(report.footer)].join('\n')}\n`;
 }

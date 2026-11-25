@@ -356,7 +356,7 @@ const FORBIDDEN = {
   assert.equal(translate('en', key, { [slot]: [text('a'), code('b')] }).filter((item) => ['a', 'b'].includes(item.value)).length, 2, 'a list of nodes is spliced in');
   for (const value of ['raw text', null, undefined, {}, true, 1.5, -1, NaN, ['x'], [{ type: 'raw', value: 'x' }]]) assert.throws(() => translate('en', key, { [slot]: value }), TypeError, `translate refuses ${JSON.stringify(value)}`);
   assert.throws(() => translate('en', 'no.such.key', {}), TypeError);
-  assert.throws(() => translate('en', 'constructor', {}), TypeError);
+  assert.throws(() => translate('en', 'constructor', {}), /no text constructor/);
   assert.throws(() => translate('fr', key, {}), TypeError);
   assert.throws(() => translate('en', key, {}), TypeError, 'a placeholder without its value');
   ok(`the dictionaries: ${Object.keys(WORDS.en).length} texts in 2 languages (same keys and placeholders, NFC, no markup), one for each of ${wanted.length} codes; none uses wording no measurement supports; translate takes numbers and nodes only`);
@@ -530,6 +530,7 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
   await prereg(() => '[]\n', 'preregistration_invalid', 'a list');
   await prereg(() => 'null\n', 'preregistration_invalid', 'null');
   await prereg(() => Buffer.from([0x7b, 0xff, 0x7d]), 'preregistration_invalid', 'not UTF-8');
+  await prereg((value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`.replace('registered, never run', 'registered, never r\u00ffn'), 'latin1'), 'preregistration_invalid', 'a note that is not UTF-8, which a lenient reader takes', /UTF-8/);
   await prereg((value) => JSON.stringify(value), 'preregistration_mismatch', 'the same value written another way');
   await prereg((value) => { value.corpus.sha256 = 'f'.repeat(64); }, 'preregistration_mismatch', 'another corpus hash', /corpus/);
   await prereg((value) => { value.tasks[0].sha256 = 'f'.repeat(64); }, 'preregistration_mismatch', 'another version of a task', /tasks/);
@@ -611,6 +612,7 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
   const inMemory = (change, code, what) => { assert.throws(() => report.readData({ tasks: TASKS, jsonl: smallJsonl, packs: smallFiles.map((file) => file.bytes), ...change }), (error) => error instanceof ReportError && error.code === code, what); refusals += 1; };
   inMemory({ packs: [] }, 'packs_changed', 'a pack that is gone');
   inMemory({ packs: [packFiles([agentPack(TASKS[0], { message: 'other' })])[0].bytes] }, 'packs_changed', 'a pack that is another one');
+  inMemory({ packs: [...smallFiles, ...packFiles([agentPack(TASKS[0], { message: 'other' })])].map((file) => file.bytes) }, 'packs_changed', 'a pack more than was scored');
   inMemory({ tasks: [{ ...TASKS[0], sha256: 'f'.repeat(64) }, TASKS[1]] }, 'corpus_changed', 'a task that is another version');
   inMemory({ tasks: [TASKS[1]] }, 'corpus_changed', 'a task that is gone');
   inMemory({ responses: new Map([['agent-b', report.readResponse(Buffer.from('x'))]]) }, 'response_unknown_agent', 'a response of nobody');
@@ -713,7 +715,7 @@ function checkBanner(site, reasons, label) {
     const lang = name.slice(7, 9);
     const body = site.files.get(name);
     const count = body.split(WORDS[lang]['banner.title']).length - 1;
-    const parts = [...body.matchAll(/^## /gm)].length;
+    const parts = 1 + [...body.matchAll(/^## /gm)].length; // the first one is the title of the report
     assert.equal(count, reasons === null ? 0 : parts, `${label} ${name}: at the head of every one of the ${parts} parts`);
     if (reasons !== null) assert.ok(body.split('\n').slice(0, 8).some((line) => line.includes(WORDS[lang]['banner.title'])), `${label} ${name}: at the top`);
     assert.ok(read.codes.length > 0);
@@ -734,6 +736,9 @@ function checkBanner(site, reasons, label) {
   // an example task is known by its id or by its tag
   const byTag = clone(TASKS);
   byTag[0].task.tags = ['example', 'node'];
+  const byId = clone(EXAMPLE_TASKS);
+  for (const task of byId) task.task.tags = ['node'];
+  checkBanner(readSite(dataOf(byId, controlsOf(byId), { registration: registered(byId) }), 'example ids'), ['example'], 'example ids');
   assert.match(textOf(readSite(dataOf(byTag, alphaRuns, { registration: registered(byTag) }), 'tagged example').pages.get('en/index.html')), says('banner.example'));
 
   // a real freeze, in a repository of its own, with its tag
@@ -863,6 +868,10 @@ function checkBanner(site, reasons, label) {
     }
     return sections;
   };
+  // of a set that nobody registered the report does not say that anything was fixed before its runs
+  for (const options of [{ registration: null }, { registration: registrationOf(TASKS) }]) {
+    for (const [name, page] of readSite(dataOf(TASKS, [...controls, ...both(() => ({}))], options), 'not registered').pages) assert.doesNotMatch(wordsOf(page), /before the runs|trước các lần chạy/, name);
+  }
   // the registered set, complete
   const met = check([...controls, ...both(() => ({}))], 'kill.met', [], {}, 'no false DONE');
   assert.match(met[0], /not a measurable problem on this corpus/);
@@ -932,6 +941,19 @@ function checkBanner(site, reasons, label) {
   const costless = readSite(dataOf(TASKS, fullRuns(TASKS, 'agent-a', () => ({ cost: 'unknown' }))), 'costs unknown');
   assert.ok(page(costless, 'index.html').includes(translate('en', 'cost.unknown', { n: 6, m: 6 }).map((item) => item.value).join('')));
   assert.doesNotMatch(page(costless, 'index.html'), /[0-9] USD/);
+  const partly = readSite(dataOf(TASKS, fullRuns(TASKS, 'agent-a', (task, repeat) => ({ cost: repeat === 1 ? 'unknown' : { currency: 'USD', knownSubtotal: 1, complete: true } }))), 'costs partly unknown');
+  assert.ok(page(partly, 'index.html').includes(translate('en', 'cost.unknown', { n: 2, m: 6 }).map((item) => item.value).join('')), '2 of 6 runs without a cost make the cost of the agent unknown');
+  assert.doesNotMatch(page(partly, 'index.html'), /[0-9] USD/, 'and no part of it is shown as the whole');
+  // what nobody registered is said to be that; a limit that is not set is not 0
+  const bare = clone(TASKS);
+  delete bare[0].task.limits.max_turns;
+  const unregistered = readSite(dataOf(bare, fullRuns(TASKS, 'agent-a')), 'not registered');
+  assert.match(page(unregistered, 'agent-agent-a.html'), says('identity.none'));
+  assert.match(page(unregistered, 'methods.html'), says('protocol.unregistered'));
+  assert.doesNotMatch(page(unregistered, 'methods.html'), says('protocol.registered'));
+  assert.match(page(readSite(dataOf(TASKS, [], { registration: registered(TASKS) }), 'registered'), 'methods.html'), says('protocol.registered'));
+  const turns = unregistered.files.get('en/task-alpha.html');
+  assert.ok(turns.includes(`<tr><th scope="row">${WORDS.en['label.turns']}</th><td>${WORDS.en.not_set}</td></tr>`), 'no turn limit');
   // a cost of 0 is a known cost; no run passed, so nothing to divide by
   const free = readSite(dataOf(TASKS, fullRuns(TASKS, 'agent-a', () => ({ cost: { currency: 'USD', knownSubtotal: 0, complete: true }, passes: 0 }))), 'free');
   assert.ok(page(free, 'index.html').includes('0.0000 USD'));
@@ -949,6 +971,7 @@ function checkBanner(site, reasons, label) {
   const gaps = readSite(dataOf(TASKS, [...controlsOf(TASKS.slice(0, 1)), ...fullRuns(TASKS.slice(0, 1), 'agent-a')], { registration: registered(TASKS) }), 'gaps');
   assert.match(page(gaps, 'agent-agent-b.html'), says('agent.no_run'));
   assert.match(page(gaps, 'task-beta.html'), says('runs.none'));
+  assert.ok(page(gaps, 'agent-agent-a.html').includes(translate('en', 'missing.item', { task: code('beta'), repeats: text('1, 2, 3') }).map((item) => item.value).join('')), 'the repeats of a task that nobody ran are missing');
   assert.ok(gaps.pages.get('en/index.html').pieces.some((piece) => piece.text === WORDS.en['run.missing']), 'the grid says which runs are not there');
   // agents whose ids are device names or names of controls: pages, packs and anchors of their own
   const odd = ['con', 'nul', 'oracle', 'null', 'a-', 'agent-a', 'control-oracle', 'index', 'methods', '0'];
@@ -1186,6 +1209,23 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
   }
   fsp.mkdir = async () => { throw Object.assign(new Error('EACCES: permission denied, mkdir'), { code: 'EACCES', syscall: 'mkdir' }); };
   try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'out') }), (error) => error instanceof ReportError && error.code === 'write_failed'); } finally { fsp.mkdir = savedMkdir; }
+  // an empty folder appears before the report is complete: it is not replaced
+  let last = 0;
+  fsp.writeFile = async (...args) => { last += 1; if (last === 40) await savedMkdir(path.join(base, 'out')); return writeFile(...args); };
+  try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'out') }), (error) => error instanceof ReportError && error.code === 'out_exists'); } finally { fsp.writeFile = writeFile; }
+  assert.deepEqual(readdirSync(base), ['out']);
+  assert.deepEqual(readdirSync(path.join(base, 'out')), [], 'an empty folder stays empty');
+  await fs.rm(path.join(base, 'out'), { recursive: true });
+  // a folder that the system holds for a moment is tried again; another error is not
+  let held = 0;
+  fsp.rename = async (...args) => { held += 1; if (held < 3) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM', syscall: 'rename' }); return rename(...args); };
+  try { await report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'held') }); } finally { fsp.rename = rename; }
+  assert.deepEqual([held, readdirSync(base), listFiles(path.join(base, 'held'))], [3, ['held'], listFiles(goldenOut)]);
+  held = 0;
+  fsp.rename = async () => { held += 1; throw Object.assign(new Error('EXDEV: cross-device link not permitted, rename'), { code: 'EXDEV', syscall: 'rename' }); };
+  try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'other') }), (error) => error instanceof ReportError && error.code === 'write_failed'); } finally { fsp.rename = rename; }
+  assert.deepEqual([held, readdirSync(base)], [1, ['held']]);
+  await fs.rm(path.join(base, 'held'), { recursive: true });
   // the folder appears while the report is made: it is not written over
   fsp.rename = async (from, to) => { await fsp.mkdir(to, { recursive: true }); await writeFile(path.join(to, 'mine.txt'), 'mine'); return rename(from, to); };
   try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'out') }), (error) => error instanceof ReportError && error.code === 'out_exists'); } finally { fsp.rename = rename; }

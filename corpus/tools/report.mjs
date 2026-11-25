@@ -129,10 +129,9 @@ async function readTag({ corpus, name, bytes, registration }) {
   const object = found.stdout.toString('utf8').trim();
   const bad = (message) => refuse('tag_mismatch', `the tag ${name} is not the one freeze.mjs made of this preregistration file: ${message}`);
   const raw = await git(['cat-file', 'tag', object]);
-  if (raw.code !== 0) bad('it is not an annotated tag');
   const at = raw.stdout.indexOf('\n\n');
   const header = /^object ([0-9a-f]+)\ntype ([a-z]+)\ntag (.+)\ntagger .* ([0-9]{1,12}) [+-][0-9]{4}$/.exec(raw.stdout.subarray(0, Math.max(at, 0)).toString('utf8'));
-  if (!header) bad('its header is not that of an annotated tag with a time');
+  if (!header) bad('it is not an annotated tag with a name and a time');
   const [, target, type, tagName, seconds] = header;
   const { document } = registration;
   if (tagName !== name) bad(`its own name is ${JSON.stringify(tagName)}`);
@@ -287,8 +286,7 @@ async function publish(staging, out) {
   for (let attempt = 1; ; attempt += 1) {
     if (await exists(out)) refuse('out_exists', `${out} appeared while the report was made: a report is written to a new folder only`);
     try { await fs.rename(staging, out); return; } catch (error) {
-      if (await exists(out)) refuse('out_exists', `${out} appeared while the report was made: a report is written to a new folder only`);
-      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) throw error;
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY', 'EEXIST'].includes(error?.code)) throw error;
       await new Promise((resolve) => { setTimeout(resolve, 50 * attempt); });
     }
   }

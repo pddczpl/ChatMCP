@@ -306,7 +306,7 @@ class Builder {
   }
 
   grid() {
-    if (!this.agents.length) return [note(this.t('agents.none')), list(this.tasks.map((task) => this.taskLink(task.id)))];
+    if (!this.agents.length) return [note(this.t('agents.none'))];
     return [
       para(this.t('grid.about')),
       table([this.t('col.task'), ...this.agents.map((agent) => this.agentLink(agent))], this.tasks.map((task) => [this.taskLink(task.id), ...this.agents.map((agent) => this.repeatCells(task.id, agent))])),
