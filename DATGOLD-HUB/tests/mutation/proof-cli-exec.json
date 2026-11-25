@@ -95,6 +95,6 @@
     { "name": "AR-exec-takes-words", "what": "exec does not take the words after --", "patches": [{ "file": "lib/proof/cli/args.mjs", "old": "const TAKES_WORDS = new Set(['run', 'exec']);", "new": "const TAKES_WORDS = new Set(['run']);" }] },
     { "name": "CO-exec-pass", "what": "exec_evidenced is exit 1", "patches": [{ "file": "lib/proof/cli/codes.mjs", "old": "  exec_evidenced: 'pass',", "new": "  exec_evidenced: 'unverified'," }] },
     { "name": "ME-blocked-reason", "what": "the BLOCKED answer does not quote the reason", "patches": [{ "file": "lib/proof/cli/messages.mjs", "old": "en: (p) => `The agent said BLOCKED: ${p.reason}.", "new": "en: (p) => `The agent said BLOCKED." }] },
-    { "name": "CM-pack-cost", "what": "the pack drops the cost exec hands it", "patches": [{ "file": "lib/proof/cli/commands.mjs", "old": "ownerAcceptances: [], cost, secrets: [],", "new": "ownerAcceptances: [], cost: null, secrets: []," }] }
+    { "name": "CM-pack-cost", "what": "the pack drops the cost exec hands it", "patches": [{ "file": "lib/proof/pack-build.mjs", "old": "ownerAcceptances: [], cost, secrets,", "new": "ownerAcceptances: [], cost: null, secrets," }] }
   ]
 }
