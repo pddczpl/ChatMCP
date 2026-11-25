@@ -989,7 +989,7 @@ function bounded(answer, what) {
 }
 
 /**
- * The executable a command starts, as the operating system would find it on `env`'s PATH (PATHEXT on Windows; a command with a path is taken
+ * The executable a command starts, found on the absolute entries of `env`'s PATH (PATHEXT on Windows; a command with a path is taken
  * relative to `cwd`), as a real path; null when none is found. Only regular files count (on POSIX, executable ones).
  */
 export function resolveExecutable(command, { env = process.env, cwd = null, platform = process.platform } = {}) {
@@ -1018,7 +1018,7 @@ export function resolveExecutable(command, { env = process.env, cwd = null, plat
   const hasPath = text.includes('/') || (win && text.includes('\\'));
   const bases = hasPath || path.isAbsolute(text)
     ? [path.resolve(cwd ?? process.cwd(), text)]
-    : String(lookup('PATH') ?? '').split(win ? ';' : ':').filter(Boolean).map((dir) => path.join(dir.replace(/^"(.*)"$/, '$1'), text));
+    : String(lookup('PATH') ?? '').split(win ? ';' : ':').map((dir) => dir.trim().replace(/^"(.*)"$/, '$1')).filter((dir) => (win ? path.win32 : path.posix).isAbsolute(dir)).map((dir) => path.join(dir, text));
   for (const base of bases) for (const file of forms(base)) if (usable(file)) { try { return fs.realpathSync.native(file); } catch { return path.resolve(file); } }
   return null;
 }

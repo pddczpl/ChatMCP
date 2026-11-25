@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readJson, writeJson } from './runtime.mjs';
+import { helperEnvironment, programOnPath, readJson, writeJson } from './runtime.mjs';
 import { scrubEnv } from './shell-runner.mjs';
 const SKIP=new Set(['.git','node_modules','.venv','venv','__pycache__','dist','build','.next','coverage','.idea','.vs']);
 const EXT=new Set(['.py','.js','.jsx','.ts','.tsx','.mjs','.cjs']);
@@ -23,7 +23,7 @@ function fallbackSymbols(filename,source){
   }
   return {path:filename,symbols,references,imports:[],parseError:null,precision:'heuristic'};
 }
-async function spawnJson(exe,args,input,{cwd,timeout=12000,env=scrubEnv(process.env)}={}){
+async function spawnJson(exe,args,input,{cwd,timeout=12000,env=helperEnvironment(scrubEnv(process.env))}={}){
   return await new Promise((resolve,reject)=>{
     const child=spawn(exe,args,{cwd,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env});let output='',stderr='',done=false;
     const finish=(err,val)=>{if(done)return;done=true;clearTimeout(timer);err?reject(err):resolve(val);};
@@ -72,7 +72,7 @@ export class CodeIntelligence {
     const embedded = path.join(this.bundleRoot, 'runtimes', 'python', 'python.exe');
     const installed = await isFile(path.join(this.bundleRoot, 'runtime-manifest.json'));
     const bundled = process.platform === 'win32' && await isFile(embedded);
-    const pythonExe = bundled ? embedded : (installed ? null : (process.platform === 'win32' ? 'py' : 'python3'));
+    const pythonExe = bundled ? embedded : (installed ? null : await programOnPath(process.platform === 'win32' ? 'py' : 'python3', { outside: root }));
     let parser='python-ast';
     for(let i=0;i<python.length;i+=40){const batch=python.slice(i,i+40);
       try{
@@ -189,8 +189,9 @@ export class CodeIntelligence {
       if (installed && !hasBundled) throw fail('Installed bundled LSP executable is missing.',503);
       const node=path.resolve(this.bundleRoot,'..','runtimes','node','node.exe');
       if (installed && !await isFile(node)) throw fail('Installed bundled Node executable is missing.',503);
-      const exe=hasBundled?(await isFile(node)?node:process.execPath)
-        :(language==='python'?'pyright-langserver':'typescript-language-server');
+      const server=language==='python'?'pyright-langserver':'typescript-language-server';
+      const exe=hasBundled?(await isFile(node)?node:process.execPath):await programOnPath(server,{outside:await this.root()});
+      if (!exe) throw fail(server+' is not installed (not on PATH).',503);
       const args=hasBundled?[entry,'--stdio']:['--stdio'];
       const bundledTsserver=path.join(packaged,'typescript','lib','tsserver.js');
       if (language==='typescript' && hasBundled && !await isFile(bundledTsserver)) {
@@ -235,7 +236,8 @@ export class CodeIntelligence {
 export class LspProcess {
   constructor({root,exe,args=[],initializationOptions=null,onDiagnostics=()=>{},spawnProcess=spawn}={}){this.root=root;this.exe=exe;this.args=args;this.initializationOptions=initializationOptions;this.spawnProcess=spawnProcess;this.onDiagnostics=onDiagnostics;this.stderrTail='';this.serverMessages=[];this.pending=new Map();this.counter=0;this.buffer=Buffer.alloc(0);this.ready=false;this.state='stopped';this.openFiles=new Map();}
   async start(){this.state='starting';
-    this.child=this.spawnProcess(this.exe,this.args,{cwd:this.root,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe']});
+    // A language server starts programs of its own by name (pyright asks python where its modules are): with the search variable, from PATH.
+    this.child=this.spawnProcess(this.exe,this.args,{cwd:this.root,env:helperEnvironment(),windowsHide:true,shell:false,stdio:['pipe','pipe','pipe']});
     this.child.stdout.on('data',chunk=>this.consume(chunk));
     this.child.stderr.on('data',chunk=>{this.stderrTail=(this.stderrTail+String(chunk)).slice(-1200);});
     this.child.stdin.on('error',()=>{});

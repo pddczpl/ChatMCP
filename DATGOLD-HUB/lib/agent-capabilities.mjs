@@ -8,6 +8,7 @@ import net from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { commandSha256 } from './proof/ledger.mjs';
+import { helperEnvironment, programOnPath } from './runtime.mjs';
 const execFileAsync = promisify(execFile);
 const object = (props, required = []) => ({ type: 'object', properties: props, required, additionalProperties: false });
 const string = (description, other = {}) => ({ type: 'string', description, ...other });
@@ -160,8 +161,10 @@ export class AgentCapabilities {
   }
   async gh(args,{signal}={}) {
     const {root}=await this.workspace.resolve('');
+    const program=await programOnPath('gh',{outside:root});
+    if(!program)throw fail('missing_gh','GitHub CLI gh is not installed or not on PATH.');
     try {
-      const res=await execFileAsync('gh',args,{cwd:root,env:this.shell.environment(),encoding:'utf8',timeout:90000,maxBuffer:1_000_000,windowsHide:true,signal});
+      const res=await execFileAsync(program,args,{cwd:root,env:helperEnvironment(this.shell.environment()),encoding:'utf8',timeout:90000,maxBuffer:1_000_000,windowsHide:true,signal});
       return res.stdout.trim();
     } catch (e) {
       if (e.code === 'ENOENT') throw fail('missing_gh','GitHub CLI gh is not installed or not on PATH.');

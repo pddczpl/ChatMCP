@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { isObject, readJson, resolveProgram, stopOwned, writeJson } from './runtime.mjs';
+import { isObject, readJson, resolveProgram, shellSearch, stopOwned, writeJson } from './runtime.mjs';
 import { ShellRunner, scrubEnv } from './shell-runner.mjs';
 import { globMatches } from './glob-match.mjs';
 import { externalToolName, maskSecrets } from './permissions.mjs';
@@ -781,7 +781,7 @@ export class HookRunner {
     }
     const withExtension = this.platform === 'win32' && !/\.[A-Za-z0-9]{1,4}$/.test(command);
     for (const candidate of withExtension ? [`${command}.exe`, `${command}.com`] : [command]) {
-      const found = await resolveProgram(candidate);
+      const found = await resolveProgram(candidate, [], { outside: cwd });
       if (found) return found;
     }
     if (withExtension && (await resolveProgram(`${command}.cmd`) || await resolveProgram(`${command}.bat`))) throw programError(`${command} is a batch file; start it through "shell": "cmd" (a program cannot be started from a .cmd directly)`);
@@ -791,12 +791,12 @@ export class HookRunner {
   async #invocation(handler, cwd) {
     const expand = (text) => text.replace(/\$\{(?:CLAUDE|CHATMCP)_PROJECT_DIR\}/g, cwd);
     if (Array.isArray(handler.args)) {
-      return { file: await this.#program(expand(handler.command), cwd), args: handler.args.map(expand), kind: 'exec', shell: null, environment: scrubEnv(this.env, { secrets: this.secrets() }) };
+      return { file: await this.#program(expand(handler.command), cwd), args: handler.args.map(expand), kind: 'exec', shell: null, environment: shellSearch(scrubEnv(this.env, { secrets: this.secrets() })) };
     }
     if (handler.shell === 'cmd') {
       if (this.platform !== 'win32') throw programError('the cmd shell exists on Windows only');
       const file = this.env.ComSpec || path.join(this.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe');
-      return { file, args: ['/d', '/s', '/c', `"${expand(handler.command)}"`], kind: 'shell', shell: 'cmd', verbatim: true, environment: scrubEnv(this.env, { secrets: this.secrets() }) };
+      return { file, args: ['/d', '/s', '/c', `"${expand(handler.command)}"`], kind: 'shell', shell: 'cmd', verbatim: true, environment: shellSearch(scrubEnv(this.env, { secrets: this.secrets() })) };
     }
     let shell;
     try { shell = await this.#shell.resolveShell(handler.shell); } catch (error) { throw programError(error.message); }

@@ -24,6 +24,7 @@ import { maskSecrets } from './permissions.mjs';
 import { planConflictText } from './studio-workspace.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { commandSha256 } from './proof/ledger.mjs';
+import { helperEnvironment, programOnPath } from './runtime.mjs';
 import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
 import { getTokenStats, restoreTokenOutput, setTokenProfile } from './token-optimization.mjs';
@@ -2066,13 +2067,15 @@ export class LocalTools {
   async #runGh(args, { signal } = {}) {
     if (this.shellDisabled) throw fault('shell_disabled', 'Thao tác GitHub CLI không được phép khi shell bị tắt.', 403);
     const { root } = await this.workspace.resolve('');
-    const env = this.shell ? this.shell.environment() : scrubEnv(process.env, { secrets: this.secrets?.() ?? [] });
+    const env = helperEnvironment(this.shell ? this.shell.environment() : scrubEnv(process.env, { secrets: this.secrets?.() ?? [] }));
     const spawner = this.shell?.spawner || spawn;
+    const program = await programOnPath('gh', { outside: root });
+    if (!program) throw fault('gh_not_found', 'GitHub CLI (gh) chưa được cài đặt hoặc không tìm thấy trong PATH.', 404);
 
     return new Promise((resolve, reject) => {
       let child;
       try {
-        child = spawner('gh', args, {
+        child = spawner(program, args, {
           cwd: root,
           env,
           shell: false,

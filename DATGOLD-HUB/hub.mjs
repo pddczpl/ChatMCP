@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manager.mjs';
-import { redact } from './lib/runtime.mjs';
+import { redact, searchProgramsOnPathOnly } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
 import { ATTACHMENT_BODY_LIMIT } from './lib/attachment-limits.mjs';
 import { EDITABLE_FILE_BYTES, EDITOR_BODY_LIMIT, planConflict } from './lib/studio-workspace.mjs';
@@ -882,6 +882,7 @@ function logFileOf(args) {
 
 export async function main(args = process.argv.slice(2), env = process.env) {
   const options = parseArguments(args, env);
+  searchProgramsOnPathOnly();
   // The secret belongs to this process alone: take it, then remove it from the environment every child (agent tools,
   // terminals, the language servers) would otherwise inherit.
   const secret = createSecret(env);

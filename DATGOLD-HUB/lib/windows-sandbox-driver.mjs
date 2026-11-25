@@ -13,6 +13,7 @@ import { prepareExecutionRequest } from './windows-sandbox-transport.mjs';
 import { SEALED_PROTOCOL, readSealedReceiptBytes, registerSealedCollection } from './windows-sandbox-sealed-receipt.mjs';
 import { BLACKBOX_KIND, BLACKBOX_COMMAND, ZERO_SHA256, validateBlackboxManifest, validateBlackboxRequest } from './native-blackbox-contract.mjs';
 import { validateSandboxCliPackage, verifyPinnedSandboxCli } from './windows-sandbox-cli-identity.mjs';
+import { systemProgram } from './runtime.mjs';
 
 const executeFile = promisify(execFile);
 const HASH = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -265,7 +266,7 @@ export class WindowsSandboxCliDriver {
       try {
         const { execFileSync } = await import('node:child_process');
         const username = process.env.USERNAME || 'CURRENT_USER';
-        execFileSync('icacls.exe', [
+        execFileSync(systemProgram('icacls.exe'), [
           keyFile,
           '/inheritance:r',
           '/grant:r', '*S-1-5-18:(R,W)',

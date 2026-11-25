@@ -336,7 +336,8 @@ export class StudioWorkspace {
       // git no-index is used strictly for reading a textual diff, not for restoring.
       let diff='';
       if(after!==null&&!after.includes(0)){
-        const result=await command('git',['diff','--no-index','--no-ext-diff','--no-textconv','--',path.join(this.#checkpointDirectory(checkpointId),'files',item.path),target.absolute],{max:160000,timeout:8000,env:scrubEnv(process.env,{secrets:this.manager?.secrets??[]})});
+        const git=await this.gitRunner.executable();
+        const result=git===null?{code:null,stdout:'',stderr:'không tìm thấy Git trong PATH'}:await command(git,['diff','--no-index','--no-ext-diff','--no-textconv','--',path.join(this.#checkpointDirectory(checkpointId),'files',item.path),target.absolute],{max:160000,timeout:8000,env:scrubEnv(process.env,{secrets:this.manager?.secrets??[]})});
         diff=result.stdout; if(![0,1].includes(result.code)) diff=`Không tạo được diff: ${result.stderr}`;
       } else diff=after===null?'File đã bị xóa.':'File sau hiện là nhị phân.';
       changes.push({path:item.path,baselineSha:item.sha256,currentSha:current,status:after===null?'deleted':'modified',diff:capped(diff,Math.min(Number(limit)||300000,300000))});

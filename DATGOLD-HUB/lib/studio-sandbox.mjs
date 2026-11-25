@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { helperEnvironment, programOnPath } from './runtime.mjs';
 
 const fault=(message,statusCode=409)=>Object.assign(new Error(message),{statusCode});
 export const DEFAULT_IMAGE='python:3.11-slim';
@@ -22,10 +23,18 @@ export function dockerSandboxArgs({workspace,command,image=DEFAULT_IMAGE,name=`c
     '--entrypoint','/bin/sh',image,'-lc',command];
 }
 export class StudioSandbox {
-  constructor({workspace,spawnProcess=spawn}){this.workspace=workspace;this.spawnProcess=spawnProcess;this.active=new Set();this.cleanups=new Set();}
+  constructor({workspace,spawnProcess=spawn}){this.workspace=workspace;this.spawnProcess=spawnProcess;this.active=new Set();this.cleanups=new Set();this.program=null;}
+  /** The docker of PATH (never one below the workspace), or null when it is not installed. */
+  async docker(){
+    const root=await Promise.resolve().then(()=>this.workspace.requireRoot()).catch(()=>null);
+    this.program=await programOnPath('docker',{outside:root});
+    return this.program;
+  }
   async status(){
+    const docker=await this.docker();
+    if(!docker)return {ready:false,detail:'Docker chưa được cài đặt (không có trong PATH)',scope:'Docker Desktop Linux container; terminal commands only; read-only workspace',image:DEFAULT_IMAGE};
     return await new Promise(resolve=>{
-      const child=this.spawnProcess('docker',['version','--format','{{.Server.Os}}'],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+      const child=this.spawnProcess(docker,['version','--format','{{.Server.Os}}'],{windowsHide:true,env:helperEnvironment(),stdio:['ignore','pipe','pipe']});
       let result='',done=false;
       const finish=(ready,detail)=>{if(done)return;done=true;clearTimeout(timer);resolve({ready,detail,scope:'Docker Desktop Linux container; terminal commands only; read-only workspace',image:DEFAULT_IMAGE});};
       const timer=setTimeout(()=>{child.kill();finish(false,'Docker không phản hồi trong 3 giây');},3000);
@@ -38,7 +47,9 @@ export class StudioSandbox {
     const workspace=await fs.realpath(this.workspace.requireRoot());
     const name=`chatmcp-sbox-${randomUUID()}`;
     const args=dockerSandboxArgs({workspace,command,image,name});
-    const child=this.spawnProcess('docker',args,{cwd:workspace,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});
+    const docker=await this.docker();
+    if(!docker)throw fault('Docker chưa được cài đặt (không có trong PATH).',503);
+    const child=this.spawnProcess(docker,args,{cwd:workspace,env:helperEnvironment(),windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});
     this.active.add(name);
     child.once('close',()=>this.active.delete(name));
     child.once('error',()=>this.active.delete(name));
@@ -48,7 +59,7 @@ export class StudioSandbox {
     if(!this.active.has(name))return false;
     // Container cleanup is explicit: terminating the docker CLI alone does not
     // necessarily stop an already-started container.
-    const cleanup=this.spawnProcess('docker',['rm','-f',name],{windowsHide:true,stdio:'ignore'});
+    const cleanup=this.spawnProcess(this.program,['rm','-f',name],{windowsHide:true,env:helperEnvironment(),stdio:'ignore'});
     const done=new Promise(resolve=>{cleanup.once('error',resolve);cleanup.once('close',resolve);});
     this.cleanups.add(done);done.finally(()=>this.cleanups.delete(done));
     return true;

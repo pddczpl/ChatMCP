@@ -9,7 +9,7 @@ import { HubManager } from './manager.mjs';
 import { AgentRunner } from './agent.mjs';
 import { assembleStudio } from './assemble.mjs';
 import { scrubEnv, killTree } from './shell-runner.mjs';
-import { readJson, writeJson } from './runtime.mjs';
+import { helperEnvironment, programOnPath, readJson, writeJson } from './runtime.mjs';
 import { WorkerTestBroker } from './worker-test-broker.mjs';
 import { RequestMeter } from './request-budget.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
@@ -872,9 +872,11 @@ export class CodingWorktreeOrchestrator {
       (worker?'Individual coding agent '+worker.id:'Worktree integration of '+job.integration.merged.join(', '))+
       '.\nAI-generated changes require manual review and real project tests.'];
     // GitHub CLI intentionally runs only in this explicit, confirmed action.
-    const env=scrubEnv(process.env,{secrets:this.manager.secrets||[]});
+    const env=helperEnvironment(scrubEnv(process.env,{secrets:this.manager.secrets||[]}));
+    const gh=await programOnPath('gh',{outside:job.workspace});
+    if(!gh)throw fail('gh_failed','GitHub CLI gh is not installed or not on PATH.',409);
     const output=await new Promise((resolve,reject)=>{
-      const proc=spawn('gh',args,{cwd:job.workspace,env,shell:false,windowsHide:true,stdio:['ignore','pipe','pipe']});
+      const proc=spawn(gh,args,{cwd:job.workspace,env,shell:false,windowsHide:true,stdio:['ignore','pipe','pipe']});
       let out='',err='';
       const timeout=setTimeout(()=>killTree(proc),90000);
       proc.stdout.on('data',b=>{out+=b.toString('utf8').slice(0,20000-out.length);});
