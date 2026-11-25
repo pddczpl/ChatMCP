@@ -12,6 +12,9 @@
 // and scripts/ that names powershell.exe must use tests/support/powershell-environment.mjs, and the helper must do what it says on a real Windows PowerShell.
 // The Hub is no different: a Hub that was started from a pwsh session passes the same module path to its children, so every file in lib/ and hub.mjs that names
 // powershell.exe must use lib/powershell-environment.mjs (tests/support exports the same function).
+//
+// A third class: a program that the Hub starts by a bare name. Which file that is depends on the folder it is started in (Windows looks there before it looks on PATH),
+// so the first argument of a start in lib/, bin/ and hub.mjs is never a bare name: process.execPath, or an absolute path (lib/runtime.mjs programOnPath, systemProgram).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -67,6 +70,61 @@ try {
   ok('negative control: a seeded backslash-n-then-comment line is flagged, ordinary code is not');
 } finally {
   await fs.rm(temp, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// No program is started by a bare name
+// ---------------------------------------------------------------------------------------------------------------------------------
+// A call of child_process (or of one of the Hub's own wrappers of it) whose first argument holds a bare program name as text: spawn('tool', ...), spawn(win ? 'tool' : 'other', ...).
+const STARTS_A_PROGRAM = /(?:^|[^\w$.]|\.)(spawn|spawnSync|spawnJson|spawnLogged|spawnProcess|spawner|execFile|execFileSync|execFileAsync|executeFile|runFile|fork|command)\s*\(/g;
+const BARE_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+/** The text of the first argument of the call whose "(" is at `open`: up to its comma, outside quotes and brackets. */
+function firstArgument(text, open) {
+  let depth = 0;
+  let quote = '';
+  for (let index = open + 1; index < Math.min(text.length, open + 600); index += 1) {
+    const character = text[index];
+    if (quote) { if (character === '\\') index += 1; else if (character === quote) quote = ''; continue; }
+    if (character === "'" || character === '"' || character === '`') quote = character;
+    else if ('([{'.includes(character)) depth += 1;
+    else if (')]}'.includes(character)) { if (depth === 0) return text.slice(open + 1, index); depth -= 1; } else if (character === ',' && depth === 0) return text.slice(open + 1, index);
+  }
+  return '';
+}
+/** The starts of a program by a bare name in a source text: [{line, name}]. A name inside another call (path.join(..., 'tool.exe')) is part of a path and is not one. */
+function bareStarts(source) {
+  const found = [];
+  for (const match of source.matchAll(STARTS_A_PROGRAM)) {
+    const argument = firstArgument(source, match.index + match[0].length - 1);
+    if (argument.includes('(')) continue;
+    for (const [, , name] of argument.matchAll(/(['"`])((?:(?!\1).)*)\1/g)) if (BARE_NAME.test(name)) found.push({ line: source.slice(0, match.index).split('\n').length, name });
+  }
+  return found;
+}
+// Starts that stay, each with its reason. None today.
+const BARE_ALLOWED = new Map([]);
+{
+  const sources = [path.join(hubRoot, 'hub.mjs')];
+  for (const folder of ['lib', 'bin']) for await (const file of walk(path.join(hubRoot, folder))) sources.push(file);
+  const problems = [];
+  let starts = 0;
+  for (const file of sources) {
+    const text = await fs.readFile(file, 'utf8');
+    if (!/child_process|shell-runner|spawner|spawnProcess/.test(text)) continue;
+    starts += [...text.matchAll(STARTS_A_PROGRAM)].length;
+    const relative = path.relative(hubRoot, file).replaceAll('\\', '/');
+    for (const { line, name } of bareStarts(text)) if (!BARE_ALLOWED.has(`${relative} ${name}`)) problems.push(`${relative}:${line} starts "${name}" by a bare name`);
+  }
+  for (const problem of problems) console.log(`  not ok - ${problem}`);
+  assert.deepEqual(problems, [], 'a program is started by its absolute path (lib/runtime.mjs programOnPath, systemProgram)');
+  assert.ok(starts >= 20, `the scanner sees the starts there are (${starts})`);
+  const seeded = (text) => bareStarts(text).map((entry) => entry.name);
+  assert.deepEqual(seeded("spawn('tool', args);"), ['tool']);
+  assert.deepEqual(seeded("const p = spawner(\n  'tool.exe', args, { cwd });"), ['tool.exe']);
+  assert.deepEqual(seeded("await execFileAsync(win ? 'tool' : \"other\", args)"), ['tool', 'other']);
+  assert.deepEqual(seeded("this.spawnProcess('tool',['a'])"), ['tool']);
+  assert.deepEqual(seeded("spawn(process.execPath, ['tool']); spawn(program, ['x']); execFile(path.join(root, 'tool.exe'), []); spawn('/bin/sh', []); spawn('C:/x/y.exe', []); re.exec('tool'); const child = spawnPlan('tool');"), []);
+  ok(`no program is started by a bare name in lib/, bin/ and hub.mjs (${starts} starts in ${sources.length} files); negative controls flagged, absolute paths and process.execPath not`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
