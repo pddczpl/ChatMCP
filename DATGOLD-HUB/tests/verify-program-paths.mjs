@@ -8,7 +8,9 @@
 // The parts about the search order are about Windows; the others run everywhere. The search variable is removed from this process first, so that each layer is seen alone.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -31,10 +33,35 @@ const WIN = process.platform === 'win32';
 const VARIABLE = 'NoDefaultCurrentDirectoryInExePath';
 const dropVariable = (env) => { for (const key of Object.keys(env)) if (key.toUpperCase() === VARIABLE.toUpperCase()) delete env[key]; return env; };
 dropVariable(process.env);
-setTimeout(() => { console.error('FAIL: the program-paths suite exceeded its own time budget'); process.exit(2); }, 165_000).unref();
 
 let checks = 0;
+let part = 'the setup'; // what is being looked at: a failure says it, and how far the suite came
+const suiteStarted = Date.now();
+const seconds = () => ((Date.now() - suiteStarted) / 1000).toFixed(1);
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
+/** The last line of a run that failed: the part, the message and the line of this file. */
+function failed(error) {
+  const line = /verify-program-paths[^/]*\.mjs:(\d+)/.exec(String(error?.stack ?? ''))?.[1] ?? '?';
+  console.error(error?.stack ?? error);
+  console.error(`FAIL: program-paths, in ${part} (line ${line}, ${seconds()} s, after ${checks} checks): ${String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 400)}`);
+}
+/** Ends what the suite started and removes its folder. (The promise form: fs.rmSync does not wait between its tries on Windows.) A folder that cannot be removed is said, and is not the result of the suite. */
+async function cleanUp() {
+  for (const cleanup of cleanups.splice(0).reverse()) { try { await cleanup(); } catch { /* best effort */ } }
+  await fs.promises.rm(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 }).catch((error) => console.log(`  (the scratch folder stays: ${error.code ?? error.message})`));
+}
+/** The end of a run that nothing caught: said at once, then at most 10 s to clean up. */
+let givingUp = false;
+function giveUp(error, code) {
+  if (givingUp) return;
+  givingUp = true;
+  failed(error);
+  setTimeout(() => process.exit(code), 10_000);
+  cleanUp().finally(() => process.exit(code));
+}
+for (const event of ['uncaughtException', 'unhandledRejection']) process.on(event, (error) => giveUp(error, 1));
+setTimeout(() => giveUp(new Error('the suite exceeded its own time budget'), 2), 165_000).unref();
+
 const scratch = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'chatmcp-program-paths-')));
 const marks = path.join(scratch, 'marks');
 const cleanups = [];
@@ -44,6 +71,8 @@ const same = (a, b) => (WIN ? a.toLowerCase() === b.toLowerCase() : a === b);
 /** The programs of `folder` that were started since the last look, by name. */
 const startedIn = (folder) => startedPrograms(marks).filter((file) => same(path.dirname(file), folder)).map((file) => path.basename(file));
 
+const SKIPPED = new Error('skipped');
+let failure = null;
 try {
   const template = await makeMarkingProgram(scratch, marks, path.join(scratch, 'template', exe('template')));
   const put = (folder, ...names) => { fs.mkdirSync(folder, { recursive: true }); for (const name of names) { fs.copyFileSync(template, path.join(folder, exe(name))); if (!WIN) fs.chmodSync(path.join(folder, name), 0o755); } };
@@ -52,6 +81,7 @@ try {
 
   // ---------------------------------------------------------------------------------------------------------------- 1. resolveProgram
   {
+    part = 'resolveProgram on real folders';
     const base = path.join(scratch, 'resolve');
     const [first, second, workspace] = ['first', 'second', 'workspace'].map((name) => path.join(base, name));
     put(second, 'tool');
@@ -127,6 +157,7 @@ try {
     put(root, ...names);
     return root;
   }
+  part = 'the Hub in this process';
   // (ripgrep has a rule of its own, lib/ripgrep.mjs: an absolute entry of PATH counts wherever it is)
   const project = makeProject('project', HELPERS.filter((name) => name !== 'rg'));
   // The workspace itself is on PATH, and first: the machine's programs are taken all the same.
@@ -148,6 +179,7 @@ try {
     orchestrator.jobs.set('run', { id: 'run-0000-0000', workspace: project, baseBranch: 'main', workers: [], integration: { status: 'ready_for_review', branch: 'b', sha: 'a'.repeat(40), merged: [] }, reviews: { integration: { token: 'b'.repeat(64), revision: 'a'.repeat(40) } } });
     return orchestrator.publish({ runId: 'run', confirmation: 'PUBLISH DRAFT PR', reviewToken: 'b'.repeat(64) });
   };
+  part = 'GitHub, with gh on PATH';
   await withPath(machine, async () => {
     clearMarks(marks);
     for (const [name, args] of GITHUB) await tool(name, args);
@@ -160,6 +192,7 @@ try {
   // without the program on PATH (an empty folder is all there is on it, so that no real gh can answer): said so, nothing started
   const nothing = path.join(scratch, 'nothing');
   fs.mkdirSync(nothing);
+  part = 'GitHub, without gh on PATH';
   await withPath([nothing], async () => {
     clearMarks(marks);
     const gone = [];
@@ -169,6 +202,7 @@ try {
     assert.deepEqual(startedPrograms(marks), [], 'nothing was started');
     ok('GitHub: without gh on PATH every call says that it is not installed and starts nothing');
   });
+  part = 'the end of a process tree';
   await withPath(machine, async () => {
     clearMarks(marks);
     const cwd = process.cwd();
@@ -186,6 +220,7 @@ try {
       }
       assert.deepEqual(startedIn(project), [], 'the end of a process tree starts no file of the folder it stands in');
       // Docker, as the sandboxed terminal starts it
+      part = 'Docker';
       const sandbox = new StudioSandbox({ workspace: { requireRoot: () => project } });
       const status = await sandbox.status();
       assert.equal(status.ready, false, 'the stand-in prints nothing');
@@ -199,6 +234,7 @@ try {
       const pathNow = process.env.PATH;
       const last = new StudioSandbox({ workspace: { requireRoot: () => project }, spawnProcess: (file, args, options) => { lastStarts.push(file); return spawn(process.execPath, ['-e', args[0] === 'run' ? 'setTimeout(() => {}, 60000)' : ''], { ...options, stdio: 'ignore' }); } });
       const going = await last.launch({ command: 'true' });
+      cleanups.push(() => going.child.kill());
       process.env.PATH = nothing;
       await last.status();
       assert.equal(last.stop(going.name), true);
@@ -207,6 +243,7 @@ try {
       going.child.kill();
       assert.ok(lastStarts.length >= 2 && lastStarts.every((file) => file === path.join(bin, exe('docker'))), 'a run that goes on while Docker leaves PATH is ended by the docker that started it');
       // the textual diff of a review
+      part = 'the diff of a review';
       fs.writeFileSync(path.join(project, 'note.txt'), 'one\n');
       const checkpoint = await hub.studio.checkpoint({ label: 'l', files: ['note.txt'] });
       fs.writeFileSync(path.join(project, 'note.txt'), 'two\n');
@@ -216,6 +253,7 @@ try {
       ok('the end of a process tree, Docker and the diff of a review start the program of the machine');
     } finally { process.chdir(cwd); }
     // Python and the language servers of a development build: the stand-ins of PATH, so that they are seen to be started at all
+    part = 'Python, the language servers, Git and the search';
     clearMarks(marks);
     put(path.join(scratch, 'python'), 'py', 'python', 'python3', 'typescript-language-server', 'pyright-langserver');
     process.env.PATH = [project, path.join(scratch, 'python'), ...machine].join(path.delimiter);
@@ -232,6 +270,7 @@ try {
     ok('Python, the language servers, Git and the search start the program of the machine');
     // A helper program looks for its own helpers: it is started with the search variable set (Windows), whatever this process has.
     if (WIN) {
+      part = 'the variable of a language server';
       const probe = path.join(scratch, 'print-variable.mjs');
       const out = path.join(scratch, 'variable.txt');
       fs.writeFileSync(probe, `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(out)}, String(process.env.${VARIABLE}));\n`);
@@ -244,8 +283,9 @@ try {
   });
   // a stdio server: the program of the launch record is the one that is started
   {
+    part = 'the stdio servers';
     const missing = missingReason();
-    if (missing) { console.log(`CHATMCP_TEST_SKIP: ${missing}`); process.exit(0); }
+    if (missing) { console.log(`CHATMCP_TEST_SKIP: ${missing}`); throw SKIPPED; }
     put(path.join(scratch, 'servers'), 'server-tool');
     assert.equal(resolveExecutable('server-tool', { env: { PATH: ['.', path.join(scratch, 'servers')].join(path.delimiter), PATHEXT: '.EXE;.CMD' }, cwd: project }) !== null, true);
     fs.copyFileSync(template, path.join(project, exe('server-tool')));
@@ -290,6 +330,7 @@ try {
 
   // ---------------------------------------------------------------------------------------------------------------- 3. the search variable
   if (WIN) {
+    part = 'the search variable';
     const child = (script, env) => { const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: scratch, env: dropVariable({ ...process.env, ...env }), encoding: 'utf8', windowsHide: true }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
     const lib = pathToFileURL(path.join(HUB_ROOT, 'lib', 'runtime.mjs')).href;
     const start = `const { spawn } = await import('node:child_process'); await new Promise((resolve) => { const c = spawn('where', [], { cwd: ${JSON.stringify(project)}, stdio: 'ignore' }); c.once('error', resolve); c.once('close', resolve); });`;
@@ -312,6 +353,7 @@ try {
 
   // ---------------------------------------------------------------------------------------------------------------- 4. real processes
   if (WIN) {
+    part = 'a real Hub process: its start';
     const trap = makeProject('hub-project');
     const results = [];
     const script = (ctx) => {
@@ -327,6 +369,7 @@ try {
     assert.notEqual(realHub.port, 3007);
     await connectModel(realHub, mock);
     for (const [label, mode, body] of [['Read Only', 'readonly', {}], ['plan mode', 'review', { planMode: true }], ['Review', 'review', {}]]) {
+      part = `a real Hub process: ${label}`;
       await setMode(realHub, mode);
       clearMarks(marks);
       results.length = 0;
@@ -338,39 +381,45 @@ try {
       assert.deepEqual((await realHub.state()).studio.permissions.recent.filter((row) => row.taskId === task.id && row.decision !== 'policy'), [], `${label}: nothing was asked`);
     }
     // a shell of the owner (a terminal, a hook) has the variable as the owner had it: not at all here
+    part = 'a real Hub process: a hook';
     const dumped = path.join(scratch, 'hook-env.json');
     fs.writeFileSync(path.join(realHub.stateDir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: process.execPath, args: [path.join(here, 'fixtures', 'hook-program.mjs'), JSON.stringify({ env: dumped })], timeout: 30 }] }] } }));
     const hooked = (await realHub.post('/api/tasks/start', { prompt: 'Read the project once more.' })).task;
     await waitFor(async () => settledTask(await realHub.state(), hooked.id), { timeoutMs: 60_000, intervalMs: 50, label: 'the hooked run to end' });
     assert.equal(Object.keys(JSON.parse(fs.readFileSync(dumped, 'utf8'))).some((key) => key.toUpperCase() === VARIABLE.toUpperCase()), false, 'a hook is started without it');
+    part = 'a real Hub process: a terminal';
     const session = await realHub.post('/api/studio/terminal/start', { command: `Write-Output "variable=[$env:${VARIABLE}]"` });
     const printed = await waitFor(async () => /variable=\[[^\]]*\]/.exec(JSON.stringify((await realHub.state()).studio.terminals.find((entry) => entry.id === session.id)?.logs ?? ''))?.[0], { timeoutMs: 30_000, intervalMs: 100, label: 'the terminal to answer' });
     assert.equal(printed, 'variable=[]', 'and so is a terminal');
     await realHub.stop();
     ok('a real Hub process: the read tools in Read Only, in plan mode and in Review start no file of the workspace');
     // the command line, whose folder is the workspace, ends an agent that hangs
+    part = 'the command line and an agent that hangs';
     const cliProject = makeProject('cli-project');
     fs.mkdirSync(path.join(cliProject, '.chatmcp'));
     fs.writeFileSync(path.join(cliProject, '.chatmcp', 'acceptance.yml'), `version: 1\ncriteria:\n  - id: c\n    text: "c"\n    checks:\n      - run: "git --version"\n`);
     const hang = path.join(scratch, 'hang.mjs');
-    const pid = path.join(scratch, 'hang.pid');
-    fs.writeFileSync(hang, `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(pid)}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
+    // It listens on a pipe of its own for as long as it runs, ends when the pipe is told to, and by itself after two minutes.
+    const pipe = `\\\\.\\pipe\\program-paths-${randomUUID()}`;
+    const up = path.join(scratch, 'hang.up');
+    fs.writeFileSync(hang, `import fs from 'node:fs';\nimport net from 'node:net';\nnet.createServer((socket) => socket.once('data', () => process.exit(0))).listen(${JSON.stringify(pipe)}, () => fs.writeFileSync(${JSON.stringify(up)}, 'up'));\nsetTimeout(() => process.exit(0), 120000);\n`);
     clearMarks(marks);
     const cliEnv = dropVariable(cleanEnvironment(scratch, { CHATMCP_STATE_DIR: path.join(scratch, 'cli-state') }));
     const cli = (...args) => spawnSync(process.execPath, [path.join(HUB_ROOT, 'bin', 'chatmcp.mjs'), 'verify', ...args], { cwd: cliProject, env: cliEnv, encoding: 'utf8', windowsHide: true, timeout: 90_000 });
     assert.equal(JSON.parse(cli('trust', '--json', '--sha256', JSON.parse(cli('trust', '--json').stdout).data.sha256).stdout).code, 'trusted');
     const ran = cli('exec', '--json', '--timeout', '4', '--', process.execPath.replaceAll(path.sep, '/'), hang.replaceAll(path.sep, '/'));
-    const hung = fs.existsSync(pid) ? Number(fs.readFileSync(pid, 'utf8')) : null;
-    const alive = () => { try { process.kill(hung, 0); return true; } catch { return false; } };
-    assert.ok(hung, `the agent ran: ${ran.stdout.slice(0, 400)} ${ran.stderr.slice(0, 400)}`);
-    if (alive()) { try { process.kill(hung, 'SIGKILL'); } catch { /* gone */ } assert.fail('the agent that hung is still running after the command line ended it'); }
+    assert.ok(fs.existsSync(up), `the agent ran: ${ran.error ?? ''} ${ran.stdout?.slice(0, 400)} ${ran.stderr?.slice(0, 400)}`);
+    const still = await new Promise((resolve) => { const socket = net.connect(pipe, () => { socket.end('end'); resolve('running'); }); socket.once('error', (error) => resolve(error.code)); });
+    assert.equal(still, 'ENOENT', 'the agent that hung has ended when the command line ends');
     assert.deepEqual(startedIn(cliProject), [], 'the command line starts no file of the folder it runs in');
     assert.match(ran.stdout, /agent_timed_out/);
     ok('the command line ends an agent that hangs with the program of the machine');
   }
-} finally {
-  for (const cleanup of cleanups.reverse()) { try { await cleanup(); } catch { /* best effort */ } }
-  fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-}
+} catch (error) { failure = { error, part }; }
+if (givingUp) await new Promise(() => {}); // the run has been given up and said so: what fails after that is its clean-up
+part = 'the clean-up';
+await cleanUp();
+if (failure?.error === SKIPPED) process.exit(0);
+if (failure) { part = failure.part; failed(failure.error); process.exit(1); }
 console.log(`PASS: ${checks} program-path checks`);
 process.exit(0);
