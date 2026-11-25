@@ -11,6 +11,7 @@
 //   turn     how many tool results this request already has (0 on the first model call)
 //   results  those tool results, oldest first
 //   last     the most recent tool result ('' on the first model call)
+//   allResults  every tool result of the conversation, oldest first (also those before the Hub's own messages and of earlier runs)
 //   tools    names of the functions the Hub offered
 //   system   the system prompt the Hub sent
 // }

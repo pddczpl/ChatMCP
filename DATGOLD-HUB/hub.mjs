@@ -597,7 +597,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           // The owner's decision on the plan a task waits with (docs/PLAN-MODE.md): approve it, choosing how it is carried out (`execution`: the mode of
           // the task afterwards), or request changes with feedback. `revision` is the revision the owner looked at; another one is 409.
           case '/api/studio/plan/decide': {
-            if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(payload.taskId))throw Object.assign(new Error('Cần ID hội thoại hợp lệ.'),{code:'bad_task_id',statusCode:400});
+            if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/.test(payload.taskId))throw Object.assign(new Error('Cần ID hội thoại hợp lệ.'),{code:'bad_task_id',statusCode:400});
             if(!['approve','request_changes'].includes(payload.decision))throw Object.assign(new Error('decision phải là approve hoặc request_changes.'),{code:'bad_decision',statusCode:400});
             if(!(Number.isSafeInteger(payload.revision)&&payload.revision>=0))throw Object.assign(new Error('revision (bản kế hoạch người dùng đang xem) phải là số nguyên không âm.'),{code:'bad_revision',statusCode:400});
             const approve=payload.decision==='approve';
