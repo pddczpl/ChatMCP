@@ -5,8 +5,8 @@ Plan task P7 pod-38. `tools/score.mjs` turns the evidence of each run, a **run p
 Wilson 95 percent interval, the oracle and null-agent controls and the kill rule. **What exists today:** both tools, the two schemas
 (`schema/run-pack.schema.json`, `schema/result.schema.json`), their command lines and their tests on synthetic result sets, on real proof
 packs of DatGold's pack builder and on scripted agents run through the run sandbox. **What does not exist yet:** the adapters that run a
-vendor's CLI and write the packs (pod-37), the pilot (pod-42) and the report (pod-39). No real agent, no model and no paid call has been
-scored; every number here comes from synthetic or scripted runs.
+vendor's CLI and write the packs (pod-37) and the pilot (pod-42); the report (pod-39) is in [REPORT.md](REPORT.md). No real agent, no model
+and no paid call has been scored; every number here comes from synthetic or scripted runs.
 
 - [From a run to the metrics](#from-a-run-to-the-metrics)
 - [The run pack](#the-run-pack)
