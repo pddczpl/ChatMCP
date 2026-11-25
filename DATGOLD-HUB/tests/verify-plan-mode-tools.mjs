@@ -230,10 +230,12 @@ await runScenario({
   const writeArgs = JSON.stringify({ path: 'spelled.txt', content: 'x', planOnly: false });
   let spelled = [];
   model.script('spellings', [calls(...SPELLINGS.map((name) => ['mcp_call', { name, arguments_json: writeArgs }]), ...['WRITE_FILE', 'local.write_file', 'local_write_file'].map((name) => [name, { path: 'spelled.txt', content: 'x' }])), (ctx) => { spelled = ctx.allResults; return say('Tried.'); }]);
+  const seenSpellings = new Set((await permissions(hub)).recent.map((row) => row.id));
   const spelling = await start(hub, '[[spellings]] Plan.', { planMode: true });
   await waitRest(hub, spelling.id);
   t.equal(spelled.length, SPELLINGS.length + 3, 'every spelling was answered');
-  t.check(spelled.every((result) => /unknown_tool|unknown_function|permission_denied|invalid_arguments/.test(result)), 'a name that is not exactly a tool of the catalogue calls nothing', spelled.find((result) => !/unknown_tool|unknown_function|permission_denied|invalid_arguments/.test(result)));
+  t.check(spelled.every((result) => /unknown_tool|unknown_function/.test(result)), 'a name that is not exactly a tool of the catalogue is no tool', spelled.find((result) => !/unknown_tool|unknown_function/.test(result)));
+  t.equal((await permissions(hub)).recent.filter((row) => row.taskId === spelling.id && !seenSpellings.has(row.id)), [], 'and it does not reach the permission gate');
   t.equal(differences(before, fingerprint(project, t.scratch)), [], 'and nothing changed');
 
   // ---------------------------------------------------------------------------------------------------------------- B. the external server
