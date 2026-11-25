@@ -4,7 +4,7 @@
 // thrown away, Tree-sitter adapters were dropped - each time because the test built a double of the object that carried the defect (a
 // hand-written workspace with a bare `path`, a fake in front of the runner). This gate makes the binding explicit and checkable.
 //
-//   docs/CLAIMS.json         every headline claim of README.md and RELEASE-NOTES-v3.9.0.md (and a few from SECURITY.md and the user guide):
+//   docs/CLAIMS.json         every headline claim of README.md and docs/releases/RELEASE-NOTES-v3.9.0.md (and a few from SECURITY.md and the user guide):
 //                            id, claim, source file:line + verbatim quote, kind (claim | disclaimer), seam (real | unmapped), test, a note on
 //                            what is real, optional forbiddenDoubles (regular expressions that must not match the test's code).
 //   docs/claims-ratchet.json the number of unmapped claims may never grow.
@@ -12,7 +12,7 @@
 // For every `real` entry this suite checks that: the quote is on the stated line of the stated document; the test file exists, is named
 // verify-*.mjs and is listed by `tests/run-all.mjs --list` (the REAL runner, not a copy of its pattern); the file carries the marker
 // line `// CLAIM: <id>`; no forbiddenDoubles pattern matches its code (comments removed). Every `// CLAIM:` marker in any suite must name
-// an existing real entry that points at that suite. Every sentence of README.md and RELEASE-NOTES-v3.9.0.md that contains `verified`,
+// an existing real entry that points at that suite. Every sentence of README.md and docs/releases/RELEASE-NOTES-v3.9.0.md that contains `verified`,
 // `guarantee(d)`, `sandbox` or `secure` must be covered by an entry (mapped, unmapped or a disclaimer); the counts are printed. A
 // disclaimer is a statement that ONLY denies something ("not ..."; a sentence that also affirms something, like "X does Y, not Z", is a claim) and
 // must contain a negation: it promises nothing, so it needs no test and is not part of the ratchet; an unmapped claim is. The negation is

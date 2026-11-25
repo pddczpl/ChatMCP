@@ -3,7 +3,7 @@
   "about": "Claims map (docs/CLAIMS.json). Each entry binds a claim made in the documents to the test that exercises it on the production code path, or says that none does. Validated by DATGOLD-HUB/tests/verify-claims-map.mjs; see docs/CLAIMS.md.",
   "scannedDocuments": [
     "README.md",
-    "RELEASE-NOTES-v3.9.0.md"
+    "docs/releases/RELEASE-NOTES-v3.9.0.md"
   ],
   "claims": [
     {
@@ -305,7 +305,7 @@
       "id": "responses-adapter",
       "claim": "The OpenAI Responses adapter validates messages, binds tool results to calls and requires a terminal SSE event.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 11,
         "quote": "supports validated text/function call messages, tool result correlation, bounded SSE with terminal completion"
       },
@@ -331,7 +331,7 @@
       "id": "project-check-discovery",
       "claim": "Project check discovery lists checks without running them.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 15,
         "quote": "Read-only project check discovery can list Node, TypeScript, Python, Rust, Go and Playwright checks."
       },
@@ -344,7 +344,7 @@
       "id": "evaluation-cli",
       "claim": "The evaluation CLI runs fixtures, saves a revision-bound report and reports no live-model result.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 15,
         "quote": "A deterministic evaluation CLI runs existing real-process regression fixtures and saves revision-bound reports; it does not fabricate live-model results."
       },
@@ -357,7 +357,7 @@
       "id": "receipt-invalidation",
       "claim": "Passing test receipts and file hashes are invalidated after a potentially mutating edit.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 7,
         "quote": "Previously passing tests and file hashes are invalidated after potentially mutating edits."
       },
@@ -375,7 +375,7 @@
       "id": "owner-acceptance",
       "claim": "The owner accepts each objective criterion against fresh first-party receipts; only when the owner turns on \"the Hub accepts the checks it ran\" (off by default) does the Hub match the criteria that ask for a check itself, and the evidence then says acceptedBy auto_hub_check.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 7,
         "quote": "an owner accepting each objective criterion"
       },
@@ -390,7 +390,7 @@
       "id": "model-profiles",
       "claim": "Encrypted provider profiles, defaults, role overrides and revision checks.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 9,
         "quote": "AI Settings can manage multiple encrypted local provider profiles"
       },
@@ -405,7 +405,7 @@
       "id": "context-budgets",
       "claim": "Context budgets include instructions, tool schemas and reserved response space.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 13,
         "quote": "Model-specific context budgets estimate instructions, tool schemas and reserved response space"
       },
@@ -420,7 +420,7 @@
       "id": "release-gates-exact-sha",
       "claim": "Publishing needs a green run on the exact release commit.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 29,
         "quote": "Publication requires success on the **exact release commit**"
       },
@@ -434,7 +434,7 @@
       "id": "companion-zip-verified",
       "claim": "The Companion ZIP is verified against the installer payload in the release workflow.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 23,
         "quote": "is packaged from the matching source/payload and verified in the release workflow"
       },
@@ -507,7 +507,7 @@
       "id": "rn-not-live-certified",
       "claim": "Limits of the evidence for this release.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 31,
         "quote": "In particular, an arbitrary custom Responses gateway has not been live-certified; a signed-in ChatGPT Edge session is not reproduced by scripted Chromium pages; host Git worktrees are not an OS sandbox."
       },
@@ -521,7 +521,7 @@
       "id": "rn-not-claimed",
       "claim": "Things the release does not claim.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
+        "file": "docs/releases/RELEASE-NOTES-v3.9.0.md",
         "line": 31,
         "quote": "Live-model benchmark parity, offline Windows Sandbox certification, Authenticode signing and real-user browser account acceptance are **not claimed**."
       },

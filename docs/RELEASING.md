@@ -20,7 +20,7 @@ run, listing every problem, when the files disagree:
 | version `X.Y.Z` | the `version` input, or `DATGOLD-HUB/package.json` when the input is empty | `DATGOLD-HUB/package.json`, `DATGOLD-HUB/ui/package.json`, `DATGOLD-HUB/ui/package-lock.json` (top level and the root package entry), the one `<Version>` of `desktop-shell/ChatMCP.csproj` and of `installer/ChatMCP.Installer.csproj` |
 | tag | `v` + version | an existing tag must point at the same commit (it is never moved) |
 | Companion version | `DATGOLD-HUB/extension/manifest.json` | the `companion_version` input when given; the installed-Companion check in `scripts/tests/Test-NativeLifecycle.ps1` |
-| release notes | `RELEASE-NOTES-v<version>.md` at the repository root | must exist |
+| release notes | `docs/releases/RELEASE-NOTES-v<version>.md` | must exist |
 | title (and tag message) | the first H1 of the notes, outside code blocks; an em or en dash becomes ` - ` | must start with `DatGold v<version> `; says `(test build)` exactly when `prerelease` is ticked |
 | assets | `DatGoldSetup.exe`, `DatGold-Browser-Companion.zip`, their `.sha256` files, `RELEASE-MANIFEST.json` | the names `scripts/Build-Installer.ps1` and `scripts/Build-BrowserCompanion.ps1` write; no old-named `ChatMCP-Browser-Companion.zip` (owner's decision of 2026-10-28, from v3.11.1 on) |
 | upgrade baseline | the published v3.9.0 `ChatMCPSetup.exe`, pinned by SHA-256 in the script (owner's decision) | the `digest` GitHub records for that asset, and the hash of the downloaded file |
@@ -146,8 +146,9 @@ suites. The fix installs the same folders as the Hub tests job of `ci.yml` (ACP 
 ## Steps for the owner
 
 1. Prepare the release in a pull request like any other change: the version in the five files of the table, the Companion version if the
-   Companion changed (then also the check in `scripts/tests/Test-NativeLifecycle.ps1`), and `RELEASE-NOTES-vX.Y.Z.md` whose first line is
-   `# DatGold vX.Y.Z — what the release brings`. Check it locally:
+   Companion changed (then also the check in `scripts/tests/Test-NativeLifecycle.ps1`), and `docs/releases/RELEASE-NOTES-vX.Y.Z.md` whose first line is
+   `# DatGold vX.Y.Z — what the release brings`. GitHub reads a relative link of a release body from the repository root, not from
+   `docs/releases/`, so a link in the notes is a full URL (`https://github.com/pddczpl/ChatMCP/blob/vX.Y.Z/docs/...`). Check it locally:
 
    ~~~powershell
    powershell -NoProfile -File .\scripts\Resolve-ReleaseInputs.ps1
