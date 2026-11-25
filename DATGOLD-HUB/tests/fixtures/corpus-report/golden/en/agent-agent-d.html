@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; script-src &#39;none&#39;; style-src &#39;sha256-XPWtrRHLQ9lfuGy4LdkLrUwsaAe4CT4YRdmRnSozfEk=&#39;; img-src &#39;none&#39;; font-src &#39;none&#39;; connect-src &#39;none&#39;; object-src &#39;none&#39;; frame-src &#39;none&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent agent-d</title>
+<style>
+:root { color-scheme: light dark; --page: #ffffff; --ink: #1c1e21; --soft: #5a6068; --line: #d5d9de; --band: #f4f6f8; --code: #eef1f4; --pass: #12683a; --warn: #8a5a00; --fail: #a8201a; }
+@media (prefers-color-scheme: dark) { :root { --page: #16181b; --ink: #e8eaed; --soft: #a3abb5; --line: #363b42; --band: #1f2327; --code: #262b31; --pass: #6fd39b; --warn: #e7b655; --fail: #ff8f86; } }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 72rem; padding: 1.5rem 1rem 3rem; background: var(--page); color: var(--ink); font: 1rem/1.55 "Segoe UI", "Noto Sans", Roboto, "Helvetica Neue", Arial, sans-serif; }
+h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 0.75rem; }
+h2 { font-size: 1.2rem; line-height: 1.3; margin: 2rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--line); }
+p, ul { margin: 0.5rem 0; }
+ul { padding-left: 1.25rem; }
+.verdict { margin: 0 0 1rem; padding: 0.75rem 1rem; border: 1px solid currentColor; border-left-width: 0.4rem; border-radius: 0.25rem; font-size: 1.15rem; font-weight: 600; }
+.verdict.pass { color: var(--pass); }
+.verdict.warn { color: var(--warn); }
+.verdict.fail { color: var(--fail); }
+.note { color: var(--soft); }
+.scroll { overflow-x: auto; margin: 0.5rem 0 1rem; }
+table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.wide { min-width: 44rem; }
+th, td { padding: 0.35rem 0.6rem; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+thead th { background: var(--band); }
+.facts th { width: 30%; background: var(--band); font-weight: 600; }
+code, pre { font: 0.9em/1.45 Consolas, "Cascadia Mono", "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace; }
+code { padding: 0.05rem 0.25rem; border-radius: 0.2rem; background: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; direction: ltr; unicode-bidi: isolate; }
+code.word { white-space: nowrap; }
+pre { overflow-x: auto; padding: 0.75rem 1rem; border-radius: 0.25rem; background: var(--code); }
+.chip { display: inline-block; padding: 0 0.5rem; border: 1px solid currentColor; border-radius: 1rem; font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.chip.evidenced, .chip.owner_accepted, .chip.passed { color: var(--pass); }
+.chip.failed, .chip.checks_modified { color: var(--fail); }
+.chip.unverified, .chip.stale, .chip.repeats_short, .chip.tree_unknown, .chip.not_run { color: var(--warn); }
+@media print {
+  :root { color-scheme: light; --page: #ffffff; --ink: #000000; --soft: #333333; --line: #999999; --band: #f2f2f2; --code: #f2f2f2; --pass: #0b4f2a; --warn: #6b4500; --fail: #8a1510; }
+  body { max-width: none; padding: 0; font-size: 10pt; }
+  h2 { break-after: avoid; }
+  tr, .verdict { break-inside: avoid; }
+  thead { display: table-header-group; }
+  .scroll, pre { overflow: visible; }
+  .wide { min-width: 0; }
+  pre { white-space: pre-wrap; }
+}
+.banner { position: sticky; top: 0; z-index: 1; margin: 0 0 1rem; padding: 0.6rem 1rem; border: 0.2rem solid #7a0c06; background: #ffd400; color: #1c1e21; }
+.banner p { margin: 0; font-size: 1.3rem; line-height: 1.3; }
+.banner ul { margin: 0.25rem 0 0; font-size: 0.9rem; }
+nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+a { color: inherit; text-decoration: underline; text-underline-offset: 0.15em; }
+a:focus-visible { outline: 0.15rem solid currentColor; outline-offset: 0.15rem; }
+.verdict.plain { color: var(--ink); }
+.verbatim { white-space: pre-wrap; overflow-wrap: anywhere; }
+.verbatim code { padding: 0; background: none; }
+.chip { margin: 0.05rem 0; }
+.chip.false { border-width: 0.15rem; color: var(--fail); }
+.chip.held, .chip.plain { color: var(--ink); }
+.chip.error, .chip.gap { border-style: dashed; color: var(--warn); }
+tr:target { outline: 0.2rem solid var(--warn); outline-offset: -0.2rem; }
+[id] { scroll-margin-top: 9rem; }
+footer { margin-top: 2.5rem; border-top: 1px solid var(--line); }
+@media print {
+  .banner { position: static; }
+  nav { display: none; }
+}
+</style>
+</head>
+<body>
+<aside class="banner" role="note">
+<p><strong>Synthetic data, not a measurement</strong></p>
+<ul>
+<li>A preregistration file was given, but no freeze tag was checked.</li>
+<li>The corpus holds example tasks: 2. They show the format and measure nothing.</li>
+</ul>
+</aside>
+<header>
+<nav aria-label="Pages of this report">
+<ul>
+<li><a href="index.html">Results</a></li>
+<li><a href="methods.html">Methods and limitations</a></li>
+<li><a href="responses.html">Vendor responses</a></li>
+<li><a href="../vi/agent-agent-d.html" lang="vi" hreflang="vi">Tiếng Việt</a></li>
+</ul>
+</nav>
+<h1>Agent <code class="word">agent-d</code></h1>
+
+</header>
+<main>
+<section id="identity">
+<h2>The agent as registered</h2>
+<div class="scroll">
+<table class="facts">
+<tbody>
+<tr><th scope="row">Command line</th><td><code>agent-d</code></td></tr>
+<tr><th scope="row">Version</th><td><code>0.0.0-synthetic</code></td></tr>
+<tr><th scope="row">Model</th><td>not recorded</td></tr>
+<tr><th scope="row">Notes</th><td><code>registered, never run</code></td></tr>
+</tbody>
+</table>
+</div>
+<p class="note">These are the words of the preregistration file. The freeze does not run the command line to check them.</p>
+</section>
+<section id="metrics">
+<h2>Metrics</h2>
+<p class="note">no run of this agent</p>
+</section>
+<section id="agent-response">
+<h2>Vendor response</h2>
+<p>No response was recorded.</p>
+</section>
+</main>
+<footer>
+<p class="note">Made from the results file with the sha256 <code>2070de3302b875dec02e8c7b5b79413c47fdb08b60c8b4c35b7cc401d067049a</code> and the corpus with the sha256 <code>476d0f75c86fc8b1cb0ac82ad57bc1130d4073f7bacb1703ac0b098ef759d48b</code>.</p>
+</footer>
+</body>
+</html>

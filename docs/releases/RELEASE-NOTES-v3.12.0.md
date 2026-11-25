@@ -12,13 +12,13 @@ This is a normal release and is published as the latest release. It contains eve
 
 **External MCP servers.** The *MCP servers* tab (under More) is where you add a server, approve how it is started and approve its tools. Nothing of a server runs or is offered to the agent before that, a tool list that changed has to be approved again, and the tools of external servers have a permission category of their own: you can allow, ask for or deny each one.
 
-**DatGold as an MCP server, off by default.** Local MCP clients can call the Hub's tools through a separate loopback port with its own token, behind the same permission gate and your approvals. A new token may run the project's checks and read Git's view of the work; reading files and writing are opt-in. There is no setup screen yet ([MCP-SERVER.md](docs/MCP-SERVER.md)).
+**DatGold as an MCP server, off by default.** Local MCP clients can call the Hub's tools through a separate loopback port with its own token, behind the same permission gate and your approvals. A new token may run the project's checks and read Git's view of the work; reading files and writing are opt-in. There is no setup screen yet ([MCP-SERVER.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/MCP-SERVER.md)).
 
-**DatGold as an agent in your editor (ACP).** An editor that speaks the Agent Client Protocol can start DatGold as its agent: sessions, prompts, events, approvals in the editor, loading a session ([ACP.md](docs/ACP.md)).
+**DatGold as an agent in your editor (ACP).** An editor that speaks the Agent Client Protocol can start DatGold as its agent: sessions, prompts, events, approvals in the editor, loading a session ([ACP.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/ACP.md)).
 
 **`git_push` for the agent.** It publishes one branch to a configured remote. It asks every time, in Full Access too, never forces and refuses main, master and the default branch of the remote.
 
-**Proof-of-Done, the first parts.** Receipts of checks are bound to the exact tree of the workspace, and a proof ledger records the calls and the checks of a task. When a project has a `.chatmcp/acceptance.yml` that you trusted, the agent cannot finish "done" while your checks fail: it is sent back once with the results, and a second failure ends the task as failed. **The command line that trusts such a file (`chatmcp verify`) is not part of the installation yet**: it runs from a checkout of the repository ([PROOF-CLI.md](docs/PROOF-CLI.md), [PROOF-GATE.md](docs/PROOF-GATE.md)). Without a trusted file nothing is gated.
+**Proof-of-Done, the first parts.** Receipts of checks are bound to the exact tree of the workspace, and a proof ledger records the calls and the checks of a task. When a project has a `.chatmcp/acceptance.yml` that you trusted, the agent cannot finish "done" while your checks fail: it is sent back once with the results, and a second failure ends the task as failed. **The command line that trusts such a file (`chatmcp verify`) is not part of the installation yet**: it runs from a checkout of the repository ([PROOF-CLI.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/PROOF-CLI.md), [PROOF-GATE.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/PROOF-GATE.md)). Without a trusted file nothing is gated.
 
 **Fixes.**
 - A task starts in the folder you just chose or added in the sidebar, not in the one before it.
@@ -62,4 +62,4 @@ The Hub's health version is `3.12.0` and the UI build identifier is `3.12.0-reac
 
 ## How it was built
 
-It is published by the hand-started release workflow ([RELEASING.md](docs/RELEASING.md)), which refuses to publish unless the complete Hub regression on the exact release commit, the installer build, the installed upgrade from the published v3.9.0, the WebView2 smoke test, the release gate and the asset checksums have all passed. The signature of `RELEASE-MANIFEST.json` is made by hand with the project's release key after the workflow has published the files.
+It is published by the hand-started release workflow ([RELEASING.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/RELEASING.md)), which refuses to publish unless the complete Hub regression on the exact release commit, the installer build, the installed upgrade from the published v3.9.0, the WebView2 smoke test, the release gate and the asset checksums have all passed. The signature of `RELEASE-MANIFEST.json` is made by hand with the project's release key after the workflow has published the files.

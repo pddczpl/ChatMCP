@@ -124,7 +124,7 @@ const runs = (workflow, events) => events.filter((event) => triggers(workflow, e
   for (const file of ['DATGOLD-HUB/tests/requirements-e2e.txt', 'DATGOLD-HUB/README.md', 'scripts/InstallerPayload.ps1', '.github/workflows/ci.yml', 'DATGOLD-HUB/THIRD-PARTY-NOTICES.txt', 'DATGOLD-HUB/web/dist/index.html']) {
     assert.equal(runs(ci, prEvents('feat/x', [file])), 1, `${file} is not documentation: ci.yml runs`);
   }
-  for (const file of ['README.md', 'SECURITY.md', 'THIRD-PARTY-NOTICES.md', 'RELEASE-NOTES-v3.9.0.md', 'docs/CLAIMS.json', 'docs/claims-ratchet.json', 'docs/agent-handoffs/x.md', 'LICENSE', 'NOTICE']) {
+  for (const file of ['README.md', 'SECURITY.md', 'THIRD-PARTY-NOTICES.md', 'docs/releases/RELEASE-NOTES-v3.9.0.md', 'docs/CLAIMS.json', 'docs/claims-ratchet.json', 'docs/agent-handoffs/x.md', 'LICENSE', 'NOTICE']) {
     assert.deepEqual(both(prEvents('feat/x', [file])), [0, 1], `${file} is only read by the documentation gates`);
   }
   // the two lists are one list

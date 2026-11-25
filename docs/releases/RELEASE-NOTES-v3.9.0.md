@@ -30,4 +30,4 @@ Publication requires success on the **exact release commit** for the full Linux/
 
 Tests using a scripted model are deterministic regression evidence, **not** a paid-provider benchmark. In particular, an arbitrary custom Responses gateway has not been live-certified; a signed-in ChatGPT Edge session is not reproduced by scripted Chromium pages; host Git worktrees are not an OS sandbox. Live-model benchmark parity, offline Windows Sandbox certification, Authenticode signing and real-user browser account acceptance are **not claimed**. Multi-agent code worktrees must still be reviewed and integrated through guarded workflows, never silently merged or pushed. The installer may remain unsigned; read the manifest rather than assuming a publisher signature.
 
-See [Security](SECURITY.md), [Evaluation](docs/EVALUATION.md) and [Upgrade implementation checkpoint](docs/UPGRADE-IMPLEMENTATION-STATUS.md).
+See [Security](../../SECURITY.md), [Evaluation](../EVALUATION.md) and [Upgrade implementation checkpoint](../UPGRADE-IMPLEMENTATION-STATUS.md).

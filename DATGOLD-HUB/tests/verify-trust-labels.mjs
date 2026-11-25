@@ -84,13 +84,16 @@ async function* walk(directory, skip = () => false) {
 }
 
 const HISTORICAL_DOC = /^(?:PHASE|UPGRADE|WINDOWS-SANDBOX-REAL|PHASE\d)/i;
+// The release notes were not read while they stood at the repository root. In docs/releases they are, but for these three: published long ago with a word that is
+// refused today, and past notes are not rewritten (AGENTS.md). No other file belongs here.
+const PUBLISHED_NOTES = new Set(['3.0.0', '3.1.2', '3.4.1'].map((version) => `docs/releases/RELEASE-NOTES-v${version}.md`));
 
 /** @returns {Promise<{where: string, rule: string, text: string, why: string}[]>} */
 export async function scanTree(repo) {
   const found = [];
   const hub = path.join(repo, 'DATGOLD-HUB');
   const rel = (file) => path.relative(repo, file).replaceAll('\\', '/');
-  // docs/archive holds the notes of versions 1.x to 3.0.2, moved there unchanged: history like agent-handoffs, not what a user reads about today's product.
+  // docs/archive holds the notes of versions 1.x and 2.x, moved there unchanged: history like agent-handoffs, not what a user reads about today's product.
   const archive = path.join(repo, 'docs', 'archive');
   const skipDirectories = (full, entry) => entry.isDirectory() && (['node_modules', 'dist', '.git', 'agent-handoffs', 'evidence', 'runtimes'].includes(entry.name) || full === archive);
 
@@ -107,7 +110,7 @@ export async function scanTree(repo) {
   }
   const prose = [];
   for await (const file of walk(path.join(repo, 'docs'), skipDirectories)) {
-    if (/\.md$/.test(file) && !HISTORICAL_DOC.test(path.basename(file))) prose.push(file);
+    if (/\.md$/.test(file) && !HISTORICAL_DOC.test(path.basename(file)) && !PUBLISHED_NOTES.has(rel(file))) prose.push(file);
   }
   for (const name of ['SECURITY.md', 'THIRD-PARTY-NOTICES.md', 'README.md']) prose.push(path.join(repo, name));
   for (const file of prose) {
@@ -213,6 +216,7 @@ const hasLicense = licenseFiles.length > 0;
       ['DATGOLD-HUB/ui/src/bad.tsx', "export const A = () => <p>Certified sandbox execution</p>;\n", 'certified'],
       ['DATGOLD-HUB/ui/src/label.ts', "export const t = { cat_mcp: 'MCP Servers' };\n", 'mcp-servers-label'],
       ['docs/bad.md', 'Every result is tamper-proof and notarized.\n', 'tamper-proof'],
+      ['docs/releases/RELEASE-NOTES-v9.9.9.md', '- A secure sandbox runs the checks.\n', 'sandbox'],
     ];
     for (const [name, content, rule] of seeded) {
       await write(name, content);

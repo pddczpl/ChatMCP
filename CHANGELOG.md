@@ -13,7 +13,7 @@ It contains everything of 3.11.2 and what was merged after it (pull requests 97 
 - **Proof-of-Done, the first parts:** tree-bound receipts, the proof ledger, `.chatmcp/acceptance.yml`, the done-gate and the `chatmcp verify` command line (from a checkout; not part of the installation yet).
 - **Fixes:** the folder a task starts in; a stopped terminal ends its process tree; more credential files are protected; masked streams; uninstall order; an expired approval is recorded once.
 
-**Limitations:** no new part was used on a real installation with a real model; no real editor, MCP client or provider was tried ([RELEASE-NOTES-v3.12.0.md](RELEASE-NOTES-v3.12.0.md)).
+**Limitations:** no new part was used on a real installation with a real model; no real editor, MCP client or provider was tried ([RELEASE-NOTES-v3.12.0.md](docs/releases/RELEASE-NOTES-v3.12.0.md)).
 
 ## [3.11.2] — 2026-10-29 — More skills install, review receipts that hold and the Hub side of per-hunk review
 

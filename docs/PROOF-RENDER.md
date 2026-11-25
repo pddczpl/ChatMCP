@@ -15,7 +15,7 @@ describes the **report** made of one for people: Markdown for a pull request com
 From the command line: `chatmcp verify show --pack <file> [--format md|html] [--lang en|vi] [--out <file>]` ([PROOF-CLI.md](PROOF-CLI.md), "`show`").
 
 **What exists today.** The renderers, the command, and the Hub's route ([PROOF-HUB-API.md](PROOF-HUB-API.md), pod-33: it also takes the Hub's registered secrets out of the texts of a
-report). The Proof tab (pod-34) and the report generator of the benchmark (pod-39) are to use them.
+report). The Proof tab (pod-34) is to use them. The report of the benchmark ([corpus/REPORT.md](../corpus/REPORT.md), pod-39) is written with their nodes, escaping, numbers and style.
 
 **A report is a reading aid, not evidence.** It is a text that anyone can edit. It names the statement digest of the pack it was made of and
 ends with the commands that check and reproduce that pack.
