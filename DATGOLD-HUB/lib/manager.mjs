@@ -10,7 +10,7 @@ import { externalToolName } from './permissions.mjs';
 import { ProofService, scannedCall } from './proof/service.mjs';
 import { createTrustStore } from './proof/trust-store.mjs';
 
-export const VERSION = '3.11.2';
+export const VERSION = '3.12.0';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
 export const BACKENDS = Object.freeze(['local']);
 // The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add

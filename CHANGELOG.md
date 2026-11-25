@@ -1,6 +1,21 @@
 # Lịch sử thay đổi
 
-## [3.11.2] — 2026-10-29 — More skills install, review receipts that hold and the Hub side of per-hunk review (latest release)
+## [3.12.0] — 2026-11-25 — Review every change, plan before the agent writes, MCP servers and true resume (latest release)
+
+It contains everything of 3.11.2 and what was merged after it (pull requests 97 to 166). It is the first release that an installed 3.11.2 can offer through the Update button, and the first one made by the hand-started release workflow.
+
+- **Review:** a Review tab with accept and reject per hunk; the approval card shows the real change and the call is held to it; undo one step, the task, or some files of a checkpoint.
+- **Plan mode:** a conversation that reads and plans until its plan is approved (editable in the card and in the Plan tab), with an execution mode chosen at the approval; a setting of the conversation, not of the permission mode.
+- **Resume:** a continued conversation replays its real history from a versioned journal; a chip says how it was resumed.
+- **MCP:** external servers with approvals of their start and of their tools, and a permission category of their own; the Hub as an MCP server for local clients (off by default, its own port and token, profiles verify / read / write).
+- **ACP:** DatGold as an agent of an editor that speaks the Agent Client Protocol.
+- **`git_push`:** one branch, asked every time, never forced, never main.
+- **Proof-of-Done, the first parts:** tree-bound receipts, the proof ledger, `.chatmcp/acceptance.yml`, the done-gate and the `chatmcp verify` command line (from a checkout; not part of the installation yet).
+- **Fixes:** the folder a task starts in; a stopped terminal ends its process tree; more credential files are protected; masked streams; uninstall order; an expired approval is recorded once.
+
+**Limitations:** no new part was used on a real installation with a real model; no real editor, MCP client or provider was tried ([RELEASE-NOTES-v3.12.0.md](RELEASE-NOTES-v3.12.0.md)).
+
+## [3.11.2] — 2026-10-29 — More skills install, review receipts that hold and the Hub side of per-hunk review
 
 It contains everything of 3.11.1 and what was merged after it (pull requests 92 to 95). It is the first release that an installed 3.11.1 can offer through the Update button.
 

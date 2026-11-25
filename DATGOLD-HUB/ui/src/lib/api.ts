@@ -85,7 +85,7 @@ export interface McpServerInput {
 }
 export interface McpTestAnswer { ok: boolean; error: { code: string; message: string } | null; status: McpServerStatus | null }
 
-const UI_BUILD = '3.11.2-react-agent';
+const UI_BUILD = '3.12.0-react-agent';
 
 // ---- the plan of a task and the answer to it (POST /api/studio/plan/set and /api/studio/plan/decide, P9 ac-10) --------------------------------
 export type PlanDecision = 'approve' | 'request_changes';

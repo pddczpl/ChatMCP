@@ -1,0 +1,127 @@
+{
+ "suite": "verify-plan-mode-tools.mjs",
+ "description": "What the suite about every way to act must notice: a tool without a decision, a tool or a call with another category, a command that reads, the spawn functions, MCP prompts and resources, a policy that comes after Full Access.",
+ "mutations": [
+  {
+   "name": "T1",
+   "what": "a tool is added and nobody decided",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "    define('github_read', {",
+     "new": "    define('zz_new_tool', { description: 'x', schema: obj({}), category: 'read', reason: 'x', summary: () => 'x', run: () => ok('x') });\n    define('github_read', {"
+    }
+   ]
+  },
+  {
+   "name": "T2",
+   "what": "git_add counts as a read",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "category: 'workspace_edit', reason: 'Stage file'",
+     "new": "category: 'read', reason: 'Stage file'"
+    }
+   ]
+  },
+  {
+   "name": "T3",
+   "what": "git_branch counts as a read whatever it does",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "category: (a) => (a.action === 'list' ? { category: 'read', reason: 'Liệt kê nhánh' } : { category: 'workspace_edit', reason: 'Tạo/chuyển nhánh' }),",
+     "new": "category: 'read',"
+    }
+   ]
+  },
+  {
+   "name": "T4",
+   "what": "a semantic edit that is applied counts as a read",
+   "patches": [
+    {
+     "file": "lib/lsp-refactor-tools.mjs",
+     "old": "category:a.apply?'workspace_edit':'read'",
+     "new": "category:'read'"
+    }
+   ]
+  },
+  {
+   "name": "T5",
+   "what": "a command that reads runs",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    else if(PLAN_SHELL.test(lower))what=",
+     "new": "    else if(false)what="
+    }
+   ]
+  },
+  {
+   "name": "T6",
+   "what": "an execution runs",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    else if(verdict.category!=='read'&&verdict.category!=='checkpoint')what=",
+     "new": "    else if(verdict.category!=='read'&&verdict.category!=='checkpoint'&&verdict.category!=='execute')what="
+    }
+   ]
+  },
+  {
+   "name": "T7",
+   "what": "spawn_agent and spawn_workflow are not refused",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "(call.name==='spawn_agent'||call.name==='spawn_workflow')&&planOnly(context.task))",
+     "new": "(call.name==='spawn_agent'||call.name==='spawn_workflow')&&false)"
+    }
+   ]
+  },
+  {
+   "name": "T8",
+   "what": "a plan-mode run is offered the spawn functions",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      const spawnAllowed=!context.planTool&&(",
+     "new": "      const spawnAllowed=("
+    }
+   ]
+  },
+  {
+   "name": "T9",
+   "what": "MCP prompts and resources are read",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (planOnly(context.task)) return await this.#planRefused(context, call, `mcp_capabilities",
+     "new": "    if (false) return await this.#planRefused(context, call, `mcp_capabilities"
+    }
+   ]
+  },
+  {
+   "name": "T10",
+   "what": "the policy comes after the rules of external tools",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    if(planned!==null)return this.#refuse(name,args,verdict,taskId,'policy',planned);",
+     "new": "    if(planned!==null&&category!=='external')return this.#refuse(name,args,verdict,taskId,'policy',planned);"
+    }
+   ]
+  },
+  {
+   "name": "T11",
+   "what": "a name in another case is a tool",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "  if (context.index.has(name)) return name;",
+     "new": "  if (context.index.has(name)) return name; if (context.index.has(String(name).toLowerCase().trim())) return String(name).toLowerCase().trim();"
+    }
+   ]
+  }
+ ]
+}

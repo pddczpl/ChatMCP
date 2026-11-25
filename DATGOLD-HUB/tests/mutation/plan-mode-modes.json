@@ -1,0 +1,171 @@
+{
+ "suite": "verify-plan-mode-modes.mjs",
+ "description": "What the suite about the other settings and the other chats must notice: calls behind the proposal that run, the mode of a task after an approval, the mode changed under a running task, hooks and checks, a plan addressed by another spelling of its id or in another studio, two decisions that both win.",
+ "mutations": [
+  {
+   "name": "M1",
+   "what": "the calls behind an approved proposal run",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      if(context.planApprovedStep===context.task.steps)return await this.#planRefused(context,call,call.name,PLAN_SAME_TURN);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M2",
+   "what": "the step of the approval is not noted",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      context.planApprovedStep = task.steps; // the calls behind this one in the same model turn (#dispatch)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M3",
+   "what": "every later call of the run is refused",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      if(context.planApprovedStep===context.task.steps)return",
+     "new": "      if(context.planApprovedStep!==undefined)return"
+    }
+   ]
+  },
+  {
+   "name": "M4",
+   "what": "the mode can change while a task is active",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "            if(taskEngine?.state()?.activeTaskId||coding?.active||coding?.integrating||",
+     "new": "            if(coding?.active||coding?.integrating||"
+    }
+   ]
+  },
+  {
+   "name": "M5",
+   "what": "Full Access applies to a task whose owner chose a mode",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    return {mode:chosen,fullAccess:false};",
+     "new": "    return {mode:chosen,fullAccess:this.executionPolicy==='full-access'};"
+    }
+   ]
+  },
+  {
+   "name": "M6",
+   "what": "the mode the owner chose is not the mode of the task",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    return {mode:chosen,fullAccess:false};",
+     "new": "    return {mode:this.mode,fullAccess:false};"
+    }
+   ]
+  },
+  {
+   "name": "M7",
+   "what": "Read Only does not win over the choice",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "    if(this.mode==='readonly'&&category!=='read'&&category!=='checkpoint')",
+     "new": "    if(regime.mode==='readonly'&&category!=='read'&&category!=='checkpoint')"
+    }
+   ]
+  },
+  {
+   "name": "M8",
+   "what": "a hook is asked about a call the gate refused",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "    if (!decision.allowed) return { decision, refusal: null };",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M9",
+   "what": "a plan-mode run runs the trusted checks",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      run: context.gate, task, planMode: planOnly(task), signal",
+     "new": "      run: context.gate, task, planMode: false, signal"
+    }
+   ]
+  },
+  {
+   "name": "M10",
+   "what": "a plan is found by its id in any case",
+   "patches": [
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "    if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/.test(taskId))throw",
+     "new": "    if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(taskId))throw"
+    }
+   ]
+  },
+  {
+   "name": "M11",
+   "what": "the plan decision takes an id in any case",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "            if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/.test(payload.taskId))throw",
+     "new": "            if(typeof payload.taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(payload.taskId))throw"
+    }
+   ]
+  },
+  {
+   "name": "M12",
+   "what": "the plan of a chat beside another is looked for in the Hub's own studio",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "  const planStudio = (taskId) => taskEngine?.api?.studioFor?.(taskId) ?? studio;",
+     "new": "  const planStudio = () => studio;"
+    }
+   ]
+  },
+  {
+   "name": "M13",
+   "what": "a plan that waits on the gate of a chat beside another is not seen",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "  const pendingPlanRequests = () => [...(gate?.state().pending ?? []), ...(taskEngine?.api?.pendingApprovals?.() ?? [])]",
+     "new": "  const pendingPlanRequests = () => [...(gate?.state().pending ?? [])]"
+    }
+   ]
+  },
+  {
+   "name": "M14",
+   "what": "a request that was answered can be answered again",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "clearTimeout(timer);signal?.removeEventListener('abort',aborted);this.requests.delete(id);",
+     "new": "clearTimeout(timer);signal?.removeEventListener('abort',aborted);"
+    }
+   ]
+  },
+  {
+   "name": "M15",
+   "what": "an answer about a later revision is taken",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "    if ((approved || revision !== null) && current.revision !== base) throw planConflict(current);",
+     "new": "    if ((approved || revision !== null) && current.revision < base) throw planConflict(current);"
+    }
+   ]
+  }
+ ]
+}
