@@ -77,7 +77,7 @@ try {
     await none('a removed baseline', await run(manager, await good('removed'), [hold], spoil((file) => fs.rm(file))), 'baseline_unreadable');
     await none('a baseline whose objects are gone', await run(manager, await project('objects'), [read, async ({ last }) => { await until(() => spoilt, 'ready'); return fix({ last }); }, hold], spoil(async (file) => { await fs.rm(file.replace(/\.json$/, '.git'), { recursive: true, force: true }); })), 'old_bytes_unreadable');
     // a process that goes on writing: the tree at the build is not the tree the run ended on
-    const WRITER = "const { spawn } = require('child_process');\nspawn(process.execPath, ['-e', \"const fs = require('fs'); let n = 0; const t = setInterval(() => { fs.writeFileSync('notes.txt', String(n++)); if (n > 400) clearInterval(t); }, 25)\"], { cwd: __dirname, detached: true, stdio: 'ignore' }).unref();\n";
+    const WRITER = "const { spawn } = require('child_process');\nspawn(process.execPath, ['-e', \"const fs = require('fs'); let n = 0; const t = setInterval(() => { fs.writeFileSync('notes.txt', String(n++)); if (n > 2000) clearInterval(t); }, 25)\"], { cwd: __dirname, detached: true, stdio: 'ignore' }).unref();\n";
     const writer = await run(manager, await good('writer', { files: { 'writer.js': WRITER } }), [() => [tool('run_command', { command: 'node writer.js', description: 'Start a helper' })], done], { prompt: 'Look around.' });
     await none('the files changed after the end of the run', writer, 'final_tree_changed');
     // the ledger is edited while the run goes on
@@ -98,6 +98,9 @@ try {
     await none('a patch over the limit', patch, 'patch_too_large');
     const late = await run(manager, await good('late'), [done], { prompt: 'Look around.', during: async ({ agent }) => { agent.packs.limits = { ...agent.packs.limits, timeoutMs: 1 }; } });
     await none('a build that takes too long', late, 'timeout');
+    // the build that was given up comes to its end behind it, and removes its scratch files
+    const scratchFiles = path.join(manager.hubDirectory, 'proof', 'packs', 'scratch');
+    await until(() => fsSync.readdirSync(scratchFiles).length === 0, 'the build that was given up to clean up', 30_000);
     // a file where the folder of the packs should be
     const packs = path.join(manager.hubDirectory, 'proof', 'packs');
     await fs.mkdir(packs, { recursive: true });
@@ -126,20 +129,36 @@ try {
     await inner.shutdown();
   });
 
+  await section('1c. the scratch files of a Hub that died are removed, those of a build that goes on are not', async () => {
+    const scratch = path.join(manager.hubDirectory, 'proof', 'packs', 'scratch');
+    const [old, fresh] = [path.join(scratch, 'work-old'), path.join(scratch, 'work-fresh')];
+    for (const folder of [old, fresh]) { await fs.mkdir(folder, { recursive: true }); await fs.writeFile(path.join(folder, 'x'), 'x'); }
+    const past = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await fs.utimes(old, past, past);
+    const swept = await run(manager, await good('swept'), [done], { prompt: 'Look around.' });
+    equal((await settled(swept.agent, swept.id)).status, 'ready');
+    check(!fsSync.existsSync(old), 'the old one is gone');
+    // (a build that was given up above removes its own when it gets to its end)
+    await until(() => fsSync.readdirSync(scratch).join() === 'work-fresh', 'the builds to leave none of their own', 20_000);
+    await fs.rm(fresh, { recursive: true });
+  });
+
   await section('2. delete, stop and a new run while a pack is built; a restart', async () => {
-    const forever = { build: ({ signal }) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(signal.reason), { once: true }); }) };
+    // a build that does not end, and does not look whether it was given up
+    const forever = { build: () => new Promise(() => {}) };
     const slow = { during: async ({ agent }) => { agent.packs.deps = { ...agent.packs.deps, ...forever }; }, prompt: 'Look around.' };
     const deleted = await run(manager, await good('deleted'), [done], slow);
     equal(deleted.agent.get(deleted.id).proof.status, 'building');
+    check(fsSync.existsSync(path.dirname(taskFile(manager, deleted.id))), '(premise) the task is on disk');
     const at = Date.now();
     await deleted.agent.delete(deleted.id);
-    check(Date.now() - at < 8000, 'a delete does not wait for the build');
+    check(Date.now() - at < 3000, 'a delete does not wait for the build');
     await sleep(300);
     equal([fsSync.existsSync(path.dirname(taskFile(manager, deleted.id))), files(manager, deleted.id)], [false, []], 'and nothing comes back after it');
     const stopped = await run(manager, await good('stopped'), [done], slow);
     const began = Date.now();
     await stopped.agent.shutdown();
-    check(Date.now() - began < 8000, 'a Hub that stops does not wait for the build');
+    check(Date.now() - began < 3000, 'a Hub that stops does not wait for the build');
     equal(stopped.agent.get(stopped.id).proof.reason, 'hub_stopped');
     reasons.add('hub_stopped');
     const onDisk = JSON.parse(fsSync.readFileSync(taskFile(manager, stopped.id), 'utf8')).proof;

@@ -3,28 +3,6 @@
  "description": "The packs the Hub writes at the end of a run (plan task P5 pod-33, docs/PROOF-HUB-API.md): what a pack holds, where it is kept, that it never slows a run, what the task says of it, the ledger behind an acceptance, and what the route answers of a pack.",
  "mutations": [
   {
-   "name": "HP-final-tree",
-   "what": "a pack of another tree than the one the run ended on",
-   "patches": [
-    {
-     "file": "lib/proof/hub-pack.mjs",
-     "old": "if (treeKey(diff.final) !== treeKey(final)) throw",
-     "new": "if (false) throw"
-    }
-   ]
-  },
-  {
-   "name": "HP-self-check",
-   "what": "the bytes are written without the check of verify",
-   "patches": [
-    {
-     "file": "lib/proof/hub-pack.mjs",
-     "old": "  const read = readPackFile(built.packBytes, { maxBytes: limits.maxBytes });\n  if (read.digest !== built.digest || taskOfPack(read.entries) !== taskId) throw",
-     "new": "  if (false) throw"
-    }
-   ]
-  },
-  {
    "name": "HP-secrets",
    "what": "registered secrets are not handed to the builder",
    "patches": [

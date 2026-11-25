@@ -133,7 +133,8 @@ await runScenario({
   const mdEn = await proofOf(one.id, '?format=md&lang=en');
   t.equal([md.status, md.headers['content-type'], md.headers['content-disposition']], [200, 'text/markdown; charset=utf-8', `attachment; filename="DATGOLD-PROOF-${one.id}.md"`], 'md is a download');
   t.check(md.text.includes(one.proof.digest) && mdEn.text.includes(one.proof.digest) && md.text !== mdEn.text, 'in Vietnamese and in English, with the digest');
-  t.check(mdEn.text.includes('The pack file was checked') || /pack file was checked/i.test(mdEn.text), 'it says the pack was checked', mdEn.text.slice(0, 600));
+  t.check(mdEn.text.startsWith('## ') && !mdEn.text.includes('<!doctype') && mdEn.text.includes('✅'), 'it is Markdown, and says that the criteria hold', mdEn.text.slice(0, 200));
+  t.check(mdEn.text.includes('The pack file was checked when this report was made') && !mdEn.text.includes('No pack file was checked'), 'it says the pack was checked', mdEn.text.slice(0, 600));
   const html = await proofOf(one.id, '?format=html&lang=en');
   t.equal([html.status, html.headers['content-type'], html.headers['content-disposition'], html.headers['x-content-type-options'], html.headers['cache-control'], html.headers['referrer-policy']],
     [200, 'text/html; charset=utf-8', `attachment; filename="DATGOLD-PROOF-${one.id}.html"`, 'nosniff', 'no-store', 'no-referrer'], 'html is a download that nothing sniffs or caches');
@@ -205,6 +206,7 @@ await runScenario({
   t.equal([late.proof.status, late.proof.run, late.proof.verdict, late.proof.earlier], ['ready', 3, 'evidenced', null], 'the next run that is judged has a pack of its own');
   t.equal(packs(one.id).map((file) => path.basename(file)), [`${late.proof.digest.slice(0, 16)}.pack.json`], 'which replaces the earlier one');
   t.check(late.proof.digest !== one.proof.digest, '(premise) another tree, another pack');
+  t.equal([(await proofOf(one.id, '?run=1')).status, json(await proofOf(one.id, '?run=1')).reason, (await proofOf(one.id, '?run=3')).status], [404, 'pack_missing', 200], 'the pack of the last run is not served for another one');
   const stale = await accept(bodyFor(one, 'edit'));
   t.equal([stale.status, stale.json.code], [409, 'stale_acceptance_receipt'], 'a receipt of the tree that is gone is refused');
 
@@ -257,8 +259,15 @@ await runScenario({
   t.equal([packs(failed.id), packs(second.id), (await proofOf(failed.id)).status, (await proofOf(second.id)).status], [[], [], 404, 404], 'deleting a task removes its pack');
 
   // ---- a Hub killed while a pack is built; a long ledger ----------------------------------------------------------------------------------------
-  const killed = await startTask(hub, 'It is done, says the model again.');
-  await waitFor(async () => (await hub.task(killed.id)).proof?.status === 'building', { timeoutMs: 60_000, intervalMs: 5, label: 'the pack to be built' });
+  // A build takes a moment: a task whose pack was ready before anybody saw it being built is not the one, so another is started.
+  let killed = null;
+  for (let attempt = 0; attempt < 6 && !killed; attempt += 1) {
+    const candidate = await startTask(hub, 'It is done, says the model again.');
+    const seen = await waitFor(async () => { const { proof } = await hub.task(candidate.id); return ['building', 'ready'].includes(proof?.status) ? proof.status : null; }, { timeoutMs: 60_000, intervalMs: 2, label: 'the pack to be built' });
+    if (seen === 'building') killed = candidate;
+    else await waitForState(hub, candidate.id, ['completed'], { timeoutMs: 20_000 });
+  }
+  t.must(killed, '(premise) a pack is being built');
   hub.killTree();
   await hub.exited;
   // ten thousand more receipts in the ledger of the killed task (as a long task would have), chained as the Hub chains them

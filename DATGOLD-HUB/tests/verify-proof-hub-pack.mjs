@@ -74,15 +74,16 @@ try {
   });
 
   await section('1b. modified checks, an edited acceptance file, an ignored one, a removed baseline: the pack says what the gate says', async () => {
-    const weak = await run(manager, await project('weak'), [write('calc.test.js', WEAK), done]);
+    const profile = { id: 'p', name: 'p', revision: 'rev-7', ratesUsdPerMillion: { input: 1, output: 2 } };
+    const weak = await run(manager, await project('weak'), [write('calc.test.js', WEAK), done], { start: { effectiveProfile: profile } });
     const weakProof = await settled(weak.agent, weak.id);
     equal([weak.view.proofGate.checksModified, weakProof.verdict, weakProof.checksModified, weakProof.counts.checks_modified], [true, 'checks_modified', true, 1]);
-    equal(cli(files(manager, weak.id)[0]), 'pack_not_evidenced');
+    equal([cli(files(manager, weak.id)[0]), packOf(manager, weak.id).statement.predicate.cost.knownSubtotal > 0], ['pack_not_evidenced', true]);
     // the baseline is gone and taken again: what was modified before it is still said
     const { proofBaseline } = JSON.parse(fsSync.readFileSync(taskFile(manager, weak.id), 'utf8'));
     const folder = path.join(manager.hubDirectory, 'proof', 'gate', 'proof', 'baselines');
     for (const key of fsSync.readdirSync(folder)) await fs.rm(path.join(folder, key, `${proofBaseline.id}.json`), { force: true });
-    const rebased = await run(manager, manager.workspace, [done], { runner: weak.agent, id: weak.id, prompt: 'Again.' });
+    const rebased = await run(manager, manager.workspace, [done], { runner: weak.agent, id: weak.id, prompt: 'Again.', start: { effectiveProfile: profile } });
     check(rebased.gates.includes('rebaselined'), '(premise) the baseline was taken again');
     const rebasedProof = await settled(weak.agent, weak.id);
     equal([rebasedProof.verdict, rebasedProof.coverage, rebasedProof.checksModified], ['checks_modified', 'baseline', true], 'a later baseline: the modification is carried, and the summary says the pack does not cover the whole task');
@@ -108,9 +109,12 @@ try {
 
   await section('1d. the cost and the profile of the model; a trust taken back while the run goes on', async () => {
     const profile = { id: 'p', name: 'p', revision: 'rev-7', ratesUsdPerMillion: { input: 1, output: 2 } };
+    manager.registerSecret('calc.test');
     const priced = await run(manager, await good('priced'), [done], { prompt: 'Look around.', start: { effectiveProfile: profile } });
     await settled(priced.agent, priced.id);
+    manager.secrets = manager.secrets.filter((value) => value !== 'calc.test');
     const { predicate } = packOf(manager, priced.id).statement;
+    equal([predicate.criteria[0].checks[0].run, JSON.stringify(predicate).includes('calc.test'), cli(files(manager, priced.id)[0])], ['node [REDACTED].js', false, 'pack_verified'], 'a registered secret is masked in the statement that is stored, which still verifies');
     equal([predicate.cost, predicate.model], [{ currency: 'USD', knownSubtotal: 0.00002, complete: true }, { provider: 'scripted', id: 'scripted-1', profileRevision: 'rev-7' }], 'the cost of the task at its owner\'s rates');
     const task = priced.agent.tasks.get(priced.id);
     const costWith = async (modelCost, agents = []) => {
@@ -140,7 +144,8 @@ try {
 
   await section('2. the end of a run does not wait for its pack; a run that needs a baseline is not held up by one', async () => {
     const dir = await project('free', { files: Object.fromEntries(Array.from({ length: 300 }, (_, n) => [`f${n}.txt`, `file ${n}\n`.repeat(20)])) });
-    const free = await run(manager, dir, [read, fix, done]);
+    const slowed = { during: async ({ agent }) => { const { build } = agent.packs.deps; agent.packs.deps = { ...agent.packs.deps, build: async (job) => { await sleep(1000); return build(job); } }; } };
+    const free = await run(manager, dir, [read, fix, done], slowed);
     equal(free.agent.get(free.id).proof.status, 'building', 'the task is free while its pack is built');
     equal([free.agent.state().activeTaskId, manager.taskId, free.view.status], [null, null, 'completed']);
     // another conversation on the same folder starts at once, and takes its own baseline
@@ -221,6 +226,10 @@ try {
       equal(loadedProof({ ...good, pack: bad }), { status: 'none', reason: 'not_recorded', run: 1, at: pack.at, pack: null }, `an edited pack record is no pack: ${JSON.stringify(bad).slice(0, 80)}`);
     }
     equal(loadedProof({ ...good, pack: { ...pack, run: 2 } }).status, 'none', 'ready means the pack of that run');
+    equal(loadedProof({ ...good, status: 'fine', reason: 'readonly' }), null, 'a status that is none');
+    const earlier = (changed) => loadedProof({ status: 'none', reason: 'readonly', run: 5, at: pack.at, pack: { ...pack, ...changed } }).pack;
+    equal(earlier({}), pack, 'the pack of an earlier run is kept');
+    for (const changed of [{ run: 1.5 }, { run: '1' }, { counts: { ...pack.counts, failed: -1 } }, { counts: { ...pack.counts, failed: 'x' } }, { at: 'x' }]) equal(earlier(changed), null, `not when its record was edited: ${JSON.stringify(changed)}`);
     equal(publicProof({ status: 'none', reason: 'readonly', run: 2, at: pack.at, pack }), { status: 'none', reason: 'readonly', run: 2, at: pack.at, digest: null, verdict: null, counts: null, checksModified: null, coverage: null, earlier: { run: 1, at: pack.at, digest, verdict: 'evidenced' } });
     equal([publicProof(null), publicProof(good, { summary: true })], [null, { status: 'ready', reason: null, run: 1, verdict: 'evidenced' }]);
     equal([Object.isFrozen(PACK_REASONS), new Set(PACK_REASONS).size === PACK_REASONS.length, PACK_LIMITS.timeoutMs <= 120_000], [true, true, true]);

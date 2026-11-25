@@ -157,10 +157,8 @@ export class PackStore {
 export function reasonOf(error) {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (['baseline_missing', 'baseline_edited', 'baseline_mismatch', 'baseline_bad_record', 'baseline_wrong_workspace', 'baseline_bad_id', 'baseline_bad_anchor'].includes(code)) return 'baseline_unreadable';
-  if (['baseline_objects_missing', 'baseline_objects_mismatch', 'baseline_objects_unreadable', 'patch_does_not_reproduce', 'store_object_mismatch'].includes(code)) {
-    // a plain folder, or a repository Git could not be used on, has no old bytes: the reason of the baseline says which
-    return ['not_a_repository', 'repository_unreadable', 'git_missing'].includes(error.detail?.reason) ? error.detail.reason : 'old_bytes_unreadable';
-  }
+  // (a plain folder, or a repository Git could not be used on, has no old bytes either: not_a_repository, repository_unreadable and git_missing are reasons of their own)
+  if (['baseline_objects_missing', 'baseline_objects_mismatch', 'baseline_objects_unreadable', 'patch_does_not_reproduce', 'store_object_mismatch'].includes(code)) return 'old_bytes_unreadable';
   if (code === 'workspace_changed' || code === 'baseline_store_mismatch') return 'final_tree_changed';
   if (code === 'workspace_too_large') return 'final_tree_unknown';
   if (code === 'pack_ledger_broken') return 'ledger_broken';

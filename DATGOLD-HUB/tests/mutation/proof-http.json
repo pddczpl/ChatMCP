@@ -421,6 +421,17 @@
    ]
   },
   {
+   "name": "HH-start",
+   "what": "a run that goes on has the summary of the run before it",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    this.#setProof(task, PACK_STATUS.none, 'run_in_progress');\n",
+     "new": ""
+    }
+   ]
+  },
+  {
    "name": "HH-forget",
    "what": "a deleted task keeps its pack",
    "patches": [

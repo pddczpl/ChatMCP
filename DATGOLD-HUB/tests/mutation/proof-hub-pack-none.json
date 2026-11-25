@@ -191,17 +191,6 @@
    ]
   },
   {
-   "name": "HN-reason-plain",
-   "what": "a plain folder is said to have lost its old bytes",
-   "patches": [
-    {
-     "file": "lib/proof/hub-pack.mjs",
-     "old": "return ['not_a_repository', 'repository_unreadable', 'git_missing'].includes(error.detail?.reason) ? error.detail.reason : 'old_bytes_unreadable';",
-     "new": "return 'old_bytes_unreadable';"
-    }
-   ]
-  },
-  {
    "name": "HN-reason-plain-code",
    "what": "a plain folder is a build error",
    "patches": [
@@ -319,17 +308,6 @@
     {
      "file": "lib/agent.mjs",
      "old": "        task.proof = loadedProof(task.proof);\n",
-     "new": ""
-    }
-   ]
-  },
-  {
-   "name": "HN-start",
-   "what": "a run that goes on has the summary of the run before it",
-   "patches": [
-    {
-     "file": "lib/agent.mjs",
-     "old": "    this.#setProof(task, PACK_STATUS.none, 'run_in_progress');\n",
      "new": ""
     }
    ]
