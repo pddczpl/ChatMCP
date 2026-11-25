@@ -5,32 +5,28 @@
 // only in `init`, and only .chatmcp/acceptance.yml (the agent exec runs writes where it likes).
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { VERSION, defaultDataDirectory } from '../../manager.mjs';
 import { DEFAULT_TIMEOUT_MS, ShellRunner } from '../../shell-runner.mjs';
-import { ACCEPTANCE_FILE, AcceptanceError, acceptanceSha256, parseAcceptance, proposeAcceptance, resolveAcceptance } from '../acceptance.mjs';
-import { baselineFolder, diffBaseline, loadBaseline, snapshotBaseline } from '../baseline.mjs';
-import { findGit } from '../git-plumbing.mjs';
+import { ACCEPTANCE_FILE, AcceptanceError, acceptanceSha256, parseAcceptance, proposeAcceptance } from '../acceptance.mjs';
+import { loadBaseline, snapshotBaseline } from '../baseline.mjs';
 import { ProofLedger, ToolchainProbe, recordCheck, sha256Hex } from '../ledger.mjs';
-import { buildAgentChangeStatement, canonicalJson, statementDigest } from '../pack.mjs';
-import { detectCheckChanges, workTreeSide } from '../tamper.mjs';
+import { canonicalJson } from '../pack.mjs';
+import { buildPackBytes } from '../pack-build.mjs';
 import { TreeSnapshotter } from '../tree-snapshot.mjs';
 import { createTrustStore } from '../trust-store.mjs';
-import { CODES, SESSION_FORMAT, stop } from './codes.mjs';
+import { SESSION_FORMAT, stop } from './codes.mjs';
 import { joinCommand } from './args.mjs';
-import { checkCommand, encodePackFile, readPackBytes, readPackFile } from './check.mjs';
+import { checkCommand, readPackBytes, readPackFile } from './check.mjs';
 import { execCommand } from './exec.mjs';
 import { reportCommand } from './report.mjs';
 import { reproduceCommand } from './reproduce.mjs';
 import { usage } from './messages.mjs';
 import { hubDirOf, loadSession, readAcceptance, resolveWorkspace, stateOf, workspaceShim, writeAtomic, writeSession } from './session.mjs';
-import { storeSide } from './store-side.mjs';
 
 /** Who an approval made through the CLI is recorded as (no user name: the approval stays on this machine, its author is the person at it). */
 export const APPROVED_BY = 'chatmcp verify trust';
 const SHOWN_RECEIPTS = 50;
 const passedRun = (record) => record.exit === 0 && record.timedOut !== true && record.cancelled !== true && record.signal === null;
-const GIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /** Reads the acceptance file or stops with acceptance_invalid (its line and reason). */
 function parsedOrStop(bytes) {
@@ -285,51 +281,17 @@ async function show(ctx) {
  */
 async function buildPack(ctx, { root, state, shim, agent, model = null, cost = null }) {
   const loaded = await session(ctx, state);
-  const baseline = await anchoredBaseline(state, root, loaded);
-  const { record } = baseline;
-  const diff = await diffBaseline({ hubDir: state.hubDir, root, id: loaded.baselineId, expectSha256: loaded.anchor, env: ctx.env });
-  if (diff.patch.status !== 'ok') throw stop(Object.hasOwn(CODES, diff.patch.reason) ? diff.patch.reason : 'baseline_objects_missing', { reason: diff.patch.reason });
-  const current = await readAcceptance(shim);
-  let acceptance;
-  let parsedBaseline = null;
-  try {
-    acceptance = await resolveAcceptance({ baseline: loaded.acceptanceBytes, current: current.state === 'present' ? current.bytes : null, trustStore: createTrustStore(state.hubDir) });
-    if (loaded.acceptanceBytes) parsedBaseline = parseAcceptance(loaded.acceptanceBytes);
-  } catch (error) {
-    if (error instanceof AcceptanceError) throw stop('acceptance_invalid', { file: ACCEPTANCE_FILE, line: error.line ?? null, reason: error.reason ?? error.message });
-    throw error;
-  }
-  const work = path.join(state.folder, `work-${randomUUID()}`);
-  let checkChanges;
-  try {
-    const baselineSide = await storeSide({
-      git: await findGit(), env: ctx.env, storeDir: path.join(baselineFolder(state.hubDir, root), record.store.directory), entries: baseline.entries,
-      objectFormat: record.objectFormat, scratch: path.join(work, 'store'),
-    });
-    const finalSide = await workTreeSide({ root, stateDir: path.join(work, 'final'), env: ctx.env });
-    checkChanges = await detectCheckChanges({ baseline: baselineSide, final: finalSide, acceptance: parsedBaseline });
-  } finally {
-    await fs.rm(work, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
-  }
-  const statement = buildAgentChangeStatement({
-    agent,
-    model,
-    baseCommit: typeof record.git?.head === 'string' && GIT_ID.test(record.git.head) ? record.git.head : null,
-    trees: {
-      before: { status: 'ok', treeAlgorithm: record.treeAlgorithm, objectFormat: record.objectFormat, tree: record.tree, rawTree: record.rawTree, ...record.snapshot },
-      after: { status: 'ok', ...diff.final },
-    },
-    diff: diff.patchBytes, acceptance, checkChanges, ledger: loaded.ledgerBytes, ownerAcceptances: [], cost, secrets: [],
+  // the shared builder (../pack-build.mjs); the pack file is encoded before anything is written, so a pack over its limit leaves neither file
+  const { statement, packBytes, digest, criteria, diff } = await buildPackBytes({
+    hubDir: state.hubDir, root, baselineId: loaded.baselineId, anchor: loaded.anchor, env: ctx.env, scratch: state.folder,
+    acceptanceBytes: loaded.acceptanceBytes, trustStore: createTrustStore(state.hubDir), ledgerBytes: loaded.ledgerBytes, agent, model, cost,
+    readCurrent: async () => { const current = await readAcceptance(shim); return current.state === 'present' ? current.bytes : null; },
   });
-  // the pack file (./check.mjs): the statement with the bytes it names, for someone without this state folder; encoded before anything
-  // is written, so a pack over its limit leaves neither file
-  const packBytes = encodePackFile({ statement, diff: diff.patchBytes, ledger: loaded.ledgerBytes, acceptance: loaded.acceptanceBytes });
   const file = state.statement(loaded.taskId);
   await writeAtomic(file, `${canonicalJson(statement)}\n`);
   const packFile = state.packFile(loaded.taskId);
   await writeAtomic(packFile, packBytes);
-  const criteria = statement.predicate.criteria.map((criterion) => ({ id: criterion.id, status: criterion.status }));
-  return { loaded, statement, file, packFile, digest: statementDigest(statement), criteria, changes: diff.counts };
+  return { loaded, statement, file, packFile, digest, criteria, changes: diff.counts };
 }
 
 async function pack(ctx) {

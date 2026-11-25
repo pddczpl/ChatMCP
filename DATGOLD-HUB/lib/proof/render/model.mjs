@@ -74,7 +74,7 @@ function readOptions(options) {
 
 // ------------------------------------------------------------------------------------------------------------- the verdict
 /** The verdict that follows from the statuses of the criteria, worst first. */
-function verdictOf(criteria) {
+export function verdictOf(criteria) {
   const count = (status) => criteria.filter((criterion) => criterion.status === status).length;
   const counts = { total: criteria.length, evidenced: count('evidenced'), accepted: count('owner_accepted'), failed: count('failed'), modified: count('checks_modified') };
   counts.open = counts.total - counts.evidenced - counts.accepted;

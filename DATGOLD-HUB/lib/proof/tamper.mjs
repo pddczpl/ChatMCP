@@ -646,13 +646,13 @@ export async function gitTreeSide({ root, rev, stateDir, git, env = process.env 
 /**
  * The side of the workspace as it is now, listed the way the tree snapshot engine lists it (raw-v1 of ./tree-snapshot.mjs: Git's ignore
  * rules for untracked paths when Git can list, protected files and `.chatmcp/runs` left out). Throws `workspace_too_large` beyond the
- * snapshot limits.
+ * snapshot limits, and the reason of `signal` when it aborts.
  */
-export async function workTreeSide({ root, stateDir, git, env = process.env, limits } = {}) {
+export async function workTreeSide({ root, stateDir, git, env = process.env, limits, signal = null } = {}) {
   if (!root || !stateDir) throw new TypeError('workTreeSide needs root and stateDir');
   const snapshotter = new TreeSnapshotter({ root, stateDir, git, env, engine: 'raw-v1', limits });
   const plan = await snapshotter.plan();
-  const pass = await snapshotter.rawPass(plan, null, { full: true });
+  const pass = await snapshotter.rawPass(plan, signal, { full: true });
   if (pass.unbounded) throw fault('workspace_too_large', `the workspace is over the snapshot limit (${pass.unbounded})`);
   const absolute = path.resolve(root);
   const entries = [...pass.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -672,6 +672,7 @@ export async function workTreeSide({ root, stateDir, git, env = process.env, lim
       return readWithin(rows, options, async (wanted) => {
         const contents = new Map();
         for (const row of wanted) {
+          signal?.throwIfAborted();
           const target = path.join(absolute, row.path);
           const content = row.entry.mode === MODE.symlink
             ? await fs.readlink(target).then((link) => Buffer.from(link.replaceAll('\\', '/'), 'utf8'), () => null)

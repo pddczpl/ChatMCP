@@ -1,0 +1,380 @@
+{
+ "suite": "verify-proof-trust-http.mjs",
+ "description": "The owner's trust in an acceptance file over HTTP (plan task P5 pod-33, docs/PROOF-HUB-API.md), in a real Hub process.",
+ "mutations": [
+  {
+   "name": "HT-show",
+   "what": "the file is not shown",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "return send(await proofApi.acceptance(url.searchParams));",
+     "new": "return json(404, {});"
+    }
+   ]
+  },
+  {
+   "name": "HT-any-bytes",
+   "what": "any sha256 can be trusted",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (sha256 !== asked) return refuse(409,",
+     "new": "if (false) return refuse(409,"
+    }
+   ]
+  },
+  {
+   "name": "HT-asked",
+   "what": "what was asked for is trusted, not what is there",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "trust(sha256, { approvedBy: APPROVED_BY })",
+     "new": "trust('ab'.repeat(32), { approvedBy: APPROVED_BY })"
+    }
+   ]
+  },
+  {
+   "name": "HT-invalid",
+   "what": "a file that does not read can be trusted",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (problem) return refuse(422,",
+     "new": "if (false) return refuse(422,"
+    }
+   ]
+  },
+  {
+   "name": "HT-missing",
+   "what": "a missing file is a changed one",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (state === 'missing') return refuse(404, 'acceptance_missing',",
+     "new": "if (state === 'missing') return refuse(409, 'acceptance_changed',"
+    }
+   ]
+  },
+  {
+   "name": "HT-outside",
+   "what": "a file outside the workspace is missing",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (state === 'outside') return refuse(422, 'acceptance_outside',",
+     "new": "if (state === 'outside') return refuse(404, 'acceptance_missing',"
+    }
+   ]
+  },
+  {
+   "name": "HT-large",
+   "what": "a file over its limit is read",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return length > ACCEPTANCE_MAX_BYTES ? {",
+     "new": "return false ? {"
+    }
+   ]
+  },
+  {
+   "name": "HT-large-code",
+   "what": "a file over its limit is missing",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (state === 'too_large') return refuse(422,",
+     "new": "if (state === 'too_large') return refuse(404,"
+    }
+   ]
+  },
+  {
+   "name": "HT-file",
+   "what": "a folder of that name is read",
+   "equivalent": "a folder cannot be opened and read, so it is missing one step later",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (!stat?.isFile()) return { state: 'missing', bytes: null };",
+     "new": "if (!stat) return { state: 'missing', bytes: null };"
+    }
+   ]
+  },
+  {
+   "name": "HT-keys",
+   "what": "a body with more than the sha256 is taken",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return keys.length === 1 && keys[0] === 'sha256' && typeof",
+     "new": "return typeof"
+    }
+   ]
+  },
+  {
+   "name": "HT-hex",
+   "what": "a sha256 in capitals, or none, is taken",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "typeof payload.sha256 === 'string' && DIGEST.test(payload.sha256) ? payload.sha256 : null",
+     "new": "typeof payload.sha256 === 'string' ? payload.sha256 : null"
+    }
+   ]
+  },
+  {
+   "name": "HT-trusted",
+   "what": "a trusted file is shown as not trusted",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "trusted: entry !== null, approvedBy:",
+     "new": "trusted: false, approvedBy:"
+    }
+   ]
+  },
+  {
+   "name": "HT-untrusted",
+   "what": "an untrusted file is shown as trusted",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "trusted: entry !== null, approvedBy:",
+     "new": "trusted: true, approvedBy:"
+    }
+   ]
+  },
+  {
+   "name": "HT-invalid-shown",
+   "what": "a file that does not read is shown as present",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "state: problem ? 'invalid' : state,",
+     "new": "state,"
+    }
+   ]
+  },
+  {
+   "name": "HT-query",
+   "what": "the file takes any query",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "    for (const [key] of params) return badQuery(key);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HT-rules",
+   "what": "the masking rules take a part of a command out of what is shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "  let text = value;\n  for (const secret of secrets)",
+     "new": "  let text = maskSecrets(value);\n  for (const secret of secrets)"
+    },
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "import fs from 'node:fs/promises';\n",
+     "new": "import fs from 'node:fs/promises';\nimport { maskSecrets } from '../permissions.mjs';\n"
+    }
+   ]
+  },
+  {
+   "name": "HT-mask",
+   "what": "a registered secret in the file is shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const whole = withoutSecrets(fields, this.#secrets, seen, false);",
+     "new": "const whole = fields;"
+    }
+   ]
+  },
+  {
+   "name": "HT-mask-flag",
+   "what": "a command that is not shown whole does not say so",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return { ...whole, masked: seen.masked };",
+     "new": "return { ...whole, masked: false };"
+    }
+   ]
+  },
+  {
+   "name": "HT-mask-where",
+   "what": "a command that is not shown whole is said of every text after it",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return { ...whole, masked: seen.masked };",
+     "new": "return { ...whole, masked: all.masked };"
+    }
+   ]
+  },
+  {
+   "name": "HT-mask-all",
+   "what": "the file does not say that a part of it is not shown whole",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "      all.masked ||= seen.masked;\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HT-mask-id",
+   "what": "a registered secret in the name of a criterion is shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "...shown({ id: criterion.id, text: criterion.text }),",
+     "new": "...shown({ text: criterion.text }), id: criterion.id,"
+    }
+   ]
+  },
+  {
+   "name": "HT-cwd",
+   "what": "the folder of a check is not shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "cwd: check.cwd ?? '.', timeout",
+     "new": "cwd: '.', timeout"
+    }
+   ]
+  },
+  {
+   "name": "HT-setup",
+   "what": "the setup commands are not shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "(parsed?.reproduce.setup ?? []).map((run) => shown({ run }))",
+     "new": "[]"
+    }
+   ]
+  },
+  {
+   "name": "HT-protected",
+   "what": "what is protected is not shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "(parsed?.protected ?? []).map((path) => shown({ path }))",
+     "new": "[]"
+    }
+   ]
+  },
+  {
+   "name": "HT-manual",
+   "what": "a manual criterion is shown without its note",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "manual: criterion.manual ? shown(",
+     "new": "manual: false ? shown("
+    }
+   ]
+  },
+  {
+   "name": "HT-inspect",
+   "what": "a manual criterion is shown without its paths",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "inspect: criterion.manual.inspect ?? [] })",
+     "new": "inspect: [] })"
+    }
+   ]
+  },
+  {
+   "name": "HT-repeat",
+   "what": "how often a check runs is not shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "repeat: check.repeat }",
+     "new": "repeat: 1 }"
+    }
+   ]
+  },
+  {
+   "name": "HT-revoke",
+   "what": "a revoke removes nothing",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const revoked = await this.manager.acceptanceTrustStore().revoke(asked);",
+     "new": "const revoked = false;"
+    }
+   ]
+  },
+  {
+   "name": "HT-revoke-said",
+   "what": "a revoke of nothing is said to be one",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return answer(200, { revoked, sha256: asked, trusted: false });",
+     "new": "return answer(200, { revoked: true, sha256: asked, trusted: false });"
+    }
+   ]
+  },
+  {
+   "name": "HT-route-get",
+   "what": "the trust can be given by a GET",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "      if (req.method === 'GET' && url.pathname === '/api/proof/acceptance') return",
+     "new": "      if (req.method === 'GET' && url.pathname === TRUST_ROUTE) return send(await proofApi.trust(Object.fromEntries(url.searchParams)));\n      if (req.method === 'GET' && url.pathname === '/api/proof/acceptance') return"
+    },
+    {
+     "file": "hub.mjs",
+     "old": "const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));\n",
+     "new": "const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));\nconst TRUST_ROUTE = '/api/proof/trust-acceptance';\n"
+    }
+   ]
+  },
+  {
+   "name": "HT-public",
+   "what": "the file is shown without the bearer",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "export const PUBLIC_API_ROUTES = Object.freeze(['/api/health','/api/capabilities']);",
+     "new": "export const PUBLIC_API_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/proof/acceptance']);"
+    }
+   ]
+  },
+  {
+   "name": "HT-companion",
+   "what": "the Companion reads the file",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "const extensionRead = ['/api/extension-state', '/api/instructions'].includes(url.pathname);",
+     "new": "const extensionRead = ['/api/extension-state', '/api/instructions', '/api/proof/acceptance'].includes(url.pathname);"
+    }
+   ]
+  },
+  {
+   "name": "HT-acp",
+   "what": "the ACP agent may trust",
+   "patches": [
+    {
+     "file": "lib/acp/hub-client.mjs",
+     "old": ", '/api/proof/trust-acceptance', '/api/proof/revoke-acceptance',\n",
+     "new": ",\n"
+    }
+   ]
+  }
+ ]
+}

@@ -16,10 +16,9 @@ made to a workspace, and what is known about each acceptance criterion of the ta
 **Version 0.1 is a first draft.** The predicate is versioned by its `predicateType`; its fields will change after outside feedback, and a
 changed predicate gets a new version and a new type URL. Nothing here is final.
 
-**Not wired yet.** Nothing in the agent or the Hub calls the builder today. Later plan tasks build on it: pod-30 renders a pack as
-Markdown and HTML, pod-31 adds cost per criterion, pod-32 verifies a pack (check and reproduce; the pack file that carries a statement
-with the patch, the ledger and the acceptance file it names is described in [PROOF-CLI.md](../PROOF-CLI.md), "The pack file"), and pod-33 stores packs in the Hub and
-calls the builder at the end of a task. Until pod-33 lands, a pack exists only when code builds one.
+**Who builds one.** `chatmcp verify pack` and `exec` ([PROOF-CLI.md](../PROOF-CLI.md)) and the Hub at the end of a run ([PROOF-HUB-API.md](../PROOF-HUB-API.md), pod-33). pod-30 renders a pack as
+Markdown and HTML, pod-32 verifies one (check and reproduce; the pack file that carries a statement
+with the patch, the ledger and the acceptance file it names is described in [PROOF-CLI.md](../PROOF-CLI.md), "The pack file"), and pod-31 will add cost per criterion.
 
 **Unsigned.** A v0.1 statement is not signed and not wrapped in a DSSE envelope; signing (DSSE) comes in a later version. Its canonical
 digest (below) names a statement, it does not say who made it.
@@ -50,7 +49,7 @@ version will name.
 |---|---|---|
 | `workspace-tree-before` | `gitTree` | the workspace when the task started: the tree id of a pod-15 snapshot ([PROOF-TREE.md](../PROOF-TREE.md)) |
 | `workspace-tree-after` | `gitTree` | the workspace when the pack was built (the "final tree" below) |
-| `change.diff` | `sha256` | the exact bytes of the diff of the change, as the caller gives them (pod-33 will make it) |
+| `change.diff` | `sha256` | the exact bytes of the diff of the change, as the caller gives them |
 | `git-commit` | `gitCommit` | optional: a Git commit of the change, when the caller gives one |
 
 Each name occurs once; the first three always. The in-toto digest set defines `gitTree` as the id of a Git tree object; a workspace tree

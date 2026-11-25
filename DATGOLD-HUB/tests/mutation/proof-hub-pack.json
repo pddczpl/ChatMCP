@@ -1,0 +1,932 @@
+{
+ "suite": "verify-proof-hub-pack.mjs",
+ "description": "The packs the Hub writes at the end of a run (plan task P5 pod-33, docs/PROOF-HUB-API.md): what a pack holds, where it is kept, that it never slows a run, what the task says of it, the ledger behind an acceptance, and what the route answers of a pack.",
+ "mutations": [
+  {
+   "name": "HP-secrets",
+   "what": "registered secrets are not handed to the builder",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "agent: { name: PACK_AGENT, version: VERSION }, model, cost: coverage === PACK_COVERAGE.task ? cost : null, secrets,",
+     "new": "agent: { name: PACK_AGENT, version: VERSION }, model, cost: coverage === PACK_COVERAGE.task ? cost : null, secrets: [],"
+    }
+   ]
+  },
+  {
+   "name": "HP-cost-part",
+   "what": "a pack of a part of the task carries the cost of all of it",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "cost: coverage === PACK_COVERAGE.task ? cost : null, secrets,",
+     "new": "cost, secrets,"
+    }
+   ]
+  },
+  {
+   "name": "HP-coverage",
+   "what": "every pack says it covers the whole task",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "treeKey(entry.record.tree) === treeKey(record) ? PACK_COVERAGE.task : PACK_COVERAGE.baseline;",
+     "new": "true ? PACK_COVERAGE.task : PACK_COVERAGE.baseline;"
+    }
+   ]
+  },
+  {
+   "name": "HP-no-changes",
+   "what": "the pack carries no report on the checks",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "    report = await changes(signal);\n",
+     "new": "    report = null;\n"
+    }
+   ]
+  },
+  {
+   "name": "HP-acceptance-now",
+   "what": "the pack holds the acceptance file of the workspace",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "acceptanceBytes: acceptance, readCurrent",
+     "new": "acceptanceBytes: current, readCurrent"
+    }
+   ]
+  },
+  {
+   "name": "HP-current",
+   "what": "an edit of the acceptance file is not looked at",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "readCurrent: async () => current,",
+     "new": "readCurrent: async () => acceptance,"
+    }
+   ]
+  },
+  {
+   "name": "HP-unknown-modified",
+   "what": "unknown changes are said to be none",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "checksModified: predicate.checkChanges.reported ? predicate.checkChanges.checksModified : null,",
+     "new": "checksModified: predicate.checkChanges.checksModified,"
+    }
+   ]
+  },
+  {
+   "name": "HP-counts",
+   "what": "the counts are of the evidenced only",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "predicate.criteria.filter((criterion) => criterion.status === status).length]",
+     "new": "(status === 'evidenced' ? predicate.criteria.length : 0)]"
+    }
+   ]
+  },
+  {
+   "name": "HP-model",
+   "what": "the pack does not name the model",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "id: textOrNull(task.model),",
+     "new": "id: null,"
+    }
+   ]
+  },
+  {
+   "name": "HP-profile",
+   "what": "the pack does not name the profile",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "profileRevision: textOrNull(task.effectiveProfile?.revision)",
+     "new": "profileRevision: null"
+    }
+   ]
+  },
+  {
+   "name": "HP-cost-estimate",
+   "what": "an estimated cost counts as known",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "ledger.approximate === true || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-cost-none",
+   "what": "a cost of no priced response is zero",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "!(ledger.pricedResponses > 0) || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-cost-negative",
+   "what": "a negative cost is taken",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "ledger.knownSubtotalUsd < 0 || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-cost-huge",
+   "what": "a cost over the limit of the statement is taken",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": " || ledger.knownSubtotalUsd > 1e9) return null;",
+     "new": ") return null;"
+    }
+   ]
+  },
+  {
+   "name": "HP-cost-agents",
+   "what": "the cost is whole though other agents were started",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "complete: ledger.complete === true && agents === 0",
+     "new": "complete: ledger.complete === true"
+    }
+   ]
+  },
+  {
+   "name": "HP-cost-complete",
+   "what": "the cost is whole though a call was not priced",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "complete: ledger.complete === true && agents === 0",
+     "new": "complete: agents === 0"
+    }
+   ]
+  },
+  {
+   "name": "HP-store-id",
+   "what": "a task id is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (typeof taskId !== 'string' || !TASK_ID.test(taskId)) throw",
+     "new": "if (typeof taskId !== 'string') throw"
+    }
+   ]
+  },
+  {
+   "name": "HP-store-digest",
+   "what": "a digest is not checked",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (typeof digest !== 'string' || !DIGEST.test(digest)) throw",
+     "new": "if (typeof digest !== 'string') throw"
+    }
+   ]
+  },
+  {
+   "name": "HP-store-size",
+   "what": "a pack of any size is read",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (stat.size > this.maxBytes) throw",
+     "new": "if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "HP-store-keep",
+   "what": "earlier packs are kept",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (name !== keep) await fs.rm(",
+     "new": "if (false) await fs.rm("
+    }
+   ]
+  },
+  {
+   "name": "HP-store-keep-all",
+   "what": "the pack that is kept is removed too",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (name !== keep) await fs.rm(",
+     "new": "await fs.rm("
+    }
+   ]
+  },
+  {
+   "name": "HP-store-remove",
+   "what": "the pack of a deleted task stays",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "    await fs.rm(this.#folder(taskId), { recursive: true, force: true, maxRetries: 3 });\n",
+     "new": "    void this.#folder(taskId);\n"
+    }
+   ]
+  },
+  {
+   "name": "HP-store-mode",
+   "what": "other accounts can read a pack",
+   "platforms": [
+    "linux",
+    "darwin"
+   ],
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "await writeFileAtomic(file, bytes, { mode: 0o600 });",
+     "new": "await writeFileAtomic(file, bytes, { mode: 0o644 });"
+    }
+   ]
+  },
+  {
+   "name": "HP-store-folder-mode",
+   "what": "other accounts can list the packs",
+   "platforms": [
+    "linux",
+    "darwin"
+   ],
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "{ recursive: true, mode: 0o700 }",
+     "new": "{ recursive: true, mode: 0o755 }"
+    }
+   ]
+  },
+  {
+   "name": "HP-place",
+   "what": "a second chat keeps its pack in its own data folder",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "path.join(path.dirname(manager.acceptanceTrustStore().file), PACKS_FOLDER)",
+     "new": "path.join(manager.hubDirectory, 'proof', PACKS_FOLDER)"
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-ready",
+   "what": "ready without the pack of that run",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "return pack?.run === run ? {",
+     "new": "return pack ? {"
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-verdict",
+   "what": "an unknown verdict is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "!VERDICTS.includes(value.verdict) || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-coverage",
+   "what": "an unknown coverage is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "!Object.hasOwn(PACK_COVERAGE, value.coverage) || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-modified",
+   "what": "a word for checksModified is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": " || ![true, false, null].includes(value.checksModified)",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-digest",
+   "what": "a digest that is none is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "typeof value.digest !== 'string' || !DIGEST.test(value.digest)) return null;",
+     "new": "typeof value.digest !== 'string') return null;"
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-run",
+   "what": "a run that is none is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (!isObject(value) || !positive(value.run) || !isTime(value.at) || typeof value.digest",
+     "new": "if (!isObject(value) || !isTime(value.at) || typeof value.digest"
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-counts",
+   "what": "counts that are none are taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "Number.isSafeInteger(value.counts[status]) && value.counts[status] >= 0",
+     "new": "true"
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-bytes",
+   "what": "a size that is none is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "!Number.isSafeInteger(value.bytes) || value.bytes < 0 || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-reason",
+   "what": "any reason is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "return PACK_REASONS.includes(value.reason) ? {",
+     "new": "return true ? {"
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-status",
+   "what": "any status is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "!Object.hasOwn(PACK_STATUS, value.status) || ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-loaded-at",
+   "what": "any time is taken from a task file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "!positive(value.run) || !isTime(value.at)) return null;\n  const pack",
+     "new": "!positive(value.run)) return null;\n  const pack"
+    }
+   ]
+  },
+  {
+   "name": "HP-public-earlier",
+   "what": "a pack of an earlier run is said to be that of the last",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "const own = status === PACK_STATUS.ready ? pack : null;",
+     "new": "const own = pack;"
+    }
+   ]
+  },
+  {
+   "name": "HP-public-no-earlier",
+   "what": "the pack of an earlier run is not named",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "earlier: !own && pack ?",
+     "new": "earlier: false ?"
+    }
+   ]
+  },
+  {
+   "name": "HP-summary",
+   "what": "the list carries the whole summary",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (summary) return",
+     "new": "if (false) return"
+    }
+   ]
+  },
+  {
+   "name": "HP-give-way-never",
+   "what": "a run waits for a build that does not end",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (builds.get(rootKey(root))?.has(build)) build.giveUp('superseded');",
+     "new": "if (false) build.giveUp('superseded');"
+    }
+   ]
+  },
+  {
+   "name": "HP-give-way-at-once",
+   "what": "a run that needs the folder gives up every build at once",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "  await atMost(limit, ended, stopped);\n  if (signal?.aborted) return;\n",
+     "new": "  if (signal?.aborted) return;\n"
+    }
+   ]
+  },
+  {
+   "name": "HP-give-way-none",
+   "what": "the gate does not ask",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "      await giveWay(root, { signal }); // a pack",
+     "new": "      // a pack"
+    }
+   ]
+  },
+  {
+   "name": "HP-in-the-run",
+   "what": "the run waits for its pack",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      if (job) void this.packs.start(",
+     "new": "      if (job) await this.packs.start("
+    }
+   ]
+  },
+  {
+   "name": "HP-in-the-lock",
+   "what": "the pack is built while the task holds the workspace",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "          try { job = await this.#preparePack(context, ended); }",
+     "new": "          try { const own = await this.#preparePack(context, ended); if (own) await this.packs.start(own, (result) => this.#packSettled(task, own, result)); }"
+    }
+   ]
+  },
+  {
+   "name": "HP-settled-old",
+   "what": "a build of an earlier run overwrites the state of a later one",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (before?.run === job.number) task.proof =",
+     "new": "    task.proof ="
+    }
+   ]
+  },
+  {
+   "name": "HP-no-event",
+   "what": "nothing says that a pack is there",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.#packEvent(task, { facts, reason, run: job.number });\n    if (facts)",
+     "new": "    if (facts)"
+    }
+   ]
+  },
+  {
+   "name": "HP-no-cleanup",
+   "what": "the earlier pack is not removed",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (facts) await this.packs.store.keepOnly(task.id, facts.digest);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-child-queued",
+   "what": "a queued chat has an undefined summary",
+   "patches": [
+    {
+     "file": "lib/concurrent-api-agent.mjs",
+     "old": "      proof: null, // a record",
+     "new": "      proof: undefined, // a record"
+    }
+   ]
+  },
+  {
+   "name": "HP-forget",
+   "what": "a deleted task keeps its pack",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.packs.forget(id);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HP-inputs-crlf",
+   "what": "other line ends are an edit for the pack",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "    const current = sameButLineEnds(onDisk, run.acceptance) ? run.acceptance : onDisk;\n",
+     "new": "    const current = onDisk;\n"
+    }
+   ]
+  },
+  {
+   "name": "HP-inputs-memory",
+   "what": "the pack forgets what was modified before a baseline that was taken again",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "    const remembered = { proofBaseline: structuredClone(task.proofBaseline ?? null) };\n",
+     "new": "    const remembered = { proofBaseline: null };\n"
+    }
+   ]
+  },
+  {
+   "name": "HP-inputs-scratch",
+   "what": "the scratch files of a build are in the gate's folder",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "{ manager: place, scratchDir, signal }",
+     "new": "{ manager: place }"
+    }
+   ]
+  },
+  {
+   "name": "AR-ledger-ok",
+   "what": "a ledger that does not verify is read",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "if (!report?.ok) return",
+     "new": "if (!report) return"
+    }
+   ]
+  },
+  {
+   "name": "AR-unknown",
+   "what": "an unknown final tree is not asked about",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "  if (current === null) return refusal(ACCEPT_CODES.treeUnknown);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "AR-stale",
+   "what": "a receipt of another tree is taken",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "if (!receipt || receipt.tree !== current) return",
+     "new": "if (!receipt) return"
+    }
+   ]
+  },
+  {
+   "name": "AR-held",
+   "what": "a receipt nothing in the ledger shows is taken",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "return entries.some((entry) => shows(entry, receipt)) ? null :",
+     "new": "return true ? null :"
+    }
+   ]
+  },
+  {
+   "name": "AR-first-tree",
+   "what": "the first tree of the ledger is the current one",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "const last = entries.findLast(",
+     "new": "const last = entries.find("
+    }
+   ]
+  },
+  {
+   "name": "AR-before",
+   "what": "the tree before the last record is the current one",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "treeKey(treesOf(last).at(-1))",
+     "new": "treeKey(treesOf(last)[0])"
+    }
+   ]
+  },
+  {
+   "name": "AR-outcome",
+   "what": "a call that failed shows a receipt",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "record.outcome === 'ok' && ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "AR-overlap",
+   "what": "a call beside another shows a receipt",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": " && record.overlapped !== true;",
+     "new": ";"
+    }
+   ]
+  },
+  {
+   "name": "AR-tool",
+   "what": "any tool is a check",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "alone && /(?:^|\\.)run_command$/.test(record.tool)",
+     "new": "alone"
+    }
+   ]
+  },
+  {
+   "name": "AR-hash",
+   "what": "a check of the gate by a part of its name",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "receipt.id.length === 16 && ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "AR-hash-any",
+   "what": "a check of the gate by any name",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "entry.hash.startsWith(receipt.id)",
+     "new": "true"
+    }
+   ]
+  },
+  {
+   "name": "AR-steady",
+   "what": "a check that changed the files counts",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "if (before !== receipt.tree || after !== receipt.tree) return false;",
+     "new": "if (after !== receipt.tree) return false;"
+    }
+   ]
+  },
+  {
+   "name": "AR-edit-after",
+   "what": "an edit that led away from the tree counts",
+   "patches": [
+    {
+     "file": "lib/proof/accept-receipt.mjs",
+     "old": "return alone && after === receipt.tree;",
+     "new": "return alone && keys.includes(receipt.tree);"
+    }
+   ]
+  },
+  {
+   "name": "AR-not-asked",
+   "what": "the ledger is not asked",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.#checkReceipt(task,receiptId);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "AR-lost-update",
+   "what": "an acceptance is made on the plan as it was before the ledger was read",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    acceptObjectiveCriterion(task.goalPlan,task.progress,choice);\n    // The receipt",
+     "new": "    const early=acceptObjectiveCriterion(task.goalPlan,task.progress,choice);\n    // The receipt"
+    },
+    {
+     "file": "lib/agent.mjs",
+     "old": "    task.goalPlan=acceptObjectiveCriterion(task.goalPlan,task.progress,choice);\n",
+     "new": "    task.goalPlan=early;\n"
+    }
+   ]
+  },
+  {
+   "name": "HA-digest",
+   "what": "a pack of another digest is shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (read.digest !== digest) throw",
+     "new": "if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "HA-task",
+   "what": "a pack of another task is shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (taskOfPack(read.entries) !== taskId) throw",
+     "new": "if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "HA-cache-key",
+   "what": "a pack that was checked once is not checked again",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const key = `${taskId}:${digest}:${sha256Hex(bytes)}`;",
+     "new": "const key = `${taskId}:${digest}`;"
+    }
+   ]
+  },
+  {
+   "name": "HA-again",
+   "what": "a pack that was just replaced is an error",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return now && now.digest !== proof.digest ? this.#proofOf(",
+     "new": "return false ? this.#proofOf("
+    }
+   ]
+  },
+  {
+   "name": "HA-companion",
+   "what": "a task of the Companion is one of an older Hub",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "task.transport === 'chatgpt-web' ? 'companion' : 'not_recorded'",
+     "new": "'not_recorded'"
+    }
+   ]
+  },
+  {
+   "name": "HA-building",
+   "what": "a pack that is being built has no reason",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "proof.status === PACK_STATUS.building ? 'building' : proof.reason",
+     "new": "proof.reason"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-json",
+   "what": "registered secrets in the json answer",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "statement: withoutSecrets({ ...read.statement, predicate }, this.#secrets, seen),",
+     "new": "statement: { ...read.statement, predicate },"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-report",
+   "what": "registered secrets in a report",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const report = maskReport(buildReport(",
+     "new": "const report = (buildReport("
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-ids",
+   "what": "a short secret breaks an id or a digest",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const shortest = ids && HEX_ID.test(value) ? CHANCE : 4;",
+     "new": "const shortest = 4;"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-shape",
+   "what": "a registered secret of a digest's shape is an id",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const shortest = ids && HEX_ID.test(value) ? CHANCE : 4;",
+     "new": "const shortest = ids && HEX_ID.test(value) ? Infinity : 4;"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-chance",
+   "what": "a key of 32 digits in a text of a digest's shape is chance",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const CHANCE = 16;",
+     "new": "const CHANCE = 40;"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-report-ids",
+   "what": "a short secret breaks a digest of a report",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "value: without(node.value, secrets, true) };",
+     "new": "value: without(node.value, secrets, false) };"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-json-ids",
+   "what": "a short secret breaks a digest of the json answer",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "function withoutSecrets(value, secrets, seen, ids = true) {",
+     "new": "function withoutSecrets(value, secrets, seen, ids = false) {"
+    }
+   ]
+  },
+  {
+   "name": "HA-acceptance-ids",
+   "what": "a text of the acceptance file that has the shape of a digest is an id",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "withoutSecrets(fields, this.#secrets, seen, false);",
+     "new": "withoutSecrets(fields, this.#secrets, seen, true);"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-flag",
+   "what": "the answer does not say that it was masked",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (text !== value) seen.masked = true;\n    return text;\n  }\n  if (Array",
+     "new": "return text;\n  }\n  if (Array"
+    }
+   ]
+  },
+  {
+   "name": "HA-max",
+   "what": "a pack over the limit is read",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "{ maxBytes: this.maxBytes }).read(",
+     "new": "{}).read("
+    }
+   ]
+  }
+ ]
+}

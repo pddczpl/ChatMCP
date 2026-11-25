@@ -117,8 +117,17 @@ export const write = (file, content) => () => [tool('write_file', { path: file, 
 export const answer = (text) => () => [say(text)];
 export const done = answer('Done.');
 
-/** One run of the real loop on `dir`: {agent, task, model, entries, gate events, view}. */
-export async function run(manager, dir, steps, { runner = null, id = null, prompt = GOAL, start = {}, mode = 'autonomous', status = 'completed', during = null } = {}) {
+/**
+ * The proof summary of the conversation `id` once its pack is there or is not coming, and no build of it goes on any more, not even one that was given up. The build of a pack
+ * goes on behind the end of a run and writes below proof/gate and proof/packs: whoever removes or lists something there waits for this first.
+ */
+export const packSettled = (agent, id) => until(() => {
+  const proof = agent.get(id).proof ?? null;
+  return proof?.status !== 'building' && proof?.reason !== 'run_in_progress' && !agent.packs.busy(id) ? { proof } : null;
+}, 'the proof to settle', 60_000).then(({ proof }) => proof);
+
+/** One run of the real loop on `dir`: {agent, task, model, entries, gate events, view}. It waits for the pack of the run too, unless `settle` is false. */
+export async function run(manager, dir, steps, { runner = null, id = null, prompt = GOAL, start = {}, mode = 'autonomous', status = 'completed', during = null, settle = true } = {}) {
   if (manager.workspace !== dir) await manager.selectWorkspace(dir);
   manager.permissions.configure({ mode, executionPolicy: 'host-review' });
   const model = scripted(steps);
@@ -131,6 +140,7 @@ export async function run(manager, dir, steps, { runner = null, id = null, promp
     const before = agent.get(started.id).eventCount;
     if (during) await during({ agent, id: started.id, model });
     const view = await until(() => { const task = agent.get(started.id); return task.status !== 'running' && agent.state().activeTaskId === null ? task : null; }, 'the task to end', 90_000);
+    if (settle) await packSettled(agent, started.id);
     equal(view.status, status, `the task ended ${status} (${view.error ?? ''})`);
     const { entries, report } = await readLedgerEntries(ledgerPath(manager.hubDirectory, view.id));
     check(report.ok, 'the ledger verifies');

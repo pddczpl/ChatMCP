@@ -19,9 +19,10 @@ import { writeFileAtomic } from '../fs-safe.mjs';
 import { maskSecrets } from '../permissions.mjs';
 import { treeKey } from '../agent-progress.mjs';
 import { ACCEPTANCE_FILE, ACCEPTANCE_MAX_BYTES, AcceptanceError, acceptanceSha256, parseAcceptance } from './acceptance.mjs';
-import { baselineFolder, loadBaseline, snapshotBaseline } from './baseline.mjs';
+import { acquireWorkspaceLock, baselineFolder, loadBaseline, snapshotBaseline } from './baseline.mjs';
 import { runAcceptanceChecks } from './check-runner.mjs';
 import { storeSide } from './cli/store-side.mjs';
+import { giveWay } from './hub-pack.mjs';
 import { MODE, blobId, findGit } from './git-plumbing.mjs';
 import { ProofLedger, ToolchainProbe } from './ledger.mjs';
 import { detectCheckChanges, workTreeSide } from './tamper.mjs';
@@ -45,6 +46,8 @@ const GATE_RETENTION = Object.freeze({ maxPerWorkspace: 5 });
 const BASELINE_NOTICE_MS = 3000;
 const BASELINE_ID = /^\d{8}T\d{9}Z-[0-9a-f]{8}$/;
 const LOCK_WAIT_MS = 30_000;
+/** How long the delete of a conversation waits for the lock of its workspace's baselines; it removes the conversation's own one all the same after that. */
+const FORGET_WAIT_MS = 5000;
 const SCRATCH = 'work-';
 const SCRATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const JUDGED = new Set([GATE_STATUS.passed, GATE_STATUS.failed, GATE_STATUS.unproven, GATE_STATUS.stale]);
@@ -352,23 +355,23 @@ function withAcceptance(side, bytes, objectFormat) {
 }
 
 /** The baseline side: the rows of the anchored baseline and its blobs from its private store. A plain folder has no store: what changed there cannot be looked into (the detector counts it as modified). */
-async function baselineSide({ loaded, hubDir, root, env, scratch }) {
+async function baselineSide({ loaded, hubDir, root, env, scratch, signal }) {
   const { record, entries } = loaded;
-  if (record.store) return storeSide({ git: await findGit(), env, storeDir: path.join(baselineFolder(hubDir, root), record.store.directory), entries, objectFormat: record.objectFormat, scratch });
+  if (record.store) return storeSide({ git: await findGit(), env, storeDir: path.join(baselineFolder(hubDir, root), record.store.directory), entries, objectFormat: record.objectFormat, scratch, signal });
   return { entries, read: async (paths) => new Map(paths.map((file) => [file, null])) };
 }
 
 /** The pod-22 report between the task's baseline and the workspace as it is now. Throws when the baseline or the workspace cannot be read. */
-async function checkChangesOf({ manager, hubDir, baseline, acceptance, current }) {
+async function checkChangesOf({ manager, hubDir, baseline, acceptance, current, scratchDir = hubDir, signal = null }) {
   const root = path.resolve(manager.workspace);
   const env = manager.localTools?.shell?.env ?? process.env;
   const loaded = await loadBaseline({ hubDir, root, id: baseline.id, expectSha256: baseline.sha256 });
-  const scratch = path.join(hubDir, `${SCRATCH}${randomUUID()}`);
+  const scratch = path.join(scratchDir, `${SCRATCH}${randomUUID()}`);
   try {
     await fs.mkdir(path.join(scratch, 'store'), { recursive: true, mode: 0o700 });
     const { objectFormat } = loaded.record;
-    const before = withAcceptance(await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store') }), acceptance, objectFormat);
-    const after = withAcceptance(await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env }), current, objectFormat);
+    const before = withAcceptance(await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store'), signal }), acceptance, objectFormat);
+    const after = withAcceptance(await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env, signal }), current, objectFormat);
     return await detectCheckChanges({ baseline: before, final: after, acceptance: parseAcceptance(acceptance) });
   } finally { await fs.rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() => {}); }
 }
@@ -402,6 +405,7 @@ export class DoneGate {
     this.log = log;
     this.baselineTimeoutMs = BASELINE_TIMEOUT_MS;
     this.baselineNoticeMs = BASELINE_NOTICE_MS;
+    this.forgetWaitMs = FORGET_WAIT_MS;
     this.deps = { runChecks: runAcceptanceChecks, snapshotBaseline, loadBaseline, checkChanges: checkChangesOf, ...deps };
     this.toolchain = null;
   }
@@ -541,6 +545,7 @@ export class DoneGate {
     const notice = setTimeout(() => { said = say('baseline', 'Cổng bằng chứng: đang lấy mốc so sánh của thư mục dự án trước khi model bắt đầu.'); said.catch(() => {}); }, this.baselineNoticeMs);
     let failed = null;
     try {
+      await giveWay(root, { signal }); // a pack that is being built of an earlier run on this folder holds the same lock
       const taken = await this.deps.snapshotBaseline({ hubDir, root, toolchain: null, retention: GATE_RETENTION, lock: { waitMs: LOCK_WAIT_MS }, signal: signal ? AbortSignal.any([signal, limit.signal]) : limit.signal });
       run.baseline = { id: taken.id, sha256: taken.sha256 };
       const record = task.proofBaseline;
@@ -562,12 +567,35 @@ export class DoneGate {
     else await say('armed', `${armed}${before}`, { ...facts, ...(carried ? { carried } : {}) });
   }
 
-  /** The baseline of a conversation that is deleted. Never throws. */
+  /** The baseline of a conversation that is deleted, under the lock of its workspace: a build of a pack reads a store there, and writes beside it. Never throws. */
   async forget(task) {
     const saved = savedBaseline(task?.proofBaseline);
     if (!saved?.id || !BASELINE_ID.test(saved.id) || typeof task.workspace?.path !== 'string' || typeof this.manager.acceptanceTrustStore !== 'function') return;
-    const folder = baselineFolder(this.#hubDir(), task.workspace.path);
+    const [hubDir, root] = [this.#hubDir(), task.workspace.path];
+    const folder = baselineFolder(hubDir, root);
+    if (!(await fs.stat(folder).catch(() => null))) return; // (taking the lock would make the folder)
+    const held = await acquireWorkspaceLock({ hubDir, root, lock: { waitMs: this.forgetWaitMs }, purpose: 'forget' }).catch(() => null);
     for (const name of [`${saved.id}.json`, `${saved.id}.git`]) await fs.rm(path.join(folder, name), { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
+    await held?.release().catch(() => {});
+  }
+
+  /**
+   * What the pack of a run is made of (./hub-pack.mjs), read while the task still holds the workspace: the baseline, the bytes the run is held to, the workspace's (other line
+   * ends are no edit, as in review()), and `changes`, the report on the changes to the checks as the judgment had it: with what the conversation remembers of the changes before
+   * a baseline that was taken again. Nothing of it reads the manager's workspace later, which may then be another one.
+   */
+  async packInputs({ run, task, scratchDir }) {
+    const { manager } = this;
+    const root = path.resolve(manager.workspace);
+    const env = manager.localTools?.shell?.env ?? process.env;
+    const onDisk = await readAcceptance(manager.studio);
+    const current = sameButLineEnds(onDisk, run.acceptance) ? run.acceptance : onDisk;
+    const remembered = { proofBaseline: structuredClone(task.proofBaseline ?? null) };
+    const place = { workspace: root, localTools: { shell: { env } } };
+    return {
+      hubDir: this.#hubDir(), root, env, baseline: { ...run.baseline }, acceptance: run.acceptance, current, trustStore: run.trustStore,
+      changes: (signal) => this.#changes(run, remembered, current, { manager: place, scratchDir, signal }),
+    };
   }
 
   /** Why nothing is run for this answer, or null. */
@@ -706,9 +734,9 @@ export class DoneGate {
   }
 
   /** The report on the changes to the checks, or null when it cannot be made: unknown is never "nothing changed". */
-  async #changes(run, task, current) {
+  async #changes(run, task, current, { manager = this.manager, scratchDir = undefined, signal = undefined } = {}) {
     let report;
-    try { report = await this.deps.checkChanges({ manager: this.manager, hubDir: this.#hubDir(), baseline: run.baseline, acceptance: run.acceptance, current }); } catch (error) {
+    try { report = await this.deps.checkChanges({ manager, hubDir: this.#hubDir(), baseline: run.baseline, acceptance: run.acceptance, current, scratchDir, signal }); } catch (error) {
       this.log(`Cổng bằng chứng: không so được các kiểm tra với lúc bắt đầu tác vụ (${error?.code ?? error?.message}).`);
       return null;
     }

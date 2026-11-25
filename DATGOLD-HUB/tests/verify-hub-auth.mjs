@@ -54,7 +54,7 @@ const scannedEquals = sorted(literals(source, /url\.pathname === '(\/(?:api|auth
 const scannedSession = scannedEquals.filter((route) => SESSION_ROUTES.includes(route));
 const scannedGet = sorted([...scannedStudioGet, ...scannedEquals.filter((route) => !SESSION_ROUTES.includes(route)),
   // The task routes are one regular expression in the source.
-  ...(source.includes("url.pathname.match(/^\\/api\\/tasks\\/([0-9a-f-]{36})(\\/report|\\/stream)?$/)") ? ['/api/tasks/:id', '/api/tasks/:id/report', '/api/tasks/:id/stream'] : [])]);
+  ...(source.includes("url.pathname.match(/^\\/api\\/tasks\\/([0-9a-f-]{36})(\\/report|\\/stream|\\/proof)?$/)") ? ['/api/tasks/:id', '/api/tasks/:id/report', '/api/tasks/:id/stream', '/api/tasks/:id/proof'] : [])]);
 
 const declaredPost = sorted([...POST_ROUTES, ...UNDECLARED_GONE_STUBS]);
 equal(scannedPost, declaredPost, 'the POST switch and POST_ROUTES (+ the two 410 stubs) list the same routes');
@@ -64,6 +64,11 @@ equal(scannedGet, sorted(GET_ROUTES), 'every GET route the source answers is dec
 check(PUBLIC_API_ROUTES.every((route) => GET_ROUTES.includes(route)) && EXTENSION_READ_ROUTES.every((route) => GET_ROUTES.includes(route)), 'the named exceptions are real routes');
 equal([...PUBLIC_API_ROUTES], ['/api/health', '/api/capabilities'], 'the unauthenticated probes are exactly health and capabilities');
 equal([...EXTENSION_READ_ROUTES], ['/api/extension-state', '/api/instructions'], 'the Companion read routes are exactly extension-state and instructions');
+// Proof packs and the owner's trust in an acceptance file (lib/proof/http-api.mjs, docs/PROOF-HUB-API.md): two reads, two acts of the owner, none of them a named exception.
+const PROOF_GET = ['/api/tasks/:id/proof', '/api/proof/acceptance'];
+const PROOF_POST = ['/api/proof/trust-acceptance', '/api/proof/revoke-acceptance'];
+check(PROOF_GET.every((route) => GET_ROUTES.includes(route)) && PROOF_POST.every((route) => POST_ROUTES.includes(route)), 'the four routes of the proof packs are declared (two GETs, two POSTs)');
+check([...PROOF_GET, ...PROOF_POST].every((route) => !PUBLIC_API_ROUTES.includes(route) && !EXTENSION_READ_ROUTES.includes(route)), 'and none of them is a named exception to the bearer');
 // The update notice (lib/update-check.mjs) and the download of the installer (lib/update-download.mjs): one GET that reads what the Hub already knows (the state of the download is in it, as memory), five POSTs
 // that are the owner's acts (a check, a skip, the choice, a download, a cancel), and the sixth POST of what the last update left (the owner has read it: the Hub forgets it). All behind the bearer; none is a
 // named exception, and what changes state is never a GET.

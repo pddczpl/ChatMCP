@@ -10,16 +10,16 @@ import { stop } from './codes.mjs';
  * A side {entries, read(paths, {maxBytes, budget})} as detectCheckChanges reads it. `entries` are the manifest rows [{path, mode, oid}];
  * read() gives each path its bytes, null (not in the baseline, a submodule, or not a blob in the store) or {skipped, size} beyond the
  * limits, and checks that every blob it hands out hashes to its id (Git's cat-file does not): store_object_mismatch otherwise.
- * `scratch` is an empty folder of the caller's for Git's unused index and empty configuration.
+ * `scratch` is an empty folder of the caller's for Git's unused index and empty configuration. A read ends with the reason of `signal` when it aborts.
  */
-export async function storeSide({ git, env = process.env, storeDir, entries, objectFormat, scratch }) {
+export async function storeSide({ git, env = process.env, storeDir, entries, objectFormat, scratch, signal = null }) {
   await fs.mkdir(path.join(scratch, 'no-hooks'), { recursive: true });
   const emptyConfig = path.join(scratch, 'empty.gitconfig');
   await fs.writeFile(emptyConfig, '', { flag: 'a' });
   const pinned = pinnedEnv(env, { gitDir: storeDir, workTree: scratch, indexFile: path.join(scratch, 'unused.index'), objectDirectory: path.join(storeDir, 'objects'), emptyConfig });
   const none = emptyConfig.replaceAll('\\', '/');
   const prefix = [...pinnedArgs(path.join(scratch, 'no-hooks')), '-c', `core.excludesFile=${none}`, '-c', `core.attributesFile=${none}`];
-  const run = (args, options) => runGit(git, [...prefix, ...args], { cwd: scratch, env: pinned, ...options });
+  const run = (args, options) => runGit(git, [...prefix, ...args], { cwd: scratch, env: pinned, signal, ...options });
   const byPath = new Map(entries.map((entry) => [entry.path, entry]));
 
   async function read(paths, { maxBytes = Infinity, budget = Infinity } = {}) {

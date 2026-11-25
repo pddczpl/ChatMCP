@@ -5,12 +5,14 @@ import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, descri
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeChecks, observeTaskTool, observeTree, progressCheckpoint, receiptSummary, restartStall, treeKey } from './agent-progress.mjs';
 import { scannedCall } from './proof/service.mjs';
+import { PACK_EVENT, PACK_STATUS, HubPacks, loadedProof, publicProof } from './proof/hub-pack.mjs';
+import { receiptProblem } from './proof/accept-receipt.mjs';
 import { DoneGate, GATE_EVENT, GATE_STATUS, gateCompletion, gateNotice, gateVerification, staleGate } from './proof/gate.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from './agent-autonomy.mjs';
 import { injectRepoMapIntoInstructions, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
-import { AUTO_ACCEPTED_BY, acceptObjectiveCriterion, autoAcceptVerifiedChecks, availableObjectiveReceipts } from './objective-acceptance.mjs';
+import { AUTO_ACCEPTED_BY, acceptObjectiveCriterion, autoAcceptVerifiedChecks, availableObjectiveReceipts, objectiveReceiptId } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
 import { EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
@@ -586,6 +588,8 @@ export class AgentRunner {
     this.finalHooks = new FinalAnswerHooks({ manager, log: (line) => this.log(this.#redact(line)) });
     // The owner's trusted acceptance checks: run on every final answer, before the hooks judge it (lib/proof/gate.mjs, docs/PROOF-GATE.md).
     this.doneGate = new DoneGate({ manager, log: (line) => this.log(this.#redact(line)) });
+    // The pack of a run the gate judged: built after the run let go of everything (lib/proof/hub-pack.mjs, docs/PROOF-HUB-API.md).
+    this.packs = new HubPacks({ manager, gate: this.doneGate, log: (line) => this.log(this.#redact(line)) });
   }
 
   /** What the owner's switch says now: a store is asked each time (start() asks it once per run), a fixed setting never changes. */
@@ -760,6 +764,8 @@ export class AgentRunner {
       completionOutcome:task.completionOutcome??(task.status==='completed'?gateCompletion(classifyTaskCompletion(task.goalPlan,task.progress),task.proofGate):null),
       // The judgment of the done-gate on the answer (lib/proof/gate.mjs): null when no gate ran on this run; a list entry carries what a list shows of it.
       proofGate:!task.proofGate?null:summary?{status:task.proofGate.status,reason:task.proofGate.reason,checksModified:task.proofGate.checksModified}:task.proofGate,
+      // The pack of the last run (lib/proof/hub-pack.mjs): its verdict and digest, or why there is none; null for a task of an older Hub.
+      proof:publicProof(task.proof,{summary}),
       effectiveProfile:task.effectiveProfile??null,
       roleProfiles:task.roleProfiles??{},
       reasoningEffort:task.reasoningEffort??null,
@@ -940,6 +946,7 @@ export class AgentRunner {
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
         task.subagentNotices = normalizeSubagentNotices(task.subagentNotices);
         task.progress = createTaskProgress(task.progress);
+        task.proof = loadedProof(task.proof);
         task.goalPlan = decomposeCodingTask(planTextOf(task),task.goalPlan);
         task.dialogue ??= [];
         this.tasks.set(task.id, task);
@@ -1000,8 +1007,13 @@ export class AgentRunner {
     if(this.activeTaskId===id||this.tasks.get(id).status==='running')
       throw fault('task_running','Acceptance requires a stopped task.',409);
     const task=this.tasks.get(id);
-    task.goalPlan=acceptObjectiveCriterion(task.goalPlan,task.progress,{
-      objectiveId,criterionIndex,receiptId,confirmed});
+    const choice={objectiveId,criterionIndex,receiptId,confirmed};
+    acceptObjectiveCriterion(task.goalPlan,task.progress,choice);
+    // The receipt is held to the task's proof ledger (lib/proof/accept-receipt.mjs): made on the final tree it records, by a record it holds.
+    await this.#checkReceipt(task,receiptId);
+    if(this.tasks.get(id)!==task||task.status==='running')
+      throw fault('task_running','Acceptance requires a stopped task.',409);
+    task.goalPlan=acceptObjectiveCriterion(task.goalPlan,task.progress,choice);
     // The owner's option: what this acceptance completes may let a check of the next objective be matched too.
     if(this.agentOptions.autoAcceptChecks)await this.#autoAcceptChecks(task);
     // The owner accepts objectives; what the done-gate said of the owner's checks stays what it is.
@@ -1010,6 +1022,13 @@ export class AgentRunner {
     await this.#persist(task,{at:task.updatedAt,type:'owner_acceptance',
       objectiveId,criterionIndex,receiptId,status:task.completionOutcome.requirements});
     return this.#public(task);
+  }
+  /** Throws 409 unless the ledger of `task` shows the receipt as made on the task's current final tree. A manager that keeps no ledger has nothing to ask. */
+  async #checkReceipt(task, receiptId) {
+    if (typeof this.manager.proofService !== 'function' || typeof this.manager.hubDirectory !== 'string') return;
+    const receipt = createTaskProgress(task.progress).receipts.find((item) => objectiveReceiptId(item) === receiptId);
+    const problem = await receiptProblem({ hubDir: this.manager.hubDirectory, taskId: task.id, receipt });
+    if (problem) throw fault(problem.code, problem.message, 409);
   }
   async setAutoResume(id, enabled) {
     if (typeof enabled !== 'boolean') throw fault('invalid_auto_resume', 'Cần chọn bật hoặc tắt tự tiếp tục.', 400);
@@ -1122,9 +1141,11 @@ export class AgentRunner {
   async delete(id) {
     if (!TASK_ID.test(id ?? '') || !this.tasks.has(id)) throw fault('task_not_found', 'Không tìm thấy cuộc hội thoại.', 404);
     if (this.activeTaskId === id) throw fault('task_running','Dừng phiên trước khi xóa.',409);
+    await this.packs.stop(id, 'task_deleted');
     await this.writes.get(id)?.catch(()=>{});
     await fs.rm(this.#directory(id),{recursive:true,force:true});
     await this.doneGate.forget(this.tasks.get(id));
+    await this.packs.forget(id);
     this.tasks.delete(id); this.writes.delete(id);
     return {ok:true,deletedId:id};
   }
@@ -1230,6 +1251,7 @@ export class AgentRunner {
     // read the same text, not the whole prompt a caller wrote around the task.
     task.goalPlan = decomposeCodingTask(planTextOf(task),task.goalPlan);
     task.runs ??= []; task.runs.push({id:randomUUID(),conversationId:id,title:cleanPrompt,startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
+    this.#setProof(task, PACK_STATUS.none, 'run_in_progress');
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt+(attachmentParts.metadata.length?'\n[Đính kèm: '+attachmentParts.metadata.map(x=>x.name).join(', ')+']':''),run:task.runs.length});
     // A previous mutating MCP result can be uncertain after a crash. Do not
     // replay it. Surface it as context for inspection before any repeat.
@@ -1530,6 +1552,28 @@ export class AgentRunner {
     }
   }
 
+  /** What the task says of the pack of its last run. A stored pack (of this run or an earlier one) stays what it is. */
+  #setProof(task, status, reason = null) {
+    task.proof = { status, reason, run: task.runs?.length || 1, at: now(), pack: task.proof?.pack ?? null };
+  }
+
+  /** The end of a build that went on behind the run: the task may be deleted, or in a later run, by then. */
+  async #packSettled(task, job, { facts = null, reason = null }) {
+    if (this.tasks.get(task.id) !== task) return;
+    const before = task.proof;
+    const pack = facts ?? before?.pack ?? null;
+    if (before?.run === job.number) task.proof = { status: facts ? PACK_STATUS.ready : PACK_STATUS.none, reason, run: job.number, at: facts?.at ?? now(), pack };
+    else if (facts) task.proof = { ...before, pack };
+    await this.#packEvent(task, { facts, reason, run: job.number });
+    if (facts) await this.packs.store.keepOnly(task.id, facts.digest);
+  }
+
+  async #packEvent(task, { facts = null, reason = null, run }) {
+    await this.#event(task, PACK_EVENT, facts
+      ? `Đã ghi gói bằng chứng của lượt chạy ${run} (${facts.verdict}); xem bằng GET /api/tasks/${task.id}/proof hoặc "chatmcp verify check".`
+      : `Lượt chạy ${run} không có gói bằng chứng (${reason}).`, { status: task.status, pack: facts ? PACK_STATUS.ready : PACK_STATUS.none, reason, run, verdict: facts?.verdict ?? null });
+  }
+
   async #close(context) {
     if (!context.closePromise) context.closePromise = boundedClose(async () => { if (context.session) await context.session.close(); });
     await context.closePromise;
@@ -1559,6 +1603,10 @@ export class AgentRunner {
     task.finishedAt = now();
     if (task.runs?.length) Object.assign(task.runs.at(-1), {status:task.status,state:task.state,finishedAt:task.finishedAt,endStep:task.steps,endToolCalls:task.toolCalls,finalText:task.finalText || task.error || ''});
     if (task.finalText) { task.dialogue ??= []; task.dialogue.push({role:'assistant',at:task.finishedAt,text:task.finalText,run:task.runs?.length ?? 1}); }
+    // Whether this run leaves a proof pack, as far as it is known before its final tree; one that does is `building` until the pack is there.
+    const noPack = this.packs.early(task, context.gate);
+    this.#setProof(task, noPack ? PACK_STATUS.none : PACK_STATUS.building, noPack);
+    let job = null;
     try {
       // The run's end in the journal: how many items it committed (what waited in an open batch never entered the ledger), and its counters.
       if (context.journal) await this.#appendTranscript(task, runEndRecord({ at: now(), run: context.journal.run, items: context.history.length - context.journal.seedCount, counters: this.#journalCounters(context) }));
@@ -1566,6 +1614,7 @@ export class AgentRunner {
       await this.#event(task, task.status, task.status === 'completed' ? 'Đã nhận phản hồi kết thúc của model. Xem kết quả và bằng chứng kiểm tra bên dưới.' : task.error || 'Tác vụ đã dừng.', { status: task.status });
     } catch (saveError) {
       task.status = 'failed'; task.errorCode = 'persistence_failed'; task.finalText = ''; task.finalParts = null;
+      this.#setProof(task, PACK_STATUS.none, 'run_not_completed');
       this.#advance(task, 'uncertain', 'persistence_failed', { force: true });
       task.error = this.#redact(`Không lưu được đầy đủ bản ghi tác vụ: ${saveError.message}. Các thao tác đã gửi có thể đã có hiệu lực.`);
       this.log(task.error);
@@ -1578,12 +1627,29 @@ export class AgentRunner {
         let ended = null;
         try { ended = await this.manager.finishProof?.(task.id, { status: task.status, errorCode: task.errorCode ?? null }); } catch (proofError) { this.log(this.#redact(proofError.message)); }
         try { await this.#judgeFinalTree(task, ended?.tree ?? null); } catch (judgeError) { this.log(this.#redact(judgeError.message)); }
+        // What the pack needs of the workspace is read now; it is built once the task has let go of it.
+        if (task.proof.status === PACK_STATUS.building) {
+          try { job = await this.#preparePack(context, ended); } catch (packError) { this.log(this.#redact(packError.message)); }
+        }
         try { this.manager.releaseTask(task.id); } catch (releaseError) { this.log(this.#redact(releaseError.message)); }
         this.activeTaskId = null; this.context = null;
       }
       context.history.clear(); context.session = null;
+      if (job) void this.packs.start(job, (result) => this.#packSettled(task, job, result));
       context.done.resolve(this.#public(task));
     }
+  }
+
+  /** The build of this run's pack as HubPacks.prepare() put it together, or null when there is none to build: the task then says why. */
+  async #preparePack(context, ended) {
+    const { task } = context;
+    const number = task.proof.run;
+    const plan = await this.packs.prepare({ task, run: context.gate, number, ended }).catch((error) => { this.log(this.#redact(error.message)); return { reason: 'build_failed' }; });
+    if (!plan.reason && !this.closing) return plan;
+    const reason = plan.reason ?? 'hub_stopped';
+    this.#setProof(task, PACK_STATUS.none, reason);
+    await this.#packEvent(task, { reason, run: number });
+    return null;
   }
 
   /**
@@ -1639,6 +1705,7 @@ export class AgentRunner {
       void this.#close(context);
       await context.done.promise;
     }
+    await this.packs.stopAll('hub_stopped');
     await Promise.allSettled([...this.writes.values()]);
   }
 

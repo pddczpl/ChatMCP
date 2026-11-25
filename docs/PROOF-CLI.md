@@ -18,7 +18,8 @@ without the Hub: every command wires a module that already does the work.
 | `pack` | `diffBaseline` (pod-25), `detectCheckChanges` of [PROOF-TAMPER.md](PROOF-TAMPER.md) (pod-22) and `buildAgentChangeStatement` of the spec (pod-29) |
 
 **Status: a command line of its own.** The grammar, the exit codes, the JSON answers and both languages are fixed here; every command
-of the plan is built. Nothing in the agent or the app calls the CLI. The name keeps the old spelling, like `.chatmcp/` ([NAMING.md](NAMING.md)):
+of the plan is built. Nothing in the agent or the app calls the CLI; the Hub builds its own packs with the builder of `pack`
+(`lib/proof/pack-build.mjs`, [PROOF-HUB-API.md](PROOF-HUB-API.md)), and `check` reads them. The name keeps the old spelling, like `.chatmcp/` ([NAMING.md](NAMING.md)):
 the command is `chatmcp`, its file `DATGOLD-HUB/bin/chatmcp.mjs`, its code `DATGOLD-HUB/lib/proof/cli/`.
 
 ## Running it

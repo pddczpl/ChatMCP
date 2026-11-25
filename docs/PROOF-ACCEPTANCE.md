@@ -9,7 +9,8 @@ The identifier keeps the old name (`.chatmcp/`, see [NAMING.md](NAMING.md)), lik
 **What exists today:** the reader, the schema, the baseline rule, the trust store and the proposal (`DATGOLD-HUB/lib/proof/acceptance.mjs`,
 `lib/proof/yaml-subset.mjs`, `lib/proof/trust-store.mjs`). The owner trusts a file with
 `chatmcp verify trust` ([PROOF-CLI.md](PROOF-CLI.md), pod-24). A trusted file's checks run on every final answer of the agent
-(the done-gate, [PROOF-GATE.md](PROOF-GATE.md), pod-23). **What does not exist yet:** an approval dialog in the app (the Proof tab, pod-34).
+(the done-gate, [PROOF-GATE.md](PROOF-GATE.md), pod-23). The Hub shows the file and takes the owner's trust over HTTP
+([PROOF-HUB-API.md](PROOF-HUB-API.md), pod-33). **What does not exist yet:** an approval dialog in the app (the Proof tab, pod-34).
 
 ## Example
 
@@ -145,7 +146,7 @@ Its file is `{"version": 1, "trusted": {"<sha256>": {"approvedBy": "...", "at": 
 rename) with writes taken in turn inside the process. It is read strictly: bad JSON, another version, an extra key, a key that is not a
 digest, an entry without exactly its two fields, more than 1 MiB or a folder in its place make the **whole** file "nothing trusted", never
 "all trusted"; the next `trust()` moves the corrupt file aside as `trusted-acceptance.corrupt-<time>-<n>.json` and writes a valid one.
-`chatmcp verify trust` (the CLI, pod-24) and the approval dialog in the Proof tab (pod-34) will call `trust()`; today only code does.
+`chatmcp verify trust` (the CLI, pod-24) and the Hub's route (`POST /api/proof/trust-acceptance`, pod-33) call `trust()`; the approval dialog in the Proof tab (pod-34) will use the route.
 
 **The bytes must come from one source.** The hash is over the exact bytes, so the same file with CRLF and with LF line breaks has two
 hashes. The bytes hashed when the owner approves and the bytes passed as the baseline at task start must be read the same way (the raw
