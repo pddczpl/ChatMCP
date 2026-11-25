@@ -5,7 +5,7 @@
 // else - the tree snapshots of pod-15 (./tree-snapshot.mjs), the bytes of a pod-16 ledger (./ledger.mjs, checked with verifyChain), the
 // result of pod-20's resolveAcceptance (./acceptance.mjs) and the report of pod-22's detectCheckChanges (./tamper.mjs) - and computes
 // no hash of the workspace itself, runs nothing and writes nothing. Where an input is missing the criterion is `unverified`, never
-// `evidenced`. Nothing in the agent or the Hub calls this module yet: pod-33 stores packs, pod-30 renders them, pod-32 verifies them.
+// `evidenced`. ./pack-build.mjs calls it, for `chatmcp verify` and for the Hub (pod-33); pod-30 renders packs, pod-32 verifies them.
 //
 // The pack is unsigned in v0.1 (a DSSE envelope comes later) and its integrity level is "unconfined": the agent runs as the same
 // Windows user as the Hub and could rewrite every input. The predicate is versioned; its fields will change after outside feedback.

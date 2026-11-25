@@ -284,6 +284,10 @@ await runScenario({
   const began = Date.now();
   const first = json(await proofOf(killed.id, '?limit=200'));
   t.check(first.receipts.items.length === 200 && first.receipts.next === 200 && first.receipts.total > 1000 && first.receipts.omitted >= 9000, 'its receipts come in pages', JSON.stringify({ ...first.receipts, items: first.receipts.items.length }));
+  const byDefault = json(await proofOf(killed.id)).receipts;
+  t.equal([byDefault.items.length, byDefault.limit, byDefault.next, byDefault.from], [50, 50, 50, 0], 'fifty by default');
+  const last = json(await proofOf(killed.id, `?from=${first.receipts.total - 3}&limit=3`)).receipts;
+  t.equal([last.items.length, last.next], [3, null], 'the last page ends it');
   const walked = [...first.receipts.items];
   for (let from = first.receipts.next; from !== null;) { const next = json(await proofOf(killed.id, `?from=${from}&limit=200`)).receipts; walked.push(...next.items); from = next.next; }
   t.equal([walked.length, new Set(walked.map((item) => item.seq)).size], [first.receipts.total, first.receipts.total], 'each receipt once');

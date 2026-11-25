@@ -1,0 +1,360 @@
+{
+ "suite": "verify-proof-hub-pack-none.mjs",
+ "description": "Runs without a proof pack (plan task P5 pod-33, docs/PROOF-HUB-API.md): every reason, and what interrupts a build.",
+ "mutations": [
+  {
+   "name": "HN-failed",
+   "what": "a run that did not end with an answer has a pack",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (task.status !== 'completed') return 'run_not_completed';\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-subagent",
+   "what": "an agent another agent started is said to have no acceptance file",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (this.manager.lifecycleAgent?.kind === 'subagent') return 'subagent';\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-none",
+   "what": "no acceptance file is a gate error",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (!run) return 'no_acceptance';",
+     "new": "if (!run) return 'gate_error';"
+    }
+   ]
+  },
+  {
+   "name": "HN-skipped",
+   "what": "a gate that did not run gives a pack",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (judged.status === 'skipped') return",
+     "new": "if (false) return"
+    }
+   ]
+  },
+  {
+   "name": "HN-unusable",
+   "what": "an acceptance file that was lost gives a pack",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (run.unusable) return",
+     "new": "if (false) return"
+    }
+   ]
+  },
+  {
+   "name": "HN-inside",
+   "what": "the data folder in the workspace is a missing baseline",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (['proof_unavailable', 'state_inside_workspace'].includes(judged.reason)) return judged.reason;\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-final-unknown",
+   "what": "an unknown final tree is not asked about",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (!ended) return { reason:",
+     "new": "if (false) return { reason:"
+    }
+   ]
+  },
+  {
+   "name": "HN-ledger-size",
+   "what": "a ledger over the limit is read",
+   "equivalent": "the pack of such a ledger is over the limit as well, so encodePackFile refuses it with the same reason; this only saves the work",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (ledgerBytes.length > this.limits.maxBytes) return { reason: 'pack_too_large' };\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-sweep",
+   "what": "the scratch files of a dead Hub stay",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "    await this.#sweep();\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-sweep-fresh",
+   "what": "the scratch files of a build that goes on are removed",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "Date.now() - stat.mtimeMs > SCRATCH_MAX_AGE_MS",
+     "new": "Date.now() - stat.mtimeMs >= 0"
+    }
+   ]
+  },
+  {
+   "name": "HN-timeout",
+   "what": "a build has no time limit",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "const timer = setTimeout(() => controller.abort(fault('timeout', 'the pack took too long')), this.limits.timeoutMs);",
+     "new": "const timer = setTimeout(() => {}, 0);"
+    }
+   ]
+  },
+  {
+   "name": "HN-max",
+   "what": "a pack of any size is written",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "diffLimits: { maxPatchBytes: limits.maxPatchBytes }, maxBytes: limits.maxBytes, signal,",
+     "new": "diffLimits: { maxPatchBytes: limits.maxPatchBytes }, signal,"
+    }
+   ]
+  },
+  {
+   "name": "HN-max-patch",
+   "what": "a patch of any size is made",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "diffLimits: { maxPatchBytes: limits.maxPatchBytes },",
+     "new": "diffLimits: {},"
+    }
+   ]
+  },
+  {
+   "name": "HN-write-failed",
+   "what": "a pack that could not be written is one",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "catch (error) { throw fault('write_failed', String(error?.code ?? error?.message)); }",
+     "new": "catch { /* none */ }"
+    }
+   ]
+  },
+  {
+   "name": "HN-verify",
+   "what": "the bytes are not checked before they are written",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "  const read = readPackFile(built.packBytes, { maxBytes: limits.maxBytes });\n  if (read.digest !== built.digest || taskOfPack(read.entries) !== taskId) throw",
+     "new": "  if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "HN-reason-baseline",
+   "what": "a baseline that cannot be read is a build error",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "'baseline_missing', 'baseline_edited', 'baseline_mismatch',",
+     "new": "'baseline_mismatch',"
+    }
+   ]
+  },
+  {
+   "name": "HN-reason-bytes",
+   "what": "missing old bytes are a build error",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (['baseline_objects_missing', 'baseline_objects_mismatch',",
+     "new": "if (['baseline_objects_mismatch',"
+    }
+   ]
+  },
+  {
+   "name": "HN-reason-plain",
+   "what": "a plain folder is said to have lost its old bytes",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "return ['not_a_repository', 'repository_unreadable', 'git_missing'].includes(error.detail?.reason) ? error.detail.reason : 'old_bytes_unreadable';",
+     "new": "return 'old_bytes_unreadable';"
+    }
+   ]
+  },
+  {
+   "name": "HN-reason-plain-code",
+   "what": "a plain folder is a build error",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "  return PACK_REASONS.includes(code) ? code : 'build_failed';",
+     "new": "  return 'build_failed';"
+    }
+   ]
+  },
+  {
+   "name": "HN-reason-verify",
+   "what": "a pack that does not verify is a build error",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "'pack_unreadable', 'pack_invalid', 'pack_digest_mismatch', 'pack_file_mismatch'].includes(code)) return 'pack_not_verified';",
+     "new": "'pack_unreadable'].includes(code)) return 'pack_not_verified';"
+    }
+   ]
+  },
+  {
+   "name": "HN-final-tree",
+   "what": "a pack of another tree than the one the run ended on",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (treeKey(diff.final) !== treeKey(final)) throw",
+     "new": "if (false) throw"
+    }
+   ]
+  },
+  {
+   "name": "HN-stop-delete",
+   "what": "a delete does not stop the build",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.packs.stop(id, 'task_deleted');\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-stop-hub",
+   "what": "a Hub that stops does not stop the builds",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.packs.stopAll('hub_stopped');\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-stop-forever",
+   "what": "a stop waits for a build that does not end",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (!build.controller.signal.aborted) build.controller.abort(fault(why, why));",
+     "new": "if (false) build.controller.abort(fault(why, why));"
+    }
+   ]
+  },
+  {
+   "name": "HN-settled-deleted",
+   "what": "the end of a build brings a deleted task back",
+   "equivalent": "delete() stops the build and waits for its end before it removes the task, so the task is still there when a build settles; this is the second line",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    if (this.tasks.get(task.id) !== task) return;\n    const before",
+     "new": "    const before"
+    }
+   ]
+  },
+  {
+   "name": "HN-superseded",
+   "what": "the build of an earlier run of the task goes on",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "    await this.stop(task.id, 'superseded');\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-interrupted",
+   "what": "a pack that was being built when the Hub died stays so",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (value.status === PACK_STATUS.building || value.reason === 'run_in_progress') return {",
+     "new": "if (false) return {"
+    }
+   ]
+  },
+  {
+   "name": "HN-interrupted-run",
+   "what": "a run that went on when the Hub died stays so",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "value.status === PACK_STATUS.building || value.reason === 'run_in_progress'",
+     "new": "value.status === PACK_STATUS.building"
+    }
+   ]
+  },
+  {
+   "name": "HN-not-loaded",
+   "what": "the summary of a task file is believed as it is",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "        task.proof = loadedProof(task.proof);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-start",
+   "what": "a run that goes on has the summary of the run before it",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    this.#setProof(task, PACK_STATUS.none, 'run_in_progress');\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HN-unless",
+   "what": "a build that does not listen is waited for",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "    signal.addEventListener('abort', abort, { once: true });\n    promise.then",
+     "new": "    promise.then"
+    }
+   ]
+  },
+  {
+   "name": "HN-lock-ledger",
+   "what": "an edited ledger is not asked about",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (code === 'pack_ledger_broken') return 'ledger_broken';\n",
+     "new": ""
+    }
+   ]
+  }
+ ]
+}

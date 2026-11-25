@@ -5,6 +5,7 @@
 //  2. a pack never slows or fails a run: it is built after the task is free, and gives way to a run that needs a baseline
 //  3. a second chat
 //  4. the folder of the packs: ids, names, sizes, leftovers; the summary of a task file somebody edited
+//  6. what the route answers of a pack: another task's pack, a pack edited after it was checked once, registered secrets, what a summary without a pack means
 //  5. the owner's acceptance of an objective: the receipt is held to the task's ledger (lib/proof/accept-receipt.mjs)
 // The reasons for no pack, and what interrupts a build, are in verify-proof-hub-pack-none.mjs.
 import assert from 'node:assert/strict';
@@ -20,6 +21,7 @@ import { AgentRunner } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { readPackFile } from '../lib/proof/cli/check.mjs';
 import { HubPacks, PACK_REASONS, PACK_LIMITS, PackStore, loadedProof, publicProof } from '../lib/proof/hub-pack.mjs';
+import { ProofHttpApi } from '../lib/proof/http-api.mjs';
 import { ProofLedger, ledgerPath, treeRef } from '../lib/proof/ledger.mjs';
 import {
   ACCEPT, WEAK, answer, approver, bundleRoot, check, count, createHub, diff, done, equal, fix, git, project, read, root, run, say, scripted, section, sleep, textsOf, tool, trust, until, write,
@@ -102,6 +104,29 @@ try {
     const editedPack = packOf(manager, edited.id);
     equal([edited.view.proofGate.reason, editedPack.statement.predicate.acceptance.edited, editedPack.files['acceptance.yml'].toString() === ACCEPT(), editedProof.status], ['acceptance_edited', true, true, 'ready'], 'an edited file: the pack holds the bytes the run was held to and says it was edited');
     check(editedProof.verdict !== 'evidenced', 'and is not evidenced');
+  });
+
+  await section('1d. the cost and the profile of the model; a trust taken back while the run goes on', async () => {
+    const profile = { id: 'p', name: 'p', revision: 'rev-7', ratesUsdPerMillion: { input: 1, output: 2 } };
+    const priced = await run(manager, await good('priced'), [done], { prompt: 'Look around.', start: { effectiveProfile: profile } });
+    await settled(priced.agent, priced.id);
+    const { predicate } = packOf(manager, priced.id).statement;
+    equal([predicate.cost, predicate.model], [{ currency: 'USD', knownSubtotal: 0.00002, complete: true }, { provider: 'scripted', id: 'scripted-1', profileRevision: 'rev-7' }], 'the cost of the task at its owner\'s rates');
+    const task = priced.agent.tasks.get(priced.id);
+    const costWith = async (modelCost, agents = []) => {
+      const plan = await new HubPacks({ manager: Object.assign(Object.create(manager), { listSubagents: () => agents }), gate: { packInputs: async () => ({}) } })
+        .prepare({ task: { ...task, modelCost }, run: {}, number: 1, ended: { tree: priced.entries.findLast((entry) => entry.type === 'tree').record.tree } });
+      return plan.cost;
+    };
+    equal(await costWith(task.modelCost, [{ id: 'a' }]), { currency: 'USD', knownSubtotal: 0.00002, complete: false }, 'not the whole cost when another agent was started');
+    equal([await costWith({ ...task.modelCost, approximate: true }), await costWith({ ...task.modelCost, pricedResponses: 0 }), await costWith({ ...task.modelCost, knownSubtotalUsd: -1 }), await costWith({ ...task.modelCost, knownSubtotalUsd: 2e9 }), await costWith(null)], [null, null, null, null, null], 'an estimate, and what is no cost, is not known');
+    equal((await costWith({ ...task.modelCost, complete: false })).complete, false);
+    const again = ACCEPT({ again: 'node calc.test.js --again' });
+    await trust(manager, again);
+    const { acceptanceSha256 } = await import('../lib/proof/acceptance.mjs');
+    const revoked = await run(manager, await good('revoked', { acceptance: again }), [async () => { await manager.acceptanceTrustStore().revoke(acceptanceSha256(again)); return [say('Done.')]; }], { prompt: 'Look around.' });
+    const proof = await settled(revoked.agent, revoked.id);
+    equal([revoked.view.proofGate.reason, proof.status, proof.verdict, codes(packOf(manager, revoked.id))], ['trust_revoked', 'ready', 'not_evidenced', [['again', 'unverified', ['check_not_run', 'acceptance_untrusted']]]], 'the pack says that the file is not trusted');
   });
 
   await section('1c. line ends: a checkout with CRLF of the trusted file is no edit', async () => {
@@ -268,6 +293,66 @@ try {
     check(both.length === 2, '(premise) two criteria to accept');
     await Promise.all(both.map(([criterionIndex, kind]) => ran.agent.acceptCriterion({ id: ran.id, objectiveId: objective.id, criterionIndex, receiptId: pick(kind), confirmed: true })));
     equal(ran.agent.get(ran.id).goalPlan.objectives[0].evidence.map((item) => item.criterionIndex).sort(), both.map(([index]) => index).sort(), 'two acceptances at once are both kept');
+  });
+
+  await section('6. what the route answers of a pack', async () => {
+    const api = new ProofHttpApi({ manager });
+    const view = () => passing.agent.get(passing.id);
+    const ask = async (query = '', { id = passing.id, task = view, with: other = api } = {}) => {
+      const got = await other.proof(id, task, new URLSearchParams(query));
+      return { ...got, json: got.headers['Content-Type'].startsWith('application/json') ? JSON.parse(got.body) : null };
+    };
+    const { proof } = view();
+    equal([(await ask()).status, (await ask('format=md')).status, (await ask('format=html')).status], [200, 200, 200]);
+    const [file] = files(manager, passing.id);
+    const bytes = fsSync.readFileSync(file);
+    // checked once, then edited: the copy in memory is of the bytes that were checked
+    const flipped = Buffer.from(bytes);
+    flipped.write('"nodf ', bytes.indexOf('"node '));
+    await fs.writeFile(file, flipped);
+    const edited = await ask();
+    equal([edited.status, edited.json.code, edited.json.problem], [409, 'pack_not_verified', 'pack_digest_mismatch']);
+    await fs.writeFile(file, bytes);
+    equal((await ask()).status, 200);
+    // a whole pack of another task, with a summary that names it
+    const other = fsSync.readdirSync(path.join(manager.hubDirectory, 'proof', 'packs')).find((id) => id !== passing.id && files(manager, id).some((name) => name.endsWith('.pack.json')));
+    const foreign = fsSync.readFileSync(files(manager, other)[0]);
+    const foreignDigest = readPackFile(foreign).digest;
+    const store = new PackStore(path.join(manager.hubDirectory, 'proof', 'packs'));
+    await store.write(passing.id, foreignDigest, foreign);
+    const swapped = await ask('', { task: () => ({ ...view(), proof: { ...proof, digest: foreignDigest } }) });
+    equal([swapped.status, swapped.json.problem], [409, 'other_task'], 'a pack belongs to the task whose ledger it carries');
+    await fs.writeFile(file, foreign);
+    equal((await ask()).json.problem, 'other_digest', 'and to the digest the task names');
+    await fs.writeFile(file, bytes);
+    await store.keepOnly(passing.id, proof.digest);
+    equal((await ask('', { with: new ProofHttpApi({ manager, maxBytes: 100 }) })).json.problem, 'pack_too_large');
+    // the pack was replaced between the summary and the read: looked for once more
+    const gone = 'cd'.repeat(32);
+    let turn = 0;
+    const replaced = await ask('', { task: () => ((turn += 1) === 1 ? { ...view(), proof: { ...proof, digest: gone } } : view()) });
+    equal([replaced.status, replaced.json.digest], [200, proof.digest]);
+    equal([(await ask('', { task: () => ({ ...view(), proof: { ...proof, digest: gone } }) })).json.reason], ['pack_missing']);
+    // what a summary without a pack means
+    const reason = async (task) => { const got = await ask('', { task: () => task }); return [got.status, got.json.reason]; };
+    equal(await reason({ proof: { status: 'building', reason: null, run: 2, earlier: null } }), [404, 'building']);
+    equal(await reason({ proof: null }), [404, 'not_recorded']);
+    equal(await reason({ transport: 'chatgpt-web' }), [404, 'companion']);
+    equal((await ask('', { task: () => null })).json.code, 'task_not_found');
+    for (const code of ['building', 'not_recorded', 'companion', 'pack_missing']) check(PACK_REASONS.includes(code));
+    // registered secrets: out of every text, not out of an id or a digest they occur in by chance
+    const before = [...manager.secrets];
+    const known = view();
+    const task = { task: () => known };
+    manager.secrets.push('scripted-1', proof.digest.slice(4, 9), 'calc.test');
+    const masked = await ask('', task);
+    equal([masked.json.masked, masked.json.statement.predicate.model.id, masked.json.digest, masked.json.files.length], [true, '[REDACTED]', proof.digest, 3]);
+    check(!/scripted-1|calc\.test/.test(masked.body), 'not in the json');
+    const html = await ask('format=html&lang=en', task);
+    const md = await ask('format=md&lang=en', task);
+    check(!/scripted-1|calc\.test/.test(html.body + md.body) && html.body.includes(proof.digest) && md.body.includes(proof.digest), 'nor in a report, which still shows the whole digest');
+    manager.secrets = before;
+    equal((await ask()).json.masked, false);
   });
 
   await manager.shutdown();

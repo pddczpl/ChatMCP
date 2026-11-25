@@ -100,7 +100,8 @@ Hub's own matching of checks (`autoAcceptVerifiedChecks`) takes the latest fresh
 lists receipts by kind, step and path only: no receipt id, so no tree prefix, reaches the model.
 
 At accept time the latest tree is the one the task's last run knew; a change made after the run ended is not seen until the next run starts
-(no snapshot is taken at accept time).
+(no snapshot is taken at accept time). The receipt is then held to the task's proof ledger (pod-33, [PROOF-HUB-API.md](PROOF-HUB-API.md), "Accepting an objective"): the
+ledger must verify, its last tree must be the receipt's, and one of its records must show what the receipt says, else 409.
 
 ## The Studio timeline
 

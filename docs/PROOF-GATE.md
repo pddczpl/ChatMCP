@@ -205,6 +205,11 @@ what its checks changed makes older receipts stale, and an unknown tree makes th
 The owner's acceptance of an objective does not undo a failed gate: `requirements` stays `failed` until a run that passes. The task's status
 is `completed` (the run ended with an answer), as for every other verdict about evidence.
 
+## The pack of the run
+
+A run the gate judged leaves a proof pack: the same evidence, kept and served by the Hub ([PROOF-HUB-API.md](PROOF-HUB-API.md), pod-33). It is built after the run has let go of
+everything; it holds the lock of the gate's baselines meanwhile, so a run that has to take a baseline waits at most 5 s for it before the build is given up.
+
 ## What it grants, and what it does not stop
 
 - **The trusted commands run what the workspace holds.** `npm test` runs the test script and the tests as the agent left them, on the host,

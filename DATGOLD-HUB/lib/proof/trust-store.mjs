@@ -8,7 +8,7 @@
 // (temporary file + rename) and serialised per file inside the process, so concurrent trust/revoke calls all land and the file is always
 // valid JSON. Trusting over a corrupt file moves it aside (`trusted-acceptance.corrupt-<time>-<n>.json`) for the owner to look at.
 //
-// `chatmcp verify trust` (the CLI, plan task pod-24) and the approval dialog of the Proof tab (pod-34) that call trust() come later.
+// `chatmcp verify trust` (the CLI, plan task pod-24) and the Hub's route (./http-api.mjs, pod-33) call trust(); the dialog of the Proof tab (pod-34) will use the route.
 //
 // What it protects against: commands put into the workspace file (the agent's file tools refuse the Hub's data folder). What it does
 // not: an agent that runs shell commands as the same user (an approved run_command, Full Access) can write this file like any other.

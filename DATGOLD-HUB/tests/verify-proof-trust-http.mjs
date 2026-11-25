@@ -129,6 +129,17 @@ await runScenario({
     t.check(['outside', 'missing'].includes((await show()).state) && (await show()).sha256 === null && [404, 422].includes((await trust({ sha256: shown.sha256 })).status), 'a link out of the workspace is not read');
     fs.rmSync(file);
   }
+  // the folder is a link (a junction on Windows) out of the workspace
+  const chatmcp = path.join(project, '.chatmcp');
+  const away = path.join(t.scratch, 'away');
+  fs.mkdirSync(away);
+  fs.writeFileSync(path.join(away, 'acceptance.yml'), ACCEPT);
+  fs.renameSync(chatmcp, `${chatmcp}-aside`);
+  fs.symlinkSync(away, chatmcp, 'junction');
+  const outside = await show();
+  t.equal([outside.state, outside.sha256, outside.criteria, said(await trust({ sha256: shown.sha256 }))], ['outside', null, [], [422, 'acceptance_outside']], 'a folder that leads out of the workspace is not read');
+  fs.unlinkSync(chatmcp);
+  fs.renameSync(`${chatmcp}-aside`, chatmcp);
   t.equal(trusted(), [], 'nothing is trusted');
 
   // ---- trust, as the command line sees it, and revoke ---------------------------------------------------------------------------------

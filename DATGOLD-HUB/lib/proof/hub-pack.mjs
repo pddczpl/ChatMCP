@@ -40,7 +40,7 @@ export const PACK_REASONS = Object.freeze([
   // given up
   'timeout', 'superseded', 'hub_stopped', 'task_deleted', 'interrupted',
   // found when it is asked for
-  'pack_missing', 'not_recorded', 'companion',
+  'building', 'pack_missing', 'not_recorded', 'companion',
 ]);
 export const PACK_LIMITS = Object.freeze({
   timeoutMs: 120_000, // one build

@@ -1,0 +1,457 @@
+{
+ "suite": "verify-proof-http.mjs",
+ "description": "Proof packs over HTTP (plan task P5 pod-33, docs/PROOF-HUB-API.md): the route in three formats, its query, its headers, pages, edited packs and the summary of a task, in a real Hub process.",
+ "mutations": [
+  {
+   "name": "HH-route",
+   "what": "there is no proof route",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "([0-9a-f-]{36})(\\/report|\\/stream|\\/proof)?$/);",
+     "new": "([0-9a-f-]{36})(\\/report|\\/stream)?$/);"
+    }
+   ]
+  },
+  {
+   "name": "HH-headers",
+   "what": "the headers of the answer are not sent",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "const send = (answer) => { res.writeHead(answer.status, answer.headers);",
+     "new": "const send = (answer) => { res.writeHead(answer.status);"
+    }
+   ]
+  },
+  {
+   "name": "HH-status",
+   "what": "every answer is 200",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "const send = (answer) => { res.writeHead(answer.status, answer.headers);",
+     "new": "const send = (answer) => { res.writeHead(200, answer.headers);"
+    }
+   ]
+  },
+  {
+   "name": "HH-csp",
+   "what": "a report is sent with the policy of the dashboard",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "        'Content-Security-Policy': `sandbox; ${CSP}`,\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-sandbox",
+   "what": "a report is not sandboxed",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "`sandbox; ${CSP}`",
+     "new": "CSP"
+    }
+   ]
+  },
+  {
+   "name": "HH-attachment",
+   "what": "a report is shown, not downloaded",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "        'Content-Disposition': `attachment; filename=\"DATGOLD-PROOF-${taskId}.${query.format}\"`,\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-corp",
+   "what": "another origin can embed a report",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "        'Cross-Origin-Resource-Policy': 'same-origin',\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-type",
+   "what": "html is sent as text",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "query.format === 'html' ? 'text/html; charset=utf-8' : 'text/markdown; charset=utf-8'",
+     "new": "'text/markdown; charset=utf-8'"
+    }
+   ]
+  },
+  {
+   "name": "HH-render",
+   "what": "md is rendered as html",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "query.format === 'html' ? renderHtml(report) : renderMarkdown(report)",
+     "new": "renderHtml(report)"
+    }
+   ]
+  },
+  {
+   "name": "HH-lang",
+   "what": "the language is not asked for",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "{ lang: query.lang, packName:",
+     "new": "{ lang: DEFAULT_LANG, packName:"
+    }
+   ]
+  },
+  {
+   "name": "HH-default-lang",
+   "what": "English is the default",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const DEFAULT_LANG = 'vi';",
+     "new": "const DEFAULT_LANG = 'en';"
+    }
+   ]
+  },
+  {
+   "name": "HH-checked",
+   "what": "a report says nobody checked the pack",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "packChecked: true",
+     "new": "packChecked: false"
+    }
+   ]
+  },
+  {
+   "name": "HH-unknown-key",
+   "what": "an unknown key is ignored",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (!QUERY.has(key) || values.has(key)) return",
+     "new": "if (values.has(key)) return"
+    }
+   ]
+  },
+  {
+   "name": "HH-twice",
+   "what": "a key given twice is taken",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (!QUERY.has(key) || values.has(key)) return",
+     "new": "if (!QUERY.has(key)) return"
+    }
+   ]
+  },
+  {
+   "name": "HH-format",
+   "what": "an unknown format is json",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "  if (!FORMATS.includes(format)) return { refused: badQuery('format') };\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-lang-unknown",
+   "what": "an unknown language is not refused",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "  if (!LANGS.includes(lang)) return { refused: badQuery('lang') };\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-whole",
+   "what": "any number is taken",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (values.has(key) && !WHOLE.test(values.get(key))) return",
+     "new": "if (false) return"
+    }
+   ]
+  },
+  {
+   "name": "HH-whole-huge",
+   "what": "a number of any length is taken",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const WHOLE = /^(?:0|[1-9][0-9]{0,8})$/;",
+     "new": "const WHOLE = /^(?:0|[1-9][0-9]*)$/;"
+    }
+   ]
+  },
+  {
+   "name": "HH-paged-report",
+   "what": "a page of a report",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (values.has(key) && format !== 'json') return",
+     "new": "if (false) return"
+    }
+   ]
+  },
+  {
+   "name": "HH-limit-low",
+   "what": "a page of none",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (query.limit < 1 || query.limit > PAGE.maxLimit)",
+     "new": "if (query.limit > PAGE.maxLimit)"
+    }
+   ]
+  },
+  {
+   "name": "HH-limit-high",
+   "what": "a page of everything",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "if (query.limit < 1 || query.limit > PAGE.maxLimit)",
+     "new": "if (query.limit < 1)"
+    }
+   ]
+  },
+  {
+   "name": "HH-limit-default",
+   "what": "a hundred by default",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "defaultLimit: 50",
+     "new": "defaultLimit: 100"
+    }
+   ]
+  },
+  {
+   "name": "HH-run-zero",
+   "what": "run 0 is the last run",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "  if (query.run === 0) return { refused: badQuery('run') };\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-from",
+   "what": "every page begins at the first",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "receipts.slice(query.from, query.from + query.limit)",
+     "new": "receipts.slice(0, query.limit)"
+    }
+   ]
+  },
+  {
+   "name": "HH-next",
+   "what": "every page has a next one",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "query.from + query.limit < receipts.length ? query.from + query.limit : null",
+     "new": "query.from + query.limit"
+    }
+   ]
+  },
+  {
+   "name": "HH-next-last",
+   "what": "the last page but one is the last",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "query.from + query.limit < receipts.length ?",
+     "new": "query.from + 2 * query.limit < receipts.length ?"
+    }
+   ]
+  },
+  {
+   "name": "HH-omitted",
+   "what": "the receipts the pack leaves out are not counted",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "omitted: predicate.ledger.omittedReceipts",
+     "new": "omitted: 0"
+    }
+   ]
+  },
+  {
+   "name": "HH-whole-statement",
+   "what": "the receipts stay in the statement",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "withoutSecrets({ ...read.statement, predicate }, this.#secrets, seen)",
+     "new": "withoutSecrets(read.statement, this.#secrets, seen)"
+    }
+   ]
+  },
+  {
+   "name": "HH-run-any",
+   "what": "the pack of an earlier run is that of the last",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const stored = own ?? (proof.earlier?.run === run ? proof.earlier : null);",
+     "new": "const stored = own ?? proof.earlier;"
+    }
+   ]
+  },
+  {
+   "name": "HH-run-none",
+   "what": "the pack of an earlier run is not served",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const stored = own ?? (proof.earlier?.run === run ? proof.earlier : null);",
+     "new": "const stored = own;"
+    }
+   ]
+  },
+  {
+   "name": "HH-own-run",
+   "what": "the pack of the last run is served for any run",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "proof.status === PACK_STATUS.ready && proof.run === run ? proof : null",
+     "new": "proof.status === PACK_STATUS.ready ? proof : null"
+    }
+   ]
+  },
+  {
+   "name": "HH-verify",
+   "what": "a pack is shown as it is on disk",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "      const read = readPackFile(bytes, { maxBytes: this.maxBytes });\n",
+     "new": "      const value = JSON.parse(bytes.toString('utf8')); const files = Object.fromEntries(Object.entries(value.files).map(([name, one]) => [name, Buffer.from(one.base64, 'base64')])); const read = { statement: value.statement, digest: value.statementDigest, files, entries: files['ledger.jsonl'].toString('utf8').split('\\n').filter(Boolean).map((line) => JSON.parse(line)) };\n"
+    }
+   ]
+  },
+  {
+   "name": "HH-error-404",
+   "what": "a pack that does not verify is none",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return refuse(409, 'pack_not_verified',",
+     "new": "return refuse(404, 'pack_not_verified',"
+    }
+   ]
+  },
+  {
+   "name": "HH-task",
+   "what": "an unknown task has no pack",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "    if (!task) return refuse(404, 'task_not_found', 'Không tìm thấy nhiệm vụ.');\n",
+     "new": "    if (!task) return refuse(404, 'no_pack', 'x');\n"
+    }
+   ]
+  },
+  {
+   "name": "HH-public",
+   "what": "the task has no summary",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "      proof:publicProof(task.proof,{summary}),\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-list",
+   "what": "the list carries the whole summary",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "publicProof(task.proof,{summary})",
+     "new": "publicProof(task.proof)"
+    }
+   ]
+  },
+  {
+   "name": "HH-accept",
+   "what": "the ledger is not asked when an objective is accepted",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.#checkReceipt(task,receiptId);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-interrupted",
+   "what": "a pack that was being built when the Hub died stays so",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (value.status === PACK_STATUS.building || value.reason === 'run_in_progress') return {",
+     "new": "if (false) return {"
+    }
+   ]
+  },
+  {
+   "name": "HH-forget",
+   "what": "a deleted task keeps its pack",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.packs.forget(id);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HH-mask",
+   "what": "a registered secret in a report",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const report = maskReport(buildReport(",
+     "new": "const report = (buildReport("
+    }
+   ]
+  },
+  {
+   "name": "HH-read-missing",
+   "what": "a pack that was removed is an error",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;",
+     "new": "if (error?.code === 'ENOTDIR') return null;"
+    }
+   ]
+  }
+ ]
+}
