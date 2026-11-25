@@ -75,6 +75,16 @@ try {
     fs.symlinkSync(path.join(workspace, 'bin'), linked, WIN ? 'junction' : 'dir');
     assert.equal(await find([linked, second], { outside: workspace }), path.join(second, exe('tool')), 'a linked folder that leads into the workspace is not read');
     assert.equal(await find([linked], {}), path.join(linked, exe('tool')), 'a linked folder is read where no workspace is known');
+    // and a link that stands in the workspace is in the workspace, wherever it leads, by the name the workspace was given and by its real one
+    const within = path.join(workspace, 'leads-out');
+    fs.symlinkSync(second, within, WIN ? 'junction' : 'dir');
+    assert.equal(await find([within], { outside: workspace }), null, 'a linked folder of the workspace that leads out of it is not read');
+    const alias = path.join(base, 'alias');
+    fs.symlinkSync(workspace, alias, WIN ? 'junction' : 'dir');
+    assert.equal(await find([path.join(alias, 'leads-out')], { outside: alias }), null);
+    assert.equal(await find([path.join(workspace, 'leads-out')], { outside: alias }), null);
+    assert.equal(await find([path.join(alias, 'bin')], { outside: workspace }), null);
+    assert.equal(await find([within]), path.join(within, exe('tool')), '(control) it is read where no workspace is known');
     let links = 'file links not tried: this account may not make them';
     try {
       const tools = path.join(base, 'tools');
@@ -129,6 +139,7 @@ try {
   const tool = (name, args = {}) => hub.localTools.call(`local.${name}`, args, { taskId: '00000000-0000-4000-8000-000000000001' });
   const GITHUB = [['github_read', { action: 'pr_list' }], ['github_read', { action: 'issue_view', number: 1 }], ['github_action', { action: 'issue_create', title: 't' }], ['github_code_search', { query: 'x' }], ['github_workflow_runs', {}], ['github_workflow_status', { run_id: 1 }],
     ['github_job_logs', { run_id: 1 }], ['github_pr_review', { number: 1 }], ['github_rerun_failed', { run_id: 1 }], ['github_pr_merge', { number: 1 }], ['github_release_create', { tag: 'v1', notes: 'n' }]];
+  const lastStarts = [];
   const publish = async () => {
     const orchestrator = new CodingWorktreeOrchestrator({
       manager: { workspace: project, secrets: [], studio: { gitRunner: { text: async (args) => ({ code: 0, stdout: args[0] === 'remote' ? 'https://github.com/o/r.git' : 'a'.repeat(40), stderr: '', truncated: false, timedOut: false }) } } },
@@ -184,6 +195,17 @@ try {
       await sandbox.close();
       assert.deepEqual([startedIn(project), startedIn(bin)], [[], [exe('docker'), exe('docker'), exe('docker')]], 'Docker is the docker of PATH, for its version, a run and the end of a run');
       if (WIN) assert.deepEqual(givenVariables(marks), ['1'], 'with the search variable set');
+      // a run whose program has gone from PATH since is ended by the program that started it
+      const pathNow = process.env.PATH;
+      const last = new StudioSandbox({ workspace: { requireRoot: () => project }, spawnProcess: (file, args, options) => { lastStarts.push(file); return spawn(process.execPath, ['-e', args[0] === 'run' ? 'setTimeout(() => {}, 60000)' : ''], { ...options, stdio: 'ignore' }); } });
+      const going = await last.launch({ command: 'true' });
+      process.env.PATH = nothing;
+      await last.status();
+      assert.equal(last.stop(going.name), true);
+      process.env.PATH = pathNow;
+      await last.close();
+      going.child.kill();
+      assert.ok(lastStarts.length >= 2 && lastStarts.every((file) => file === path.join(bin, exe('docker'))), 'a run that goes on while Docker leaves PATH is ended by the docker that started it');
       // the textual diff of a review
       fs.writeFileSync(path.join(project, 'note.txt'), 'one\n');
       const checkpoint = await hub.studio.checkpoint({ label: 'l', files: ['note.txt'] });
@@ -246,7 +268,24 @@ try {
     await manager.connect('probe').catch(() => {}); // the stand-in is no MCP server: what matters is which file was started
     await waitFor(() => startedPrograms(marks).length > 0, { timeoutMs: 15_000, intervalMs: 50, label: 'the server program to be started' });
     assert.deepEqual([startedIn(project), startedIn(path.join(scratch, 'servers')).length > 0], [[], true], 'a stdio server whose folder is the workspace is started from the file of its launch record');
-    ok('a stdio server is started from the file its approved launch record names');
+    // a server whose file is a .cmd shim, in a folder that has a node of its own: the shim's node is the one of PATH, and the owner's value for the variable is kept
+    if (WIN) {
+      const told = path.join(scratch, 'shim.txt');
+      fs.writeFileSync(path.join(scratch, 'servers', 'told.mjs'), `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(told)}, process.execPath + '|' + process.env.${VARIABLE});\n`);
+      fs.writeFileSync(path.join(scratch, 'servers', 'shim-tool.cmd'), '@echo off\r\nnode "%~dp0told.mjs"\r\n');
+      for (const [id, serverMap, expected] of [['shim', {}, '1'], ['shim-own', { [VARIABLE]: 'mine' }, 'mine']]) {
+        await manager.store.save(id, { transport: 'stdio', command: 'shim-tool', args: [], cwd: project, env: serverMap });
+        const shown = await manager.launchRecord(id);
+        assert.deepEqual([shown.record.envKeys, shown.record.executable.toLowerCase().endsWith('shim-tool.cmd')], [Object.keys(serverMap), true], 'the launch record names the keys of the env map and nothing that is inherited');
+        await manager.approveLaunch(id, { expectedFingerprint: shown.fingerprint });
+        clearMarks(marks);
+        fs.rmSync(told, { force: true });
+        await manager.connect(id).catch(() => {});
+        const [ran, variable] = (await waitFor(() => fs.existsSync(told) && fs.readFileSync(told, 'utf8'), { timeoutMs: 15_000, intervalMs: 50, label: 'the shim to be run' })).split('|');
+        assert.deepEqual([startedIn(project), same(path.dirname(ran), project), variable], [[], false, expected], `${id}: the shim's node is the node of PATH`);
+      }
+    }
+    ok('a stdio server is started from the file its approved launch record names, and a shim of it finds its program on PATH');
   }
 
   // ---------------------------------------------------------------------------------------------------------------- 3. the search variable

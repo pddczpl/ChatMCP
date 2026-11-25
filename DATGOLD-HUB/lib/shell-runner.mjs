@@ -210,7 +210,7 @@ export class ShellRunner {
       const outside = await Promise.resolve().then(() => this.workspace.resolve('')).then((target) => target.root ?? null, () => null);
       const bash = win ? await findGitBash(this.env, this.platform, outside) : (await resolveProgram('bash', [], { outside })) ?? ((await exists('/bin/bash')) ? '/bin/bash' : null);
       const sh = win ? null : ((await exists('/bin/sh')) ? '/bin/sh' : await resolveProgram('sh', [], { outside }));
-      const powershell = await findPowerShell(this.env, this.platform);
+      const powershell = await findPowerShell(this.env, this.platform, outside);
       const defaultShell = bash ? 'bash' : win ? (powershell ? 'powershell' : null) : (sh ? 'sh' : null);
       this.discovered = { platform: this.platform, defaultShell, shells: { bash, sh, powershell } };
     }

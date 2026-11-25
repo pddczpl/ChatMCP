@@ -45,8 +45,8 @@
    "patches": [
     {
      "file": "lib/runtime.mjs",
-     "old": "    if (workspace !== null && isWithin(workspace, await real(file))) continue;",
-     "new": ""
+     "old": "    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;",
+     "new": "    if (!(await isProgramFile(file))) continue;"
     }
    ]
   },
@@ -56,8 +56,8 @@
    "patches": [
     {
      "file": "lib/runtime.mjs",
-     "old": "    if (workspace !== null && isWithin(workspace, await real(file))) continue;",
-     "new": "    if (workspace !== null && isWithin(workspace, file)) continue;"
+     "old": "    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;",
+     "new": "    if (below(file) || !(await isProgramFile(file))) continue;"
     }
    ]
   },
@@ -67,7 +67,7 @@
    "patches": [
     {
      "file": "lib/runtime.mjs",
-     "old": "  if (workspace !== null && isWithin(workspace, await real(os.homedir()))) workspace = null;",
+     "old": "  if (workspaces.some((folder) => isWithin(folder, home) || isWithin(folder, os.homedir()))) workspaces = [];",
      "new": ""
     }
    ]
@@ -374,7 +374,7 @@
    "patches": [
     {
      "file": "lib/studio-sandbox.mjs",
-     "old": "this.spawnProcess(this.program,['rm'",
+     "old": "this.spawnProcess(this.active.get(name),['rm'",
      "new": "this.spawnProcess('docker',['rm'"
     }
    ]
@@ -568,6 +568,78 @@
      "file": "bin/chatmcp.mjs",
      "old": "searchProgramsOnPathOnly(); // this process stands in the workspace",
      "new": ""
+    }
+   ]
+  },
+  {
+   "name": "R12",
+   "what": "a link of the workspace that leads out of it is taken",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;",
+     "new": "    if (!(await isProgramFile(file)) || below(await real(file))) continue;"
+    }
+   ]
+  },
+  {
+   "name": "R13",
+   "what": "the workspace is known by its real name only",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "[path.resolve(outside), await real(outside)] : [];",
+     "new": "[await real(outside)] : [];"
+    }
+   ]
+  },
+  {
+   "name": "R14",
+   "what": "the workspace is known by the name it was given only",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "[path.resolve(outside), await real(outside)] : [];",
+     "new": "[path.resolve(outside)] : [];"
+    }
+   ]
+  },
+  {
+   "name": "D5",
+   "what": "a run in Docker is ended by the docker of PATH now",
+   "patches": [
+    {
+     "file": "lib/studio-sandbox.mjs",
+     "old": "this.spawnProcess(this.active.get(name),['rm'",
+     "new": "this.spawnProcess(null,['rm'"
+    }
+   ]
+  },
+  {
+   "name": "C1",
+   "what": "a stdio server does not get the variable",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/mcp/client-manager.mjs",
+     "old": "    return this.platform === 'win32' ? withSearchVariable(environment) : environment;",
+     "new": "    return environment;"
+    }
+   ]
+  },
+  {
+   "name": "C3",
+   "what": "the owner's value of the variable is replaced",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/mcp/client-manager.mjs",
+     "old": "    return this.platform === 'win32' ? withSearchVariable(environment) : environment;",
+     "new": "    return this.platform === 'win32' ? { ...environment, NoDefaultCurrentDirectoryInExePath: '1' } : environment;"
     }
    ]
   }

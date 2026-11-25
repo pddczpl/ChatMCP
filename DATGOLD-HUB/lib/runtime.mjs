@@ -61,13 +61,15 @@ async function isProgramFile(file) {
 export async function resolveProgram(name, extra = [], { outside = null } = {}) {
   const entries = (process.env.PATH ?? process.env.Path ?? '').split(path.delimiter).map((entry) => entry.trim().replace(/^"(.*)"$/, '$1')).filter((entry) => path.isAbsolute(entry));
   const real = async (target) => fs.realpath(target).catch(() => path.resolve(target));
-  let workspace = typeof outside === 'string' && outside ? await real(outside) : null;
-  if (workspace !== null && isWithin(workspace, await real(os.homedir()))) workspace = null;
+  // The workspace as it was named and as it really is: an entry below it by either spelling is below it, wherever a link there leads.
+  let workspaces = typeof outside === 'string' && outside ? [path.resolve(outside), await real(outside)] : [];
+  const home = await real(os.homedir());
+  if (workspaces.some((folder) => isWithin(folder, home) || isWithin(folder, os.homedir()))) workspaces = [];
+  const below = (file) => workspaces.some((folder) => isWithin(folder, file));
   for (const file of extra) if (await isProgramFile(file)) return path.resolve(file);
   for (const entry of entries) {
     const file = path.resolve(entry, name);
-    if (!(await isProgramFile(file))) continue;
-    if (workspace !== null && isWithin(workspace, await real(file))) continue;
+    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;
     return file;
   }
   return null;
@@ -97,6 +99,8 @@ export function searchProgramsOnPathOnly() {
 }
 /** The environment of a helper program: `env` with the search variable set (Windows). */
 export const helperEnvironment = (env = process.env) => (process.platform === 'win32' ? { ...withoutSearchVariable(env), [SEARCH_VARIABLE]: '1' } : { ...env });
+/** `env` with the search variable set, unless it already has a value for it. */
+export const withSearchVariable = (env) => (Object.keys(env).some((key) => key.toUpperCase() === SEARCH_VARIABLE.toUpperCase()) ? env : { ...env, [SEARCH_VARIABLE]: '1' });
 /** The environment of a shell: `env` with the search variable as the owner's environment had it when this process started. */
 export function shellSearch(env) {
   if (ownersSearch === null) return env;

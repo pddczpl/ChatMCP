@@ -23,12 +23,11 @@ export function dockerSandboxArgs({workspace,command,image=DEFAULT_IMAGE,name=`c
     '--entrypoint','/bin/sh',image,'-lc',command];
 }
 export class StudioSandbox {
-  constructor({workspace,spawnProcess=spawn}){this.workspace=workspace;this.spawnProcess=spawnProcess;this.active=new Set();this.cleanups=new Set();this.program=null;}
+  constructor({workspace,spawnProcess=spawn}){this.workspace=workspace;this.spawnProcess=spawnProcess;this.active=new Map();this.cleanups=new Set();}
   /** The docker of PATH (never one below the workspace), or null when it is not installed. */
   async docker(){
     const root=await Promise.resolve().then(()=>this.workspace.requireRoot()).catch(()=>null);
-    this.program=await programOnPath('docker',{outside:root});
-    return this.program;
+    return await programOnPath('docker',{outside:root});
   }
   async status(){
     const docker=await this.docker();
@@ -50,7 +49,7 @@ export class StudioSandbox {
     const docker=await this.docker();
     if(!docker)throw fault('Docker chưa được cài đặt (không có trong PATH).',503);
     const child=this.spawnProcess(docker,args,{cwd:workspace,env:helperEnvironment(),windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});
-    this.active.add(name);
+    this.active.set(name,docker); // a run is ended by the program that started it, whatever is on PATH by then
     child.once('close',()=>this.active.delete(name));
     child.once('error',()=>this.active.delete(name));
     return {child,name,mode:'docker-readonly'};
@@ -59,10 +58,10 @@ export class StudioSandbox {
     if(!this.active.has(name))return false;
     // Container cleanup is explicit: terminating the docker CLI alone does not
     // necessarily stop an already-started container.
-    const cleanup=this.spawnProcess(this.program,['rm','-f',name],{windowsHide:true,env:helperEnvironment(),stdio:'ignore'});
+    const cleanup=this.spawnProcess(this.active.get(name),['rm','-f',name],{windowsHide:true,env:helperEnvironment(),stdio:'ignore'});
     const done=new Promise(resolve=>{cleanup.once('error',resolve);cleanup.once('close',resolve);});
     this.cleanups.add(done);done.finally(()=>this.cleanups.delete(done));
     return true;
   }
-  async close(){for(const name of [...this.active])this.stop(name);await Promise.allSettled([...this.cleanups]);}
+  async close(){for(const name of [...this.active.keys()])this.stop(name);await Promise.allSettled([...this.cleanups]);}
 }

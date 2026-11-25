@@ -48,7 +48,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stableJson } from '../catalog.mjs';
-import { delay, isObject, readJson, redact, stopOwned, writeJson } from '../runtime.mjs';
+import { delay, isObject, readJson, redact, stopOwned, writeJson, withSearchVariable } from '../runtime.mjs';
 import { scrubEnv } from '../shell-runner.mjs';
 import { createPinStore } from './fingerprint-pins.mjs';
 import { createStderrCollector, limitToolResult, RESULT_LIMITS } from './result-limits.mjs';
@@ -720,7 +720,9 @@ export class McpClientManager {
       for (const key of Object.keys(environment)) if (key !== name && this.platform === 'win32' && key.toUpperCase() === name.toUpperCase()) delete environment[key];
       environment[name] = config.env[name];
     }
-    return environment;
+    // A server that is started through a .cmd shim looks for its own program by name: on PATH, not in its folder (lib/runtime.mjs). The owner's own value for this server wins.
+    // It is nothing the owner approves: a launch record names the keys of the server's env map and no inherited variable.
+    return this.platform === 'win32' ? withSearchVariable(environment) : environment;
   }
 
   /**
