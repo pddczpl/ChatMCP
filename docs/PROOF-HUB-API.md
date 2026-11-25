@@ -76,11 +76,26 @@ refuses: a registered secret that is part of a check's folder name, because the 
 - The run ends, its ledger is closed, its workspace is released; then the pack is built in the background. While the task still holds the workspace
   only the ledger and the acceptance file are read. Errors are a reason, a log line and one `proof_pack` event (`pack`: `ready` or `none`, `reason`,
   `run`, `verdict`); the task's status and answer are never touched.
-- A build takes at most 120 s. A stop of the Hub, a delete and a later run of the task give it up at once and do not wait for it.
-- Building a pack holds the lock of the workspace's baselines. A run that needs to take a baseline waits at most 5 s for it, then the build is given
-  up (`superseded`) (`giveWay`).
+- A build takes at most 120 s. A stop of the Hub, a delete and a later run of the task give it up at once; the first two also wait, at most 3 s, for its
+  end (below), the later run does not.
 - Building and checking a pack are plain JavaScript on the Hub's one thread. Measured here (Node 24, Windows): a ledger of 10,000 receipts (22 MiB, a
   pack of 31 MiB) about 0.3 s to build and 0.6 s to check; 300 receipts 35 ms and 40 ms. The Hub answers nothing else during one of these halves.
+
+### Baselines and builds
+
+A build reads the baseline of its conversation and writes beside it (`tmp-…` and `lock` in the workspace's folder below `proof/gate/proof/baselines/`),
+for seconds after the run has ended. Whatever removes or renames something there is kept apart from it:
+
+| What removes | How |
+|---|---|
+| a new baseline, its leftovers, the retention of old ones (`snapshotBaseline`) | takes the lock of the workspace; the gate first lets the builds of that workspace go on for at most 5 s, gives up what is left (`superseded`) and waits at most 5 s more for its end (`giveWay`) |
+| the retention in **other** workspaces (the same call) | takes each workspace's lock, and leaves out one that is held |
+| the delete of a conversation (`DoneGate.forget`) | gives up its build and waits at most 3 s for its end, then takes the lock; after 5 s without it, the conversation's own baseline (nobody else's) is removed all the same |
+| a stop of the Hub | gives up every build and waits at most 3 s for their end; what a build still leaves in `packs/scratch/` goes after 24 h, a `tmp-…` or `lock` with the next baseline of that workspace |
+
+A build holds that lock while it makes the report on the checks (it reads the baseline's store) and while it makes the patch, and gives it back in between.
+Both parts end when the build is given up. **The end of a build** is later than its result: what a snapshot or Git is doing at that moment is finished first. The
+build is not forgotten until then.
 
 ## Where it is kept
 
@@ -193,7 +208,12 @@ this tree, not that this very call was it. The Hub's own matching of checks (the
 - **Tamper-evident, not tamper-proof.** An agent with an approved shell runs as the same user and can rewrite the ledger, the task file and the pack together.
 - The digest a task names is in its task file. Public answers are masked as text, so a registered secret of a few hex digits that occurs in a digest by chance
   breaks that digest in the summary (the route then finds no pack); registered secrets are keys and tokens, not short numbers.
-- A build that was given up goes on behind the Hub's back until its own next step sees it (a snapshot cannot be cut off), and removes its scratch files then.
+- A build that was given up goes on until its own next step sees it (a file that is being read, Git at work), then removes its scratch files. A delete and a
+  stop of the Hub wait 3 s for that, not for ever; after that the build ends behind their back. What a delete then could not remove is removed with the next
+  baseline of that workspace, or stays if there is none.
+- Between the report and the patch a build holds no lock. A baseline that the retention (14 days, five per workspace) removes in between is `baseline_unreadable`.
+- The gate's own report at the end of a run reads the store **without** the lock (as before this change). Only the retention of another runner on the same data
+  folder, for a baseline older than 14 days, could meet it; the gate then says the report is missing.
 - The pack of a task whose folder somebody removed by hand stays in `packs/` until it is removed by hand too.
 - A pack is of the workspace of the Hub's task. What an MCP client or the Companion did is in no pack.
 - A criterion the owner must look at (`manual`) stays `unverified`: no owner acceptance of a criterion of the file is recorded yet (pod-34).
@@ -212,6 +232,7 @@ this tree, not that this very call was it. The Hub's own matching of checks (the
 ## Tests
 
 `tests/verify-proof-hub-pack.mjs` (what a pack holds, the background build, second chats, the files, the summary, the ledger behind an acceptance, what the route answers of a pack),
-`tests/verify-proof-hub-pack-none.mjs` (every reason a run can meet, and what interrupts a build), both on the real agent loop with a scripted model;
+`tests/verify-proof-hub-pack-none.mjs` (every reason a run can meet, and what interrupts a build),
+`tests/verify-proof-hub-pack-race.mjs` (what removes a baseline, against a build that reads there), all three on the real agent loop with a scripted model;
 `tests/verify-proof-http.mjs` and `tests/verify-proof-trust-http.mjs` (a real Hub process, the real command line). `tests/verify-hub-auth.mjs` asks every route without
-the secret. Mutation lists: `proof-hub-pack.json`, `proof-hub-pack-none.json`, `proof-http.json`, `proof-trust-http.json`.
+the secret. Mutation lists: `proof-hub-pack.json`, `proof-hub-pack-none.json`, `proof-hub-pack-race.json`, `proof-http.json`, `proof-trust-http.json`.

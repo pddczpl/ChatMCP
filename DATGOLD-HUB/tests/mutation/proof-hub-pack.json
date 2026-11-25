@@ -41,8 +41,8 @@
    "patches": [
     {
      "file": "lib/proof/hub-pack.mjs",
-     "old": "  const report = await changes();\n",
-     "new": "  const report = null;\n"
+     "old": "    report = await changes(signal);\n",
+     "new": "    report = null;\n"
     }
    ]
   },
@@ -445,8 +445,8 @@
    "patches": [
     {
      "file": "lib/proof/hub-pack.mjs",
-     "old": "  for (const build of going) if (!build.done) build.controller.abort(",
-     "new": "  for (const build of going) if (false) build.controller.abort("
+     "old": "if (builds.get(rootKey(root))?.has(build)) build.giveUp('superseded');",
+     "new": "if (false) build.giveUp('superseded');"
     }
    ]
   },
@@ -456,8 +456,8 @@
    "patches": [
     {
      "file": "lib/proof/hub-pack.mjs",
-     "old": "  await Promise.race([Promise.all(going.map((build) => build.settled)), wait(Math.max(...going.map((build) => build.giveWayMs))), stopped]);\n",
-     "new": ""
+     "old": "  await atMost(limit, ended, stopped);\n  if (signal?.aborted) return;\n",
+     "new": "  if (signal?.aborted) return;\n"
     }
    ]
   },
@@ -577,7 +577,7 @@
    "patches": [
     {
      "file": "lib/proof/gate.mjs",
-     "old": "{ manager: place, scratchDir }",
+     "old": "{ manager: place, scratchDir, signal }",
      "new": "{ manager: place }"
     }
    ]

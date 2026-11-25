@@ -237,14 +237,18 @@ async function atMost(ms, ...promises) {
   try { await Promise.race([...promises, over]); } finally { clearTimeout(timer); }
 }
 
-/** Waits a moment for the builds of the workspace `root`, then gives up those that go on and waits as long for their end. Called by the done-gate before it takes a baseline. Never throws. */
+/**
+ * Waits a moment for the builds of the workspace `root`, then gives up those that go on and waits as long for their end. Called by the done-gate before it takes a baseline; a run that
+ * was stopped meanwhile gives up nothing. Never throws.
+ */
 export async function giveWay(root, { signal = null } = {}) {
   const going = [...(builds.get(rootKey(root)) ?? [])];
-  if (!going.length) return;
+  if (!going.length || signal?.aborted) return;
   const stopped = signal ? new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }); }) : new Promise(() => {});
   const ended = Promise.all(going.map((build) => build.ended));
   const limit = Math.max(...going.map((build) => build.giveWayMs));
   await atMost(limit, ended, stopped);
+  if (signal?.aborted) return;
   for (const build of going) if (builds.get(rootKey(root))?.has(build)) build.giveUp('superseded');
   await atMost(limit, ended, stopped);
 }

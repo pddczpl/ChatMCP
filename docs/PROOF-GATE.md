@@ -208,7 +208,8 @@ is `completed` (the run ended with an answer), as for every other verdict about 
 ## The pack of the run
 
 A run the gate judged leaves a proof pack: the same evidence, kept and served by the Hub ([PROOF-HUB-API.md](PROOF-HUB-API.md), pod-33). It is built after the run has let go of
-everything; it holds the lock of the gate's baselines meanwhile, so a run that has to take a baseline waits at most 5 s for it before the build is given up.
+everything; it holds the lock of the gate's baselines meanwhile, so a run that has to take a baseline waits at most 5 s for it before the build is given up, and at most
+5 s more for its end. The delete of a conversation takes that lock too before it removes the conversation's baseline ("Baselines and builds" there).
 
 ## What it grants, and what it does not stop
 

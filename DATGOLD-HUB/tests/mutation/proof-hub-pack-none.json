@@ -262,8 +262,8 @@
    "patches": [
     {
      "file": "lib/proof/hub-pack.mjs",
-     "old": "if (!build.controller.signal.aborted) build.controller.abort(fault(why, why));",
-     "new": "if (false) build.controller.abort(fault(why, why));"
+     "old": "for (const build of going) build.giveUp(why);",
+     "new": "for (const build of []) build.giveUp(why);"
     }
    ]
   },
@@ -285,8 +285,8 @@
    "patches": [
     {
      "file": "lib/proof/hub-pack.mjs",
-     "old": "    await this.stop(task.id, 'superseded');\n",
-     "new": ""
+     "old": "    await this.stop(task.id, 'superseded', { end: false });",
+     "new": "    "
     }
    ]
   },

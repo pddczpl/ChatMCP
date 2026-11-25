@@ -96,8 +96,8 @@
   "patches": [
    {
     "file": "lib/proof/gate.mjs",
-    "old": "    const before = withAcceptance(await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store') }), acceptance, objectFormat);",
-    "new": "    const before = await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store') });"
+    "old": "    const before = withAcceptance(await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store'), signal }), acceptance, objectFormat);",
+    "new": "    const before = await baselineSide({ loaded, hubDir, root, env, scratch: path.join(scratch, 'store'), signal });"
    }
   ]
  },
@@ -107,8 +107,8 @@
   "patches": [
    {
     "file": "lib/proof/gate.mjs",
-    "old": "    const after = withAcceptance(await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env }), current, objectFormat);",
-    "new": "    const after = await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env });"
+    "old": "    const after = withAcceptance(await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env, signal }), current, objectFormat);",
+    "new": "    const after = await workTreeSide({ root, stateDir: path.join(scratch, 'final'), env, signal });"
    }
   ]
  },

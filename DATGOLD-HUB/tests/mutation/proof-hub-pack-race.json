@@ -1,0 +1,349 @@
+{
+ "suite": "verify-proof-hub-pack-race.mjs",
+ "description": "What removes a baseline of the done-gate, against a build of a proof pack that reads there (plan task P5 pod-33, docs/PROOF-HUB-API.md).",
+ "mutations": [
+  {
+   "name": "RC-no-lock",
+   "what": "the report of a pack reads the store of the baseline without the lock",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "const held = await acquireWorkspaceLock({ hubDir, root, lock: { waitMs: limits.lockMs }, purpose: 'pack' });",
+     "new": "const held = { release: async () => {} };"
+    }
+   ]
+  },
+  {
+   "name": "RC-lock-kept",
+   "what": "the lock is not given back",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "  } finally { await held.release(); }\n",
+     "new": "  } finally { /* kept */ }\n"
+    }
+   ]
+  },
+  {
+   "name": "RC-no-signal",
+   "what": "the report goes on when the build is given up",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "report = await changes(signal);",
+     "new": "report = await changes();"
+    }
+   ]
+  },
+  {
+   "name": "RC-gate-signal",
+   "what": "the gate does not hand the signal on",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "{ manager: place, scratchDir, signal }",
+     "new": "{ manager: place, scratchDir }"
+    }
+   ]
+  },
+  {
+   "name": "RC-check-signal",
+   "what": "the gate does not hand the signal to what makes the report",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "acceptance: run.acceptance, current, scratchDir, signal });",
+     "new": "acceptance: run.acceptance, current, scratchDir });"
+    }
+   ]
+  },
+  {
+   "name": "RC-store-signal",
+   "what": "the read of the store does not listen",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "scratch: path.join(scratch, 'store'), signal })",
+     "new": "scratch: path.join(scratch, 'store') })"
+    }
+   ]
+  },
+  {
+   "name": "RC-store-signal-2",
+   "what": "the read of the store does not listen (2)",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "objectFormat: record.objectFormat, scratch, signal });",
+     "new": "objectFormat: record.objectFormat, scratch });"
+    }
+   ]
+  },
+  {
+   "name": "RC-tree-signal",
+   "what": "the pass over the workspace does not listen",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "workTreeSide({ root, stateDir: path.join(scratch, 'final'), env, signal })",
+     "new": "workTreeSide({ root, stateDir: path.join(scratch, 'final'), env })"
+    }
+   ]
+  },
+  {
+   "name": "RC-store-run",
+   "what": "Git reads the store to the end",
+   "patches": [
+    {
+     "file": "lib/proof/cli/store-side.mjs",
+     "old": "{ cwd: scratch, env: pinned, signal, ...options }",
+     "new": "{ cwd: scratch, env: pinned, ...options }"
+    }
+   ]
+  },
+  {
+   "name": "RC-tree-pass",
+   "what": "the pass over the workspace goes to its end",
+   "patches": [
+    {
+     "file": "lib/proof/tamper.mjs",
+     "old": "await snapshotter.rawPass(plan, signal, { full: true });",
+     "new": "await snapshotter.rawPass(plan, null, { full: true });"
+    }
+   ]
+  },
+  {
+   "name": "RC-tree-read",
+   "what": "the files of the workspace are read to the end",
+   "patches": [
+    {
+     "file": "lib/proof/tamper.mjs",
+     "old": "        for (const row of wanted) {\n          signal?.throwIfAborted();\n",
+     "new": "        for (const row of wanted) {\n"
+    }
+   ]
+  },
+  {
+   "name": "RC-after-lock",
+   "what": "a build that was given up while it waited for the lock makes its report",
+   "equivalent": "the report gets the same signal and ends with its reason at its first step; this only saves that step",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "  try {\n    signal.throwIfAborted();\n    report",
+     "new": "  try {\n    report"
+    }
+   ]
+  },
+  {
+   "name": "RC-forget-no-lock",
+   "what": "a delete takes no lock",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "const held = await acquireWorkspaceLock({ hubDir, root, lock: { waitMs: this.forgetWaitMs }, purpose: 'forget' }).catch(() => null);",
+     "new": "const held = null;"
+    }
+   ]
+  },
+  {
+   "name": "RC-forget-kept",
+   "what": "a delete does not give the lock back",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "    await held?.release().catch(() => {});\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "RC-forget-wait",
+   "what": "a delete waits for the lock as long as a run",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "lock: { waitMs: this.forgetWaitMs }, purpose: 'forget'",
+     "new": "lock: { waitMs: LOCK_WAIT_MS }, purpose: 'forget'"
+    }
+   ]
+  },
+  {
+   "name": "RC-forget-busy",
+   "what": "a delete that does not get the lock leaves the baseline",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "purpose: 'forget' }).catch(() => null);\n",
+     "new": "purpose: 'forget' }).catch(() => null);\n    if (!held) return;\n"
+    }
+   ]
+  },
+  {
+   "name": "RC-forget-makes",
+   "what": "a delete makes the folder of a workspace that has none",
+   "patches": [
+    {
+     "file": "lib/proof/gate.mjs",
+     "old": "    if (!(await fs.stat(folder).catch(() => null))) return; // (taking the lock would make the folder)\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "RC-delete-end",
+   "what": "a delete does not wait for the end of a build that was given up",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "    await this.packs.stop(id, 'task_deleted');\n",
+     "new": "    await this.packs.stop(id, 'task_deleted', { end: false });\n"
+    }
+   ]
+  },
+  {
+   "name": "RC-stop-end",
+   "what": "nobody waits for the end of a build that was given up",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "(end ? [build.settled, build.ended] : [build.settled])",
+     "new": "[build.settled]"
+    }
+   ]
+  },
+  {
+   "name": "RC-hub-end",
+   "what": "a stop of the Hub does not wait for that end",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": ".map((taskId) => this.stop(taskId, why)));",
+     "new": ".map((taskId) => this.stop(taskId, why, { end: false })));"
+    }
+   ]
+  },
+  {
+   "name": "RC-stop-settled",
+   "what": "a stop does not wait until the result is saved",
+   "equivalent": "the result of a build that was given up is saved in the microtasks and the one write after the abort, and delete() and shutdown() wait for the writes of the task themselves",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "(end ? [build.settled, build.ended] : [build.settled])",
+     "new": "(end ? [build.ended] : [build.settled])"
+    }
+   ]
+  },
+  {
+   "name": "RC-again-end",
+   "what": "the end of a run waits for the end of the build of an earlier one",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "'superseded', { end: false });",
+     "new": "'superseded');"
+    }
+   ]
+  },
+  {
+   "name": "RC-way-end",
+   "what": "a run does not wait for the end of the builds it gave up",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "build.giveUp('superseded');\n  await atMost(limit, ended, stopped);\n",
+     "new": "build.giveUp('superseded');\n"
+    }
+   ]
+  },
+  {
+   "name": "RC-way-forever",
+   "what": "a run waits for that end for ever",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "build.giveUp('superseded');\n  await atMost(limit, ended, stopped);\n",
+     "new": "build.giveUp('superseded');\n  await Promise.race([ended, stopped]);\n"
+    }
+   ]
+  },
+  {
+   "name": "RC-way-written",
+   "what": "a build that has its bytes is given up",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (builds.get(rootKey(root))?.has(build)) build.giveUp",
+     "new": "build.giveUp"
+    }
+   ]
+  },
+  {
+   "name": "RC-way-elsewhere",
+   "what": "a run gives up the builds of every workspace",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "  const going = [...(builds.get(rootKey(root)) ?? [])];\n",
+     "new": "  const going = [...builds.values()].flatMap((set) => [...set]);\n"
+    }
+   ]
+  },
+  {
+   "name": "RC-way-aborted",
+   "what": "a run that was stopped before gives builds up",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "if (!going.length || signal?.aborted) return;",
+     "new": "if (!going.length) return;"
+    }
+   ]
+  },
+  {
+   "name": "RC-way-stopped",
+   "what": "a run that was stopped meanwhile gives builds up",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "  if (signal?.aborted) return;\n  for (const build",
+     "new": "  for (const build"
+    }
+   ]
+  },
+  {
+   "name": "RC-registry",
+   "what": "a build that ended is still said to go on",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "    void Promise.all([build.settled, build.ended]).then(() => this.going.delete(build));\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "RC-registry-early",
+   "what": "a build that was given up is forgotten before its end",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "void Promise.all([build.settled, build.ended]).then(",
+     "new": "void build.settled.then("
+    }
+   ]
+  },
+  {
+   "name": "RC-registry-root",
+   "what": "a build that was given up is not waited for by a run",
+   "patches": [
+    {
+     "file": "lib/proof/hub-pack.mjs",
+     "old": "      ended: work.then(() => {}, () => {}).then(() => {",
+     "new": "      ended: unless(controller.signal, work).then(() => {}, () => {}).then(() => {"
+    }
+   ]
+  }
+ ]
+}
