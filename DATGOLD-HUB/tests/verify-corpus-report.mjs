@@ -109,7 +109,7 @@ const TAGS = {
   html: ['lang'], head: [], meta: ['charset', 'http-equiv', 'content', 'name'], title: [], style: [], body: [], header: [], main: [], footer: [], nav: ['aria-label'], aside: ['class', 'role'], section: ['id'],
   h1: [], h2: [], p: ['class'], ul: [], li: [], table: ['class'], thead: [], tbody: [], tr: ['id'], th: ['scope'], td: [], code: ['class', 'title'], pre: ['class'], span: ['class'], div: ['class'], a: ['href', 'lang', 'hreflang'], br: [], strong: [],
 };
-const CLASSES = new Set(['banner', 'verdict pass', 'verdict warn', 'verdict fail', 'note', 'scroll', 'facts', 'wide', 'word', 'verbatim', 'chip held', 'chip false', 'chip plain', 'chip error', 'chip gap']);
+const CLASSES = new Set(['banner', 'verdict plain', 'verdict warn', 'note', 'scroll', 'facts', 'wide', 'word', 'verbatim', 'chip held', 'chip false', 'chip plain', 'chip error', 'chip gap']);
 const unescapeHtml = (value) => value.replace(/&(amp|lt|gt|quot|#39);/g, (_, name) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[name]);
 
 /** Reads a page with no tolerance: only the tags and attributes above, balanced, every `&` one of five entities. */
@@ -381,7 +381,7 @@ const FORBIDDEN = {
   assert.equal(shown(rateOf(2, 4), 'vi'), '2/4 = 50,0% (95%: 15,0% – 85,0%)');
   assert.equal(shown(rateOf(0, 3), 'en'), '0/3 = 0% (95%: 0% – 56.1%)');
   assert.equal(shown(rateOf(3, 3), 'en'), '3/3 = 100% (95%: 43.9% – 100%)');
-  assert.equal(shown(rateOf(1, 6000), 'en'), '1/6,000 = <0.1% (95%: <0.1% – <0.1%)');
+  assert.equal(shown(rateOf(1, 6000), 'en'), '1/6,000 = <0.1% (95%: <0.1% – 0.1%)');
   for (const lang of LANGS) {
     assert.equal(shown(rateOf(0, 0), lang), WORDS[lang]['rate.none']);
     assert.doesNotMatch(WORDS[lang]['rate.none'], /%/, 'no rate is not 0%');
@@ -441,7 +441,7 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
   const index = textOf(goldenSite.pages.get('en/index.html'));
   const [a, b, c] = GOLDEN_METRICS.agents;
   assert.deepEqual([a.flaky, a.false_done_flaky, a.timed_out, c.scoring_errors, b.cost_per_verified_task.status, c.repeats.complete], [1, 1, 1, 1, 'unknown_cost', false], '(premise) the set holds each');
-  const rowOf = (page, section, first) => { const at = page.indexOf(`<section id="${section}">`); const body = page.slice(at, page.indexOf('</section>', at)); return body.split('<tr>').find((row) => row.includes(`>${first}</`)); };
+  const rowOf = (page, section, first) => { const at = page.indexOf(`<section id="${section}">`); const body = page.slice(at, page.indexOf('</section>', at)); return body.split('<tr>').find((row) => row.includes(`>${first}</`)).split('</tr>')[0]; };
   const apart = (agent) => rowOf(goldenFiles.get('en/index.html'), 'apart', agent).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   assert.equal(apart('agent-a'), `agent-a 0 1 1 1 1 1 0`, 'scoring errors, flaky, flaky false DONE, timed out, BLOCKED, no marker, missing runs');
   assert.equal(apart('agent-b'), `agent-b 0 0 0 0 0 6 0`);
@@ -496,7 +496,7 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
   const changed = async (edit, what, line) => refused({ results: await writeJson('changed.jsonl', edit(Buffer.from(bytes))) }, 'results_differ', what, (error) => assert.match(error.message, new RegExp(`line ${line}\\b`), error.message));
   await changed((value) => { value[10] ^= 1; return value; }, 'one bit of the first line', 1);
   await changed((value) => { value[value.length - 3] ^= 1; return value; }, 'one bit of the last line', GOLDEN_PACKS.length);
-  await changed((value) => value.subarray(0, value.length - 1), 'no line break at the end', GOLDEN_PACKS.length + 1);
+  await changed((value) => value.subarray(0, value.length - 1), 'no line break at the end', GOLDEN_PACKS.length);
   await changed((value) => Buffer.concat([value, Buffer.from('\n')]), 'an empty line more', GOLDEN_PACKS.length + 1);
   await changed(() => Buffer.alloc(0), 'an empty file', 1);
   await changed((value) => Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), value]), 'a byte order mark', 1);
@@ -515,7 +515,7 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
   await refused({ packs: await copyPacks((folder) => fs.rm(path.join(folder, first.name))) }, 'results_differ', 'a pack left out');
   await refused({ packs: await copyPacks((folder) => fs.writeFile(path.join(folder, 'again.json'), first.bytes)) }, 'duplicate_run', 'a run twice');
   await refused({ corpus: ALPHA_CORPUS }, 'unknown_task', 'packs of another corpus');
-  await refused({ corpus: base }, 'corpus_invalid', 'no corpus');
+  await refused({ corpus: await newFolder('empty') }, 'corpus_invalid', 'no corpus');
   // the registration
   const given = readFileSync(GOLDEN_OPTIONS.preregistration, 'utf8');
   const document = JSON.parse(given);
@@ -585,10 +585,18 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
   assert.ok(!readdirSync(GOLDEN_OPTIONS.packs).includes('out') && !readdirSync(GOLDEN_OPTIONS.responses).includes('out'));
   // the date, and arguments that are no arguments
   for (const date of ['2026-02-30', '25-11-2026', '2026-11-25T00:00:00Z', '', 20261125, 'today', '2026-11-25\n']) await refused({ date }, 'bad_date', `the date ${JSON.stringify(date)}`);
-  for (const change of [{ corpus: undefined }, { packs: null }, { results: 5 }, { out: '' }, { extra: 1 }, { tag: 'x', preregistration: null }, { tag: '' }]) await refused(change, 'bad_argument', JSON.stringify(change));
-  // a pack that changes while the report is made
+  for (const change of [{ corpus: undefined }, { packs: null }, { results: 5 }, { out: '' }, { results: 'a\u0000b' }, { out: 'a\u0000b' }, { responses: '' }, { extra: 1 }, { tag: 'x', preregistration: null }, { tag: '' }]) await refused(change, 'bad_argument', JSON.stringify(change));
+  // an input that is there and cannot be read: the results, a pack, the registration, a response, a task
   const fsp = (await import('node:fs/promises')).default;
   const readFile = fsp.readFile;
+  for (const name of ['results.jsonl', 'run-0003.json', 'preregistration.json', 'agent-agent-b.txt', 'oracle.patch']) {
+    fsp.readFile = async (file, ...rest) => { if (String(file).endsWith(name)) throw Object.assign(new Error('EACCES: permission denied, open'), { code: 'EACCES', errno: -13, syscall: 'open' }); return readFile(file, ...rest); };
+    try { await refused({}, 'input_unreadable', `${name} cannot be read`, (error) => assert.match(error.message, /EACCES/)); } finally { fsp.readFile = readFile; }
+  }
+  // a mistake of the code is not a refusal
+  fsp.readFile = async () => { throw new TypeError('a mistake'); };
+  try { await assert.rejects(report.generateReport(options), TypeError); } finally { fsp.readFile = readFile; }
+  // a pack that changes while the report is made
   const racing = await copyPacks(() => {});
   let seen = 0;
   fsp.readFile = async (file, ...rest) => {
@@ -597,6 +605,18 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
     return value;
   };
   try { await refused({ packs: racing }, 'packs_changed', 'a pack that changed after it was scored'); } finally { fsp.readFile = readFile; }
+  const small = [agentPack(TASKS[0])];
+  const smallFiles = packFiles(small);
+  const smallJsonl = scored(TASKS, small).jsonl;
+  const inMemory = (change, code, what) => { assert.throws(() => report.readData({ tasks: TASKS, jsonl: smallJsonl, packs: smallFiles.map((file) => file.bytes), ...change }), (error) => error instanceof ReportError && error.code === code, what); refusals += 1; };
+  inMemory({ packs: [] }, 'packs_changed', 'a pack that is gone');
+  inMemory({ packs: [packFiles([agentPack(TASKS[0], { message: 'other' })])[0].bytes] }, 'packs_changed', 'a pack that is another one');
+  inMemory({ tasks: [{ ...TASKS[0], sha256: 'f'.repeat(64) }, TASKS[1]] }, 'corpus_changed', 'a task that is another version');
+  inMemory({ tasks: [TASKS[1]] }, 'corpus_changed', 'a task that is gone');
+  inMemory({ responses: new Map([['agent-b', report.readResponse(Buffer.from('x'))]]) }, 'response_unknown_agent', 'a response of nobody');
+  inMemory({ registration: registrationOf(TASKS, [AGENTS[1]]) }, 'agent_not_registered', 'a run of an agent that is not registered');
+  // a registered agent that never ran may have a response
+  assert.equal(report.readData({ tasks: TASKS, jsonl: smallJsonl, packs: smallFiles.map((file) => file.bytes), registration: registrationOf(TASKS), responses: new Map([['agent-b', report.readResponse(Buffer.from('x'))]]) }).responses.size, 1);
   ok(`${refusals} refusals, each with its code and nothing left behind: results.jsonl with one changed byte, packs, the registration, responses, the output folder, the date, a pack that changes meanwhile`);
 }
 
@@ -678,7 +698,7 @@ const goldenSite = checkSite(goldenFiles, new Set(listFiles(goldenOut)), 'golden
 // =====================================================================================================================
 // 7. the banner, and a real freeze
 // =====================================================================================================================
-const bannerOf = (page) => page.pieces.filter((piece) => piece.tags.includes('aside')).map((piece) => piece.text).join('');
+const bannerOf = (page) => page.pieces.filter((piece) => piece.tags.includes('aside')).map((piece) => piece.text).join('').trim();
 /** Asserts that every page (and, in the Markdown report, every part that is a page) has the banner with `reasons`, or that none has one. */
 function checkBanner(site, reasons, label) {
   for (const [name, page] of site.pages) {
@@ -756,7 +776,13 @@ function checkBanner(site, reasons, label) {
     assert.match(textOf(site.pages.get(`${lang}/index.html`)), says('registration.unsigned', lang));
     assert.ok(!files.get(`${lang}/index.html`).includes('corpus-test@example.invalid'), 'nobody\'s address');
     assert.ok(codesOf(site.pages.get(`${lang}/methods.html`)).includes(commit), `${lang}: the methods name the scoring commit`);
+    assert.ok(textOf(site.pages.get(`${lang}/methods.html`)).includes('--results results.jsonl --preregistration preregistration.json --tag <tag> --out <new folder>'), `${lang}: how to make a registered report again`);
   }
+  // the variables of a Git process that may have started this one do not lead to another repository
+  process.env.GIT_DIR = path.join(work, 'nowhere');
+  process.env.GIT_CEILING_DIRECTORIES = repo;
+  try { await report.generateReport({ ...options, out: path.join(work, 'git-dir') }); } finally { delete process.env.GIT_DIR; delete process.env.GIT_CEILING_DIRECTORIES; }
+  assert.equal(readFileSync(path.join(work, 'git-dir', 'report.en.md'), 'utf8'), files.get('report.en.md'));
   // a tag that is not this registration's is refused
   const base = path.join(work, 'refused');
   await fs.mkdir(base);
@@ -910,6 +936,9 @@ function checkBanner(site, reasons, label) {
   const free = readSite(dataOf(TASKS, fullRuns(TASKS, 'agent-a', () => ({ cost: { currency: 'USD', knownSubtotal: 0, complete: true }, passes: 0 }))), 'free');
   assert.ok(page(free, 'index.html').includes('0.0000 USD'));
   assert.match(page(free, 'index.html'), says('cost.none_passed'));
+  // an amount and a share too small for their decimals are not shown as nothing (and a < of the report is escaped in Markdown)
+  const tiny = readSite(dataOf(TASKS, fullRuns(TASKS, 'agent-a', () => ({ cost: { currency: 'USD', knownSubtotal: 0.000001, complete: true } }))), 'tiny');
+  assert.ok(page(tiny, 'index.html').includes('<0.0001 USD') && tiny.files.get('report.en.md').includes('\\<0.0001 USD'));
   // 0 of n and n of n
   const zero = page(readSite(dataOf(TASKS, fullRuns(TASKS, 'agent-a')), 'n of n'), 'index.html');
   assert.ok(zero.includes('6/6 = 100% (95%: 61.0% – 100%)') && zero.includes('0/6 = 0% (95%: 0% – 39.0%)'));
@@ -960,6 +989,9 @@ function checkBanner(site, reasons, label) {
     return [...site.files.keys()];
   });
   assert.deepEqual(orders[0], orders[1]);
+  const backwards = [...AGENTS].reverse();
+  const site = readSite(dataOf(TASKS, fullRuns(TASKS, 'agent-b'), { registration: registered(TASKS, backwards) }), 'registered backwards');
+  assert.deepEqual([...site.files.get('en/responses.html').matchAll(/<section id="response-(agent-[a-z])">/g)].map((match) => match[1]), ['agent-a', 'agent-b'], 'by id, not as registered');
   ok('agents stand in the order of their ids in every table, whatever they scored');
 }
 
@@ -1097,7 +1129,7 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
   // without a date there is none, and nothing else changes
   const undated = report.renderFiles(report.readData({ tasks: EXAMPLE_TASKS, jsonl: GOLDEN_JSONL, packs: files.map((file) => file.bytes), registration, responses, date: null }));
   assert.ok(!/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(undated.get('report.en.md')), 'a report without a date names none');
-  assert.deepEqual([...undated].filter(([name, body]) => body !== goldenFiles.get(name)).map(([name]) => name).sort(), ['en/index.html', 'report.en.md', 'report.vi.md', 'vi/index.html'], 'the date stands on the index alone');
+  assert.deepEqual([...undated].filter(([name, body]) => body !== goldenFiles.get(name)).map(([name]) => name).sort(), ['en/index.html', 'en/methods.html', 'report.en.md', 'report.vi.md', 'vi/index.html', 'vi/methods.html'], 'the date stands on the index and in the command that makes the report again');
   // what it is given is not changed
   const data = dataOf(EXAMPLE_TASKS, GOLDEN_PACKS, { registration, responses });
   const before = JSON.stringify([data.tasks, data.results, data.metrics, data.registration]);
@@ -1144,14 +1176,16 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
 {
   const fsp = (await import('node:fs/promises')).default;
   const base = await newFolder('failing');
-  const { writeFile, rename } = fsp;
+  const { writeFile, rename, mkdir: savedMkdir } = fsp;
   for (const nth of [1, 5, 25, 40]) {
     let calls = 0;
-    fsp.writeFile = async (...args) => { calls += 1; if (calls === nth) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }); return writeFile(...args); };
-    try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'out') }), /ENOSPC/, `write ${nth} fails`); } finally { fsp.writeFile = writeFile; }
+    fsp.writeFile = async (...args) => { calls += 1; if (calls === nth) throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC', syscall: 'write' }); return writeFile(...args); };
+    try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'out') }), (error) => error instanceof ReportError && error.code === 'write_failed' && /ENOSPC/.test(error.message), `write ${nth} fails`); } finally { fsp.writeFile = writeFile; }
     assert.ok(calls >= nth, `(premise) write ${nth} was reached`);
     assert.deepEqual(readdirSync(base), [], `write ${nth} fails: nothing is left`);
   }
+  fsp.mkdir = async () => { throw Object.assign(new Error('EACCES: permission denied, mkdir'), { code: 'EACCES', syscall: 'mkdir' }); };
+  try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'out') }), (error) => error instanceof ReportError && error.code === 'write_failed'); } finally { fsp.mkdir = savedMkdir; }
   // the folder appears while the report is made: it is not written over
   fsp.rename = async (from, to) => { await fsp.mkdir(to, { recursive: true }); await writeFile(path.join(to, 'mine.txt'), 'mine'); return rename(from, to); };
   try { await assert.rejects(report.generateReport({ ...GOLDEN_OPTIONS, out: path.join(base, 'out') }), (error) => error instanceof ReportError && error.code === 'out_exists'); } finally { fsp.rename = rename; }
@@ -1167,7 +1201,7 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
   const argv = ['--corpus', EXAMPLES, '--packs', GOLDEN_OPTIONS.packs, '--results', GOLDEN_OPTIONS.results];
   const made = node(REPORT, [...argv, '--out', path.join(work, 'out')]);
   assert.equal(made.status, 0, made.stderr);
-  assert.match(made.stdout, /^report written to .*out \(\d+ pages, 22 run packs\): not registered, synthetic data\n$/);
+  assert.match(made.stdout, /^report written to .*out \(\d+ pages, 19 run packs\): not registered, synthetic data\n$/);
   const missing = node(REPORT, [...argv, '--out', path.join(work, 'out')]);
   assert.equal(missing.status, 3);
   assert.match(missing.stderr, /^refused: out_exists: /);

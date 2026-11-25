@@ -33,6 +33,9 @@ DATGOLD-HUB/tests/fixtures/proof-reproduce/*.pack.json -text
 DATGOLD-HUB/tests/fixtures/proof-render/*.pack.json -text
 DATGOLD-HUB/tests/fixtures/proof-render/golden/** -text
 
+# The golden report of the benchmark corpus, made of synthetic run packs (corpus/REPORT.md): compared byte for byte.
+DATGOLD-HUB/tests/fixtures/corpus-report/golden/** -text
+
 # The pinned copy of the official ACP JSON Schema: SOURCE.json holds its SHA-256, so no checkout may convert its line ends (core.autocrlf on a Windows runner would break the hash).
 # It is data copied from the SDK, not code written here: GitHub collapses its diff.
 DATGOLD-HUB/lib/acp/schema/** -text

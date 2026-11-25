@@ -3,9 +3,9 @@
 Plan task P7 pod-36. `tools/run-sandbox.mjs` runs one agent on one task in a folder of its own and hands back the agent's diff;
 `tools/score-checkout.mjs` scores a diff in a fresh checkout that never sees the agent's tree. They share `tools/sandbox-core.mjs` (the
 run folder, the base, the profile, the process trees) and `tools/tar.mjs` (the archive reader). **What exists today:** both tools, their
-command lines and their tests with scripted agents. **What does not exist yet:** the adapters that start a vendor's CLI (pod-37) and the
-report (pod-39); the scoring of the runs and the metrics (pod-38) are in [SCORING.md](SCORING.md). No real agent and no model has been
-run through them.
+command lines and their tests with scripted agents. **What does not exist yet:** the adapters that start a vendor's CLI (pod-37); the scoring
+of the runs and the metrics (pod-38) are in [SCORING.md](SCORING.md) and the report (pod-39) is in [REPORT.md](REPORT.md). No real agent
+and no model has been run through them.
 
 **This is not an OS sandbox.** The agent runs as the same user as the tools, with the same rights: it can read the real profile by its
 absolute path, reach the Windows Credential Manager, DPAPI-protected stores, an SSH or GPG agent and the network, see and signal other
