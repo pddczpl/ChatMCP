@@ -754,7 +754,7 @@ function reencoded(bytes, edit, { acceptance } = {}) {
   assert.deepEqual(verdict({ attempts: [attempt({ exit: 1 })], shell: 'powershell' }), ['divergent', 'shell_differs']);
   assert.deepEqual(verdict({ attempts: [attempt({ exit: 1, toolchain: { node: '22.12.0', python: null, dotnet: null, git: '2.50.0' } })] }), ['divergent', 'toolchain_mismatch']);
   assert.match(verdictOf({ ...base, attempts: [attempt({ exit: 1, toolchain: { node: '22.12.0', python: null, dotnet: null, git: '2.50.0' } })] }).detail, /node 24\.1\.0 in the pack, 22\.12\.0 here/);
-  assert.deepEqual(verdict({ attempts: [attempt({ exit: 2, toolchain: { node: '24.1.0', python: '3.12.0', dotnet: null, git: '2.50.0' } })] }), ['divergent', 'exit_differs'], 'a tool the pack did not see is no mismatch');
+  assert.deepEqual(verdict({ attempts: [attempt({ exit: 2, toolchain: { node: '24.1.0', python: '3.9.18', dotnet: null, git: '2.50.0' } })] }), ['divergent', 'exit_differs'], 'a tool the pack did not see is no mismatch');
   assert.deepEqual(verdict({ attempts: [attempt({ exit: null, signal: 'SIGKILL' })] }), ['divergent', 'exit_differs']);
   assert.equal(verdictOf({ ...base, attempts: [attempt({ exit: 7 })] }).detail, 'exit 0 in the pack, exit 7 here');
   // the outcome of a run, one text each: a run ended by a signal reads as the signal, not as its (null) exit code

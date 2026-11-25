@@ -236,7 +236,7 @@ try {
 
     // the checks of a click are all still made: the release must be the one on offer
     feed.requests.length = 0;
-    await refuses(w.downloader.start({ version: '3.12.0', again: true }), 'update_download_stale', 'again for a release that is not the one on offer', 409);
+    await refuses(w.downloader.start({ version: '3.99.0', again: true }), 'update_download_stale', 'again for a release that is not the one on offer', 409);
     assert.equal(w.downloader.status().state, 'ready', 'a refusal leaves what is ready as it was');
     assert.equal(installerRequests().length, 0);
     await refuses(w.downloader.start({ version: 'latest', again: true }), 'update_download_invalid', 'and for something that is not a release version', 400);
@@ -400,7 +400,7 @@ try {
       // an offer that says it is available although it is not newer (a bug elsewhere, or a state that was edited): this module checks the version itself
       const lying = (running) => createUpdateDownloader({ directory: w.directory, currentVersion: running, feedUrl: feed.url, releaseKeys: trusted, offer: () => ({ latest: '3.11.0', available: true, signature: 'valid' }), platform: 'win32', freeBytes: async () => 1e12 });
       await refuses(lying('3.11.0').start({ version: '3.11.0' }), 'update_download_not_newer', 'an offer for the version that runs', 409);
-      await refuses(lying('3.12.0').start({ version: '3.11.0' }), 'update_download_not_newer', 'an offer for an older version', 409);
+      await refuses(lying('3.99.0').start({ version: '3.11.0' }), 'update_download_not_newer', 'an offer for an older version', 409);
       assert.equal(installerRequests().length, 0);
       const pre = lying('3.11.0-rc.1');
       await pre.load();
@@ -738,7 +738,7 @@ try {
     const root = w.root;
     const plant = (name, files) => { const directory = path.join(root, name); fs.mkdirSync(directory, { recursive: true }); for (const [file, text] of Object.entries(files)) fs.writeFileSync(path.join(directory, file), text); };
     // leftovers of a Hub that was killed in the middle of a download
-    plant('3.12.0', { 'DatGoldSetup.exe.part': 'half' });
+    plant('3.99.0', { 'DatGoldSetup.exe.part': 'half' });
     plant('3.9.0', { 'DatGoldSetup.exe': 'an old installer', 'state.json': '{}' });
     plant('3.11.5', {});
     fs.writeFileSync(path.join(root, '3.8.0'), 'a file where a folder should be');
@@ -764,17 +764,17 @@ try {
     await settled(two.downloader, ['ready']);
     const older = folder();
     fs.cpSync(two.folderOf(), path.join(older, '3.11.0'), { recursive: true });
-    publish(releaseFor({ version: '3.12.0', size: 1 * MiB, seed: 29 }));
+    publish(releaseFor({ version: '3.99.0', size: 1 * MiB, seed: 29 }));
     await two.recheck();
-    await two.downloader.start({ version: '3.12.0' });
+    await two.downloader.start({ version: '3.99.0' });
     await settled(two.downloader, ['ready']);
     fs.cpSync(path.join(older, '3.11.0'), path.join(two.root, '3.11.0'), { recursive: true });
-    assert.ok(fs.existsSync(path.join(two.root, '3.11.0', 'state.json')) && fs.existsSync(path.join(two.root, '3.12.0', 'state.json')), 'both folders are finished');
+    assert.ok(fs.existsSync(path.join(two.root, '3.11.0', 'state.json')) && fs.existsSync(path.join(two.root, '3.99.0', 'state.json')), 'both folders are finished');
     const kept = await another(two).load();
-    assert.deepEqual(kept, { state: 'ready', version: '3.12.0', bytes: 1 * MiB }, 'of two downloads that both prove themselves the newer is the one that is ready');
+    assert.deepEqual(kept, { state: 'ready', version: '3.99.0', bytes: 1 * MiB }, 'of two downloads that both prove themselves the newer is the one that is ready');
     assert.ok(!fs.existsSync(path.join(two.root, '3.11.0')), 'and the older one is removed');
-    fs.cpSync(two.folderOf('3.12.0'), path.join(two.root, '3.10.9'), { recursive: true });
-    assert.equal((await another(two).load()).version, '3.12.0');
+    fs.cpSync(two.folderOf('3.99.0'), path.join(two.root, '3.10.9'), { recursive: true });
+    assert.equal((await another(two).load()).version, '3.99.0');
     assert.ok(!fs.existsSync(path.join(two.root, '3.10.9')), 'a folder of an older version is removed even when it looks finished');
     // names in the folder of updates that are not versions are not touched by a download either
     {
@@ -865,7 +865,7 @@ try {
     assert.equal((await another(applies, { currentVersion: '3.11.0' }).load()).state, 'idle', 'the version that runs is already the one downloaded (the update was installed): nothing to offer');
     assert.equal(fs.existsSync(applies.folderOf()), false);
     const newer = await finished();
-    assert.equal((await another(newer, { currentVersion: '3.12.0' }).load()).state, 'idle', 'a Hub that is newer than the download');
+    assert.equal((await another(newer, { currentVersion: '3.99.0' }).load()).state, 'idle', 'a Hub that is newer than the download');
     const other = await finished();
     assert.equal((await another(other).load()).state, 'ready');
     assert.equal((await another(other, { releaseKeys: parseReleaseKeys(keyFileText([throwawayKey().entry])).keys }).load()).state, 'idle', 'a Hub that no longer trusts the key that signed it (a key list that changed) does not call it ready');

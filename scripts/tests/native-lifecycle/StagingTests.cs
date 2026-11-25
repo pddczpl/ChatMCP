@@ -181,7 +181,7 @@ internal static class StagingTests
         kit.Check(CodeOf(() => Verify(empty)) == "no_update", "an empty folder of updates: nothing to apply");
         var junk = kit.Folder("updates-junk");
         foreach (var name in new[] { "notes", "3.11", "v3.11.0", "03.11.0", "3.11.0.1", "3.11.0.part", "3.11.0-rc.1", "latest" }) Directory.CreateDirectory(Path.Combine(junk, name));
-        File.WriteAllText(Path.Combine(junk, "3.12.0"), "a file, not a folder");
+        File.WriteAllText(Path.Combine(junk, "3.99.0"), "a file, not a folder");
         kit.Check(CodeOf(() => Verify(junk)) == "no_update", "folders and files that are not named like a release are not candidates (and a file named like one is not a folder)");
         var aFile = Path.Combine(kit.Scratch, "updates-is-a-file"); File.WriteAllText(aFile, "x");
         kit.Check(CodeOf(() => Verify(aFile)) == "staging_unsafe", "a folder of updates that is a file is refused");
@@ -234,7 +234,7 @@ internal static class StagingTests
         }, "no-signature") == "bad_signature", "no signature in the folder: refused");
         kit.Check(Case(folder => Release(folder, owner, "3.11.0", installer, manifestOverride: new byte[UpdateStaging.MaxManifestBytes + 1]), "manifest-too-big") == "bad_manifest", "a manifest over 64 KiB is refused without being read whole");
         kit.Check(Case(folder => Release(folder, owner, "3.11.0", installer, signatureOverride: new byte[ReleaseSignature.MaxFileBytes + 1]), "signature-too-big") == "bad_signature", "and a signature file over 4 KiB");
-        kit.Check(Case(folder => Release(folder, owner, "3.12.0", installer, folder: "3.11.0"), "version-differs-from-folder") == "bad_manifest", "a signed manifest of another release than the folder says (an old release under a new name) is refused");
+        kit.Check(Case(folder => Release(folder, owner, "3.99.0", installer, folder: "3.11.0"), "version-differs-from-folder") == "bad_manifest", "a signed manifest of another release than the folder says (an old release under a new name) is refused");
         {
             var folder = kit.Folder("updates-same-version"); Release(folder, owner, "3.10.2", installer);
             kit.Check(CodeOf(() => { using var update = Verify(folder); }) == "not_newer", "the version that is running is not an update");
@@ -289,26 +289,26 @@ internal static class StagingTests
 
         // ---- more than one folder
         {
-            var both = kit.Folder("updates-two"); Release(both, owner, "3.11.0", installer); Release(both, owner, "3.12.0", installer);
-            kit.Check(CodeOf(() => { using var update = Verify(both, identity: path => Genuine(path.Contains("3.12.0") ? "3.12.0" : "3.11.0")); }) == "ambiguous", "two folders that both prove themselves: the shell does not choose, because the page showed one of them");
+            var both = kit.Folder("updates-two"); Release(both, owner, "3.11.0", installer); Release(both, owner, "3.99.0", installer);
+            kit.Check(CodeOf(() => { using var update = Verify(both, identity: path => Genuine(path.Contains("3.99.0") ? "3.99.0" : "3.11.0")); }) == "ambiguous", "two folders that both prove themselves: the shell does not choose, because the page showed one of them");
             foreach (var release in Directory.GetDirectories(both)) File.Delete(Path.Combine(release, "DatGoldSetup.exe"));
             kit.Check(true, "and it holds neither of them: both installers can be deleted at once (an installer that stays held is a folder nobody can clean)");
             var one = kit.Folder("updates-one-good"); Release(one, owner, "3.11.0", installer); Release(one, owner, "3.9.0", installer);
             using (var update = Verify(one)) kit.Check(update.Version.ToString() == "3.11.0", "one that proves itself and an old one that is not newer: the first is the update");
-            var tampered = kit.Folder("updates-one-tampered"); Release(tampered, owner, "3.11.0", installer); var bad = Release(tampered, owner, "3.12.0", (byte[])installer.Clone(), declaredSha: new string('0', 64));
+            var tampered = kit.Folder("updates-one-tampered"); Release(tampered, owner, "3.11.0", installer); var bad = Release(tampered, owner, "3.99.0", (byte[])installer.Clone(), declaredSha: new string('0', 64));
             using (var update = Verify(tampered)) kit.Check(update.Version.ToString() == "3.11.0", "and so is one next to a folder that does not prove itself");
-            var failing = kit.Folder("updates-two-failing"); Release(failing, owner, "3.11.0", installer, declaredSha: new string('0', 64)); Release(failing, owner, "3.12.0", installer, signatureOverride: new byte[] { 1 });
+            var failing = kit.Folder("updates-two-failing"); Release(failing, owner, "3.11.0", installer, declaredSha: new string('0', 64)); Release(failing, owner, "3.99.0", installer, signatureOverride: new byte[] { 1 });
             kit.Check(CodeOf(() => { using var update = Verify(failing); }) == "bad_signature", "when none proves itself the page is told why the NEWEST one does not");
         }
         // a folder that fails in a way nobody foresaw (here the version resource of its installer cannot be read at all) proves nothing: it is neither a reason to lose the one that does prove itself nor a way
         // for an exception of any type to leave the shell, and a folder that proved itself before it is not left held
         {
-            var odd = kit.Folder("updates-unforeseen"); Release(odd, owner, "3.12.0", installer); var older = Release(odd, owner, "3.11.0", installer);
-            InstallerIdentity Unforeseen(string file) => file.Contains("3.11.0") ? throw new InvalidOperationException("nobody expected this") : Genuine("3.12.0");
-            using (var update = Verify(odd, identity: Unforeseen)) kit.Check(update.Version.ToString() == "3.12.0" && update.IsHeld, "a folder that fails in an unforeseen way next to one that proves itself: the one that proves itself is the update");
+            var odd = kit.Folder("updates-unforeseen"); Release(odd, owner, "3.99.0", installer); var older = Release(odd, owner, "3.11.0", installer);
+            InstallerIdentity Unforeseen(string file) => file.Contains("3.11.0") ? throw new InvalidOperationException("nobody expected this") : Genuine("3.99.0");
+            using (var update = Verify(odd, identity: Unforeseen)) kit.Check(update.Version.ToString() == "3.99.0" && update.IsHeld, "a folder that fails in an unforeseen way next to one that proves itself: the one that proves itself is the update");
             kit.Check(CodeOf(() => { using var update = Verify(odd, identity: _ => throw new InvalidOperationException("nobody expected this")); }) == "staging_unsafe", "and when nothing proves itself the refusal is staging_unsafe, a code of the list, never the exception");
             File.Delete(older);
-            File.Delete(Path.Combine(odd, "3.12.0", "DatGoldSetup.exe"));
+            File.Delete(Path.Combine(odd, "3.99.0", "DatGoldSetup.exe"));
             kit.Check(true, "and nothing of either is held after that refusal: both installers can be deleted");
         }
         // at most 16 folders are looked at, the newest first: the cost of a look is bounded, and a good older release behind 16 newer folders is not found
