@@ -87,6 +87,12 @@ try {
     check(Date.now() - began < 5000, 'a delete does not wait for ever');
     equal(listing(busy), ['lock'], 'and takes its own baseline all the same');
     await other.release();
+    // a workspace whose baselines somebody removed by hand
+    const bare = await run(manager, await good('bare'), [done], { prompt: 'Look around.' });
+    await settled(bare.agent, bare.id);
+    await fs.rm(folderOf(manager.workspace), { recursive: true });
+    await bare.agent.delete(bare.id);
+    check(!fsSync.existsSync(folderOf(manager.workspace)), 'a delete makes no folder there');
   });
 
   await section('3. a build that was given up comes to its end a moment later: who waits for that, and who does not', async () => {
