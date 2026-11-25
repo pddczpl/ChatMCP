@@ -378,6 +378,22 @@ try {
     check(!/scripted-1|calc\.test/.test(html.body + md.body) && html.body.includes(proof.digest) && md.body.includes(proof.digest), 'nor in a report, which still shows the whole digest');
     manager.secrets = before;
     equal((await ask()).json.masked, false);
+    // a registered secret that has the shape of a digest (a key of 64 hex digits) is a secret, not an id; so is a key of 32 digits in a text of that shape
+    const key = '0123456789abcdef'.repeat(4).replace(/^0/, 'f');
+    const half = '8d4f1c0b7a96e352'.repeat(2);
+    const shaped = `version: 1\ncriteria:\n  - id: hex\n    text: "${key}"\n    checks:\n      - run: "node calc.test.js"\n  - id: part\n    text: "${half}${'a'.repeat(32)}"\n    checks:\n      - run: "node calc.test.js"\n`;
+    await trust(manager, shaped);
+    const hex = await run(manager, await good('hex', { acceptance: shaped }), [done], { prompt: 'Look around.' });
+    await settled(hex.agent, hex.id);
+    const of = { id: hex.id, task: () => hex.agent.get(hex.id) };
+    const tree = JSON.parse((await ask('', of)).body).statement.subject[1].digest.gitTree;
+    for (const format of ['md', 'html']) { const { body } = await ask(`format=${format}&lang=en`, of); check(body.includes(key) && body.includes(half), `(premise) the texts are in the ${format} report`); }
+    manager.secrets = [...before, key, half, tree];
+    const known2 = hex.agent.get(hex.id);
+    for (const format of ['md', 'html']) { const { body } = await ask(`format=${format}&lang=en`, { ...of, task: () => known2 }); check(!body.includes(key) && !body.includes(half) && body.includes('REDACTED'), `neither is in the ${format} report once it is registered`); }
+    const inJson = await ask('', { ...of, task: () => known2 });
+    equal([inJson.body.includes(tree), inJson.json.statement.subject[1].digest.gitTree, inJson.json.masked], [false, '[REDACTED]', true], 'nor a registered secret of that shape in the json');
+    manager.secrets = before;
   });
 
   await manager.shutdown();

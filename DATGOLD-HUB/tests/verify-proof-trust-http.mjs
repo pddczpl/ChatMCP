@@ -1,6 +1,7 @@
 // The owner's trust in an acceptance file over HTTP (plan task P5 pod-33, docs/PROOF-HUB-API.md): a real Hub process on a free port (never 3007), the real `chatmcp verify`
 // command line on the same data folder, a scripted model behind the strict mock, the Hub's own MCP listener. What must hold:
 //   1. GET /api/proof/acceptance shows the file that is there: its sha256, criteria and commands, whether it is trusted; what cannot be read says why
+//      every text is shown whole but for the registered secrets, and what is not shown whole says so where it stands
 //   2. POST /api/proof/trust-acceptance takes one sha256 and nothing else, and only for the bytes that are on the disk at that moment; revoke likewise
 //   3. both sit behind the bearer, Host, Origin, the page's marker and the CSRF token
 //   4. nobody but the owner's page reaches them: not the model's tools, the MCP clients, the ACP agent or the Companion
@@ -73,10 +74,10 @@ await runScenario({
   const shown = await show();
   t.equal([shown.state, shown.sha256, shown.bytes, shown.trusted, shown.approvedBy, shown.at, shown.problem], ['present', sha(ACCEPT), Buffer.byteLength(ACCEPT), false, null, null, null], 'the sha256 of the exact bytes');
   t.equal(shown.criteria, [
-    { id: 'tests', text: 'The tests pass.', checks: [{ run: 'node calc.test.js', cwd: '.', timeout: 60, expectExit: 0, repeat: 2 }], manual: null },
-    { id: 'look', text: 'The owner reads the diff.', checks: [], manual: { note: 'Read it.', inspect: ['calc.js'] } },
+    { id: 'tests', text: 'The tests pass.', masked: false, checks: [{ run: 'node calc.test.js', cwd: '.', timeout: 60, expectExit: 0, repeat: 2, masked: false }], manual: null },
+    { id: 'look', text: 'The owner reads the diff.', masked: false, checks: [], manual: { note: 'Read it.', inspect: ['calc.js'], masked: false } },
   ], 'the criteria and the commands as the one reader that counts reads them');
-  t.equal([shown.protected, shown.setup, shown.masked], [['.chatmcp/**'], ['npm ci'], false], 'what is protected and the setup commands');
+  t.equal([shown.protected, shown.setup, shown.masked], [[{ path: '.chatmcp/**', masked: false }], [{ run: 'npm ci', masked: false }], false], 'what is protected and the setup commands');
   t.equal(said(await hub.request('GET', `${SHOW}?path=x`)), [400, 'bad_query'], 'it takes no path and no other key');
 
   // ---- who may ask -------------------------------------------------------------------------------------------------------------
@@ -152,9 +153,43 @@ await runScenario({
   fs.rmSync(file);
   const taken = await revoke({ sha256: shown.sha256 });
   t.equal([taken.status, taken.json.revoked, taken.json.trusted, trusted()], [200, true, false, []], 'revoking needs no file');
-  fs.writeFileSync(file, ACCEPT.replace('The tests pass.', `The tests pass with ${SECRET}.`));
-  const masked = await show();
-  t.check(!JSON.stringify(masked).includes(SECRET) && masked.masked === true && masked.criteria[0].text.includes('REDACTED'), 'a registered secret in the file is masked in the answer, and the answer says so');
+  // ---- shown whole: a text that looks like a credential to the masking rules of the Hub is the command the owner is asked about ----------------
+  const COMMANDS = [
+    'API_KEY="$(node hidden.js)" node a.js', 'API_KEY="abc`node hidden.js`" node a.js', 'node a.js --token "abc & node hidden.js"', 'node a.js --password "x"; node hidden.js', 'node a.js --password abcdefgh$(node hidden.js)',
+    'git push https://u:p&node-hidden.js@example.invalid/x', 'git clone https://user:$(node hidden.js)@example.invalid/x.git', 'psql postgres://u:abcdefgh&calc@example.invalid/db', "curl -H 'Authorization: Bearer abcdefgh$(node hidden.js)' example.invalid",
+    'docker login -u me -p "$(node hidden.js)" example.invalid', 'echo sk-proj-abcdefghijklmnopqrstuvwxyz0123456789', 'echo -----BEGIN PRIVATE KEY----- && node hidden.js && echo -----END PRIVATE KEY-----',
+  ];
+  const TEXT = 'password=hunter2hunter2hunter2 and token: "$(node hidden.js)"';
+  const q = (text) => JSON.stringify(text);
+  const fileOf = ({ texts = TEXT, runs = COMMANDS, note = TEXT, inspect = 'token=abcdefgh12345678/x', id = 'looks', setup = COMMANDS, guarded = 'password=hunter2hunter2/**' }) => ['version: 1', 'criteria:', `  - id: ${id}`, `    text: ${q(texts)}`, '    checks:',
+    ...runs.flatMap((run) => [`      - run: ${q(run)}`, '        cwd: "password=hunter2hunter2"']), '  - id: manual', `    text: ${q(texts)}`, '    manual:', `      note: ${q(note)}`, '      inspect:', `        - ${q(inspect)}`,
+    'protected:', `  - ${q(guarded)}`, 'reproduce:', '  setup:', ...setup.map((run) => `    - ${q(run)}`), ''].join('\n');
+  fs.writeFileSync(file, fileOf({}));
+  const whole = await show();
+  t.equal(whole.criteria[0]?.checks.map((check) => [check.run, check.cwd, check.masked]), COMMANDS.map((run) => [run, 'password=hunter2hunter2', false]), 'every command and its folder as they would run');
+  t.equal(whole.setup, COMMANDS.map((run) => ({ run, masked: false })), 'the setup commands too');
+  t.equal([whole.criteria[0]?.text, whole.criteria[1]?.text, whole.criteria[1]?.manual, whole.protected], [TEXT, TEXT, { note: TEXT, inspect: ['token=abcdefgh12345678/x'], masked: false }, [{ path: 'password=hunter2hunter2/**', masked: false }]], 'and the texts and the paths');
+  t.equal([whole.masked, whole.criteria.map((criterion) => criterion.masked), whole.sha256], [false, [false, false], sha(fs.readFileSync(file))], 'nothing is left out, and the answer says so');
+  // ---- a registered secret is taken out, and it is said where -----------------------------------------------------------------------------------
+  const where = (answer) => ({
+    all: answer.masked, texts: answer.criteria.map((criterion) => criterion.masked), checks: answer.criteria.flatMap((criterion) => criterion.checks.map((check) => check.masked)), manual: answer.criteria.map((criterion) => criterion.manual?.masked ?? null),
+    setup: answer.setup.map((item) => item.masked), guarded: answer.protected.map((item) => item.masked),
+  });
+  const nowhere = { all: true, texts: [false, false], checks: [false, false], manual: [null, false], setup: [false, false], guarded: [false] };
+  const two = { texts: 'One.', runs: ['node a.js', 'node b.js'], note: 'Read.', inspect: 'a.js', setup: ['npm ci', 'npm test'], guarded: 'a/**' };
+  const CASES = [
+    ['a text', { texts: `One ${SECRET}.` }, { texts: [true, true] }], ['one command', { runs: ['node a.js', `node b.js ${SECRET}`] }, { checks: [false, true] }], ['a note', { note: `Read ${SECRET}.` }, { manual: [null, true] }],
+    ['a path to look at', { inspect: `x/${SECRET}` }, { manual: [null, true] }], ['one setup command', { setup: [`npm ci ${SECRET}`, 'npm test'] }, { setup: [true, false] }], ['a protected path', { guarded: `${SECRET}/**` }, { guarded: [true] }],
+    ['the name of a criterion', { id: SECRET }, { texts: [true, false] }],
+  ];
+  for (const [label, changed, expected] of CASES) {
+    fs.writeFileSync(file, fileOf({ ...two, ...changed }));
+    const masked = await show();
+    t.check(!JSON.stringify(masked).includes(SECRET) && JSON.stringify(masked).includes('[REDACTED]'), `a registered secret in ${label} is not in the answer`);
+    t.equal(where(masked), { ...nowhere, ...expected }, `${label}: said where it stands, and nowhere else`);
+  }
+  fs.writeFileSync(file, fileOf(two).replaceAll('password=hunter2hunter2', `sub/${SECRET}`));
+  t.equal(where(await show()), { ...nowhere, checks: [true, true] }, 'a folder of a check that is not shown whole is said at the check');
   // two at once
   fs.writeFileSync(file, ACCEPT);
   const both = await Promise.all([trust({ sha256: shown.sha256 }), revoke({ sha256: shown.sha256 }), trust({ sha256: shown.sha256 }), trust({ sha256: shown.sha256 })]);
