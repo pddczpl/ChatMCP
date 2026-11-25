@@ -301,19 +301,47 @@ const releaseRules = (text) => {
 // a shard axis and each job runs `tests/run-all.mjs --shard <i>/<n>`; verify-test-runner proves that the n shards of a list are the whole list.
 // What is checked here is that the workflow uses that correctly: at least three shards, n in the command equals their number, every OS x Node
 // cell runs every shard, each job uploads under a name of its own (two jobs uploading the same name fail the second upload), and the flaky gate
-// downloads all of them and knows how many to expect.
+// downloads all of them and knows how many to expect. And that a red suite makes the job red: the header of the job and the step that runs the
+// suites are compared as whole texts (exactText), because a check that looks for its lines does not see another one beside them (a
+// continue-on-error, an if, an env, a "|| true"), and no step of the job may be skipped or allowed to fail.
+// What is NOT seen: what another step of the job does to the checkout or to the environment ($GITHUB_ENV) before the suites run. Those steps are
+// not pinned, so that one more install needs no change here.
 const MIN_SHARDS = 3;
+const RUN_STEP = 'Run the suites of this shard';
+
+/** The lines of one job of a workflow, its header included; null when there is none. */
+function jobBlock(text, name) {
+  const start = text.indexOf(`\n  ${name}:\n`);
+  if (start < 0) return null;
+  const rest = text.slice(start + 1);
+  const end = rest.slice(1).search(/\n {2}[a-z][a-z0-9-]*:\n/);
+  return end < 0 ? rest : rest.slice(0, end + 1);
+}
+
+/** The lines of one step of a job, its "- name:" line included; '' when there is none. */
+function stepBlock(job, name) {
+  const start = job.indexOf(`\n      - name: ${name}\n`);
+  if (start < 0) return '';
+  const rest = job.slice(start + 1);
+  const end = rest.slice(1).search(/\n {6}- /);
+  return end < 0 ? rest : rest.slice(0, end + 1);
+}
+
+/** The header of hub-tests and the step that runs the suites, without comments. The number of shards and the lines of the OS and the Node axis are those of ci.yml. */
+function exactText(count, osAxis, nodeAxis) {
+  const shard = '${{ matrix.shard }}'; // what the workflow writes, not a template of this file
+  return {
+    header: ['  hub-tests:', `    name: Hub tests (\${{ matrix.os }}, Node \${{ matrix.node }}, ${shard}/${count})`, '    runs-on: ${{ matrix.os }}', '    timeout-minutes: 30', '    strategy:', '      fail-fast: false', '      matrix:',
+      osAxis, nodeAxis, `        shard: [${Array.from({ length: count }, (_, i) => i + 1).join(', ')}]`, '    defaults:', '      run:', '        shell: bash', '        working-directory: DATGOLD-HUB', '    steps:', ''].join('\n'),
+    run: [`      - name: ${RUN_STEP}`, `        run: node tests/run-all.mjs --no-skip all --retry-failed-once --shard ${shard}/${count} --json test-results/summary.json`].join('\n'),
+  };
+}
+
 export function hubTestsProblems(text) {
   const problems = [];
-  const block = (header) => {
-    const start = text.indexOf(`\n  ${header}:\n`);
-    if (start < 0) return null;
-    const rest = text.slice(start + 1);
-    const end = rest.slice(1).search(/\n {2}[a-z][a-z0-9-]*:\n/);
-    return end < 0 ? rest : rest.slice(0, end + 1);
-  };
-  const job = block('hub-tests');
-  const gate = block('flaky-gate');
+  const code = text.replace(/^[ \t]*#.*$/gm, '').replace(/\n{2,}/g, '\n'); // without the full-line comments
+  const job = jobBlock(code, 'hub-tests');
+  const gate = jobBlock(code, 'flaky-gate');
   if (!job || !gate) return ['the hub-tests or the flaky-gate job is missing'];
   const list = (key) => {
     const match = job.match(new RegExp(`^ {8}${key}: \\[([^\\]]*)\\]$`, 'm'));
@@ -340,6 +368,20 @@ export function hubTestsProblems(text) {
     if (/(?:^| )--filter(?= |$)/.test(command)) problems.push('hub-tests: a --filter would leave suites out of every shard');
   }
   if (!/^ {4}timeout-minutes: 30$/m.test(job)) problems.push('hub-tests: timeout-minutes must be 30 (split further instead of raising it: docs/CI-HEALTH.md)');
+
+  // nothing skipped, nothing forgiven
+  const axisLine = (key) => job.match(new RegExp(`^ {8}${key}: \\[[^\\]]*\\]$`, 'm'))?.[0] ?? '';
+  const exact = exactText(count, axisLine('os'), axisLine('node'));
+  if (!job.startsWith(exact.header)) problems.push('hub-tests: its header must be exactly the one in exactText (a continue-on-error, if, needs, env, container or shell there decides whether a red suite makes the job red)');
+  if (stepBlock(job, RUN_STEP).trimEnd() !== exact.run) problems.push(`hub-tests: the step "${RUN_STEP}" must be exactly the one in exactText (a key or a command beside the run can skip it or hide its exit code)`);
+  const [, steps = ''] = job.split(/\n {4}steps:\n(.*)/s);
+  const late = steps.match(/^ {0,4}\S.*$/m);
+  if (late) problems.push(`hub-tests: "${late[0].trim()}" stands below the steps; the keys of the job stand in its header, where exactText sees them`);
+  if (/continue-on-error/.test(job)) problems.push('hub-tests: continue-on-error would let a failure pass');
+  for (const [line, condition] of job.matchAll(/^ {6,8}(?:- )?["']?if["']?\s*:\s*(.*)$/gm)) if (condition !== 'always()') problems.push(`hub-tests: the condition "${line.trim()}" could skip a step; only always() skips none`);
+  const top = [...code.matchAll(/^[^\s].*$/gm)].map(([line]) => line.replace(/:.*$/, ''));
+  for (const key of top) if (!['name', 'on', 'permissions', 'concurrency', 'jobs'].includes(key)) problems.push(`ci.yml: "${key}" stands at the top level; an env or defaults there reaches every step of hub-tests`);
+
   const artifacts = [...job.matchAll(/uses: actions\/upload-artifact@\S+[^\n]*\n {8}with:\n {10}name: ([^\n]+)/g)].map((match) => match[1].trim());
   if (artifacts.length === 0) problems.push('hub-tests: no artifact upload was found');
   for (const artifact of artifacts) {
@@ -359,6 +401,28 @@ export function hubTestsProblems(text) {
   const axis = (n) => `        shard: [${Array.from({ length: n }, (_, i) => i + 1).join(', ')}]`;
   const argument = (n) => `--shard \${{ matrix.shard }}/${n}`;
   ok(`hub-tests: ${count} shards (at least ${MIN_SHARDS}) run on every OS and Node version, run-all gets ${argument(count)}, the job name and every artifact name carry the shard, the limit is 30 minutes, and the flaky gate expects one summary per job`);
+  const below = (line, added) => (t) => t.replace(line, (found) => found + added); // what is added stands right below that line
+  const jobLine = '  hub-tests:\n';
+  const stepLine = `      - name: ${RUN_STEP}\n`;
+  const runLine = text.match(/^ {8}run: node tests\/run-all\.mjs --no-skip all --retry-failed-once --shard [^\n]*$/m)[0];
+  const atTheEnd = (added) => (t) => { const job = jobBlock(t, 'hub-tests'); return t.replace(job, () => `${job.trimEnd()}\n${added}`); }; // below the last step
+  const expect = (n) => (t) => t.replace(/--expect-summaries \d+/, `--expect-summaries ${n}`);
+  const cells = Number(text.match(/--expect-summaries (\d+)/)[1]) / count; // OS x Node
+  const systems = text.match(/^ {8}os: \[([^\]]*)\]$/m)[1].split(',').length;
+  const allow = (n) => (t) => expect(cells * n)(t.replace(axis(count), axis(n)).replaceAll(`\${{ matrix.shard }}/${count}`, () => `\${{ matrix.shard }}/${n}`));
+  const allowed = [
+    ['one more shard, in every place', allow(count + 1)],
+    ['two more shards, in every place', allow(count + 2)],
+    ['a Node version more, and the gate told', (t) => expect((cells + systems) * count)(t.replace(/^( {8}node: \[[^\]]*)\]$/m, "$1, '99']"))],
+    ['a comment more in the header and one in front of the run', (t) => below(jobLine, '    # a comment\n')(below(stepLine, '        # a comment\n')(t))],
+    ['a step more that can only fail the job', (t) => t.replace(stepLine, (found) => `      - name: One more install\n        run: npm ci --prefix tests/more-tools\n${found}`)],
+  ];
+  for (const [label, change] of allowed) {
+    const after = change(text);
+    assert.notEqual(after, text, `the change "${label}" changed nothing`);
+    assert.deepEqual(hubTestsProblems(after), [], `the change "${label}" must stay allowed`);
+  }
+  ok(`${allowed.length} changes of ci.yml that lose no suite (more shards or a Node version more in every place, comments, one more step) stay allowed`);
   const mutations = [
     ['the shard axis dropped', (t) => t.replace(/\n {8}shard: \[[^\]]*\]/, '')],
     ['one more shard in the matrix only', (t) => t.replace(axis(count), axis(count + 1))],
@@ -377,13 +441,42 @@ export function hubTestsProblems(text) {
     ['the job name without the shard', (t) => t.replace(/(name: Hub tests \(\$\{\{ matrix\.os \}\}, Node \$\{\{ matrix\.node \}\}), \$\{\{ matrix\.shard \}\}\/\d+\)/, '$1)')],
     ['the job name with the number of shards of before', (t) => t.replace(/(name: Hub tests \([^\n]*\$\{\{ matrix\.shard \}\}\/)\d+\)/, '$12)')],
     ['a filter in the shard run', (t) => t.replace(argument(count), () => `${argument(count)} --filter e2e`)],
+    // A green job without the suites having passed: nothing of the above is missing from these, something stands beside it.
+    ['the job allowed to fail', below(jobLine, '    continue-on-error: true\n')],
+    ['the job allowed to fail on Windows', below(jobLine, "    continue-on-error: ${{ matrix.os == 'windows-latest' }}\n")],
+    ['the job allowed to fail, said below its steps', atTheEnd('    continue-on-error: true\n')],
+    ['the job with a condition', below(jobLine, "    if: ${{ github.event_name == 'push' }}\n")],
+    ['the job with a condition below its steps', atTheEnd("    if: ${{ github.event_name == 'push' }}\n")],
+    ['the job waiting for another, which can be skipped', below(jobLine, '    needs: claims-map\n')],
+    ['a variable for all the steps of the job', below(jobLine, '    env:\n      NODE_OPTIONS: --import=./tests/fixtures/pass.mjs\n')],
+    ['a variable for all the steps, said below them', atTheEnd('    env:\n      NODE_OPTIONS: --import=./tests/fixtures/pass.mjs\n')],
+    ['a variable for all the jobs', (t) => t.replace('\njobs:\n', '\nenv:\n  NODE_OPTIONS: --import=./tests/fixtures/pass.mjs\n\njobs:\n')],
+    ['a shell that only parses, for all the steps', (t) => t.replace('        shell: bash\n', '        shell: bash -n {0}\n')],
+    ['the suites allowed to fail', below(stepLine, '        continue-on-error: true\n')],
+    ['the suites allowed to fail, said below the command', (t) => t.replace(runLine, () => `${runLine}\n        continue-on-error: true`)],
+    ['the suites on Linux only', below(stepLine, "        if: runner.os == 'Linux'\n")],
+    ['the suites only when the job failed already', below(stepLine, '        if: failure()\n')],
+    ['the suites only parsed by the shell', below(stepLine, '        shell: bash -n {0}\n')],
+    ['a variable for the suites', below(stepLine, '        env:\n          NODE_OPTIONS: --import=./tests/fixtures/pass.mjs\n')],
+    ['the exit code of the suites turned into success', (t) => t.replace(runLine, () => `${runLine} || true`)],
+    ['the exit code of the suites turned into success, on the next line', (t) => t.replace(runLine, () => `${runLine}\n          || true`)],
+    ['a command behind the suites', (t) => t.replace(runLine, () => `${runLine}; exit 0`)],
+    ['the suites piped into another command', (t) => t.replace(runLine, () => `${runLine} | tee log || :`)],
+    ['the step ended before the suites', (t) => t.replace(runLine, () => `        run: |\n          exit 0\n          ${runLine.trim().slice('run: '.length)}`)],
+    ['the step ended before the suites, on one line', (t) => t.replace(runLine, () => runLine.replace('run: ', 'run: exit 0; '))],
+    ['the suites listed instead of run', (t) => t.replace(runLine, () => `${runLine} --list`)],
+    ['the suites of another folder', (t) => t.replace(runLine, () => `${runLine} --tests-dir tests/fixtures`)],
+    ['another step allowed to fail', below('      - name: Syntax check\n', '        continue-on-error: true\n')],
+    ['another step on Linux only', below('      - name: Release source provenance regression\n', "        if: runner.os == 'Linux'\n")],
   ];
+  const undetected = [];
   for (const [label, change] of mutations) {
     const after = change(text);
     assert.notEqual(after, text, `the mutation "${label}" changed nothing`);
-    assert.notDeepEqual(hubTestsProblems(after), [], `the defect "${label}" was not detected`);
+    if (hubTestsProblems(after).length === 0) undetected.push(label);
   }
-  ok(`${mutations.length} defects put into an in-memory copy of ci.yml (no shard axis, a matrix or a command that disagrees on the number of shards, two shards again in every place, no --shard, an excluded shard, an artifact name without the shard or outside the gate pattern, 45 minutes, an old expected count, a name without the shard or with the old number, a filter) are each detected`);
+  assert.deepEqual(undetected, [], `${undetected.length} of ${mutations.length} defects were not detected:\n  - ${undetected.join('\n  - ')}\n`);
+  ok(`${mutations.length} defects put into an in-memory copy of ci.yml (no shard axis, a matrix or a command that disagrees on the number of shards, two shards again in every place, no --shard, an excluded shard, an artifact name without the shard or outside the gate pattern, 45 minutes, an old expected count, a name without the shard or with the old number, a filter; a job or a step with a condition or allowed to fail, above or below its other keys; a job that waits for another; a variable or a shell for the job, the step or the workflow; a command in front of the suites, behind them or on the next line; the suites only listed, or those of another folder) are each detected`);
 }
 
 console.log(`PASS: ${checks} CI trigger checks over ${files.length} workflows (modelled GitHub rules; GitHub itself confirms on the first pull requests)`);
