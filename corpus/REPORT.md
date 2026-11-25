@@ -50,7 +50,8 @@ no model and no paid call has been scored, and every number in the tests and in 
 The folder holds everything the report is made of but the corpus, and it makes itself again: run on its own `packs/`, `results.jsonl`,
 `preregistration.json` and `responses/`, the tool writes the same folder byte for byte. Every link is relative; nothing is loaded; the pages work
 from `file://`. The tool writes to a **new** folder only. Everything is written to a folder beside it (`.report-partial-<hex>`) that is renamed when it
-is complete, so a run that fails leaves nothing half-written and nothing that was there is written over.
+is complete, so a run that fails leaves nothing half-written and nothing that was there is written over. A run that is killed (Ctrl+C, a power cut) can
+leave that folder; nothing reads it, and it can be deleted.
 
 File names and anchors are made of ids that their own rules allow (`a-z`, `0-9`, `-`) and of words of the tool, so no id can leave the folder
 (`bad_id`), name a Windows device (an agent may be called `con`: its page is `agent-con.html`) or take the name of another (an agent called
