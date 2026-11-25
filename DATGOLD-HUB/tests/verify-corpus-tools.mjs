@@ -422,17 +422,19 @@ try {
     ok('the two example tasks under corpus/examples load (one git, one tarball source, both marked as examples); the CLI exits 0, 1 with the errors, 2 for a usage error');
   }
 
-  // ==== only the four bridge files cross into the Hub, and nothing reaches the network =====================================================
+  // ==== only the five bridge files cross into the Hub, and nothing reaches the network =====================================================
   {
     const problems = [];
     // acceptance-parser.mjs: the acceptance reader; hub-process.mjs (pod-36): the shell runner, the process tree and the pinned Git process;
     // marker.mjs (pod-26): the marker contract and its reader, which chatmcp verify exec reads an agent's claim with too; json-schema.mjs
-    // (pod-38): the JSON Schema validator of the proof pack, which checks the scoring's run packs and result lines.
+    // (pod-38): the JSON Schema validator of the proof pack, which checks the scoring's run packs and result lines; render.mjs (pod-39): the
+    // nodes, the escaping and the page style of the proof pack's renderers, which the report is written with.
     const bridges = new Map([
       ['acceptance-parser.mjs', new Set(['../../DATGOLD-HUB/lib/proof/acceptance.mjs', '../../DATGOLD-HUB/lib/proof/yaml-subset.mjs', '../../DATGOLD-HUB/lib/glob-match.mjs'])],
       ['hub-process.mjs', new Set(['../../DATGOLD-HUB/lib/shell-runner.mjs', '../../DATGOLD-HUB/lib/studio-terminal.mjs', '../../DATGOLD-HUB/lib/proof/git-plumbing.mjs'])],
       ['marker.mjs', new Set(['../../DATGOLD-HUB/lib/proof/marker.mjs'])],
       ['json-schema.mjs', new Set(['../../DATGOLD-HUB/lib/proof/schema-validate.mjs'])],
+      ['render.mjs', new Set(['i18n', 'md', 'html', 'text'].map((name) => `../../DATGOLD-HUB/lib/proof/render/${name}.mjs`))],
     ]);
     const files = readdirSync(TOOLS).filter((name) => name.endsWith('.mjs'));
     for (const bridge of bridges.keys()) assert.ok(files.includes(bridge), `the bridge ${bridge} exists`);
@@ -451,7 +453,7 @@ try {
       if (/\bfetch\s*\(/.test(text)) problems.push(`${name}: calls fetch`);
       if (/['"](?:push|fetch|pull|clone|ls-remote|remote|submodule)['"]/.test(text)) problems.push(`${name}: names a Git command that talks to a remote`);
     }
-    expectNone(problems, 'corpus tools that reach past the four bridges or towards the network');
+    expectNone(problems, 'corpus tools that reach past the five bridges or towards the network');
     // the bridge passes the Hub's reader on as it is: the scoring and chatmcp verify exec read a claim with the same function
     const hubMarker = await import(pathToFileURL(path.join(HUB, 'lib', 'proof', 'marker.mjs')).href);
     for (const name of ['parseFinalMarker', 'finalLine', 'MARKER_CONTRACT', 'MARKER_CONTRACT_VERSION', 'BLOCKED_REASON_MAX']) {
@@ -463,7 +465,16 @@ try {
     for (const name of ['compileSchema', 'SchemaError', 'SUPPORTED_KEYWORDS']) {
       assert.ok(hubSchema[name] !== undefined && jsonSchema[name] === hubSchema[name], `corpus/tools/json-schema.mjs passes on ${name} of DATGOLD-HUB/lib/proof/schema-validate.mjs`);
     }
-    ok(`the ${files.length} corpus tools import only node: modules, each other and, in four bridge files alone, the pod-20 acceptance parser, the Hub's process and pinned Git helpers, the marker reader and the schema validator; none can reach the network`);
+    // the fifth bridge passes the renderers' pieces on as they are: a text of a run pack is made visible and escaped by the code that a proof
+    // pack's report is written with
+    const renderBridge = await importTool('render.mjs');
+    const RENDER = { i18n: ['LANGS', 'chip', 'code', 'text', 'word'], md: ['mdCode', 'mdText'], html: ['CSP', 'STYLE', 'htmlText'], text: ['RATE_RULES', 'cutText', 'formatDecimal', 'formatInteger', 'visible'] };
+    for (const [file, names] of Object.entries(RENDER)) {
+      const hubRender = await import(pathToFileURL(path.join(HUB, 'lib', 'proof', 'render', `${file}.mjs`)).href);
+      for (const name of names) assert.ok(hubRender[name] !== undefined && renderBridge[name] === hubRender[name], `corpus/tools/render.mjs passes on ${name} of DATGOLD-HUB/lib/proof/render/${file}.mjs`);
+    }
+    assert.deepEqual(Object.keys(renderBridge).sort(), Object.values(RENDER).flat().sort(), 'corpus/tools/render.mjs passes on nothing else');
+    ok(`the ${files.length} corpus tools import only node: modules, each other and, in five bridge files alone, the pod-20 acceptance parser, the Hub's process and pinned Git helpers, the marker reader, the schema validator and the pieces of the proof pack's renderers; none can reach the network`);
   }
 
   // ==== freeze ==========================================================================================================================
