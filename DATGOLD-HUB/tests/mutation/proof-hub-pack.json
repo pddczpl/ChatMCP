@@ -830,17 +830,6 @@
    ]
   },
   {
-   "name": "HA-mask-ids",
-   "what": "a short secret breaks a digest of the json answer",
-   "patches": [
-    {
-     "file": "lib/proof/http-api.mjs",
-     "old": "const text = HEX_ID.test(value) ? value : without(value, secrets);",
-     "new": "const text = without(value, secrets);"
-    }
-   ]
-  },
-  {
    "name": "HA-mask-report",
    "what": "registered secrets in a report",
    "patches": [
@@ -852,13 +841,68 @@
    ]
   },
   {
+   "name": "HA-mask-ids",
+   "what": "a short secret breaks an id or a digest",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const shortest = ids && HEX_ID.test(value) ? CHANCE : 4;",
+     "new": "const shortest = 4;"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-shape",
+   "what": "a registered secret of a digest's shape is an id",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const shortest = ids && HEX_ID.test(value) ? CHANCE : 4;",
+     "new": "const shortest = ids && HEX_ID.test(value) ? Infinity : 4;"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-chance",
+   "what": "a key of 32 digits in a text of a digest's shape is chance",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "const CHANCE = 16;",
+     "new": "const CHANCE = 40;"
+    }
+   ]
+  },
+  {
    "name": "HA-mask-report-ids",
    "what": "a short secret breaks a digest of a report",
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "return HEX_ID.test(node.value) ? node : {",
-     "new": "return false ? node : {"
+     "old": "value: without(node.value, secrets, true) };",
+     "new": "value: without(node.value, secrets, false) };"
+    }
+   ]
+  },
+  {
+   "name": "HA-mask-json-ids",
+   "what": "a short secret breaks a digest of the json answer",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "function withoutSecrets(value, secrets, seen, ids = true) {",
+     "new": "function withoutSecrets(value, secrets, seen, ids = false) {"
+    }
+   ]
+  },
+  {
+   "name": "HA-acceptance-ids",
+   "what": "a text of the acceptance file that has the shape of a digest is an id",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "withoutSecrets(fields, this.#secrets, seen, false);",
+     "new": "withoutSecrets(fields, this.#secrets, seen, true);"
     }
    ]
   },

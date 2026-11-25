@@ -7,7 +7,6 @@
 // (readPackFile, what `chatmcp verify check` runs) before one byte of it is answered; a pack that does not verify is an error. The pack file itself is not served: it holds the
 // patch, the ledger and the acceptance file as they are, unmasked.
 import fs from 'node:fs/promises';
-import { maskSecrets } from '../permissions.mjs';
 import { ACCEPTANCE_FILE, ACCEPTANCE_MAX_BYTES, AcceptanceError, acceptanceSha256, parseAcceptance } from './acceptance.mjs';
 import { readPackFile } from './cli/check.mjs';
 import { PACK_LIMITS, PACK_STATUS, PackStore, packsDirectory, taskOfPack } from './hub-pack.mjs';
@@ -28,6 +27,7 @@ const QUERY = new Set(['format', 'lang', 'from', 'limit', 'run']);
 const WHOLE = /^(?:0|[1-9][0-9]{0,8})$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const HEX_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const CHANCE = 16;
 /** How long the statement of a checked pack is kept in memory for its next page. */
 const KEEP_MS = 60_000;
 
@@ -39,28 +39,33 @@ const JSON_TYPE = 'application/json; charset=utf-8';
 const answer = (status, body) => ({ status, headers: { 'Content-Type': JSON_TYPE }, body: JSON.stringify(body) });
 const refuse = (status, code, error, extra = {}) => answer(status, { error, code, ...extra });
 
-/** A registered secret out of a text, as the pack's builder masks one (lib/permissions.mjs maskSecrets: 4 characters and more). */
-function without(value, secrets) {
+/**
+ * A registered secret out of a text (4 characters and more, as lib/permissions.mjs maskSecrets takes them), and nothing else: no rule about what a credential looks like,
+ * which could take a part of a command out of what the owner is asked to trust. In an id or a digest (`ids`: hex the Hub computed) a short secret occurs by chance; one of
+ * CHANCE characters does not, and a text of that shape that holds one is no id.
+ */
+function without(value, secrets, ids) {
+  const shortest = ids && HEX_ID.test(value) ? CHANCE : 4;
   let text = value;
-  for (const secret of secrets) if (typeof secret === 'string' && secret.length >= 4) text = text.split(secret).join('[REDACTED]');
+  for (const secret of secrets) if (typeof secret === 'string' && secret.length >= shortest) text = text.split(secret).join('[REDACTED]');
   return text;
 }
-/** `value` without registered secrets in its texts; ids and digests stay (hex the Hub computed, in which a short secret occurs by chance). */
-function withoutSecrets(value, secrets, seen) {
+/** `value` without registered secrets in its texts. */
+function withoutSecrets(value, secrets, seen, ids = true) {
   if (typeof value === 'string') {
-    const text = HEX_ID.test(value) ? value : without(value, secrets);
+    const text = without(value, secrets, ids);
     if (text !== value) seen.masked = true;
     return text;
   }
-  if (Array.isArray(value)) return value.map((item) => withoutSecrets(item, secrets, seen));
-  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withoutSecrets(item, secrets, seen)]));
+  if (Array.isArray(value)) return value.map((item) => withoutSecrets(item, secrets, seen, ids));
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withoutSecrets(item, secrets, seen, ids)]));
   return value;
 }
 /** The report with registered secrets out of every text it took from the pack (its code and word nodes; what it says itself stays). */
 function maskReport(node, secrets) {
   if (Array.isArray(node)) return node.map((item) => maskReport(item, secrets));
   if (node === null || typeof node !== 'object') return node;
-  if ((node.type === 'code' || node.type === 'word') && typeof node.value === 'string') return HEX_ID.test(node.value) ? node : { ...node, value: without(node.value, secrets) };
+  if ((node.type === 'code' || node.type === 'word') && typeof node.value === 'string') return { ...node, value: without(node.value, secrets, true) };
   return Object.fromEntries(Object.entries(node).map(([key, item]) => [key, maskReport(item, secrets)]));
 }
 
@@ -225,7 +230,7 @@ export class ProofHttpApi {
   #parsed(bytes) {
     try { return { parsed: parseAcceptance(bytes), problem: null }; } catch (error) {
       if (!(error instanceof AcceptanceError)) throw error;
-      return { parsed: null, problem: { line: error.line ?? null, reason: maskSecrets(String(error.reason ?? error.message), this.#secrets) } };
+      return { parsed: null, problem: { line: error.line ?? null, reason: String(error.reason) } }; // a fixed code; the detail, which quotes the file, is not answered
     }
   }
 
@@ -241,16 +246,24 @@ export class ProofHttpApi {
     const sha256 = acceptanceSha256(bytes);
     const { parsed, problem } = this.#parsed(bytes);
     const entry = (await this.manager.acceptanceTrustStore().list()).find((row) => row.sha256 === sha256) ?? null;
-    const seen = { masked: false };
-    const shown = (value) => { const text = maskSecrets(value, this.#secrets); if (text !== value) seen.masked = true; return text; };
+    // What the owner trusts is what they are shown: every text as it is in the file, but for the registered secrets, and what is not shown whole says so where it stands.
+    const all = { masked: false };
+    const shown = (fields) => {
+      const seen = { masked: false };
+      const whole = withoutSecrets(fields, this.#secrets, seen, false);
+      all.masked ||= seen.masked;
+      return { ...whole, masked: seen.masked };
+    };
     const criteria = (parsed?.criteria ?? []).map((criterion) => ({
-      id: criterion.id, text: shown(criterion.text),
-      checks: (criterion.checks ?? []).map((check) => ({ run: shown(check.run), cwd: shown(check.cwd ?? '.'), timeout: check.timeout, expectExit: check.expect?.exit ?? 0, repeat: check.repeat })),
-      manual: criterion.manual ? { note: criterion.manual.note === undefined || criterion.manual.note === null ? null : shown(criterion.manual.note), inspect: (criterion.manual.inspect ?? []).map(shown) } : null,
+      ...shown({ id: criterion.id, text: criterion.text }),
+      checks: (criterion.checks ?? []).map((check) => shown({ run: check.run, cwd: check.cwd ?? '.', timeout: check.timeout, expectExit: check.expect?.exit ?? 0, repeat: check.repeat })),
+      manual: criterion.manual ? shown({ note: criterion.manual.note ?? null, inspect: criterion.manual.inspect ?? [] }) : null,
     }));
+    const guarded = (parsed?.protected ?? []).map((path) => shown({ path }));
+    const setup = (parsed?.reproduce.setup ?? []).map((run) => shown({ run }));
     return answer(200, {
       ...empty, state: problem ? 'invalid' : state, sha256, bytes: bytes.length, trusted: entry !== null, approvedBy: entry?.approvedBy ?? null, at: entry?.at ?? null,
-      criteria, protected: (parsed?.protected ?? []).map(shown), setup: (parsed?.reproduce.setup ?? []).map(shown), problem, masked: seen.masked,
+      criteria, protected: guarded, setup, problem, masked: all.masked,
     });
   }
 

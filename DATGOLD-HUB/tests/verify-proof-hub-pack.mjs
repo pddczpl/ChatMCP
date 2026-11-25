@@ -393,6 +393,10 @@ try {
     for (const format of ['md', 'html']) { const { body } = await ask(`format=${format}&lang=en`, { ...of, task: () => known2 }); check(!body.includes(key) && !body.includes(half) && body.includes('REDACTED'), `neither is in the ${format} report once it is registered`); }
     const inJson = await ask('', { ...of, task: () => known2 });
     equal([inJson.body.includes(tree), inJson.json.statement.subject[1].digest.gitTree, inJson.json.masked], [false, '[REDACTED]', true], 'nor a registered secret of that shape in the json');
+    // the acceptance file holds no id of the Hub: a short secret is taken out of a text of that shape too
+    manager.secrets = [...before, key.slice(10, 18)];
+    const shown = JSON.parse((await api.acceptance(new URLSearchParams())).body);
+    equal([shown.criteria.map((criterion) => criterion.masked), shown.criteria[0].text.includes(key.slice(10, 18)), shown.masked], [[true, false], false, true], 'the acceptance file has no ids: every registered secret is taken out of it');
     manager.secrets = before;
   });
 

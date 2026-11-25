@@ -169,24 +169,84 @@
    ]
   },
   {
+   "name": "HT-rules",
+   "what": "the masking rules take a part of a command out of what is shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "  let text = value;\n  for (const secret of secrets)",
+     "new": "  let text = maskSecrets(value);\n  for (const secret of secrets)"
+    },
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "import fs from 'node:fs/promises';\n",
+     "new": "import fs from 'node:fs/promises';\nimport { maskSecrets } from '../permissions.mjs';\n"
+    }
+   ]
+  },
+  {
    "name": "HT-mask",
    "what": "a registered secret in the file is shown",
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "const shown = (value) => { const text = maskSecrets(value, this.#secrets);",
-     "new": "const shown = (value) => { const text = value;"
+     "old": "const whole = withoutSecrets(fields, this.#secrets, seen, false);",
+     "new": "const whole = fields;"
     }
    ]
   },
   {
    "name": "HT-mask-flag",
-   "what": "the answer does not say that the file was masked",
+   "what": "a command that is not shown whole does not say so",
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "if (text !== value) seen.masked = true; return text; };",
-     "new": "return text; };"
+     "old": "return { ...whole, masked: seen.masked };",
+     "new": "return { ...whole, masked: false };"
+    }
+   ]
+  },
+  {
+   "name": "HT-mask-where",
+   "what": "a command that is not shown whole is said of every text after it",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "return { ...whole, masked: seen.masked };",
+     "new": "return { ...whole, masked: all.masked };"
+    }
+   ]
+  },
+  {
+   "name": "HT-mask-all",
+   "what": "the file does not say that a part of it is not shown whole",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "      all.masked ||= seen.masked;\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "HT-mask-id",
+   "what": "a registered secret in the name of a criterion is shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "...shown({ id: criterion.id, text: criterion.text }),",
+     "new": "...shown({ text: criterion.text }), id: criterion.id,"
+    }
+   ]
+  },
+  {
+   "name": "HT-cwd",
+   "what": "the folder of a check is not shown",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "cwd: check.cwd ?? '.', timeout",
+     "new": "cwd: '.', timeout"
     }
    ]
   },
@@ -196,8 +256,8 @@
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "setup: (parsed?.reproduce.setup ?? []).map(shown)",
-     "new": "setup: []"
+     "old": "(parsed?.reproduce.setup ?? []).map((run) => shown({ run }))",
+     "new": "[]"
     }
    ]
   },
@@ -207,8 +267,8 @@
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "protected: (parsed?.protected ?? []).map(shown)",
-     "new": "protected: []"
+     "old": "(parsed?.protected ?? []).map((path) => shown({ path }))",
+     "new": "[]"
     }
    ]
   },
@@ -218,8 +278,19 @@
    "patches": [
     {
      "file": "lib/proof/http-api.mjs",
-     "old": "manual: criterion.manual ? {",
-     "new": "manual: false ? {"
+     "old": "manual: criterion.manual ? shown(",
+     "new": "manual: false ? shown("
+    }
+   ]
+  },
+  {
+   "name": "HT-inspect",
+   "what": "a manual criterion is shown without its paths",
+   "patches": [
+    {
+     "file": "lib/proof/http-api.mjs",
+     "old": "inspect: criterion.manual.inspect ?? [] })",
+     "new": "inspect: [] })"
     }
    ]
   },

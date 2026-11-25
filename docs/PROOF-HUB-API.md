@@ -134,7 +134,8 @@ is kept for 60 s for its next pages, by the sha256 of the file's bytes: an edite
   `omitted`: receipts the pack itself leaves out). With all pages put back as `predicate.receipts` it is the statement `digest` is taken of.
 - `files` is the name, size and sha256 of the pack's files, not their bytes.
 - `masked` is true when a registered secret was taken out of a text of the answer (one the builder did not know): the texts then differ from the pack's,
-  so the digest cannot be computed from this answer.
+  so the digest cannot be computed from this answer. In a text of exactly 40 or 64 hex digits (an id, a digest) only secrets of 16 characters and more are taken out: a short
+  one occurs there by chance.
 
 **md** and **html** are the reports of [PROOF-RENDER.md](PROOF-RENDER.md), with `packChecked` (the file was checked just now) and the registered secrets out of every
 text they take from the pack. Both are downloads (`Content-Disposition: attachment`), `nosniff`, `no-store`, `no-referrer`, with `Cross-Origin-Resource-Policy: same-origin` and a
@@ -145,8 +146,13 @@ text of a pack is data of an agent's, served from the Hub's own origin.
 
 The file of the **open project** as it is on disk now; it takes no query. `{format: "chatmcp.hub-acceptance/1", file, state, sha256, bytes, trusted, approvedBy, at, criteria,
 protected, setup, problem, masked}`. `state`: `present`, `missing` (none, or not a regular file), `outside` (the path leads out of the workspace), `too_large`
-(over 64 KiB), `invalid` (`problem` has the line and the reason). A criterion is `{id, text, checks: [{run, cwd, timeout, expectExit, repeat}], manual}`. The sha256 is
-of the exact bytes. A registered secret in a text is masked and `masked` says so.
+(over 64 KiB), `invalid` (`problem` has the line and the code of the reason). The sha256 is of the exact bytes. A criterion is `{id, text, masked, checks: [{run, cwd, timeout, expectExit, repeat,
+masked}], manual: {note, inspect, masked} | null}`; `protected` is `[{path, masked}]`, `setup` is `[{run, masked}]`.
+
+**What is trusted is what is shown.** Every text is answered as it is in the file. No rule about what a credential looks like is applied: such a rule could take a part of a command out
+of what the owner reads, and that part would run. Only the Hub's **registered** secrets are taken out, and `masked: true` says where: on that check (its `run` or its
+`cwd`), that criterion (its `id` or its `text`), that manual part, that setup command, that path. The `masked` of the file is true when any of them is. A page that asks for the owner's trust
+should say of such a command that it is not shown whole and that the file should be opened.
 
 ## Trusting it: `POST /api/proof/trust-acceptance`, `POST /api/proof/revoke-acceptance`
 
