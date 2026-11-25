@@ -120,6 +120,7 @@
   {
    "name": "H11",
    "what": "the Companion starts a plan-mode task as an ordinary one",
+   "equivalent": "BrowserRunner.start (refusePlanMode) refuses the same request with the same code, plan_mode_unsupported: two layers, and either one alone gives the answer the suite asserts.",
    "patches": [
     {
      "file": "lib/dual-agent.mjs",
