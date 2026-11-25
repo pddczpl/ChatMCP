@@ -187,6 +187,8 @@ this tree, not that this very call was it. The Hub's own matching of checks (the
 - **Tamper-evident, not tamper-proof.** An agent with an approved shell runs as the same user and can rewrite the ledger, the task file and the pack together.
 - The digest a task names is in its task file. Public answers are masked as text, so a registered secret of a few hex digits that occurs in a digest by chance
   breaks that digest in the summary (the route then finds no pack); registered secrets are keys and tokens, not short numbers.
+- A build that was given up goes on behind the Hub's back until its own next step sees it (a snapshot cannot be cut off), and removes its scratch files then.
+- The pack of a task whose folder somebody removed by hand stays in `packs/` until it is removed by hand too.
 - A pack is of the workspace of the Hub's task. What an MCP client or the Companion did is in no pack.
 - A criterion the owner must look at (`manual`) stays `unverified`: no owner acceptance of a criterion of the file is recorded yet (pod-34).
 - The answer about the acceptance file is of the open project. A second chat's worktree can hold another version; it is held to its own file.

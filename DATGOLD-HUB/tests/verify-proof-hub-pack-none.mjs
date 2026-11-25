@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { AgentRunner } from '../lib/agent.mjs';
-import { HubPacks, PACK_REASONS } from '../lib/proof/hub-pack.mjs';
+import { HubPacks, PACK_REASONS, reasonOf } from '../lib/proof/hub-pack.mjs';
 import { ledgerPath } from '../lib/proof/ledger.mjs';
 import {
   ACCEPT, answer, check, count, createHub, done, equal, fix, git, project, read, root, run, say, scripted, section, sleep, tool, trust, until, write,
@@ -90,7 +90,7 @@ try {
     const brokenTask = [...new Set(fsSync.readdirSync(path.join(manager.hubDirectory, 'api-tasks')))].includes(target);
     check(brokenTask, 'the task is there');
     const saved = await until(() => { const { proof } = JSON.parse(fsSync.readFileSync(taskFile(manager, target), 'utf8')); return proof?.status === 'none' && proof.reason !== 'run_in_progress' ? proof : null; }, 'its proof');
-    check(['final_tree_unknown', 'ledger_broken'].includes(saved.reason), `an edited ledger: no pack (${saved.reason})`);
+    equal(saved.reason, 'ledger_broken', 'an edited ledger: no pack');
     reasons.add(saved.reason);
     const big = await run(manager, await good('big'), [write('big.txt', 'x'.repeat(400_000)), done], { prompt: 'Look around.', start: {}, during: async ({ agent }) => { agent.packs.limits = { ...agent.packs.limits, maxBytes: 100_000 }; } });
     await none('a pack over the limit', big, 'pack_too_large');
@@ -141,6 +141,20 @@ try {
     // (a build that was given up above removes its own when it gets to its end)
     await until(() => fsSync.readdirSync(scratch).join() === 'work-fresh', 'the builds to leave none of their own', 20_000);
     await fs.rm(fresh, { recursive: true });
+  });
+
+  await section('1d. the reason of a build that failed, by its code', async () => {
+    const table = {
+      baseline_missing: 'baseline_unreadable', baseline_edited: 'baseline_unreadable', baseline_mismatch: 'baseline_unreadable', baseline_bad_record: 'baseline_unreadable', baseline_wrong_workspace: 'baseline_unreadable',
+      baseline_busy: 'baseline_busy', baseline_objects_missing: 'old_bytes_unreadable', baseline_objects_mismatch: 'old_bytes_unreadable', baseline_objects_unreadable: 'old_bytes_unreadable', patch_does_not_reproduce: 'old_bytes_unreadable',
+      store_object_mismatch: 'old_bytes_unreadable', not_a_repository: 'not_a_repository', repository_unreadable: 'repository_unreadable', git_missing: 'git_missing', object_format_changed: 'object_format_changed', patch_too_large: 'patch_too_large',
+      pack_too_large: 'pack_too_large', workspace_changed: 'final_tree_changed', baseline_store_mismatch: 'final_tree_changed', final_tree_changed: 'final_tree_changed', workspace_too_large: 'final_tree_unknown', pack_ledger_broken: 'ledger_broken',
+      pack_unreadable: 'pack_not_verified', pack_invalid: 'pack_not_verified', pack_digest_mismatch: 'pack_not_verified', pack_file_mismatch: 'pack_not_verified', timeout: 'timeout', superseded: 'superseded', hub_stopped: 'hub_stopped', task_deleted: 'task_deleted',
+      acceptance_invalid: 'acceptance_invalid', git_failed: 'build_failed', EACCES: 'build_failed', whatever: 'build_failed',
+    };
+    equal(Object.fromEntries(Object.keys(table).map((code) => [code, reasonOf({ code })])), table);
+    equal([reasonOf(new TypeError('x')), reasonOf(undefined), reasonOf({ code: 5 })], ['build_failed', 'build_failed', 'build_failed'], 'an error without a code');
+    equal(Object.values(table).filter((reason) => !PACK_REASONS.includes(reason)), []);
   });
 
   await section('2. delete, stop and a new run while a pack is built; a restart', async () => {
