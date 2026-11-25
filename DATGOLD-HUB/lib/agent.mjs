@@ -2071,6 +2071,8 @@ export class AgentRunner {
     const studio = this.manager.studio;
     if (typeof studio?.plan !== 'function') throw fault('plan_mode_unavailable', 'Plan mode cần kho kế hoạch của Studio; không thể đề xuất kế hoạch ở đây.', 409);
     const text = this.#redact(plan);
+    // Masking can make a plan longer than it was sent: it is no proposal then (the plan file and the request have the limit of the call), and the model is told.
+    if (text.length > PLAN_LIMITS.planChars) return { isError: true, content: [{ type: 'text', text: `The plan is longer than ${PLAN_LIMITS.planChars} characters once the secrets in it are masked. Nothing was proposed. Shorten it and call exit_plan_mode again.` }], structuredContent: { error: { code: 'invalid_arguments' }, executed: false } };
     let proposed;
     try {
       proposed = await studio.plan({ taskId: task.id, operation: 'text', text, by: 'agent', expectedRevision });
