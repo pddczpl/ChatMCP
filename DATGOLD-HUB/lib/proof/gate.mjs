@@ -22,6 +22,7 @@ import { ACCEPTANCE_FILE, ACCEPTANCE_MAX_BYTES, AcceptanceError, acceptanceSha25
 import { baselineFolder, loadBaseline, snapshotBaseline } from './baseline.mjs';
 import { runAcceptanceChecks } from './check-runner.mjs';
 import { storeSide } from './cli/store-side.mjs';
+import { giveWay } from './hub-pack.mjs';
 import { MODE, blobId, findGit } from './git-plumbing.mjs';
 import { ProofLedger, ToolchainProbe } from './ledger.mjs';
 import { detectCheckChanges, workTreeSide } from './tamper.mjs';
@@ -359,11 +360,11 @@ async function baselineSide({ loaded, hubDir, root, env, scratch }) {
 }
 
 /** The pod-22 report between the task's baseline and the workspace as it is now. Throws when the baseline or the workspace cannot be read. */
-async function checkChangesOf({ manager, hubDir, baseline, acceptance, current }) {
+async function checkChangesOf({ manager, hubDir, baseline, acceptance, current, scratchDir = hubDir }) {
   const root = path.resolve(manager.workspace);
   const env = manager.localTools?.shell?.env ?? process.env;
   const loaded = await loadBaseline({ hubDir, root, id: baseline.id, expectSha256: baseline.sha256 });
-  const scratch = path.join(hubDir, `${SCRATCH}${randomUUID()}`);
+  const scratch = path.join(scratchDir, `${SCRATCH}${randomUUID()}`);
   try {
     await fs.mkdir(path.join(scratch, 'store'), { recursive: true, mode: 0o700 });
     const { objectFormat } = loaded.record;
@@ -541,6 +542,7 @@ export class DoneGate {
     const notice = setTimeout(() => { said = say('baseline', 'Cổng bằng chứng: đang lấy mốc so sánh của thư mục dự án trước khi model bắt đầu.'); said.catch(() => {}); }, this.baselineNoticeMs);
     let failed = null;
     try {
+      await giveWay(root, { signal }); // a pack that is being built of an earlier run on this folder holds the same lock
       const taken = await this.deps.snapshotBaseline({ hubDir, root, toolchain: null, retention: GATE_RETENTION, lock: { waitMs: LOCK_WAIT_MS }, signal: signal ? AbortSignal.any([signal, limit.signal]) : limit.signal });
       run.baseline = { id: taken.id, sha256: taken.sha256 };
       const record = task.proofBaseline;
@@ -568,6 +570,25 @@ export class DoneGate {
     if (!saved?.id || !BASELINE_ID.test(saved.id) || typeof task.workspace?.path !== 'string' || typeof this.manager.acceptanceTrustStore !== 'function') return;
     const folder = baselineFolder(this.#hubDir(), task.workspace.path);
     for (const name of [`${saved.id}.json`, `${saved.id}.git`]) await fs.rm(path.join(folder, name), { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
+  }
+
+  /**
+   * What the pack of a run is made of (./hub-pack.mjs), read while the task still holds the workspace: the baseline, the bytes the run is held to, the workspace's (other line
+   * ends are no edit, as in review()), and `changes`, the report on the changes to the checks as the judgment had it: with what the conversation remembers of the changes before
+   * a baseline that was taken again. Nothing of it reads the manager's workspace later, which may then be another one.
+   */
+  async packInputs({ run, task, scratchDir }) {
+    const { manager } = this;
+    const root = path.resolve(manager.workspace);
+    const env = manager.localTools?.shell?.env ?? process.env;
+    const onDisk = await readAcceptance(manager.studio);
+    const current = sameButLineEnds(onDisk, run.acceptance) ? run.acceptance : onDisk;
+    const remembered = { proofBaseline: structuredClone(task.proofBaseline ?? null) };
+    const place = { workspace: root, localTools: { shell: { env } } };
+    return {
+      hubDir: this.#hubDir(), root, env, baseline: { ...run.baseline }, acceptance: run.acceptance, current, trustStore: run.trustStore,
+      changes: () => this.#changes(run, remembered, current, { manager: place, scratchDir }),
+    };
   }
 
   /** Why nothing is run for this answer, or null. */
@@ -706,9 +727,9 @@ export class DoneGate {
   }
 
   /** The report on the changes to the checks, or null when it cannot be made: unknown is never "nothing changed". */
-  async #changes(run, task, current) {
+  async #changes(run, task, current, { manager = this.manager, scratchDir = undefined } = {}) {
     let report;
-    try { report = await this.deps.checkChanges({ manager: this.manager, hubDir: this.#hubDir(), baseline: run.baseline, acceptance: run.acceptance, current }); } catch (error) {
+    try { report = await this.deps.checkChanges({ manager, hubDir: this.#hubDir(), baseline: run.baseline, acceptance: run.acceptance, current, scratchDir }); } catch (error) {
       this.log(`Cổng bằng chứng: không so được các kiểm tra với lúc bắt đầu tác vụ (${error?.code ?? error?.message}).`);
       return null;
     }

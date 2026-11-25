@@ -161,6 +161,7 @@ export class ConcurrentApiAgent {
       dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
       error: r.error || null, runCount: 0, transport: 'api',
       planMode: r.planMode === true, planApproval: null, planOnly: r.planMode === true,
+      proof: null, // a record that has not run has no proof pack and no reason for none
       // A record that has not run has not resumed (P9 ac-18): its runner's task says resumeMode once it runs.
       resumeMode: null, resume: null,
     };
@@ -847,6 +848,7 @@ export class ConcurrentApiAgent {
       }
       const child=this.children.get(taskId);
       if(child?.runner.get(taskId))await child.runner.delete(taskId);
+      else await this.primary.packs?.forget(taskId); // a chat whose runner could not be made again: its pack is in the Hub's folder all the same
       if(child)await child.manager.shutdown();
       if(record.worktree)preservedWorktrees.push(record.worktree);
       this.children.delete(taskId);

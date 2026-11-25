@@ -38,7 +38,7 @@ export const FORBIDDEN_ROUTES = Object.freeze([
   '/api/workspace/select', // switches the workspace of the desktop app, which is global to the Hub
   '/api/studio/permissions/config', // changes the permission mode: Review, Autonomous, Full Access
   '/api/ai/config', '/api/ai/clear-key', '/api/ai/profiles/upsert', '/api/ai/profiles/delete', '/api/ai/profiles/default',
-  '/api/tasks/delete', '/api/tasks/auto-resume', '/api/tasks/accept-criterion',
+  '/api/tasks/delete', '/api/tasks/auto-resume', '/api/tasks/accept-criterion', '/api/proof/trust-acceptance', '/api/proof/revoke-acceptance',
   '/api/studio/file/save', '/api/studio/restore', '/api/studio/restore-checkpoint', '/api/studio/review/reject-created', '/api/studio/accept', '/api/studio/checkpoint',
   '/api/workspaces/remove', '/api/workspaces/activate', '/api/services/stop', '/api/session/ticket', '/api/session/redeem', '/api/update/download', '/api/update/check',
 ]);

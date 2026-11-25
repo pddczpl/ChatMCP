@@ -30,6 +30,7 @@ import { createUpdateDownloader } from './lib/update-download.mjs';
 import { createAppliedNote } from './lib/update-applied.mjs';
 import { loadReleaseKeys } from './lib/release-signature.mjs';
 import { createProtector } from './lib/secret-box.mjs';
+import { ProofHttpApi } from './lib/proof/http-api.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.11.2-react-agent';
@@ -49,9 +50,9 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/review/reject-created','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/plan/decide','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/mcp/server/upsert','/api/mcp/server/delete','/api/mcp/server/test','/api/mcp/server/launch-record','/api/mcp/server/approve-launch','/api/mcp/server/tool-review','/api/mcp/server/approve-tools','/api/mcp/server/tool-policy','/api/mcp/reload','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/agent/options','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/proof/trust-acceptance','/api/proof/revoke-acceptance','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/review/reject-created','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/plan/decide','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/mcp/server/upsert','/api/mcp/server/delete','/api/mcp/server/test','/api/mcp/server/launch-record','/api/mcp/server/approve-launch','/api/mcp/server/tool-review','/api/mcp/server/approve-tools','/api/mcp/server/tool-policy','/api/mcp/reload','/api/update/check','/api/update/skip','/api/update/auto-check','/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
-export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/task-review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/api/mcp/servers','/auth/chatgpt/callback']);
+export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/tasks/:id/proof','/api/proof/acceptance','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/task-review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/api/mcp/servers','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
 export const SESSION_ROUTES = Object.freeze(['/api/session/ticket','/api/session/redeem']);
 // Everything under /api/ and /auth/ needs `Authorization: Bearer <per-launch secret>` except these named exceptions:
@@ -245,12 +246,15 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
     aiBusy = true;
     try { return await operation(); } finally { aiBusy = false; }
   };
+  // Proof packs and the owner's trust in an acceptance file (lib/proof/http-api.mjs, docs/PROOF-HUB-API.md). What it answers is {status, headers, body}.
+  const proofApi = new ProofHttpApi({ manager, log: (line) => manager.log?.(line) });
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Security-Policy', CSP_LOOPBACK);
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); };
+    const send = (answer) => { res.writeHead(answer.status, answer.headers); res.end(answer.body); };
     try {
       if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });
       // Only the pathname and query are used below; the base just lets a relative request target parse. Who the request is for is
@@ -437,6 +441,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       if (req.method === 'GET' && url.pathname === '/api/ai/profiles') return json(200, { profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId });
       // The owner's external MCP servers as the screen may see them: no secret, in plain or protected form (lib/mcp/http-api.mjs).
       if (req.method === 'GET' && url.pathname === '/api/mcp/servers') return json(200, await (await mcpApi()).servers());
+      // The acceptance file of the open project as its owner is asked to trust it: its sha256, criteria and commands (lib/proof/http-api.mjs).
+      if (req.method === 'GET' && url.pathname === '/api/proof/acceptance') return send(await proofApi.acceptance(url.searchParams));
       if (req.method === 'GET' && url.pathname === '/api/sandbox/status') return json(200, sandboxEngine.status());
       // The update notice (lib/update-check.mjs): what the Hub already knows about a newer release. A read of memory, never a request to the network: the check is the POST below.
       if (req.method === 'GET' && url.pathname === '/api/update/status') { if (!updates) return json(503, { error: 'Kiểm tra bản cập nhật chưa khởi tạo.', code: 'update_unavailable' }); return json(200, { update: updateState() }); }
@@ -470,7 +476,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         req.on('close', () => { clearInterval(heartbeat); dispose?.(); });
         return;
       }
-      const taskRoute = url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})(\/report|\/stream)?$/);
+      const taskRoute = url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})(\/report|\/stream|\/proof)?$/);
       if (req.method === 'GET' && taskRoute) {
         if (taskRoute[2] === '/stream') {
           const task = taskEngine?.get(taskRoute[1]);
@@ -492,6 +498,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           req.on('close', () => { clearInterval(heartbeat); dispose?.(); });
           return;
         }
+        // The pack of the task's last run (json, md, html), checked whole before it is answered.
+        if (taskRoute[2] === '/proof') return send(await proofApi.proof(taskRoute[1], () => taskEngine?.get(taskRoute[1]) ?? null, url.searchParams));
         const value = taskRoute[2] === '/report' ? await taskEngine?.report(taskRoute[1]) : taskEngine?.get(taskRoute[1]);
         if (value === null || value === undefined) return json(404, { error: 'Không tìm thấy nhiệm vụ.' });
         if (!taskRoute[2]) return json(200, value);
@@ -711,6 +719,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             if(!taskEngine?.acceptCriterion)throw Object.assign(
               new Error('Owner acceptance is unavailable.'),{statusCode:501});
             result={task:await taskEngine.acceptCriterion(payload)};break;
+          // The owner trusts the acceptance file they were shown, by the sha256 of its exact bytes (the Hub reads the file again), or takes that back. Never by path or "latest";
+          // only this page's POST reaches it: no tool of the model, no MCP client, not the ACP agent or the Companion.
+          case '/api/proof/trust-acceptance': return send(await proofApi.trust(payload));
+          case '/api/proof/revoke-acceptance': return send(await proofApi.revoke(payload));
           // The one request the Hub makes for this list, and only because its owner pressed the button: to models.dev, with nothing of theirs in it. A failure leaves the list in use as it was.
           case '/api/ai/catalog/refresh': requireNoTask('Chờ các tác vụ AI đang chạy xong rồi mới cập nhật danh sách model: mỗi lượt chạy giữ nguyên kế hoạch và giá của nó.'); await catalogReady; result = await catalogs.refresh(); break;
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;

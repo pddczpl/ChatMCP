@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { findNeedles, runScenario } from './e2e/harness.mjs';
+import { runScenario } from './e2e/harness.mjs';
 import { HUB_ROOT, cleanEnvironment, connectModel, continueTask, setMode, startTask, waitFor, waitForState } from './e2e/hub-process.mjs';
 import { call, say, shaOf } from './e2e/scenarios.mjs';
 import { git, gitInit } from './e2e/fixtures.mjs';
@@ -193,7 +193,15 @@ await runScenario({
   t.equal([(await proofOf(one.id, '?run=1')).status, json(await proofOf(one.id, '?run=1')).run, (await proofOf(one.id, '?run=2')).status, (await proofOf(one.id, '?run=7')).status], [200, 1, 404, 404], 'it is served when asked for by its run');
   await setMode(hub, 'autonomous');
   fs.writeFileSync(path.join(project, 'notes.txt'), 'edited by the person\n');
+  // the page keeps asking while the run goes on and its pack takes the place of the earlier one
+  const polled = new Set();
+  let polling = true;
+  const poller = (async () => { while (polling) for (const query of ['', '?run=1', '?format=md&run=1']) { const answer = await proofOf(one.id, query); polled.add(`${answer.status}${answer.status === 200 ? '' : ` ${json(answer).code}`}`); } })();
   const late = await play('[ask] And now?', { id: one.id });
+  await waitFor(() => packs(one.id).length === 1, { timeoutMs: 10_000, label: 'the earlier pack to be removed' });
+  polling = false;
+  await poller;
+  t.equal([...polled].sort(), ['200', '404 no_pack'], 'asked all the time meanwhile: a pack or none, never an error');
   t.equal([late.proof.status, late.proof.run, late.proof.verdict, late.proof.earlier], ['ready', 3, 'evidenced', null], 'the next run that is judged has a pack of its own');
   t.equal(packs(one.id).map((file) => path.basename(file)), [`${late.proof.digest.slice(0, 16)}.pack.json`], 'which replaces the earlier one');
   t.check(late.proof.digest !== one.proof.digest, '(premise) another tree, another pack');
@@ -242,7 +250,9 @@ await runScenario({
   t.equal([held.proof.status, held.proof.verdict], ['ready', 'failed'], 'and so has the first, of its own checkout');
 
   // ---- a pack goes with its task -----------------------------------------------------------------------------------------------------------
-  await hub.post('/api/tasks/delete', { id: failed.id });
+  const reading = Array.from({ length: 9 }, (_, n) => proofOf(failed.id, `?format=${['json', 'md', 'html'][n % 3]}`));
+  const [, ...read] = await Promise.all([hub.post('/api/tasks/delete', { id: failed.id }), ...reading]);
+  t.check(read.every((answer) => answer.status === 200 || answer.status === 404), 'a task deleted while its pack is read: the pack or nothing', read.map((answer) => `${answer.status} ${answer.status > 404 ? answer.text.slice(0, 80) : ''}`).join(' '));
   await hub.post('/api/tasks/delete', { id: second.id });
   t.equal([packs(failed.id), packs(second.id), (await proofOf(failed.id)).status, (await proofOf(second.id)).status], [[], [], 404, 404], 'deleting a task removes its pack');
 
@@ -280,8 +290,6 @@ await runScenario({
   t.note(`all pages of ${first.receipts.total} receipts: ${Date.now() - began} ms`);
   t.equal([(await proofOf(killed.id, '?format=html&lang=en')).status, cli('check', packs(killed.id)[0]).json.code], [200, 'pack_not_evidenced'], 'the report and the command line read it');
   t.equal((await hub.get('/api/health')).status, 200, 'the Hub is well');
-  const leaks = findNeedles(path.join(hub.stateDir, 'proof', 'packs'), [SECRET]);
-  t.note(`pack files that hold the secret in their raw files (the acceptance bytes of the project): ${leaks.hits.length} of ${leaks.scanned}`);
   const stopping = Date.now();
   await hub.stop();
   t.check(Date.now() - stopping < 8000, 'a Hub stops without waiting for packs');

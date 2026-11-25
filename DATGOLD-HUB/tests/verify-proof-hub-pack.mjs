@@ -2,32 +2,38 @@
 // done-gate, baseline store, check runner and proof service on temporary projects, only the model is scripted; the real `chatmcp verify check` on what was written. The HTTP
 // routes are in verify-proof-http.mjs, a real Hub process.
 //  1. what a pack holds: the run's own final tree, the bytes the run was held to, the gate's report on the checks, the cost; the command line accepts it
-//  2. every reason for no pack that a run can meet, from the closed list
-//  3. a pack never slows or fails a run: it is built after the task is free, in bounded time, and gives way to a run that needs a baseline
-//  4. a delete, a stop of the Hub and a new run while a pack is built; what a restart finds
-//  5. the folder of the packs: ids, names, sizes, leftovers; the summary of a task file somebody edited
+//  2. a pack never slows or fails a run: it is built after the task is free, and gives way to a run that needs a baseline
+//  3. a second chat
+//  4. the folder of the packs: ids, names, sizes, leftovers; the summary of a task file somebody edited
+//  5. the owner's acceptance of an objective: the receipt is held to the task's ledger (lib/proof/accept-receipt.mjs)
+// The reasons for no pack, and what interrupts a build, are in verify-proof-hub-pack-none.mjs.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { treeKey } from '../lib/agent-progress.mjs';
+import { objectiveReceiptId } from '../lib/objective-acceptance.mjs';
+import { ACCEPT_CODES, receiptProblem } from '../lib/proof/accept-receipt.mjs';
 import { AgentRunner } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { readPackFile } from '../lib/proof/cli/check.mjs';
 import { HubPacks, PACK_REASONS, PACK_LIMITS, PackStore, loadedProof, publicProof } from '../lib/proof/hub-pack.mjs';
-import { ledgerPath } from '../lib/proof/ledger.mjs';
+import { ProofLedger, ledgerPath, treeRef } from '../lib/proof/ledger.mjs';
 import {
   ACCEPT, WEAK, answer, approver, bundleRoot, check, count, createHub, diff, done, equal, fix, git, project, read, root, run, say, scripted, section, sleep, textsOf, tool, trust, until, write,
 } from './support/proof-gate-rig.mjs';
 
-const settled = (agent, id) => until(() => { const { proof } = agent.get(id); return proof && proof.status !== 'building' && proof.reason !== 'run_in_progress' ? proof : null; }, 'the proof to settle');
+const settled = (agent, id) => until(() => { const { proof } = agent.get(id); return proof && proof.status !== 'building' && proof.reason !== 'run_in_progress' && !agent.packs.running.has(id) ? proof : null; }, 'the proof to settle');
 const files = (manager, id) => { try { return fsSync.readdirSync(path.join(manager.hubDirectory, 'proof', 'packs', id)).map((name) => path.join(manager.hubDirectory, 'proof', 'packs', id, name)); } catch { return []; } };
 const packOf = (manager, id) => readPackFile(fsSync.readFileSync(files(manager, id)[0]));
 const cli = (file) => {
   const result = spawnSync(process.execPath, [path.join(bundleRoot, 'bin', 'chatmcp.mjs'), 'verify', 'check', file, '--json'], { encoding: 'utf8', windowsHide: true, env: { ...process.env, CHATMCP_STATE_DIR: path.join(root, 'cli-state') } });
   return JSON.parse(result.stdout).code;
 };
+/** A project whose checks pass as it is. */
+const good = (name, { files: more = {}, ...options } = {}) => project(name, { ...options, files: { 'calc.js': 'exports.add = (a, b) => a + b;\n', ...more } });
 const taskFile = (manager, id) => path.join(manager.hubDirectory, 'api-tasks', id, 'task.json');
 const codes = (pack) => pack.statement.predicate.criteria.map((row) => [row.id, row.status, [...new Set(row.reasons.map((reason) => reason.code))]]);
 
@@ -107,110 +113,7 @@ try {
     equal([ran.view.proofGate.status, proof.verdict, pack.statement.predicate.acceptance.edited, pack.files['acceptance.yml'].toString() === ACCEPT(), cli(files(manager, ran.id)[0])], ['passed', 'evidenced', false, true, 'pack_verified']);
   });
 
-  const reasons = new Set();
-  const none = async (label, ran, reason) => {
-    const proof = await settled(ran.agent, ran.id);
-    equal([proof.status, proof.reason, proof.digest, proof.verdict, files(manager, ran.id)], ['none', reason, null, null, []], label);
-    check(PACK_REASONS.includes(reason), `${reason} is in the closed list`);
-    reasons.add(reason);
-    return proof;
-  };
-  await section('2. why a run has no pack: before its final tree', async () => {
-    await none('no acceptance file', await run(manager, await project('bare', { acceptance: null }), [done], { prompt: 'Look around.' }), 'no_acceptance');
-    await none('an untrusted one', await run(manager, await project('untrusted', { acceptance: ACCEPT({ tests: 'node calc.test.js --untrusted' }) }), [done], { prompt: 'Look around.' }), 'acceptance_untrusted');
-    await none('one that does not read', await run(manager, await project('invalid', { acceptance: 'version: 2\n' }), [done], { prompt: 'Look around.' }), 'acceptance_invalid');
-    const MANUAL = 'version: 1\ncriteria:\n  - id: look\n    text: "Look."\n    manual:\n      note: "Look at it."\n';
-    await trust(manager, MANUAL);
-    await none('only manual criteria', await run(manager, await project('manual', { acceptance: MANUAL }), [done], { prompt: 'Look around.' }), 'no_checks');
-    await none('Read Only', await run(manager, await project('readonly'), [done], { mode: 'readonly', prompt: 'Look around.' }), 'readonly');
-    await none('plan mode', await run(manager, await project('planned'), [done], { prompt: 'Make a plan.', start: { planMode: true } }), 'plan_mode');
-    await none('a run that fails', await run(manager, await project('broken'), [], { status: 'failed', prompt: 'Look around.' }), 'run_not_completed');
-    const held = await project('cancelled');
-    await none('a run that is stopped', await run(manager, held, [async () => { await sleep(15_000); return [say('late')]; }], { status: 'cancelled', prompt: 'Look around.', during: async ({ agent, id, model }) => { await until(() => model.seen.length > 0, 'the model'); await agent.cancel(id); } }), 'run_not_completed');
-    manager.lifecycleAgent = { kind: 'subagent', role: 'worker' };
-    try { await none('an agent another agent started', await run(manager, await project('sub'), [done], { prompt: 'Do a part.' }), 'subagent'); } finally { manager.lifecycleAgent = null; }
-    manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
-    const sandboxed = await run(manager, await project('sandboxed'), [() => { manager.permissions.executionPolicy = 'sandbox-only'; return [say('Done.')]; }], { prompt: 'Look around.' });
-    await none('sandbox-only', sandboxed, 'sandbox_only');
-    manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
-    const { shellDisabled } = manager.localTools;
-    const shellless = await run(manager, await project('shellless'), [() => { manager.localTools.shellDisabled = true; return [say('Done.')]; }], { prompt: 'Look around.' });
-    manager.localTools.shellDisabled = shellDisabled;
-    await none('a Hub whose shell is off', shellless, 'no_shell');
-    const lost = await run(manager, await project('lost'), [done], { prompt: 'Look around.' });
-    await settled(lost.agent, lost.id);
-    await fs.rm(path.join(manager.hubDirectory, 'api-tasks', lost.id, 'acceptance.yml'));
-    await fs.writeFile(path.join(manager.workspace, '.chatmcp', 'acceptance.yml'), ACCEPT({ other: 'node -v' }));
-    const without = await run(manager, manager.workspace, [done], { runner: lost.agent, id: lost.id, prompt: 'Again.' });
-    const proof = await settled(without.agent, without.id);
-    equal([proof.status, proof.reason, proof.earlier.run], ['none', 'acceptance_lost', 1], 'the acceptance file of the start is gone');
-    reasons.add('acceptance_lost');
-  });
-
-  await section('2b. why a run has no pack: the baseline, the folder, the final tree, the ledger, the size', async () => {
-    const plain = await run(manager, await project('plain', { repository: false }), [read, fix, done]);
-    equal(plain.view.proofGate.status, 'passed', '(premise) the gate passes in a plain folder');
-    await none('a plain folder has no old bytes', plain, 'not_a_repository');
-    const folder = path.join(manager.hubDirectory, 'proof', 'gate', 'proof', 'baselines');
-    const current = (id) => JSON.parse(fsSync.readFileSync(taskFile(manager, id), 'utf8')).proofBaseline.id;
-    const edit = async (id, change) => { for (const key of fsSync.readdirSync(folder)) { const file = path.join(folder, key, `${current(id)}.json`); if (fsSync.existsSync(file)) await change(file); } };
-    let target = null;
-    const spoil = (change) => ({ prompt: 'Look around.', during: async ({ agent, id }) => { target = id; await until(() => fsSync.existsSync(taskFile(manager, id)) && agent.get(id).events.some((event) => event.gate === 'armed'), 'the baseline'); spoilt = change; } });
-    let spoilt = null;
-    const hold = async () => { await until(() => spoilt, 'the test to be ready'); await edit(target, spoilt); spoilt = null; return [say('Done.')]; };
-    await none('an edited baseline', await run(manager, await project('spoilt'), [hold], spoil((file) => fs.writeFile(file, fsSync.readFileSync(file, 'utf8').replace(/"tree":"[0-9a-f]/, '"tree":"0')))), 'baseline_unreadable');
-    await none('a removed baseline', await run(manager, await project('removed'), [hold], spoil((file) => fs.rm(file))), 'baseline_unreadable');
-    await none('a baseline whose objects are gone', await run(manager, await project('objects'), [read, async ({ last }) => { await until(() => spoilt, 'ready'); return fix({ last }); }, hold], spoil(async (file) => { await fs.rm(file.replace(/\.json$/, '.git'), { recursive: true, force: true }); })), 'old_bytes_unreadable');
-    // a process that goes on writing: the tree at the build is not the tree the run ended on
-    const WRITER = "const { spawn } = require('child_process');\nspawn(process.execPath, ['-e', \"const fs = require('fs'); let n = 0; const t = setInterval(() => { fs.writeFileSync('notes.txt', String(n++)); if (n > 400) clearInterval(t); }, 25)\"], { cwd: __dirname, detached: true, stdio: 'ignore' }).unref();\n";
-    const writer = await run(manager, await project('writer', { files: { 'writer.js': WRITER } }), [() => [tool('run_command', { command: 'node writer.js', description: 'Start a helper' })], done], { prompt: 'Look around.' });
-    await none('the files changed after the end of the run', writer, 'final_tree_changed');
-    // the ledger is edited while the run goes on
-    const broken = await run(manager, await project('ledger'), [hold], { prompt: 'Look around.', status: 'completed', during: async ({ id }) => {
-      target = id;
-      await until(() => fsSync.existsSync(ledgerPath(manager.hubDirectory, id)), 'the ledger');
-      spoilt = async () => { const file = ledgerPath(manager.hubDirectory, id); const text = fsSync.readFileSync(file, 'utf8'); await fs.writeFile(file, text.replace('task_start', 'task_xtart')); };
-    } }).catch((error) => { if (!/verifies/.test(String(error.message))) throw error; return null; });
-    check(broken === null, '(premise) the ledger does not verify');
-    const brokenTask = [...new Set(fsSync.readdirSync(path.join(manager.hubDirectory, 'api-tasks')))].includes(target);
-    check(brokenTask, 'the task is there');
-    const saved = await until(() => { const { proof } = JSON.parse(fsSync.readFileSync(taskFile(manager, target), 'utf8')); return proof?.status === 'none' && proof.reason !== 'run_in_progress' ? proof : null; }, 'its proof');
-    check(['final_tree_unknown', 'ledger_broken'].includes(saved.reason), `an edited ledger: no pack (${saved.reason})`);
-    reasons.add(saved.reason);
-    const big = await run(manager, await project('big'), [write('big.txt', 'x'.repeat(400_000)), done], { prompt: 'Look around.', start: {}, during: async ({ agent }) => { agent.packs.limits = { ...agent.packs.limits, maxBytes: 100_000 }; } });
-    await none('a pack over the limit', big, 'pack_too_large');
-    const patch = await run(manager, await project('patch'), [write('big.txt', 'x'.repeat(400_000)), done], { prompt: 'Look around.', during: async ({ agent }) => { agent.packs.limits = { ...agent.packs.limits, maxPatchBytes: 100_000 }; } });
-    await none('a patch over the limit', patch, 'patch_too_large');
-    const late = await run(manager, await project('late'), [done], { prompt: 'Look around.', during: async ({ agent }) => { agent.packs.limits = { ...agent.packs.limits, timeoutMs: 1 }; } });
-    await none('a build that takes too long', late, 'timeout');
-    // a file where the folder of the packs should be
-    const packs = path.join(manager.hubDirectory, 'proof', 'packs');
-    await fs.rename(packs, `${packs}-aside`);
-    await fs.writeFile(packs, 'not a folder');
-    const unwritable = await run(manager, await project('unwritable'), [done], { prompt: 'Look around.' });
-    equal([(await settled(unwritable.agent, unwritable.id)).reason, unwritable.view.status], ['write_failed', 'completed'], 'a pack that cannot be written: a reason, and the task is not touched');
-    reasons.add('write_failed');
-    await fs.rm(packs);
-    await fs.rename(`${packs}-aside`, packs);
-    // a registered secret that is a folder of a check: the masked statement would not verify, so it is not written
-    const SUB = `version: 1\ncriteria:\n  - id: tests\n    text: "In a folder."\n    checks:\n      - run: "node -v"\n        cwd: secretfolder9\n`;
-    await trust(manager, SUB);
-    manager.registerSecret('secretfolder9');
-    const masked = await run(manager, await project('masked', { acceptance: SUB, files: { 'package.json': '{}\n' } }).then(async (dir) => { await fs.mkdir(path.join(dir, 'secretfolder9')); await fs.writeFile(path.join(dir, 'secretfolder9', 'a.txt'), 'a'); git(dir, ['add', '-A']); git(dir, ['commit', '-q', '-m', 'sub']); return dir; }), [done], { prompt: 'Look around.' });
-    await none('a pack that would not verify', masked, 'pack_not_verified');
-    manager.secrets = manager.secrets.filter((value) => value !== 'secretfolder9');
-    // a data folder of the Hub inside the workspace
-    const nest = await project('nest');
-    const inner = await createHub('nest/inner');
-    await trust(inner, ACCEPT());
-    const within = await run(inner, nest, [read, fix, done]);
-    const proof = await settled(within.agent, within.id);
-    equal([proof.status, proof.reason], ['none', 'state_inside_workspace']);
-    reasons.add('state_inside_workspace');
-    await inner.shutdown();
-  });
-
-  await section('3. the end of a run does not wait for its pack; a run that needs a baseline is not held up by one', async () => {
+  await section('2. the end of a run does not wait for its pack; a run that needs a baseline is not held up by one', async () => {
     const dir = await project('free', { files: Object.fromEntries(Array.from({ length: 300 }, (_, n) => [`f${n}.txt`, `file ${n}\n`.repeat(20)])) });
     const free = await run(manager, dir, [read, fix, done]);
     equal(free.agent.get(free.id).proof.status, 'building', 'the task is free while its pack is built');
@@ -228,53 +131,11 @@ try {
     const other = await run(manager, dir, [done], { prompt: 'Look around.' });
     check(Date.now() - started < 30_000 && other.gates.includes('armed'), 'the run after a stuck build starts');
     equal((await settled(stuck.agent, stuck.id)).reason, 'superseded', 'and the build is given up');
-    reasons.add('superseded');
+    check(PACK_REASONS.includes('superseded'));
     await settled(other.agent, other.id);
   });
 
-  await section('4. delete, stop and a new run while a pack is built; a restart', async () => {
-    const forever = { build: ({ signal }) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(signal.reason), { once: true }); }) };
-    const slow = { during: async ({ agent }) => { agent.packs.deps = { ...agent.packs.deps, ...forever }; }, prompt: 'Look around.' };
-    const deleted = await run(manager, await project('deleted'), [done], slow);
-    equal(deleted.agent.get(deleted.id).proof.status, 'building');
-    const at = Date.now();
-    await deleted.agent.delete(deleted.id);
-    check(Date.now() - at < 8000, 'a delete does not wait for the build');
-    await sleep(300);
-    equal([fsSync.existsSync(path.dirname(taskFile(manager, deleted.id))), files(manager, deleted.id)], [false, []], 'and nothing comes back after it');
-    const stopped = await run(manager, await project('stopped'), [done], slow);
-    const began = Date.now();
-    await stopped.agent.shutdown();
-    check(Date.now() - began < 8000, 'a Hub that stops does not wait for the build');
-    equal(stopped.agent.get(stopped.id).proof.reason, 'hub_stopped');
-    reasons.add('hub_stopped');
-    const onDisk = JSON.parse(fsSync.readFileSync(taskFile(manager, stopped.id), 'utf8')).proof;
-    equal([onDisk.status, onDisk.reason], ['none', 'hub_stopped'], 'and it is saved');
-    // a new run of the same task while its pack is built
-    const twice = await run(manager, await project('twice'), [done], slow);
-    twice.agent.packs.deps = { ...twice.agent.packs.deps, build: new HubPacks({ manager, gate: twice.agent.doneGate }).deps.build };
-    const second = await run(manager, manager.workspace, [done], { runner: twice.agent, id: twice.id, prompt: 'Again.' });
-    const proof = await settled(second.agent, second.id);
-    equal([proof.status, proof.run, proof.earlier], ['ready', 2, null], 'the later run has its pack, the build of the earlier one is given up');
-    // a Hub that died: what a task file says of a pack that was being built, or of a run that went on
-    for (const state of [{ status: 'building', reason: null }, { status: 'none', reason: 'run_in_progress' }]) {
-      const data = JSON.parse(fsSync.readFileSync(taskFile(manager, stopped.id), 'utf8'));
-      await fs.writeFile(taskFile(manager, stopped.id), JSON.stringify({ ...data, proof: { ...data.proof, ...state } }));
-      const again = new AgentRunner({ manager, provider: scripted([]), taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: () => {} });
-      await again.load();
-      equal([again.get(stopped.id).proof.status, again.get(stopped.id).proof.reason], ['none', 'interrupted'], `after a restart: ${state.status}/${state.reason}`);
-    }
-    reasons.add('interrupted');
-    // an old task
-    const data = JSON.parse(fsSync.readFileSync(taskFile(manager, stopped.id), 'utf8'));
-    delete data.proof;
-    await fs.writeFile(taskFile(manager, stopped.id), JSON.stringify(data));
-    const old = new AgentRunner({ manager, provider: scripted([]), taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: () => {} });
-    await old.load();
-    equal([old.get(stopped.id).proof, old.state().tasks.find((task) => task.id === stopped.id).proof], [null, null], 'a task of an older Hub has no summary');
-  });
-
-  await section('4b. a second chat: its pack is in the Hub\'s own folder and goes with it', async () => {
+  await section('3. a second chat: its pack is in the Hub\'s own folder and goes with it', async () => {
     await manager.selectWorkspace(await project('shared'));
     manager.permissions.configure({ mode: 'autonomous', executionPolicy: 'host-review' });
     let release;
@@ -301,7 +162,7 @@ try {
     } finally { stop(); release?.(); await pool.shutdown(); await runner.shutdown(); }
   });
 
-  await section('5. the folder of the packs, and the summary of a task file', async () => {
+  await section('4. the folder of the packs, and the summary of a task file', async () => {
     const directory = path.join(root, 'store', 'packs');
     const store = new PackStore(directory);
     const id = randomUUID();
@@ -338,8 +199,75 @@ try {
     equal(publicProof({ status: 'none', reason: 'readonly', run: 2, at: pack.at, pack }), { status: 'none', reason: 'readonly', run: 2, at: pack.at, digest: null, verdict: null, counts: null, checksModified: null, coverage: null, earlier: { run: 1, at: pack.at, digest, verdict: 'evidenced' } });
     equal([publicProof(null), publicProof(good, { summary: true })], [null, { status: 'ready', reason: null, run: 1, verdict: 'evidenced' }]);
     equal([Object.isFrozen(PACK_REASONS), new Set(PACK_REASONS).size === PACK_REASONS.length, PACK_LIMITS.timeoutMs <= 120_000], [true, true, true]);
-    const missing = [...reasons].filter((reason) => !PACK_REASONS.includes(reason));
-    equal(missing, [], 'every reason met here is in the closed list');
+  });
+
+  await section('5. the receipt an objective is accepted with is held to the ledger of the task', async () => {
+    const hubDir = path.join(root, 'ledgers');
+    const snap = (char, extra = {}) => treeRef({ status: 'ok', treeAlgorithm: 'git-pinned-v1', objectFormat: 'sha1', tree: char.repeat(40), rawTree: char.repeat(40), full: true, engineReason: null, files: 1, bytes: 1, limitations: [], takenAt: '2026-11-25T00:00:00.000Z', ...extra });
+    const [A, B] = [snap('a'), snap('b')];
+    const none = treeRef({ status: 'failed', engineReason: 'snapshot_failed' });
+    const at = (event, tree) => ['tree', { event, run: 1, callId: null, tool: null, category: null, tree, scanMs: 1 }];
+    const call = (treeBefore, treeAfter, extra = {}) => ['call', { run: 1, callId: 'c', tool: 'local.run_command', category: 'execute', outcome: 'ok', treeBefore, treeAfter, changed: treeBefore.tree !== treeAfter.tree, overlapped: false, scanMs: 1, beforeSeq: 1, ...extra }];
+    const stream = { sha256: 'e'.repeat(64), bytes: 0, truncated: false, preview: '', previewTruncated: false };
+    const checked = (treeBefore, treeAfter) => ['check', { command: 'x', commandTruncated: false, commandSha256: 'c'.repeat(64), argsSha256: 'd'.repeat(64), cwd: '.', shell: 'cmd', exit: 0, signal: null, timedOut: false, cancelled: false, lingering: false, stdout: stream, stderr: stream, toolchain: null, treeBefore, treeAfter, durationMs: 1 }];
+    const problem = async (records, receipt) => {
+      const taskId = randomUUID();
+      const ledger = ProofLedger.forTask(hubDir, taskId);
+      let last = null;
+      for (const [type, record] of records) last = await ledger.append(type, record);
+      const made = typeof receipt === 'function' ? receipt(last) : receipt;
+      return (await receiptProblem({ hubDir, taskId, receipt: made }))?.code ?? null;
+    };
+    const on = (kind, tree, extra = {}) => ({ kind, step: 1, tree: treeKey(tree), ...extra });
+    const start = ['task_start', { taskId: 'x' }];
+    const verify = on('verify', A, { id: '0123456789abcdef' });
+    equal(await problem([], verify), ACCEPT_CODES.unreadable, 'no ledger');
+    equal(await problem([start], verify), ACCEPT_CODES.treeUnknown, 'a ledger without a tree');
+    equal(await problem([start, at('task_start', A), at('task_end', none)], verify), ACCEPT_CODES.treeUnknown, 'a final tree that could not be taken: not shown to be current');
+    equal(await problem([start, at('task_start', A), at('task_end', B)], on('inspect', A)), ACCEPT_CODES.stale, 'another final tree');
+    equal(await problem([start, call(A, B), at('run_start', A)], on('inspect', B)), ACCEPT_CODES.stale, 'a run that began on another tree');
+    equal(await problem([start, at('task_start', A)], undefined), ACCEPT_CODES.stale, 'no such receipt');
+    equal(await problem([start, at('task_start', A), at('task_end', A)], on('inspect', A)), null, 'a read on the final tree');
+    equal(await problem([start, at('task_start', A), at('task_end', A)], on('review', A)), null, 'a diff review on it');
+    equal(await problem([start, at('task_start', A), at('task_end', A)], verify), ACCEPT_CODES.notHeld, 'a check nothing in the ledger shows');
+    equal(await problem([start, call(A, A), at('task_end', A)], verify), null, 'a command that left the tree as it found it');
+    equal(await problem([start, call(A, A, { tool: 'local.write_file' }), at('task_end', A)], verify), ACCEPT_CODES.notHeld, 'another tool is no check');
+    equal(await problem([start, call(A, A, { outcome: 'error' }), at('task_end', A)], verify), ACCEPT_CODES.notHeld, 'a call that failed');
+    equal(await problem([start, call(A, A, { overlapped: true }), at('task_end', A)], verify), ACCEPT_CODES.notHeld, 'a call beside another one');
+    equal(await problem([start, call(B, A), at('task_end', A)], verify), ACCEPT_CODES.notHeld, 'a command that changed the files');
+    equal(await problem([start, checked(A, A), at('task_end', A)], verify), ACCEPT_CODES.notHeld, 'a check of the gate by another name');
+    const named = (entry) => on('verify', A, { id: entry.hash.slice(0, 16) });
+    equal(await problem([start, at('task_start', A), checked(A, A)], named), null, 'a check of the gate, by its ledger line');
+    equal(await problem([start, at('task_start', A), checked(A, A)], (entry) => on('verify', A, { id: entry.hash.slice(0, 4) })), ACCEPT_CODES.notHeld, 'not by a part of it');
+    equal(await problem([start, at('task_start', A), checked(B, A)], named), ACCEPT_CODES.notHeld, 'nor one that started on another tree');
+    equal(await problem([start, call(B, A, { tool: 'local.edit_file', category: 'workspace_edit' }), at('task_end', A)], on('edit', A, { path: 'x', sha256: 'f'.repeat(64) })), null, 'an edit that led to the final tree');
+    equal(await problem([start, call(A, B, { tool: 'local.edit_file' }), at('run_start', A)], on('edit', A)), ACCEPT_CODES.notHeld, 'an edit that led away from it');
+    equal(await problem([start, call(B, A, { outcome: 'threw' }), at('task_end', A)], on('edit', A)), ACCEPT_CODES.notHeld, 'an edit that threw');
+    // a task file somebody edited: its latest tree is made the tree of an old receipt
+    const ran = await run(manager, await project('accept'), [read, fix, diff, done]);
+    await settled(ran.agent, ran.id);
+    const stale = ran.agent.tasks.get(ran.id).progress.receipts.find((item) => item.kind === 'inspect');
+    check(stale.tree !== ran.agent.tasks.get(ran.id).progress.tree, '(premise) the read was made on the start tree');
+    const objective = ran.view.goalPlan.objectives[0];
+    const inspect = objective.acceptanceCriteria.findIndex((text) => text.startsWith('Observe'));
+    const data = JSON.parse(fsSync.readFileSync(taskFile(manager, ran.id), 'utf8'));
+    data.progress.tree = stale.tree;
+    await fs.writeFile(taskFile(manager, ran.id), JSON.stringify(data));
+    const again = new AgentRunner({ manager, provider: scripted([]), taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: () => {} });
+    await again.load();
+    const forged = objectiveReceiptId(stale);
+    check(again.get(ran.id).objectiveReceipts.some((item) => item.receiptId === forged), '(premise) the edited file offers it');
+    await assert.rejects(again.acceptCriterion({ id: ran.id, objectiveId: objective.id, criterionIndex: inspect, receiptId: forged, confirmed: true }), { code: 'stale_acceptance_receipt', statusCode: 409 });
+    equal(again.get(ran.id).goalPlan.objectives[0].evidence ?? [], [], 'nothing was accepted');
+    // two acceptances at once: both are kept
+    const edit = objective.acceptanceCriteria.findIndex((text) => text.startsWith('If code'));
+    const review = ran.agent.get(ran.id).objectiveReceipts;
+    const pick = (kind) => review.find((item) => item.kind === kind).receiptId;
+    const run2 = objective.acceptanceCriteria.findIndex((text) => text.startsWith('Run required'));
+    const both = [[edit, 'edit'], [run2, 'verify']].filter(([index]) => index >= 0);
+    check(both.length === 2, '(premise) two criteria to accept');
+    await Promise.all(both.map(([criterionIndex, kind]) => ran.agent.acceptCriterion({ id: ran.id, objectiveId: objective.id, criterionIndex, receiptId: pick(kind), confirmed: true })));
+    equal(ran.agent.get(ran.id).goalPlan.objectives[0].evidence.map((item) => item.criterionIndex).sort(), both.map(([index]) => index).sort(), 'two acceptances at once are both kept');
   });
 
   await manager.shutdown();
