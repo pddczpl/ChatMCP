@@ -82,7 +82,7 @@ class Tree:
         self.write('scripts/tests/Test-NativeLifecycle.ps1', 'param()\n' + LIFECYCLE_PIN.format(companion))
         self.write('scripts/Build-Installer.ps1', "# Builds DatGoldSetup.exe (called ChatMCPSetup.exe up to v3.10.2).\n$setupExe = Join-Path $distDir 'DatGoldSetup.exe'\n")
         self.write('scripts/Build-BrowserCompanion.ps1', "$filename = 'DatGold-Browser-Companion.zip'\n")
-        self.write(f'RELEASE-NOTES-v{version}.md', f'# DatGold v{version} — {title}\n\nBody text with a second heading below.\n\n# Not the title\n')
+        self.write(f'docs/releases/RELEASE-NOTES-v{version}.md', f'# DatGold v{version} — {title}\n\nBody text with a second heading below.\n\n# Not the title\n')
         self.write('baseline.json', json.dumps(baseline_release()))
 
     def write(self, name, text):
@@ -135,7 +135,7 @@ class ResolveReleaseInputsTests(unittest.TestCase):
             'version': '3.12.0',
             'tag': 'v3.12.0',
             'title': 'DatGold v3.12.0 - a release for the tests',
-            'notes_file': 'RELEASE-NOTES-v3.12.0.md',
+            'notes_file': 'docs/releases/RELEASE-NOTES-v3.12.0.md',
             'prerelease': 'false',
             'companion_version': '1.5.2',
             'installer_asset': 'DatGoldSetup.exe',
@@ -174,7 +174,8 @@ class ResolveReleaseInputsTests(unittest.TestCase):
         for version, (prerelease, title) in HAND_TITLES.items():
             with self.subTest(version=version):
                 tree = Tree(Path(self.tmp.name) / version, version=version)
-                shutil.copyfile(REPO / f'RELEASE-NOTES-v{version}.md', tree.root / f'RELEASE-NOTES-v{version}.md')
+                name = f'docs/releases/RELEASE-NOTES-v{version}.md'
+                shutil.copyfile(REPO / name, tree.root / name)
                 code, out, err = self.run_resolver('-Prerelease', prerelease, root=tree.root)
                 self.assertEqual(code, 0, err)
                 self.assertEqual(self.values(out)['title'], title)
@@ -224,33 +225,33 @@ class ResolveReleaseInputsTests(unittest.TestCase):
 
     # ---- release notes and the title ----------------------------------------------------------------------------------------------
     def test_missing_release_notes_are_refused(self):
-        (self.tree.root / 'RELEASE-NOTES-v3.12.0.md').unlink()
-        self.assert_refused('RELEASE-NOTES-v3.12.0.md')
+        (self.tree.root / 'docs/releases/RELEASE-NOTES-v3.12.0.md').unlink()
+        self.assert_refused('docs/releases/RELEASE-NOTES-v3.12.0.md')
 
     def test_notes_without_an_h1_are_refused(self):
-        self.tree.write('RELEASE-NOTES-v3.12.0.md', '## DatGold v3.12.0 - only a second-level heading\n\nText.\n')
+        self.tree.write('docs/releases/RELEASE-NOTES-v3.12.0.md', '## DatGold v3.12.0 - only a second-level heading\n\nText.\n')
         self.assert_refused('no H1')
 
     def test_an_h1_inside_a_code_block_is_not_the_title(self):
-        self.tree.write('RELEASE-NOTES-v3.12.0.md', '```\n# DatGold v3.12.0 - inside a fence\n```\n\nText.\n')
+        self.tree.write('docs/releases/RELEASE-NOTES-v3.12.0.md', '```\n# DatGold v3.12.0 - inside a fence\n```\n\nText.\n')
         self.assert_refused('no H1')
 
     def test_notes_titled_for_another_version_are_refused(self):
-        self.tree.write('RELEASE-NOTES-v3.12.0.md', '# DatGold v3.11.2 — copied from the last release\n')
+        self.tree.write('docs/releases/RELEASE-NOTES-v3.12.0.md', '# DatGold v3.11.2 — copied from the last release\n')
         self.assert_refused('DatGold v3.12.0')
 
     def test_a_title_without_text_after_the_version_is_refused(self):
-        self.tree.write('RELEASE-NOTES-v3.12.0.md', '# DatGold v3.12.0\n')
+        self.tree.write('docs/releases/RELEASE-NOTES-v3.12.0.md', '# DatGold v3.12.0\n')
         self.assert_refused('DatGold v3.12.0')
 
     def test_pre_release_must_agree_with_test_build_in_the_title(self):
-        self.tree.write('RELEASE-NOTES-v3.12.0.md', '# DatGold v3.12.0 (test build) — a test build\n')
+        self.tree.write('docs/releases/RELEASE-NOTES-v3.12.0.md', '# DatGold v3.12.0 (test build) — a test build\n')
         self.assert_refused('test build', '-Prerelease', 'false')
         code, out, err = self.run_resolver('-Prerelease', 'true')
         self.assertEqual(code, 0, err)
         self.assertEqual(self.values(out)['prerelease'], 'true')
         self.assertEqual(self.values(out)['title'], 'DatGold v3.12.0 (test build) - a test build')
-        self.tree.write('RELEASE-NOTES-v3.12.0.md', '# DatGold v3.12.0 — a normal release\n')
+        self.tree.write('docs/releases/RELEASE-NOTES-v3.12.0.md', '# DatGold v3.12.0 — a normal release\n')
         self.assert_refused('test build', '-Prerelease', 'true')
 
     def test_a_pre_release_value_that_is_not_true_or_false_is_refused(self):
@@ -307,9 +308,9 @@ class ResolveReleaseInputsTests(unittest.TestCase):
         self.assert_refused('draft')
 
     def test_every_defect_is_reported_at_once(self):
-        (self.tree.root / 'RELEASE-NOTES-v3.12.0.md').unlink()
+        (self.tree.root / 'docs/releases/RELEASE-NOTES-v3.12.0.md').unlink()
         self.tree.write('scripts/Build-BrowserCompanion.ps1', "$filename = 'ChatMCP-Browser-Companion.zip'\n")
-        err = self.assert_refused('RELEASE-NOTES-v3.12.0.md')
+        err = self.assert_refused('docs/releases/RELEASE-NOTES-v3.12.0.md')
         self.assertIn('ChatMCP-Browser-Companion.zip', err)
 
 

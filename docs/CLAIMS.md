@@ -2,7 +2,7 @@
 
 A claim in the documentation is only as good as the test behind it. In v3.9.0 several tests stayed green while the product was broken (installed skills never reached the model, language-server answers were discarded, an injected Tree-sitter adapter was dropped), each time because the test used a hand-written double of the object that held the defect. The claims map makes the binding between a claim and its test explicit, and `DATGOLD-HUB/tests/verify-claims-map.mjs` fails when the binding rots.
 
-- `docs/CLAIMS.json` lists the headline claims of `README.md` and `RELEASE-NOTES-v3.9.0.md`, and a few from `SECURITY.md` and the user guide.
+- `docs/CLAIMS.json` lists the headline claims of `README.md` and `docs/releases/RELEASE-NOTES-v3.9.0.md`, and a few from `SECURITY.md` and the user guide.
 - `docs/claims-ratchet.json` holds the number of **unmapped claims**. It may be lowered, never raised.
 
 ## One entry
@@ -21,7 +21,7 @@ A claim in the documentation is only as good as the test behind it. In v3.9.0 se
 
 ## What the suite checks
 
-For every `real` entry: the quote is on the stated line; the test exists; `node tests/run-all.mjs --list` (the real runner) lists it, so a run would execute it; the file contains the line `// CLAIM: <id>` on its own; no `forbiddenDoubles` pattern matches its code (comments are removed first). Every `// CLAIM:` marker in any suite must name an existing `real` entry that points at that suite. Every sentence of `README.md` and `RELEASE-NOTES-v3.9.0.md` that contains one of the trust words (`TRIGGER` in the suite: verified, guarantee, secure, and the word for an isolated execution environment) must be covered by an entry; the run prints how many are covered by a mapped claim, an unmapped claim and a disclaimer, and the UNMAPPED COUNT. The unmapped count must equal the ratchet: more is a regression, fewer means the ratchet has to be lowered in the same change.
+For every `real` entry: the quote is on the stated line; the test exists; `node tests/run-all.mjs --list` (the real runner) lists it, so a run would execute it; the file contains the line `// CLAIM: <id>` on its own; no `forbiddenDoubles` pattern matches its code (comments are removed first). Every `// CLAIM:` marker in any suite must name an existing `real` entry that points at that suite. Every sentence of `README.md` and `docs/releases/RELEASE-NOTES-v3.9.0.md` that contains one of the trust words (`TRIGGER` in the suite: verified, guarantee, secure, and the word for an isolated execution environment) must be covered by an entry; the run prints how many are covered by a mapped claim, an unmapped claim and a disclaimer, and the UNMAPPED COUNT. The unmapped count must equal the ratchet: more is a regression, fewer means the ratchet has to be lowered in the same change.
 
 With `--base <ref>` (CI passes `origin/<base branch>`) the ratchet is also compared with the one on that ref: raising it fails, and a base without a ratchet is the first introduction. After editing a document, `node tests/verify-claims-map.mjs --update-lines` rewrites the line numbers of quotes that moved (a quote that was reworded or that occurs twice must be fixed by hand).
 

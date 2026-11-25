@@ -45,6 +45,6 @@ node scripts/check-dco.mjs --base origin/main --head HEAD
 ## Do not
 
 - Edit `DATGOLD-HUB/web/dist` by hand; rebuild it.
-- Rewrite past release notes (`RELEASE-NOTES-v*.md`), dated reports (`docs/PHASE*`) or `docs/archive/`; add a dated note instead.
+- Rewrite past release notes (`docs/releases/RELEASE-NOTES-v*.md`), dated reports (`docs/PHASE*`) or `docs/archive/`; add a dated note instead.
 - Change a pinned number, a ratchet or a gate so that a check passes; fix the code or the document it checks.
 - Commit secrets: `.env` files, keys, tokens, `*.dpapi`, or anything a protected path names (`DATGOLD-HUB/lib/protected-paths.mjs`).

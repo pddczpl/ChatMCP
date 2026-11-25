@@ -12,6 +12,5 @@ The files were moved here in November 2026 with `git mv`, so `git log --follow <
 | Local test results of Studio 1.3.0 with Companion 1.4.0 | `hub/VALIDATION.txt` | `DATGOLD-HUB/` |
 | Mock-up pictures of the 2.x Studio page | `hub/ui-preview-mock.png`, `hub/screenshots/studio-dark-mock.png`, `hub/screenshots/studio-light-mock.png` | `DATGOLD-HUB/docs/` |
 | Validation record of the helper extension ChatMCP Button Fix 1.1.0, whose files stood at the repository root until they were removed in the same change | `VALIDATION.txt` | the repository root |
-| Release notes of 3.0.0, 3.0.1 and 3.0.2, the three versions that have no publish workflow | `RELEASE-NOTES-v3.0.0.md`, `RELEASE-NOTES-v3.0.1.md`, `RELEASE-NOTES-v3.0.2.md` | the repository root |
 
-The release notes from 3.0.3 on stay at the repository root, because the release workflow (`.github/workflows/release.yml`, [RELEASING.md](../RELEASING.md)) reads `RELEASE-NOTES-vX.Y.Z.md` from there. [CHANGELOG.md](../../CHANGELOG.md) is the history of record.
+The release notes of every version are in [docs/releases](../releases), where the release workflow (`.github/workflows/release.yml`, [RELEASING.md](../RELEASING.md)) reads them from. [CHANGELOG.md](../../CHANGELOG.md) is the history of record.

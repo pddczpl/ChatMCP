@@ -1,6 +1,6 @@
 # DatGold v3.10.0 (test build) — streaming, thinking blocks, a model catalog and new tools
 
-DatGold is the new name of ChatMCP ([docs/NAMING.md](docs/NAMING.md)). This is a **test build**, published as a *pre-release*: GitHub keeps showing v3.9.0 as the latest release. It contains everything merged after v3.9.0 (about 250 commits: roadmap phases P0, P1 and P3) and is meant to be installed over a v3.9.0 installation and tried, not to be read as a stable release.
+DatGold is the new name of ChatMCP ([docs/NAMING.md](../NAMING.md)). This is a **test build**, published as a *pre-release*: GitHub keeps showing v3.9.0 as the latest release. It contains everything merged after v3.9.0 (about 250 commits: roadmap phases P0, P1 and P3) and is meant to be installed over a v3.9.0 installation and tried, not to be read as a stable release.
 
 The installer, its file names, the install folder and the settings folder still say ChatMCP on purpose, so that an upgrade finds what v3.9.0 made. The words you read inside the application say DatGold.
 
@@ -16,7 +16,7 @@ The installer, its file names, the install folder and the settings folder still 
 
 **Agent.** Hooks (`PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `TaskCompleted`) from an owner-level `hooks.json`; project instruction files (`AGENTS.md`, `CLAUDE.md`) read within a budget; skills selected on the conversation and loaded on demand; tool schemas selected automatically; results and stop notices of background agents; an Agents tab for agent groups and code edits. One writer keeps the model's history, and host messages wait until every result of a model turn is in.
 
-**Safety.** The Hub requires a per-launch secret ([docs/HUB-AUTH.md](docs/HUB-AUTH.md)); the desktop shell, the installer and the scripts present it, and a Hub from v3.9.0 or older, which has none, is still stopped by the older flow. Full Access still asks before what cannot be taken back, and leaving Full Access is decided by the Hub. Read Only reads no protected file below a directory it searches. Agents spawned by a model are capped in depth and tree size. The ChatGPT Web path filters outgoing text for secrets, withholds protected files and can hold a message for your review. LICENSE (Apache-2.0) and NOTICE ship in the installer.
+**Safety.** The Hub requires a per-launch secret ([docs/HUB-AUTH.md](../HUB-AUTH.md)); the desktop shell, the installer and the scripts present it, and a Hub from v3.9.0 or older, which has none, is still stopped by the older flow. Full Access still asks before what cannot be taken back, and leaving Full Access is decided by the Hub. Read Only reads no protected file below a directory it searches. Agents spawned by a model are capped in depth and tree size. The ChatGPT Web path filters outgoing text for secrets, withholds protected files and can hold a message for your review. LICENSE (Apache-2.0) and NOTICE ship in the installer.
 
 **Interface.** The name DatGold, a new application shell and Settings page, and an English version of the conversation screen, the sidebar, the Agents tab and the dialogs (the Vietnamese text is unchanged).
 
@@ -37,10 +37,10 @@ The Hub's health version is `3.10.0` and the UI build identifier is `3.10.0-reac
 ## What is not verified
 
 - **No test called a live provider** (Anthropic, OpenAI, Google or any other). The quirks of a real server's stream, and how a real Anthropic account reads "the same conversation" for a thinking block, are simulated from the vendors' documentation; the streams in the tests are generated from a plan, not recorded.
-- The bundled ripgrep was staged and run by the installer build, never on a developer machine; searching 48,000 files took 2.3 s with a stand-in binary on a Windows machine with Defender (the target was 1 s). The notices of the libraries linked into `rg.exe` (PCRE2 and Rust crates) are still to be added to [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- The bundled ripgrep was staged and run by the installer build, never on a developer machine; searching 48,000 files took 2.3 s with a stand-in binary on a Windows machine with Defender (the target was 1 s). The notices of the libraries linked into `rg.exe` (PCRE2 and Rust crates) are still to be added to [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).
 - Qwen's limits in the catalog are not checked against the vendor.
 - The installer is not Authenticode-signed and no signed-in Edge/ChatGPT session was tried; `RELEASE-MANIFEST.json` says so.
 
 ## How it was built
 
-It is published by a copy of the v3.9.0 release workflow, which refuses to publish unless the full regression on the exact release commit, the installer build, the installed upgrade from the published v3.9.0, the WebView2 smoke test and the asset checksums have all passed. It does not claim equivalence with other coding agents. See [Security](SECURITY.md) and [the upgrade checkpoint](docs/UPGRADE-IMPLEMENTATION-STATUS.md).
+It is published by a copy of the v3.9.0 release workflow, which refuses to publish unless the full regression on the exact release commit, the installer build, the installed upgrade from the published v3.9.0, the WebView2 smoke test and the asset checksums have all passed. It does not claim equivalence with other coding agents. See [Security](../../SECURITY.md) and [the upgrade checkpoint](../UPGRADE-IMPLEMENTATION-STATUS.md).

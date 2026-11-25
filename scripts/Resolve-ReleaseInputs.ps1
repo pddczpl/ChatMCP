@@ -12,7 +12,7 @@
       and of installer/ChatMCP.Installer.csproj (the files publish-v3.11.2.yml checked);
     - the Companion version: DATGOLD-HUB/extension/manifest.json, equal to -CompanionVersion when that is given, and equal to the
       version that scripts/tests/Test-NativeLifecycle.ps1 asserts for the installed Companion;
-    - RELEASE-NOTES-v<version>.md exists, and the release title is its first H1 (outside code blocks), which must start with
+    - docs/releases/RELEASE-NOTES-v<version>.md exists, and the release title is its first H1 (outside code blocks), which must start with
       "DatGold v<version> " and carry "(test build)" exactly when -Prerelease is true; an em or en dash becomes " - ", as in the
       titles that were published;
     - the asset names: the installer that scripts/Build-Installer.ps1 writes to dist must be DatGoldSetup.exe and the archive of
@@ -126,7 +126,7 @@ if ($null -ne $companion) {
 }
 
 # ---- release notes and title -------------------------------------------------------------------------------------------------------
-$notesFile = "RELEASE-NOTES-v$Version.md"
+$notesFile = "docs/releases/RELEASE-NOTES-v$Version.md"
 $title = $null
 if ($versionValid) {
     $notes = Read-RepoText $notesFile
