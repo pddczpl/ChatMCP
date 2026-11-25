@@ -89,8 +89,17 @@ and checks, the new steps line by line, and 51 defects put into a copy of the wo
 runner wrote) and `tests/mutation/release-evidence.json` (47 mutations of the script). The script also accepted the evidence of two real CI
 runs, rebuilt from their Windows, Node 24 summaries and job logs (45335588884 in three shards, 45248300952 in two).
 
-**Not verified: the sharded path itself.** No release run with shards had happened when this was written (a dry run may start on any branch, now
-that the file is on the default branch; none was started). The next dry run on `main` is its first.
+**Measured: the first run with shards (dry run 45510861440, 2026-11-24, `674875e4`, 241 suites).** The three shards passed on GitHub in 1047, 951
+and 1018 s (17.5, 15.9 and 17.0 min; 989, 896 and 967 s of them in the suites), and `verify` accepted their evidence: each of the 241 suites
+exactly once, every one `PASS`. The `windows` job took 1167 s (19.4 min), not 964: the upgrade step 747 s (593 before), the installer build 206
+(170), the native regression 141 (124). So the `windows` job is still the longest one, and a whole run is about 20-21 minutes: an estimate, as no
+single attempt passed from start to end. In attempt 1 the `windows` job failed when `gh release download v3.9.0` answered "release not found"
+(the release was there, unchanged, and the same step had passed in `ci.yml` on that commit; the cause is not known, and attempt 2 downloaded it).
+"Re-run failed jobs" ran `windows` and `verify` again and `verify` took the evidence of the shards from attempt 1.
+
+**Not verified: the end of `verify`.** Attempt 2 stopped at "Require regular CI success on this exact release commit", as it must: `ci.yml` had
+failed on that commit ([CI-HEALTH.md](CI-HEALTH.md), "A port fetch refuses"). The download of the built assets and the check of their hashes come
+after that gate and did not run with shards. No tag and no release appeared. A green dry run is still owed before the first real release.
 
 ## The first run after the switch
 
