@@ -155,10 +155,14 @@ try {
     const during = new AbortController();
     void start('late', dir);
     before.abort();
+    let asking = Date.now();
     await giveWay(dir, { signal: before.signal });
+    check(Date.now() - asking < 250, 'a run that was stopped does not wait');
     setTimeout(() => during.abort(), 100);
     await giveWay(dir, { signal: during.signal });
+    asking = Date.now();
     await giveWay(path.join(root, 'elsewhere'));
+    check(Date.now() - asking < 250, 'a run elsewhere does not wait for them');
     await sleep(400);
     equal([ended, results], [[], {}], 'a run that was stopped gives up nothing, and a run elsewhere neither');
     const written = start('written', dir);
