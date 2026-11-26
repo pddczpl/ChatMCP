@@ -250,12 +250,12 @@
     {
       "name": "MG-card-raw-arguments",
       "what": "the arguments of an external call are the raw JSON, not masked",
-      "patches": [{ "file": "lib/permissions.mjs", "old": "preview:previewArguments(args,1800,secrets),detail:null", "new": "preview:JSON.stringify(args),detail:null" }]
+      "patches": [{ "file": "lib/permissions.mjs", "old": "preview:previewArguments(args,1800,secrets,verdict.tool??String(name)),detail:null", "new": "preview:JSON.stringify(args),detail:null" }]
     },
     {
       "name": "MG-card-launch-unmasked",
       "what": "the command that starts the server is shown unmasked",
-      "patches": [{ "file": "lib/permissions.mjs", "old": "launch:launch===null?null:maskSecrets(launch,secrets)", "new": "launch" }]
+      "patches": [{ "file": "lib/permissions.mjs", "old": "launch:launch===null?null:maskCommand(launch,secrets)", "new": "launch" }]
     },
     {
       "name": "MG-card-full-url",
