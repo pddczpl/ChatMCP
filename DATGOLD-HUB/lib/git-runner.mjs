@@ -41,10 +41,16 @@ export class GitRunner {
     this.spawner = spawner;
     this.safeDirectory = safeDirectory;
     this.exe = null;
+    this.exeRoot = undefined;
   }
 
+  /** The Git of PATH (never one below the workspace), looked for again when the workspace is another one; null when there is none. */
   async executable() {
-    this.exe ??= await resolveProgram(process.platform === 'win32' ? 'git.exe' : 'git');
+    const root = await Promise.resolve().then(() => this.workspace.resolve('')).then((target) => target.root ?? null, () => null);
+    if (this.exe === null || this.exeRoot !== root) {
+      this.exe = await resolveProgram(process.platform === 'win32' ? 'git.exe' : 'git', [], { outside: root });
+      this.exeRoot = root;
+    }
     return this.exe;
   }
 

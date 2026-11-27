@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { powerShellChildEnvironment } from './powershell-environment.mjs';
-import { exists, resolveProgram } from './runtime.mjs';
+import { exists, resolveProgram, shellSearch, systemProgram } from './runtime.mjs';
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MAX_TIMEOUT_MS = 900_000;
@@ -113,7 +113,7 @@ export function killTree(child) {
   if (typeof child?.killTree === 'function') { child.killTree(); return; }
   if (!child?.pid) return;
   if (process.platform === 'win32') {
-    const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', shell: false });
+    const killer = spawn(systemProgram('taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', shell: false });
     killer.once('error', () => { try { child.kill(); } catch { /* already gone */ } });
   } else {
     // The child leads its own process group (detached), so -pid reaches its descendants only.
@@ -150,14 +150,14 @@ export function decodeClixml(text) {
   return pieces.join('').replace(/\r\n/g, '\n').trimEnd();
 }
 
-async function findGitBash(env, platform) {
+async function findGitBash(env, platform, outside) {
   if (platform !== 'win32') return null;
   const candidates = [];
   if (env.CHATMCP_BASH) candidates.push(env.CHATMCP_BASH);
   for (const base of [env.ProgramFiles, env['ProgramFiles(x86)'], env.ProgramW6432, env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs')]) {
     if (base) candidates.push(path.join(base, 'Git', 'bin', 'bash.exe'));
   }
-  const git = await resolveProgram('git.exe');
+  const git = await resolveProgram('git.exe', [], { outside });
   if (git) candidates.push(path.join(path.dirname(git), '..', 'bin', 'bash.exe'), path.join(path.dirname(git), '..', '..', 'bin', 'bash.exe'));
   for (const candidate of candidates) {
     // C:\Windows\System32\bash.exe is the WSL launcher, never Git Bash.
@@ -167,13 +167,13 @@ async function findGitBash(env, platform) {
   return null;
 }
 
-async function findPowerShell(env, platform) {
+async function findPowerShell(env, platform, outside) {
   if (platform === 'win32') {
     const system = path.join(env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     if (await exists(system)) return system;
-    return await resolveProgram('powershell.exe');
+    return await resolveProgram('powershell.exe', [], { outside });
   }
-  return await resolveProgram('pwsh');
+  return await resolveProgram('pwsh', [], { outside });
 }
 
 export class ShellRunner {
@@ -207,9 +207,10 @@ export class ShellRunner {
   async info() {
     if (!this.discovered) {
       const win = this.platform === 'win32';
-      const bash = win ? await findGitBash(this.env, this.platform) : (await resolveProgram('bash')) ?? ((await exists('/bin/bash')) ? '/bin/bash' : null);
-      const sh = win ? null : ((await exists('/bin/sh')) ? '/bin/sh' : await resolveProgram('sh'));
-      const powershell = await findPowerShell(this.env, this.platform);
+      const outside = await Promise.resolve().then(() => this.workspace.resolve('')).then((target) => target.root ?? null, () => null);
+      const bash = win ? await findGitBash(this.env, this.platform, outside) : (await resolveProgram('bash', [], { outside })) ?? ((await exists('/bin/bash')) ? '/bin/bash' : null);
+      const sh = win ? null : ((await exists('/bin/sh')) ? '/bin/sh' : await resolveProgram('sh', [], { outside }));
+      const powershell = await findPowerShell(this.env, this.platform, outside);
       const defaultShell = bash ? 'bash' : win ? (powershell ? 'powershell' : null) : (sh ? 'sh' : null);
       this.discovered = { platform: this.platform, defaultShell, shells: { bash, sh, powershell } };
     }
@@ -260,7 +261,7 @@ export class ShellRunner {
     // A Hub that was started from a pwsh session carries the module folders of PowerShell 7, which cost Windows PowerShell Get-FileHash and five more commands
     // (lib/powershell-environment.mjs). On Windows no shell gets it: a command of the agent can start powershell.exe from bash or from a program, and they only pass the
     // variable on. Off Windows "powershell" is pwsh itself, which needs the module path it was given.
-    return this.platform === 'win32' ? powerShellChildEnvironment({}, env) : env;
+    return this.platform === 'win32' ? powerShellChildEnvironment({}, shellSearch(env)) : env;
   }
 
   environment(shellName = null) {

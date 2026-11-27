@@ -4,10 +4,11 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StudioSandbox } from './studio-sandbox.mjs';
 import { powerShellChildEnvironment } from './powershell-environment.mjs';
+import { shellSearch, systemProgram } from './runtime.mjs';
 const fault=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 const stamp=()=>new Date().toISOString();
 const OUTPUT_CAP=6*1024*1024;
-const windowsPowerShell=()=>process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe';
+const windowsPowerShell=()=>path.join(process.env.SystemRoot??'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
 // true when `promise` settles within ms, false otherwise; the timer does not keep the process alive on its own.
 const settlesWithin=(promise,ms)=>{let timer;const timeout=new Promise(resolve=>{timer=setTimeout(()=>resolve(false),ms);timer.unref?.();});return Promise.race([promise.then(()=>true,()=>true),timeout]).finally(()=>clearTimeout(timer));};
 
@@ -40,7 +41,7 @@ export function processTreeLeft(rows,rootPid,spawnedAt,slackMs=2000){
 export const windowsProcessTree={
   kill(pid){
     return new Promise(resolve=>{
-      let killer;try{killer=spawn('taskkill.exe',['/PID',String(pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});}catch{resolve(null);return;}
+      let killer;try{killer=spawn(systemProgram('taskkill.exe'),['/PID',String(pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});}catch{resolve(null);return;}
       const timer=setTimeout(()=>{try{killer.kill();}catch{}resolve(false);},10000);timer.unref?.();
       killer.once('error',()=>{clearTimeout(timer);resolve(null);});
       killer.once('exit',code=>{clearTimeout(timer);resolve(code===0);});
@@ -78,7 +79,7 @@ export class StudioTerminal {
       const lib=await this.ptyLoader();
       if(typeof lib?.spawn!=='function')throw new Error('node-pty không xuất hàm spawn.');
       const win=process.platform==='win32';
-      const probe=lib.spawn(win?(process.env.ComSpec||'cmd.exe'):'/bin/sh',win?['/d','/c','exit','0']:['-c','exit 0'],{name:'xterm-256color',cols:20,rows:5,cwd:os.tmpdir(),env:process.env});
+      const probe=lib.spawn(win?(process.env.ComSpec||systemProgram('cmd.exe')):'/bin/sh',win?['/d','/c','exit','0']:['-c','exit 0'],{name:'xterm-256color',cols:20,rows:5,cwd:os.tmpdir(),env:process.env});
       try{probe.kill();}catch{}
       state={lib,error:null,missing:false};
     }catch(error){
@@ -105,7 +106,7 @@ export class StudioTerminal {
     const cwd=this.workspace.requireRoot(),id=randomUUID(),win=this.platform==='win32',spawnedAt=Date.now();
     // A Hub started from a pwsh session carries the module folders of PowerShell 7, which cost Windows PowerShell Get-FileHash and five more commands (lib/powershell-environment.mjs).
     // Off Windows the shell is $SHELL, which gets the environment as it is.
-    const shellEnv=(env)=>win?powerShellChildEnvironment({},env):env;
+    const shellEnv=(env)=>win?powerShellChildEnvironment({},shellSearch(env)):env;
     let child,pty=null,sandboxName=null,mode=sandbox?'docker-readonly':interactive?'pipes':'host';
     if(sandbox){
       const check=await this.sandbox.status();if(!check.ready)throw fault(`Docker sandbox chưa sẵn sàng: ${check.detail}. Kiểm tra Docker Desktop và image ${image||'python:3.11-slim'} đã pull trước.`,503);
@@ -113,7 +114,7 @@ export class StudioTerminal {
     } else if(interactive) {
       // Real Windows ConPTY is used only when optional native node-pty is
       // installed for the Windows Node version. Do not pretend pipes are PTY.
-      const shell=win?(process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe'):(process.env.SHELL||'/bin/sh');
+      const shell=win?windowsPowerShell():(process.env.SHELL||'/bin/sh');
       const args=win?['-NoLogo','-NoProfile']:['-i'];
       const {lib:ptyLib}=await this.#loadPty();
       if(ptyLib){
@@ -122,7 +123,7 @@ export class StudioTerminal {
       }
       if(!pty)child=spawn(shell,win?['-NoLogo','-NoProfile','-NonInteractive','-Command','-']:[],{cwd,windowsHide:true,shell:false,detached:!win,stdio:['pipe','pipe','pipe'],env:shellEnv({...process.env,CHATMCP_WORKSPACE:cwd})});
     } else {
-      const shell=win?(process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe'):(this.restrict?.shellFile||process.env.SHELL||'/bin/sh');
+      const shell=win?windowsPowerShell():(this.restrict?.shellFile||process.env.SHELL||'/bin/sh');
       const args=win?['-NoLogo','-NoProfile','-NonInteractive','-Command',command]:['-c',command];
       child=this.spawner(shell,args,{cwd,windowsHide:true,shell:false,detached:!win,stdio:['ignore','pipe','pipe'],env:shellEnv(this.childEnv?this.childEnv(cwd):{...process.env,CHATMCP_WORKSPACE:cwd}),...(this.spawner===spawn?{}:{timeout:Math.max(.01,Math.min(this.restrict?.maxTimeoutMinutes??120,Number(timeoutMinutes)||5))*60000+5000})});
     }

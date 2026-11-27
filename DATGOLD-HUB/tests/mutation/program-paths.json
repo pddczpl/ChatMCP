@@ -1,0 +1,647 @@
+{
+ "suite": "verify-program-paths.mjs",
+ "description": "What the program-paths suite must notice: a helper program started by a bare name, found in the workspace or on an entry of PATH that is not absolute, or started without the search variable; a shell that does not get the variable as the owner had it.",
+ "mutations": [
+  {
+   "name": "R1",
+   "what": "an entry of PATH that is not absolute is read",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": ".filter((entry) => path.isAbsolute(entry));",
+     "new": ".filter(Boolean);"
+    }
+   ]
+  },
+  {
+   "name": "R2",
+   "what": "a folder named like the program counts",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "    if (!(await fs.stat(file)).isFile()) return false;",
+     "new": "    await fs.stat(file);"
+    }
+   ]
+  },
+  {
+   "name": "R3",
+   "what": "a file that may not be executed counts",
+   "platforms": [
+    "linux",
+    "darwin"
+   ],
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "    if (process.platform !== 'win32') await fs.access(file, fs.constants.X_OK);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "R4",
+   "what": "a program below the workspace is taken",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;",
+     "new": "    if (!(await isProgramFile(file))) continue;"
+    }
+   ]
+  },
+  {
+   "name": "R5",
+   "what": "links are not followed when the workspace is compared",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;",
+     "new": "    if (below(file) || !(await isProgramFile(file))) continue;"
+    }
+   ]
+  },
+  {
+   "name": "R6",
+   "what": "a workspace that holds the home folder takes the programs away",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "  if (workspaces.some((folder) => isWithin(folder, home) || isWithin(folder, os.homedir()))) workspaces = [];",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "R7",
+   "what": "programOnPath forgets the workspace",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "name, [], { outside });",
+     "new": "name, []);"
+    }
+   ]
+  },
+  {
+   "name": "R8",
+   "what": "the search variable is not set by the process",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "  process.env[SEARCH_VARIABLE] = '1';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "R9",
+   "what": "a shell gets the variable the process set",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "  if (ownersSearch === null) return env;",
+     "new": "  return env;"
+    }
+   ]
+  },
+  {
+   "name": "R10",
+   "what": "a shell loses the variable of the owner",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "  return ownersSearch.value === undefined ? out : { ...out, [SEARCH_VARIABLE]: ownersSearch.value };",
+     "new": "  return out;"
+    }
+   ]
+  },
+  {
+   "name": "R11",
+   "what": "a helper program does not get the variable",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "{ ...withoutSearchVariable(env), [SEARCH_VARIABLE]: '1' }",
+     "new": "{ ...env }"
+    }
+   ]
+  },
+  {
+   "name": "G1",
+   "what": "the GitHub capabilities start gh by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/agent-capabilities.mjs",
+     "old": "execFileAsync(program,args,",
+     "new": "execFileAsync('gh',args,"
+    }
+   ]
+  },
+  {
+   "name": "G2",
+   "what": "the GitHub capabilities forget the workspace",
+   "patches": [
+    {
+     "file": "lib/agent-capabilities.mjs",
+     "old": "programOnPath('gh',{outside:root})",
+     "new": "programOnPath('gh')"
+    }
+   ]
+  },
+  {
+   "name": "G3",
+   "what": "the GitHub capabilities leave the variable out",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/agent-capabilities.mjs",
+     "old": "env:helperEnvironment(this.shell.environment()),",
+     "new": "env:this.shell.environment(),"
+    }
+   ]
+  },
+  {
+   "name": "G4",
+   "what": "the GitHub capabilities do not say that gh is missing",
+   "patches": [
+    {
+     "file": "lib/agent-capabilities.mjs",
+     "old": "    if(!program)throw fail('missing_gh','GitHub CLI gh is not installed or not on PATH.');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "L1",
+   "what": "github_read and github_action start gh by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "child = spawner(program, args, {",
+     "new": "child = spawner('gh', args, {"
+    }
+   ]
+  },
+  {
+   "name": "L2",
+   "what": "github_read and github_action forget the workspace",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "programOnPath('gh', { outside: root })",
+     "new": "programOnPath('gh')"
+    }
+   ]
+  },
+  {
+   "name": "L3",
+   "what": "github_read and github_action leave the variable out",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "helperEnvironment(this.shell ? this.shell.environment() : scrubEnv(process.env, { secrets: this.secrets?.() ?? [] }));",
+     "new": "(this.shell ? this.shell.environment() : scrubEnv(process.env, { secrets: this.secrets?.() ?? [] }));"
+    }
+   ]
+  },
+  {
+   "name": "O1",
+   "what": "the draft pull request starts gh by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/coding-orchestrator.mjs",
+     "old": "const proc=spawn(gh,args,",
+     "new": "const proc=spawn('gh',args,"
+    }
+   ]
+  },
+  {
+   "name": "O2",
+   "what": "the draft pull request forgets the workspace",
+   "patches": [
+    {
+     "file": "lib/coding-orchestrator.mjs",
+     "old": "programOnPath('gh',{outside:job.workspace})",
+     "new": "programOnPath('gh')"
+    }
+   ]
+  },
+  {
+   "name": "O3",
+   "what": "the draft pull request leaves the variable out",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/coding-orchestrator.mjs",
+     "old": "const env=helperEnvironment(scrubEnv(process.env,{secrets:this.manager.secrets||[]}));",
+     "new": "const env=scrubEnv(process.env,{secrets:this.manager.secrets||[]});"
+    }
+   ]
+  },
+  {
+   "name": "K1",
+   "what": "killTree starts taskkill by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "spawn(systemProgram('taskkill.exe'),",
+     "new": "spawn('taskkill.exe',"
+    }
+   ]
+  },
+  {
+   "name": "K2",
+   "what": "the process table starts taskkill by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-terminal.mjs",
+     "old": "killer=spawn(systemProgram('taskkill.exe'),",
+     "new": "killer=spawn('taskkill.exe',"
+    }
+   ]
+  },
+  {
+   "name": "K3",
+   "what": "a shell of the agent gets the variable of the Hub",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "powerShellChildEnvironment({}, shellSearch(env))",
+     "new": "powerShellChildEnvironment({}, env)"
+    }
+   ]
+  },
+  {
+   "name": "K4",
+   "what": "a terminal gets the variable of the Hub",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-terminal.mjs",
+     "old": "powerShellChildEnvironment({},shellSearch(env))",
+     "new": "powerShellChildEnvironment({},env)"
+    }
+   ]
+  },
+  {
+   "name": "K5",
+   "what": "a hook gets the variable of the Hub",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/hooks.mjs",
+     "old": "kind: 'exec', shell: null, environment: shellSearch(scrubEnv(this.env, { secrets: this.secrets() })) };",
+     "new": "kind: 'exec', shell: null, environment: scrubEnv(this.env, { secrets: this.secrets() }) };"
+    }
+   ]
+  },
+  {
+   "name": "D1",
+   "what": "Docker is asked by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-sandbox.mjs",
+     "old": "this.spawnProcess(docker,['version'",
+     "new": "this.spawnProcess('docker',['version'"
+    }
+   ]
+  },
+  {
+   "name": "D2",
+   "what": "a run in Docker is started by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-sandbox.mjs",
+     "old": "this.spawnProcess(docker,args,",
+     "new": "this.spawnProcess('docker',args,"
+    }
+   ]
+  },
+  {
+   "name": "D3",
+   "what": "a run in Docker is ended by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-sandbox.mjs",
+     "old": "this.spawnProcess(this.active.get(name),['rm'",
+     "new": "this.spawnProcess('docker',['rm'"
+    }
+   ]
+  },
+  {
+   "name": "D4",
+   "what": "Docker forgets the workspace",
+   "patches": [
+    {
+     "file": "lib/studio-sandbox.mjs",
+     "old": "programOnPath('docker',{outside:root})",
+     "new": "programOnPath('docker')"
+    }
+   ]
+  },
+  {
+   "name": "W1",
+   "what": "the diff of a review starts git by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "await command(git,['diff','--no-index'",
+     "new": "await command('git',['diff','--no-index'"
+    }
+   ]
+  },
+  {
+   "name": "W2",
+   "what": "the Git runner forgets the workspace",
+   "patches": [
+    {
+     "file": "lib/git-runner.mjs",
+     "old": "[], { outside: root });",
+     "new": "[]);"
+    }
+   ]
+  },
+  {
+   "name": "P1",
+   "what": "the index starts Python by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-intelligence.mjs",
+     "old": "await programOnPath(process.platform === 'win32' ? 'py' : 'python3', { outside: root })",
+     "new": "(process.platform === 'win32' ? 'py' : 'python3')"
+    }
+   ]
+  },
+  {
+   "name": "P2",
+   "what": "the index forgets the workspace",
+   "patches": [
+    {
+     "file": "lib/studio-intelligence.mjs",
+     "old": "'py' : 'python3', { outside: root })",
+     "new": "'py' : 'python3')"
+    }
+   ]
+  },
+  {
+   "name": "P3",
+   "what": "the AST worker starts Python by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/code-intelligence.mjs",
+     "old": "await programOnPath(named, { outside: this.rootPath }) : named;",
+     "new": "named : named;"
+    }
+   ]
+  },
+  {
+   "name": "P4",
+   "what": "the AST worker forgets the workspace",
+   "patches": [
+    {
+     "file": "lib/code-intelligence.mjs",
+     "old": "programOnPath(named, { outside: this.rootPath })",
+     "new": "programOnPath(named)"
+    }
+   ]
+  },
+  {
+   "name": "P5",
+   "what": "the index leaves the variable out",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-intelligence.mjs",
+     "old": "env=helperEnvironment(scrubEnv(process.env))}={}){",
+     "new": "env=scrubEnv(process.env)}={}){"
+    }
+   ]
+  },
+  {
+   "name": "P6",
+   "what": "the AST worker leaves the variable out",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/code-intelligence.mjs",
+     "old": "          env: helperEnvironment(),",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "S1",
+   "what": "a language server is started by its name",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-intelligence.mjs",
+     "old": "process.execPath):await programOnPath(server,{outside:await this.root()});",
+     "new": "process.execPath):server;"
+    }
+   ]
+  },
+  {
+   "name": "S2",
+   "what": "a language server may come from the workspace",
+   "patches": [
+    {
+     "file": "lib/studio-intelligence.mjs",
+     "old": "programOnPath(server,{outside:await this.root()})",
+     "new": "programOnPath(server)"
+    }
+   ]
+  },
+  {
+   "name": "S3",
+   "what": "a language server is started without the variable",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/studio-intelligence.mjs",
+     "old": "cwd:this.root,env:helperEnvironment(),windowsHide:true",
+     "new": "cwd:this.root,windowsHide:true"
+    }
+   ]
+  },
+  {
+   "name": "C2",
+   "what": "the launch record reads an entry of PATH that is not absolute",
+   "patches": [
+    {
+     "file": "lib/mcp/client-manager.mjs",
+     "old": ".filter((dir) => (win ? path.win32 : path.posix).isAbsolute(dir))",
+     "new": ".filter(Boolean)"
+    }
+   ]
+  },
+  {
+   "name": "H1",
+   "what": "the Hub does not set the variable",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "  searchProgramsOnPathOnly();",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "H2",
+   "what": "the command line does not set the variable",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "bin/chatmcp.mjs",
+     "old": "searchProgramsOnPathOnly(); // this process stands in the workspace",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "R12",
+   "what": "a link of the workspace that leads out of it is taken",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;",
+     "new": "    if (!(await isProgramFile(file)) || below(await real(file))) continue;"
+    }
+   ]
+  },
+  {
+   "name": "R13",
+   "what": "the workspace is known by its real name only",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "[path.resolve(outside), await real(outside)] : [];",
+     "new": "[await real(outside)] : [];"
+    }
+   ]
+  },
+  {
+   "name": "R14",
+   "what": "the workspace is known by the name it was given only",
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "[path.resolve(outside), await real(outside)] : [];",
+     "new": "[path.resolve(outside)] : [];"
+    }
+   ]
+  },
+  {
+   "name": "D5",
+   "what": "a run in Docker is ended by the docker of PATH now",
+   "patches": [
+    {
+     "file": "lib/studio-sandbox.mjs",
+     "old": "this.spawnProcess(this.active.get(name),['rm'",
+     "new": "this.spawnProcess(null,['rm'"
+    }
+   ]
+  },
+  {
+   "name": "C1",
+   "what": "a stdio server does not get the variable",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/mcp/client-manager.mjs",
+     "old": "    return this.platform === 'win32' ? withSearchVariable(environment) : environment;",
+     "new": "    return environment;"
+    }
+   ]
+  },
+  {
+   "name": "C3",
+   "what": "the owner's value of the variable is replaced",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/mcp/client-manager.mjs",
+     "old": "    return this.platform === 'win32' ? withSearchVariable(environment) : environment;",
+     "new": "    return this.platform === 'win32' ? { ...environment, NoDefaultCurrentDirectoryInExePath: '1' } : environment;"
+    }
+   ]
+  }
+ ]
+}

@@ -14,6 +14,7 @@ import { isProtectedPath } from './protected-paths.mjs';
 import { LspProcess } from './studio-intelligence.mjs';
 import { createPlainFileChecker, listFilesWithGit } from './git-file-list.mjs';
 import { pagerank } from './pagerank.mjs';
+import { helperEnvironment, programOnPath } from './runtime.mjs';
 
 const DEFAULT_IGNORED_DIRS = new Set([
   '.git',
@@ -1402,7 +1403,8 @@ export class CodeIntelligenceEngine {
     }
     try {
       const workerScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'workers', 'python_index.py');
-      const pythonExe = this._resolvePythonExecutable();
+      const named = this._resolvePythonExecutable();
+      const pythonExe = named && !path.isAbsolute(named) ? await programOnPath(named, { outside: this.rootPath }) : named;
       if (!pythonExe) return null;
       const sourceText = rawLines.join('\n');
       if (sourceText.length > 2_000_000) return null;
@@ -1410,6 +1412,7 @@ export class CodeIntelligenceEngine {
       const payload = await new Promise((resolve, reject) => {
         const proc = spawn(pythonExe, ['-I', '-X', 'utf8', workerScript], {
           cwd: this.rootPath,
+          env: helperEnvironment(),
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });

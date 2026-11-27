@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
@@ -38,11 +39,73 @@ export function redact(line, secrets = []) {
   return result.slice(0, 1800);
 }
 
-export async function resolveProgram(name, extra = []) {
-  const entries = (process.env.PATH ?? process.env.Path ?? '').split(path.delimiter).map((p) => p.replace(/^"|"$/g, ''));
-  const candidates = [...extra, ...entries.filter(Boolean).map((p) => path.join(p, name))];
-  for (const file of candidates) if (await exists(file)) return path.resolve(file);
+/** Whether `target` is `folder` or lies below it. */
+const isWithin = (folder, target) => {
+  const relative = path.relative(folder, target);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+};
+/** A program: a regular file (a link to one counts), which may be executed where a mode says so. */
+async function isProgramFile(file) {
+  try {
+    if (!(await fs.stat(file)).isFile()) return false;
+    if (process.platform !== 'win32') await fs.access(file, fs.constants.X_OK);
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * The absolute path of the program `name` (with its extension): the first of `extra` (absolute paths the caller knows) that is there, else the one on PATH; null when
+ * there is none. Only the absolute entries of PATH are read: a relative one would mean another folder for every process. `outside` is the workspace, when there is
+ * one: an entry or a program that is below it, or leads there, is not taken (a workspace that holds the person's own profile takes nothing away: their programs are in it).
+ */
+export async function resolveProgram(name, extra = [], { outside = null } = {}) {
+  const entries = (process.env.PATH ?? process.env.Path ?? '').split(path.delimiter).map((entry) => entry.trim().replace(/^"(.*)"$/, '$1')).filter((entry) => path.isAbsolute(entry));
+  const real = async (target) => fs.realpath(target).catch(() => path.resolve(target));
+  // The workspace as it was named and as it really is: an entry below it by either spelling is below it, wherever a link there leads.
+  let workspaces = typeof outside === 'string' && outside ? [path.resolve(outside), await real(outside)] : [];
+  const home = await real(os.homedir());
+  if (workspaces.some((folder) => isWithin(folder, home) || isWithin(folder, os.homedir()))) workspaces = [];
+  const below = (file) => workspaces.some((folder) => isWithin(folder, file));
+  for (const file of extra) if (await isProgramFile(file)) return path.resolve(file);
+  for (const entry of entries) {
+    const file = path.resolve(entry, name);
+    if (below(file) || !(await isProgramFile(file)) || below(await real(file))) continue;
+    return file;
+  }
   return null;
+}
+
+/**
+ * A program on PATH by its plain name ("git": git.exe on Windows), as an absolute path, or null when it is not installed. A program is never started by its bare name:
+ * which file that is would depend on the folder it is started in (tests/verify-program-paths.mjs; the lint in tests/verify-source-lint.mjs).
+ */
+export function programOnPath(name, { outside = null } = {}) {
+  return resolveProgram(process.platform === 'win32' && !/\.exe$/i.test(name) ? `${name}.exe` : name, [], { outside });
+}
+/** The absolute path of a program of Windows itself (taskkill.exe, icacls.exe ...). */
+export const systemProgram = (name) => path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', name);
+
+// The variable that tells Windows not to look for a program in a working folder. The Hub and the command line set it for themselves, which covers what they start; a helper
+// program that starts others by name (a language server, gh) gets it too (helperEnvironment). A shell gets it as the owner had it (shellSearch): what a command of
+// the owner or of the agent finds in its folder is not the Hub's to change.
+const SEARCH_VARIABLE = 'NoDefaultCurrentDirectoryInExePath';
+const withoutSearchVariable = (env) => Object.fromEntries(Object.entries(env).filter(([key]) => key.toUpperCase() !== SEARCH_VARIABLE.toUpperCase()));
+let ownersSearch = null;
+/** From now on this process looks for the programs it starts on PATH only (Windows; elsewhere that is so anyway). */
+export function searchProgramsOnPathOnly() {
+  if (process.platform !== 'win32') return;
+  ownersSearch ??= { value: process.env[SEARCH_VARIABLE] };
+  process.env[SEARCH_VARIABLE] = '1';
+}
+/** The environment of a helper program: `env` with the search variable set (Windows). */
+export const helperEnvironment = (env = process.env) => (process.platform === 'win32' ? { ...withoutSearchVariable(env), [SEARCH_VARIABLE]: '1' } : { ...env });
+/** `env` with the search variable set, unless it already has a value for it. */
+export const withSearchVariable = (env) => (Object.keys(env).some((key) => key.toUpperCase() === SEARCH_VARIABLE.toUpperCase()) ? env : { ...env, [SEARCH_VARIABLE]: '1' });
+/** The environment of a shell: `env` with the search variable as the owner's environment had it when this process started. */
+export function shellSearch(env) {
+  if (ownersSearch === null) return env;
+  const out = withoutSearchVariable(env);
+  return ownersSearch.value === undefined ? out : { ...out, [SEARCH_VARIABLE]: ownersSearch.value };
 }
 
 export function portOpen(port, host = '127.0.0.1', timeout = 700) {
@@ -110,8 +173,8 @@ export async function stopOwned(child, { group = false } = {}) {
   if (process.platform === 'win32') {
     // This PID is a still-live ChildProcess created by this hub, never a PID
     // discovered from a port scan. Its stdio MCP children belong to this proxy.
-    const taskkill = await resolveProgram('taskkill.exe');
-    if (!taskkill) throw new Error('Không tìm thấy taskkill.exe để dừng tiến trình Hub đang quản lý.');
+    const taskkill = systemProgram('taskkill.exe');
+    if (!(await exists(taskkill))) throw new Error('Không tìm thấy taskkill.exe để dừng tiến trình Hub đang quản lý.');
     await new Promise((resolve, reject) => {
       const killer = spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, shell: false, stdio: 'ignore' });
       killer.once('error', reject);
