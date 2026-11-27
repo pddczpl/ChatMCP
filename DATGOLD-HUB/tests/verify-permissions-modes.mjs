@@ -9,6 +9,8 @@ import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { PermissionGate, PERMISSION_MODES, maskSecrets } from '../lib/permissions.mjs';
 import { JSON_TEXT_SHAPES, SECRET, NUMBER_PASSWORD } from './support/json-text-shapes.mjs';
+import { isPlain } from '../lib/command-mask.mjs';
+import { CREDENTIAL_CASES, NEEDLE, POSITION_CASES, constructCommands } from './support/command-mask-shapes.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -358,6 +360,12 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
     assert.ok(!prompt.request.preview.includes('hunter2hunter2'), `${JSON.stringify(args)}: the value of a key that names a secret is not on the card`);
   }
 
+  // A curl in one field makes a pair of numbers in another a user and a password: the flag is read once more in the text of the arguments.
+  {
+    const prompt = await outcome(gate, 'helper.start_process', { program: 'curl', args: '-u 5551234567:7391824 https://x.example.test' }, { approve: false });
+    assert.equal(prompt.request.preview, '{"program":"curl","args":"-u 5551234567:[REDACTED] https://x.example.test"}');
+  }
+
   // A secret that the Hub knows (a registered one) is replaced in the strings, not in their JSON: JSON writes a quote and a backslash differently, so the text of the card never held it.
   const SPECIAL = 'Qz9"Kx7\\Lm2';
   manager.secrets.push(SPECIAL);
@@ -373,6 +381,137 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   } finally { manager.secrets.pop(); }
   assert.ok(!['Qz9', 'Kx7', 'Lm2'].some((part) => JSON.stringify(gate.state().recent).includes(part)), 'nor in the history');
   ok(`the arguments of a call with no card of its own are masked as the text they are: ${asked} calls (${SHAPES.length} shapes of a double-quoted credential, of a container word behind a separator inside a string, of curl after \\n, \\r and \\t, and of a flag of the user followed by the escape \\n and a name, in ${WAYS.length} ways) show no password on the card or in the history`);
+}
+
+// ------------------------------------------------------------------ a command on the card: what a shell acts on is readable, a credential is not
+// The masking of a command (lib/command-mask.mjs) hides what looks like a credential only where it is plain text to bash, PowerShell and cmd. Asked of the real card of the real gate, for commands that are
+// generated (tests/support/command-mask-shapes.mjs): a shape of every rule of the masker x the pieces of text a shell acts on x where in the value they stand x the quotes around it.
+{
+  const gate = await newGate();
+  const launch = { line: '' };
+  gate.attachExternalPolicy({ describeServer: () => ({ transport: 'stdio', command: launch.line }) });
+  let seen = null;
+  gate.subscribe((event) => { if (event.type === 'approval_requested') { seen = event; queueMicrotask(() => gate.decide(event.id, false)); } });
+  const cardOf = async (name, args) => { seen = null; await gate.authorize({ name, args, taskId: 'task-1', forceAsk: true }); assert.ok(seen, `${name}: a card was drawn`); return seen; };
+  const jsonOf = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  /** Every text of the card that shows the command, as the owner reads it: [where, the text]. */
+  /** One plain word, or a flag, in a call whose keys do not say that it is a program: an argument of it. */
+  const isAnArgument = (text) => isPlain(text) || text.startsWith('-');
+  const ROUTES = [
+    ['run_command', async (command) => {
+      const card = await cardOf('local.run_command', { command });
+      return [['detail.command', card.detail.command], ['preview', jsonOf(card.preview)?.command], ...(command.split('\n')[0].length <= 118 && !/[\r\n]/.test(command) ? [['summary', card.summary]] : [])];
+    }],
+    ['tasks_run', async (command) => {
+      const card = await cardOf('local.tasks_run', { command });
+      return [['detail.command', card.detail.command], ['preview', jsonOf(card.preview)?.command], ...(command.split('\n')[0].length <= 98 && !/[\r\n]/.test(command) ? [['summary', card.summary]] : [])];
+    }],
+    ['the arguments of an external tool', async (command) => {
+      const card = await cardOf('mcp.shell.start_process', { command });
+      return [['preview', jsonOf(card.preview)?.command], ['detail.arguments', jsonOf(card.detail.arguments)?.command]];
+    }],
+    ['the arguments of an external tool whose name says nothing', async (command) => {
+      if (isAnArgument(command)) return [];
+      const card = await cardOf('helper.handle', { payload: command });
+      return [['preview', jsonOf(card.preview)?.payload]];
+    }],
+    ['the text of an external tool that runs something', async (command) => {
+      if (isAnArgument(command)) return [];
+      const card = await cardOf('helper.send_keys', { text: command });
+      return [['preview', jsonOf(card.preview)?.text]];
+    }],
+    ['the command that starts an external server', async (command) => {
+      launch.line = command;
+      const card = await cardOf('helper.handle', { x: 1 });
+      return [['detail.launch', card.detail.launch]];
+    }],
+  ];
+  const missing = [];
+  let asked = 0;
+  const expectReadable = async (label, command, needed, routes) => {
+    for (const [route, read] of routes) {
+      asked += 1;
+      for (const [where, text] of await read(command)) if (!String(text).includes(needed)) missing.push(`${route}, ${where}: ${label}\n      ${JSON.stringify(command)}\n      ${JSON.stringify(text)}`);
+    }
+  };
+  let index = 0;
+  for (const [label, command, construct] of constructCommands()) {
+    index += 1;
+    // every command on the card of run_command; every seventh on the other four ways a command reaches a card
+    await expectReadable(label, command, construct, index % 7 === 0 ? ROUTES : ROUTES.slice(0, 1));
+  }
+  assert.deepEqual(missing.slice(0, 12), [], `${missing.length} of ${asked} cards hide a piece of text that a shell acts on`);
+  assert.ok(index > 25_000, `${index} commands were generated`);
+  ok(`a command on the card: ${index} generated commands (${asked} cards) show every piece of text that bash, PowerShell or cmd acts on`);
+
+  for (const [label, command, needed] of POSITION_CASES) await expectReadable(label, command, needed, ROUTES);
+  assert.deepEqual(missing, [], `${missing.length} cards hide a word that a shell runs, splits or writes to`);
+  ok(`a command on the card: ${POSITION_CASES.length} commands with a plain word that a shell runs, splits or writes to show it, in ${ROUTES.length} ways`);
+
+  const shown = [];
+  for (const [label, command, secret] of CREDENTIAL_CASES) {
+    for (const [route, read] of ROUTES) for (const [where, text] of await read(command)) if (String(text).includes(secret)) shown.push(`${route}, ${where}: ${label}\n      ${JSON.stringify(command)}\n      ${JSON.stringify(text)}`);
+  }
+  assert.deepEqual(shown, [], `${shown.length} cards show an ordinary credential`);
+  assert.ok(CREDENTIAL_CASES.every(([, , secret]) => !JSON.stringify(gate.state().recent).includes(secret)), 'and the history holds none of them');
+  ok(`a command on the card: ${CREDENTIAL_CASES.length} ordinary credentials of every rule stay hidden, in ${ROUTES.length} ways and in the history`);
+
+  // the reason and the list of reasons of a command quote it: they follow the same rule
+  const quoting = { has: () => true, assess: async () => ({ category: 'execute', reason: `runs API_KEY="$(${NEEDLE})" and password=Hunter2-Only-9`, summary: `$ API_KEY="$(${NEEDLE})" password=Hunter2-Only-9`, risk: { kind: 'exec', shell: 'bash', reasons: [`TOKEN="a;${NEEDLE}"`, 'password=Hunter2-Only-9'] } }) };
+  const stub = new PermissionGate({ manager, workspace: studio, timeout: 60_000 });
+  stub.attachLocalTools(quoting);
+  let quoted = null;
+  stub.subscribe((event) => { if (event.type === 'approval_requested') { quoted = event; queueMicrotask(() => stub.decide(event.id, false)); } });
+  for (const askReason of ['', `hook saw API_KEY="$(${NEEDLE})" password=Hunter2-Only-9`]) {
+    await stub.authorize({ name: 'local.run_command', args: { command: 'x', description: `sets API_KEY="$(${NEEDLE})" password=Hunter2-Only-9` }, taskId: 'task-1', forceAsk: true, askReason });
+    const wanted = `API_KEY="$(${NEEDLE})"`;
+    for (const [where, text] of [['reason', quoted.reason], ['summary', quoted.summary], ['description', quoted.detail.description], ['preview', JSON.parse(quoted.preview).description]]) assert.ok(text.includes(wanted), `${where}: ${text}`);
+    if (askReason) assert.equal(quoted.reason.split(wanted).length, 3, `the hook's reason too: ${quoted.reason}`);
+    assert.ok(quoted.detail.reasons[0].includes(`;${NEEDLE}`), quoted.detail.reasons[0]);
+    assert.ok(!JSON.stringify([quoted, stub.state().recent]).includes('Hunter2-Only-9'), 'and the credentials in them are hidden');
+  }
+  ok('a command on the card: the reason, the reasons of the analysis, the summary, the description and the reason of a hook follow the same rule');
+
+  // the words of a reason stand in front of what it quotes: it hides nothing of the command that the command itself shows, and whatever the command hides
+  {
+    const run = './zz9Needle7-program-name';
+    const prose = { has: () => true, assess: async (name, args) => ({ category: 'execute', reason: `runs ${args.command}`, summary: `$ ${args.command}`, risk: { kind: 'exec', shell: 'bash', reasons: [`a path: ${args.command}`] } }) };
+    const gateOf = new PermissionGate({ manager, workspace: studio, timeout: 60_000 });
+    gateOf.attachLocalTools(prose);
+    let card = null;
+    gateOf.subscribe((event) => { if (event.type === 'approval_requested') { card = event; queueMicrotask(() => gateOf.decide(event.id, false)); } });
+    for (const name of ['local.run_command', 'local.tasks_run']) {
+      for (const [command, shownPart, hiddenPart] of [[`X=Bearer ${run} arg`, run, null], [`env X=Bearer ${run}`, run, null], ['$token = Zz9Needle7-Restart-Name', 'Zz9Needle7-Restart-Name', null], [`./sk-${NEEDLE.repeat(3)} --x`, `sk-${NEEDLE.repeat(3)}`, null], ['DB_PASSWORD=Hunter2-Only-9 npm test', 'npm test', 'Hunter2-Only-9'],
+        ['DB_PASSWORD=testing9 npm run testing9', 'npm run testing9', 'DB_PASSWORD=testing9']]) {
+        await gateOf.authorize({ name, args: { command, description: `it does ${command}` }, taskId: 'task-1', forceAsk: true, askReason: `hook: ${command}` });
+        for (const [where, text] of [['command', card.detail.command], ['reason', card.reason], ['hook', card.reason.split(' \u00b7 ')[0]], ['reasons', card.detail.reasons[0]], ['description', card.detail.description], ['summary', card.summary], ['preview', JSON.parse(card.preview).description]]) {
+          assert.ok(text.includes(shownPart), `${name}, ${where}, shown: ${text}`);
+          if (hiddenPart) assert.ok(!text.includes(hiddenPart), `${name}, ${where}, hidden: ${text}`);
+        }
+      }
+    }
+    ok('a command on the card: the reasons, the description and the reason of a hook hide nothing that the command shows, and whatever it hides');
+  }
+
+  // a part of a command is read with the whole of it: a summary is cut at the first line and at 120 characters, an argument is one string of several, and what runs the value can stand in the other part
+  {
+    const late = [];
+    for (const name of ['local.run_command', 'local.tasks_run']) {
+      for (const command of [`TOKEN=${NEEDLE}\n$TOKEN x`, `TOKEN=${NEEDLE} # ${'a'.repeat(150)}\n$TOKEN`, `API_KEY=${NEEDLE} node a.js ${'a'.repeat(150)}; eval "$API_KEY"`,
+        `git commit -m "the password: ${NEEDLE}" ${'a'.repeat(150)} \u201d`]) {
+        const card = await cardOf(name, { command });
+        if (!card.summary.includes(NEEDLE)) late.push(`${name}: ${card.summary}`);
+        if (!card.detail.command.includes(NEEDLE)) late.push(`${name}: ${card.detail.command}`);
+      }
+    }
+    const token = CREDENTIAL_CASES.find(([label]) => label === 'der: an argument')[2];
+    for (const args of [{ program: 'powershell', args: ['-NoProfile', `-enc ${token}`] }, { command: 'bash', args: ['-c', '$TOKEN'], env: { A: `TOKEN=${token}` } }, { command: 'sh', stdin: `login ${token}`, args: ['-s', '$(cat)'] }]) {
+      const card = await cardOf('helper.start_process', args);
+      if (!card.preview.includes(token)) late.push(card.preview);
+    }
+    assert.deepEqual(late, []);
+    ok('a command on the card: a summary and an argument are read with the whole of the call');
+  }
 }
 
 // ------------------------------------------------------------------ cancellation and expiry

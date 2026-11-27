@@ -7,7 +7,7 @@
       "patches": [
         {
           "file": "lib/permissions.mjs",
-          "old": "preview:previewArguments(args,1800,secrets),detail:null",
+          "old": "preview:previewArguments(args,1800,secrets,verdict.tool??String(name)),detail:null",
           "new": "preview:JSON.stringify(args),detail:null"
         }
       ]
@@ -18,8 +18,8 @@
       "patches": [
         {
           "file": "lib/permissions.mjs",
-          "old": "preview:previewArguments(args,1800,secrets),detail:null",
-          "new": "preview:safePreview(args,1800,secrets),detail:null"
+          "old": "preview:previewArguments(args,1800,secrets,verdict.tool??String(name)),detail:null",
+          "new": "preview:safePreview(args,1800,secrets,verdict.tool??String(name)),detail:null"
         }
       ]
     },
@@ -29,8 +29,8 @@
       "patches": [
         {
           "file": "lib/permissions.mjs",
-          "old": "preview:previewArguments(args,1800,secrets),detail:null",
-          "new": "preview:previewArguments(args,1800),detail:null"
+          "old": "preview:previewArguments(args,1800,secrets,verdict.tool??String(name)),detail:null",
+          "new": "preview:previewArguments(args,1800,[],verdict.tool??String(name)),detail:null"
         }
       ]
     },
@@ -62,8 +62,218 @@
       "patches": [
         {
           "file": "lib/permissions.mjs",
-          "old": "detail=maskDeep(detail,secrets);\n    const text=JSON.stringify(detail);",
+          "old": "detail=maskDeep(detail,secrets,maskText);\n    const text=JSON.stringify(detail);",
           "new": "const text=JSON.stringify(detail);"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-none",
+      "what": "a command is masked as a text",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const isCommand = (name, verdict) => verdict.local === true && COMMAND_TOOLS",
+          "new": "const isCommand = (name, verdict) => false && COMMAND_TOOLS"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-shown",
+      "what": "a reason is masked without the command in view",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "(text) => (text === whole ? shown : maskCommand(text, secrets, whole, shown))",
+          "new": "(text) => (text === whole ? shown : maskCommand(text, secrets, whole))"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-self",
+      "what": "the command is read as a part of itself",
+      "equivalent": "a part that the command hides stands fewer times in the command as it is shown, so the command read as a part of itself hides the same parts",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "(text) => (text === whole ? shown : maskCommand(text, secrets, whole, shown))",
+          "new": "(text) => maskCommand(text, secrets, whole, shown)"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-shown-raw",
+      "what": "the command in view is not masked",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const shown = whole === undefined ? undefined : maskCommand(whole, secrets);",
+          "new": "const shown = whole;"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-summary-shown",
+      "what": "a summary is masked without the command in view",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "maskCommandSummary(verdict.summary??name,secrets,whole,shown)",
+          "new": "maskCommandSummary(verdict.summary??name,secrets,whole)"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-tasks",
+      "what": "the card of tasks_run is the JSON of its arguments",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const COMMAND_TOOLS = new Set(['run_command', 'tasks_run']);",
+          "new": "const COMMAND_TOOLS = new Set(['run_command']);"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-run",
+      "what": "the card of run_command is the JSON of its arguments",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const COMMAND_TOOLS = new Set(['run_command', 'tasks_run']);",
+          "new": "const COMMAND_TOOLS = new Set(['tasks_run']);"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-text",
+      "what": "the texts of the card of a command are masked as texts",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "(text) => (text === whole ? shown : maskCommand(text, secrets, whole, shown))",
+          "new": "(text) => maskSecrets(text, secrets)"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-whole",
+      "what": "the texts of the card of a command are read alone",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const whole = typeof args?.command === 'string' ? args.command : undefined;",
+          "new": "const whole = undefined;"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-summary",
+      "what": "the summary of a command is masked as a text",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "summary:command?maskCommandSummary(verdict.summary??name,secrets,whole,shown):maskText(verdict.summary??name)",
+          "new": "summary:maskSecrets(verdict.summary??name,secrets)"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-summary-whole",
+      "what": "the summary of a command is read alone",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "summary:command?maskCommandSummary(verdict.summary??name,secrets,whole,shown)",
+          "new": "summary:command?maskCommandSummary(verdict.summary??name,secrets)"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-prompt",
+      "what": "the prompt of a summary is a part of the command",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "const prompt = COMMAND_PROMPT.exec(text)?.[0] ?? '';",
+          "new": "const prompt = '';"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-reason",
+      "what": "the reason of a command is masked as a text",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "reason:maskText(verdict.reason??'')};",
+          "new": "reason:maskSecrets(verdict.reason??'',secrets)};"
+        }
+      ]
+    },
+    {
+      "name": "AA-command-reason-raw",
+      "what": "the reason of a command is not masked",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "reason:maskText(verdict.reason??'')};",
+          "new": "reason:verdict.reason??''};"
+        }
+      ]
+    },
+    {
+      "name": "AA-tool-name",
+      "what": "the name of the tool of a server is not told",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "preview:previewArguments(args,1800,secrets,verdict.tool??String(name)),detail:null",
+          "new": "preview:previewArguments(args,1800,secrets),detail:null"
+        }
+      ]
+    },
+    {
+      "name": "AA-launch-text",
+      "what": "the command that starts a server is masked as a text",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "launch:launch===null?null:maskCommand(launch,secrets)",
+          "new": "launch:launch===null?null:maskSecrets(launch,secrets)"
+        }
+      ]
+    },
+    {
+      "name": "AA-launch-raw",
+      "what": "the command that starts a server is not masked",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "launch:launch===null?null:maskCommand(launch,secrets)",
+          "new": "launch"
+        }
+      ]
+    },
+    {
+      "name": "AA-hook-text",
+      "what": "the reason of a hook is masked as a text",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "`Hook: ${maskText(String(askReason).slice(0,500))}`",
+          "new": "`Hook: ${maskSecrets(String(askReason).slice(0,500),this.manager?.secrets??[])}`"
+        }
+      ]
+    },
+    {
+      "name": "AA-hook-raw",
+      "what": "the reason of a hook is not masked",
+      "patches": [
+        {
+          "file": "lib/permissions.mjs",
+          "old": "`Hook: ${maskText(String(askReason).slice(0,500))}`",
+          "new": "`Hook: ${String(askReason).slice(0,500)}`"
         }
       ]
     }

@@ -1,5 +1,6 @@
-import { writeJson, readJson, redact as redactSecrets } from './runtime.mjs';
-import { FILE_CHANGE_TOOLS, hideKeyBlocks } from './approval-preview.mjs';
+import { writeJson, readJson } from './runtime.mjs';
+import { FILE_CHANGE_TOOLS, PRIVATE_KEY_BEGIN, PRIVATE_KEY_END, hideKeyBlocks } from './approval-preview.mjs';
+import { createCommandReading, isPlain, plainLength } from './command-mask.mjs';
 import { isProtectedPath } from './protected-paths.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -392,40 +393,168 @@ const TOKEN_PATTERNS = [
   [new RegExp(String.raw`(\b(?:key|name)=(["'])[^"'\r\n]{0,60}${SECRET_WORD}[^"'\r\n]{0,20}\2\s+value=)(["'])(?![$%])(?:(?!\3)[^\r\n<>]){4,}\3`, 'gi'), '$1$3[REDACTED]$3'],
   [/(\/\/[^\s/:@]+:)[^\s/@]{3,}(@)/g, '$1[REDACTED]$2'],
 ];
-export function maskSecrets(value, secrets = []) {
-  let text = String(value);
+/** The registered secrets are replaced by value, whatever stands around them. */
+function hideRegistered(text, secrets) {
   for (const secret of secrets) if (typeof secret === 'string' && secret.length >= 4) text = text.split(secret).join('[REDACTED]');
+  return text;
+}
+export function maskSecrets(value, secrets = []) {
+  let text = hideRegistered(String(value), secrets);
   // The keys first: a rule below can break a frame (a token glued to it takes five of its dashes) and then leaves the body behind. hideKeyBlocks reads the text once, whatever it holds.
   text = hideKeyBlocks(text);
   for (const [pattern, replacement] of TOKEN_PATTERNS) text = text.replace(pattern, replacement);
   firstNetwork = { text: null, index: Infinity }; // do not keep the text (it can be megabytes) until the next call
   return text;
 }
-const maskDeep = (value, secrets) => {
-  if (typeof value === 'string') return maskSecrets(value, secrets);
-  if (Array.isArray(value)) return value.map((item) => maskDeep(item, secrets));
-  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskDeep(item, secrets)]));
+const MARK = '[REDACTED]';
+const AUTHORIZATION = TOKEN_PATTERNS.find(([pattern]) => pattern.source.includes('Authorization'))?.[0];
+const USER_PATTERNS = TOKEN_PATTERNS.filter(([pattern]) => pattern.source.includes('--proxy-user'));
+/** The text with what a rule matches replaced, but only as much of each match as `hideable(text, start, end)` says (counted from the start of what the rule hides). */
+function hidePart(text, [pattern, replacement], hideable) {
+  let out = '';
+  let from = 0;
+  pattern.lastIndex = 0;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const shown = typeof replacement === 'function' ? replacement(...match, match.index, text) : replacement.replace(/\$(\d)/g, (all, group) => match[group] ?? '');
+    const at = shown.lastIndexOf(MARK);
+    if (shown === match[0] || at === -1) continue;
+    let start = match.index + at;
+    const end = match.index + match[0].length - (shown.length - at - MARK.length);
+    // The scheme of an Authorization header (Basic, Token ...) and the name of its first part stay: what is hidden is one value.
+    if (pattern === AUTHORIZATION) start += /^(?:[A-Za-z][\w-]*[ \t]+)?(?:[A-Za-z][\w-]*=(?=[^=]))?/.exec(text.slice(start, end))[0].length;
+    const length = hideable(text, start, end, match.index);
+    if (length > 0) {
+      out += text.slice(from, start) + MARK;
+      from = start + length;
+    }
+    // The rest of a match that was not hidden is read again, but for a word that the rule matched whole (a token, a run of base64): its end is no word of its own.
+    pattern.lastIndex = length === 0 && start === match.index ? end : Math.max(start + length, match.index + 1);
+  }
+  pattern.lastIndex = 0;
+  return out + text.slice(from);
+}
+const KEY_BLOCK = new RegExp(`(${PRIVATE_KEY_BEGIN})([\\s\\S]*?)(?=${PRIVATE_KEY_END}|$)`, 'g'); // to the end of a text that was cut inside a key (a summary)
+const KEY_RUN = [/(\\[nrt])?[A-Za-z0-9+/_-]{16,}={0,2}/g, `$1${MARK}`]; // the letter of the escape of a line break is not a part of the key
+/** The body of the private keys of a command. A body over lines is hidden whole when it is the text of one quoted string; anywhere else each run of base64 is asked about where it stands. */
+function hideCommandKeys(text, reading, hideable) {
+  if (!text.includes('PRIVATE KEY')) return text;
+  const strings = reading.level === 0 ? reading.strings(text) : [];
+  return text.replace(KEY_BLOCK, (block, frame, body, at) => {
+    const end = at + block.length;
+    if (body.includes('\n') && body.split('\n').every((line) => /^\s*(?:[A-Za-z0-9+/_=][A-Za-z0-9+/_=-]*\s*)?$/.test(line)) && strings.some((string) => string.start <= at && end <= string.end)) {
+      const closing = frame.replace('BEGIN', 'END');
+      return hideKeyBlocks(block + closing).slice(0, -closing.length);
+    }
+    const start = at + frame.length;
+    return frame + hidePart(body, KEY_RUN, (_, from, to) => hideable(text, start + from, start + to, start + from));
+  });
+}
+/**
+ * The text of a COMMAND with its credentials hidden, for the approval card and the history: a registered secret always, and what a pattern takes for a credential only as far as it is plain text to every shell
+ * (lib/command-mask.mjs). What a shell runs, expands, splits on or redirects to stays readable, whatever stands around it. `whole` is the call that the text is a part of (a summary is cut, an argument is one of
+ * several); `shown` is that call as the card shows it, for a text that talks about it (a reason): it hides nothing that the command shows. The text of a file goes through maskSecrets, which hides by pattern alone.
+ */
+export function maskCommand(value, secrets = [], whole = undefined, shown = undefined) {
+  const original = String(value);
+  let text = hideRegistered(original, secrets);
+  const reading = createCommandReading(original, whole === undefined ? original : String(whole));
+  if (reading.level === 2) return text;
+  const times = (where, part) => where.split(part).length;
+  const hideable = shown === undefined ? reading.hideable : (...place) => {
+    const length = reading.hideable(...place);
+    const part = place[0].slice(place[1], place[1] + length);
+    return length > 0 && String(whole).includes(part) && times(shown, part) === times(String(whole), part) ? 0 : length;
+  };
+  text = hideCommandKeys(text, reading, hideable);
+  for (const rule of TOKEN_PATTERNS) text = hidePart(text, rule, hideable);
+  firstNetwork = { text: null, index: Infinity }; // as in maskSecrets
+  return text;
+}
+// The prompt that LocalTools writes in front of a command in a summary: the command starts after it.
+const COMMAND_PROMPT = /^(?:tasks_run: )?\$ /;
+function maskCommandSummary(value, secrets, whole, shown) {
+  const text = String(value);
+  const prompt = COMMAND_PROMPT.exec(text)?.[0] ?? '';
+  return prompt + maskCommand(text.slice(prompt.length), secrets, whole, shown);
+}
+const maskDeep = (value, secrets, mask = maskSecrets) => {
+  if (typeof value === 'string') return mask(value, secrets);
+  if (Array.isArray(value)) return value.map((item) => maskDeep(item, secrets, mask));
+  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskDeep(item, secrets, mask)]));
   return value;
 };
 
-function safePreview(value,length=1800,secrets=[]){
-  const redact=(x,key='')=>{
-    if(SECRET_KEYS.test(key))return '[REDACTED]';
-    if(typeof x==='string') return x.slice(0,700);
-    if(Array.isArray(x)) return x.slice(0,30).map(v=>redact(v));
-    if(x&&typeof x==='object')return Object.fromEntries(Object.entries(x).slice(0,50).map(([k,v])=>[k,redact(v,k)]));
-    return x;
+// ---- The arguments of a call as the card prints them. Those of a local tool without a card of its own are data. Those of a tool of a server are data or commands, and the Hub cannot know which: a string is masked
+// as a command (what a shell would act on stays readable) unless its key says that it is the text of a file or of a message AND neither the name of the tool nor the key of an argument says that the call runs
+// something.
+const TEXT_KEYS = new Set(['content', 'contents', 'text', 'body', 'message', 'description', 'title', 'comment', 'note', 'markdown', 'html', 'xml', 'patch', 'diff', 'data', 'file_text', 'filetext', 'old_string', 'new_string', 'old_text',
+  'new_text', 'oldtext', 'newtext', 'old_str', 'new_str', 'insert_text']);
+const CODE_KEY = /^(?:commands?|cmds?|cmd_?line|command_?line|scripts?|code|shell|exec|argv?|args|program|executable|stdin|expression|keys)$/i;
+const RUNS_TEXT = /process|spawn|exec|terminal|command|shell|bash|pwsh|console|(?:^|[._-])(?:run|cmd|scripts?|code|eval|repl|ssh|pty|tty|keys)(?:[._-]|$)/;
+const SECRET_KEY_NAME = new RegExp(String.raw`^[A-Za-z0-9_.$-]{0,40}${SECRET_WORD}${SECRET_ENDING}$`, 'i');
+const FETCH_WORDS = new Set(['include', 'omit', 'same-origin']);
+const holdsCode = (value, depth = 0) => (depth < 5 && Array.isArray(value) ? value.some((item) => holdsCode(item, depth + 1))
+  : depth < 5 && isObject(value) ? Object.entries(value).some(([key, item]) => CODE_KEY.test(key) || holdsCode(item, depth + 1)) : false);
+const runsText = (tool, value) => RUNS_TEXT.test(tool.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()) || holdsCode(value);
+// What a card leaves out is counted on it.
+const left = (count, what) => `… [+${count} ${what} nữa]`;
+const PREVIEW_CUTS = Object.freeze({ characters: 700, items: 30, keys: 50 });
+
+/** The strings of a value, in order. */
+function stringsIn(value){
+  if(typeof value==='string')return [value];
+  return value!==null&&typeof value==='object'?Object.values(value).flatMap(stringsIn):[];
+}
+/** `tool`: the name of the tool of a server, null for a local tool. */
+function safePreview(value,length=1800,secrets=[],tool=null){
+  const local=tool===null;
+  const runs=!local&&runsText(tool,value);
+  const whole=runs?stringsIn(value).join('\n'):undefined; // a shell and its script can be two arguments
+  const masked=(text,key,place=0)=>{
+    const shown=text.slice(0,PREVIEW_CUTS.characters);
+    // One plain word, or what begins with a flag, is an argument (it is read behind a word that stands for the command), unless it can be the program of a call that runs something: the value of such a key, or the
+    // first of its list (a flag is none of a list of arguments).
+    const program=runs&&place===0&&CODE_KEY.test(key);
+    const argument=isPlain(shown)?!program:shown.startsWith('-')&&!(program&&!/^arg/i.test(key));
+    const mask=local||(!runs&&TEXT_KEYS.has(key.toLowerCase()))?maskSecrets(shown,secrets)
+      :argument?maskCommand(`x ${shown}`,secrets,whole??text).slice(2):maskCommand(shown,secrets,whole??text);
+    return mask+(text.length>shown.length?left(text.length-shown.length,'ký tự'):'');
   };
+  const named=(x,key)=>(local?SECRET_KEYS.test(key):SECRET_KEYS.test(key)||(SECRET_KEY_NAME.test(key)&&typeof x==='string'&&x.length>=4&&!FETCH_WORDS.has(x)));
   // The strings are masked as the text they are, BEFORE they are written as JSON: in the JSON a double quote is \", a doubled quote may be '' and a line break is \n, and a rule that reads that text
   // does not decode any of it (a double-quoted credential matched no rule; a container word behind a cut inside a string looked as if it stood outside it; curl after \n was no word).
-  return redactSecrets(JSON.stringify(maskDeep(redact(value),secrets)).slice(0,length),secrets);
+  const redact=(x,key='',under=key,place=0)=>{
+    // The value of a key that names a secret: hidden whole, but in a call that runs something only when it is plain text (a variable of a process can hold a command).
+    if(key!==''&&named(x,key)&&!(runs&&(typeof x==='string'?!isPlain(x):x!==null&&typeof x==='object')))return MARK;
+    if(typeof x==='string')return masked(x,under,place);
+    if(Array.isArray(x))return [...x.slice(0,PREVIEW_CUTS.items).map((item,index)=>redact(item,'',under,index)),...(x.length>PREVIEW_CUTS.items?[left(x.length-PREVIEW_CUTS.items,'mục')]:[])];
+    if(x&&typeof x==='object'){
+      const entries=Object.entries(x);
+      return Object.fromEntries([...entries.slice(0,PREVIEW_CUTS.keys).map(([k,v])=>[local?k:masked(k,''),redact(v,k)]),...(entries.length>PREVIEW_CUTS.keys?[['…',left(entries.length-PREVIEW_CUTS.keys,'khóa')]]:[])]);
+    }
+    return x;
+  };
+  const safe=redact(value);
+  if(onlyAuthorization(safe))return '[Đã ẩn thông tin xác thực]';
+  let text=JSON.stringify(safe);
+  if(text.length>length){const note=left(text.length-length,'ký tự');text=text.slice(0,length-note.length)+note;}
+  for(const secret of secrets)if(typeof secret==='string'&&secret)text=text.split(secret).join(MARK);
+  return text;
+}
+/** Whether every string of the (masked) arguments is an Authorization header and no more. */
+function onlyAuthorization(value){
+  const strings=stringsIn(value);
+  return strings.length>0&&strings.every((text)=>/^(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:[a-z][\w-]*\s+)?\[REDACTED\]["']?$/i.test(text));
 }
 /**
- * The arguments of a call as the approval card prints them: the JSON of safePreview, masked once more as the text it is. The second pass sees what the first cannot: the names of the keys next to
- * their values (`"passwd":"..."`) and the other fields (a `curl` in one field and a pair of numbers in the next).
+ * The arguments of a call to a tool of a server as the approval card prints them: the JSON of safePreview, with the flag of a user and a password read once more in the text of it, where the other fields are in
+ * view (a `curl` in one field and a pair of numbers in the next).
  */
-export function previewArguments(value,length=1800,secrets=[]){
-  return maskSecrets(safePreview(value,length,secrets),secrets);
+export function previewArguments(value,length=1800,secrets=[],tool=''){
+  let text=safePreview(value,length,secrets,tool);
+  for(const rule of USER_PATTERNS)text=hidePart(text,rule,plainLength);
+  firstNetwork={text:null,index:Infinity};
+  return text;
 }
 function error(code,message,statusCode=403){return Object.assign(new Error(message),{code,statusCode});}
 const cut = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit)}… [+${text.length - limit} ký tự nữa]` : text; };
@@ -477,6 +606,16 @@ function editListDetail(input) {
   };
 }
 const HISTORY_PREVIEW_CHARS = 2000;
+// The local tools that run the text of a command: their card is the command, whole.
+const COMMAND_TOOLS = new Set(['run_command', 'tasks_run']);
+const isCommand = (name, verdict) => verdict.local === true && COMMAND_TOOLS.has(String(name).replace(/^local\./i, ''));
+/** How the texts of a card are masked: those of a command as commands, with the command itself in view (`whole`, and as the card shows it, `shown`), every other one as a text. */
+function commandTexts(name, args, verdict, secrets) {
+  if (!isCommand(name, verdict)) return { whole: undefined, shown: undefined, maskText: (text) => maskSecrets(text, secrets) };
+  const whole = typeof args?.command === 'string' ? args.command : undefined;
+  const shown = whole === undefined ? undefined : maskCommand(whole, secrets);
+  return { whole, shown, maskText: (text) => (text === whole ? shown : maskCommand(text, secrets, whole, shown)) };
+}
 
 /**
  * The card of a call to an external tool: the server and the tool, how the server is reached (the transport, the command that starts a
@@ -486,7 +625,7 @@ const HISTORY_PREVIEW_CHARS = 2000;
  */
 function mcpCard(card,verdict,secrets){
   const {transport=null,launch=null,origin=null}=verdict.endpoint??{};
-  const detail={kind:'mcp',server:verdict.server,tool:verdict.tool,transport,launch:launch===null?null:maskSecrets(launch,secrets),origin:origin===null?null:maskSecrets(origin,secrets),arguments:card.preview};
+  const detail={kind:'mcp',server:verdict.server,tool:verdict.tool,transport,launch:launch===null?null:maskCommand(launch,secrets),origin:origin===null?null:maskSecrets(origin,secrets),arguments:card.preview};
   return {...card,detail};
 }
 /** The server and the tool of an external call, for its request and its row in the history; nothing for the Hub's own tools. */
@@ -709,17 +848,19 @@ export class PermissionGate {
    */
   #describe(name,args,verdict,changes=null){
     const secrets=this.manager?.secrets??[];
+    const op=String(name).replace(/^local\./i,'');
+    const command=isCommand(name,verdict);
+    const {whole,shown,maskText}=commandTexts(name,args,verdict,secrets);
     // The summary and the reason can quote the command, so they are masked like the preview.
-    const words={summary:maskSecrets(verdict.summary??name,secrets),reason:maskSecrets(verdict.reason??'',secrets)};
+    const words={summary:command?maskCommandSummary(verdict.summary??name,secrets,whole,shown):maskText(verdict.summary??name),reason:maskText(verdict.reason??'')};
     if(!verdict.local){
-      const card={...words,preview:previewArguments(args,1800,secrets),detail:null};
+      const card={...words,preview:previewArguments(args,1800,secrets,verdict.tool??String(name)),detail:null};
       return verdict.category==='external'?mcpCard(card,verdict,secrets):card;
     }
     const input=isObject(args)?args:{};
-    const op=String(name).replace(/^local\./i,'');
     const secret=(typeof input.path==='string'&&isProtectedPath(input.path))||changes?.privateKeys===true;
     let detail;
-    if(op==='run_command'){
+    if(command){
       detail={kind:'command',command:cut(input.command,9000),cwd:input.cwd||'.',shell:verdict.risk?.shell??input.shell??'auto',timeout_seconds:input.timeout_seconds??null,description:input.description??null,assessed_as:verdict.risk?.kind??null,reasons:verdict.risk?.reasons??[]};
     }else if(op==='write_file'){
       detail=secret?{kind:'write',path:input.path,hidden:true}:{kind:'write',path:input.path,bytes:Buffer.byteLength(String(input.content??'')),overwrite:Boolean(input.overwrite),head:cut(input.content,600)};
@@ -741,7 +882,7 @@ export class PermissionGate {
     }else{
       detail={kind:'tool',arguments:safePreview(args,1500,secrets)};
     }
-    detail=maskDeep(detail,secrets);
+    detail=maskDeep(detail,secrets,maskText);
     const text=JSON.stringify(detail);
     if(changes&&FILE_CHANGE_TOOLS.includes(op))detail={...detail,preview:maskDeep(changes,secrets)};
     return {...words,preview:text,detail};
@@ -836,7 +977,8 @@ export class PermissionGate {
     if(signal?.aborted)throw signal.reason||error('cancelled','Tác vụ đã dừng.');
     const {preview,detail,summary,reason:describedReason}=this.#describe(name,args,verdict,shown?.preview);
     // A hook that asked for this question says why; the text is the hook's (already cleaned), so it is masked like every other reason.
-    const hookReason=forceAsk&&askReason?maskSecrets(`Hook: ${String(askReason).slice(0,500)}`,this.manager?.secrets??[]):'';
+    const {maskText}=commandTexts(name,args,verdict,this.manager?.secrets??[]);
+    const hookReason=forceAsk&&askReason?`Hook: ${maskText(String(askReason).slice(0,500))}`:'';
     const shownReason=hookReason?(describedReason?`${hookReason} · ${describedReason}`:hookReason):describedReason;
     // `expiresAt` lets the page show how long the request will wait; the timer below is what actually enforces it.
     const askedAt=this.now();

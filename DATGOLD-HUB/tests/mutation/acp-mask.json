@@ -41,7 +41,7 @@
       "patches": [
         {
           "file": "lib/acp/mask.mjs",
-          "old": "    if (typeof value === 'string') return text(value);",
+          "old": "    if (typeof value === 'string') return say(value);",
           "new": "    if (typeof value === 'string') return value;"
         }
       ]
@@ -96,7 +96,7 @@
       "patches": [
         {
           "file": "lib/acp/mask.mjs",
-          "old": "      if (Array.isArray(value)) return value.map((item) => walk(item, depth + 1, ancestors));",
+          "old": "      if (Array.isArray(value)) return value.map((item) => walk(item, depth + 1, ancestors, say));",
           "new": "      if (Array.isArray(value)) return value;"
         }
       ]
@@ -107,7 +107,7 @@
       "patches": [
         {
           "file": "lib/acp/mask.mjs",
-          "old": "[key, walk(item, depth + 1, ancestors)]",
+          "old": "[key, walk(item, depth + 1, ancestors, quotes(key) ? command : own, key === 'toolCall')]",
           "new": "[key, item]"
         }
       ]
@@ -153,6 +153,127 @@
           "file": "lib/acp/mask.mjs",
           "old": "const CUT = '[cut: nested too deeply or circular]';",
           "new": "const CUT = '[cut]';"
+        }
+      ]
+    },
+    {
+      "name": "command-as-text",
+      "what": "the command of a call is masked as a text",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "    if (typeof command !== 'string') return say;\n",
+          "new": "    return say;\n"
+        }
+      ]
+    },
+    {
+      "name": "command-alone",
+      "what": "the title and the note are read without the command",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": ", secrets(), command, shown);",
+          "new": ", secrets());"
+        }
+      ]
+    },
+    {
+      "name": "command-own-secrets",
+      "what": "the credentials of the agent are not hidden in a command",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "const shown = maskCommand(command, secrets());",
+          "new": "const shown = maskCommand(command);"
+        }
+      ]
+    },
+    {
+      "name": "note-own-secrets",
+      "what": "the credentials of the agent are not hidden in a title",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "maskCommand(value.slice(prompt.length), secrets(), command, shown)",
+          "new": "maskCommand(value.slice(prompt.length), [], command, shown)"
+        }
+      ]
+    },
+    {
+      "name": "command-prompt",
+      "what": "the prompt of a summary is a part of the command",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "const prompt = PROMPT.exec(value)?.[0] ?? '';",
+          "new": "const prompt = '';"
+        }
+      ]
+    },
+    {
+      "name": "title-as-text",
+      "what": "the title of a call is masked as a text",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "key === 'title' || key === 'rawInput' ||",
+          "new": "key === 'rawInput' ||"
+        }
+      ]
+    },
+    {
+      "name": "input-as-text",
+      "what": "the input of a call is masked as a text",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "key === 'title' || key === 'rawInput' ||",
+          "new": "key === 'title' ||"
+        }
+      ]
+    },
+    {
+      "name": "note-as-text",
+      "what": "the note of a question is masked as a text",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": " || (question && key === 'content');",
+          "new": ";"
+        }
+      ]
+    },
+    {
+      "name": "output-as-command",
+      "what": "the output of a call is masked as its command",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "(question && key === 'content')",
+          "new": "key === 'content'"
+        }
+      ]
+    },
+    {
+      "name": "diff-as-command",
+      "what": "a diff beside a command is masked as one",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "const own = value.type === 'diff' ? text : say;",
+          "new": "const own = say;"
+        }
+      ]
+    },
+    {
+      "name": "question-of-any",
+      "what": "every object is a question",
+      "patches": [
+        {
+          "file": "lib/acp/mask.mjs",
+          "old": "quotes(key) ? command : own, key === 'toolCall')",
+          "new": "quotes(key) ? command : own, true)"
         }
       ]
     }
