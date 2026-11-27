@@ -1,6 +1,6 @@
 # DatGold v3.12.0 — review every change, plan before the agent writes, MCP servers and true resume
 
-This is a normal release and is published as the latest release. It contains everything of v3.11.2 and what was merged after it (pull requests 97 to 166). It is the first release that an installed v3.11.2 can offer through the **Update button**, and the first one made by the hand-started release workflow. Updating is recommended.
+This is a normal release and is published as the latest release. It contains everything of v3.11.2 and what was merged after it (pull requests 97 to 174). It is the first release that an installed v3.11.2 can offer through the **Update button**, and the first one made by the hand-started release workflow. Updating is recommended.
 
 ## What changed since v3.11.2
 
@@ -18,7 +18,9 @@ This is a normal release and is published as the latest release. It contains eve
 
 **`git_push` for the agent.** It publishes one branch to a configured remote. It asks every time, in Full Access too, never forces and refuses main, master and the default branch of the remote.
 
-**Proof-of-Done, the first parts.** Receipts of checks are bound to the exact tree of the workspace, and a proof ledger records the calls and the checks of a task. When a project has a `.chatmcp/acceptance.yml` that you trusted, the agent cannot finish "done" while your checks fail: it is sent back once with the results, and a second failure ends the task as failed. **The command line that trusts such a file (`chatmcp verify`) is not part of the installation yet**: it runs from a checkout of the repository ([PROOF-CLI.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/PROOF-CLI.md), [PROOF-GATE.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/PROOF-GATE.md)). Without a trusted file nothing is gated.
+**Proof-of-Done, the first parts.** Receipts of checks are bound to the exact tree of the workspace, and a proof ledger records the calls and the checks of a task. When a project has a `.chatmcp/acceptance.yml` that you trusted, the agent cannot finish "done" while your checks fail: it is sent back once with the results, and a second failure ends the task as failed. **The command line that trusts such a file (`chatmcp verify`) is not part of the installation yet**: it runs from a checkout of the repository ([PROOF-CLI.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/PROOF-CLI.md), [PROOF-GATE.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/PROOF-GATE.md)). Without a trusted file nothing is gated. A run that the done-gate judged leaves a proof pack: the Hub keeps the latest one of each task and answers it over HTTP as JSON, Markdown or HTML, in English or Vietnamese, and an acceptance file can be trusted over HTTP too ([PROOF-HUB-API.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/PROOF-HUB-API.md)). There is no page for it yet.
+
+**The approval card of a command.** The card of a command shows every part of it that bash, PowerShell or cmd acts on: the program, the files it writes to and the text it runs as code. Ordinary credentials (`--password X`, `API_KEY=X`, `Authorization: Bearer X`, a password in a URL) stay hidden, and a registered secret is hidden wherever it stands. The summary, the reasons, the line that starts an MCP server and the command an editor is asked about over ACP follow the same rule ([APPROVAL-PREVIEW.md](https://github.com/pddczpl/ChatMCP/blob/v3.12.0/docs/APPROVAL-PREVIEW.md)).
 
 **Fixes.**
 - A task starts in the folder you just chose or added in the sidebar, not in the one before it.
@@ -28,6 +30,8 @@ This is a normal release and is published as the latest release. It contains eve
 - Uninstall removes the files before the entry in Apps, and a shortcut or registry entry that fails is reported.
 - An expired approval is not recorded again as cancelled; `replace_all` counts every place it changed; the arguments of a tool call are masked as the texts they hold.
 - The old dashboards are gone: an installation without its page answers 503 and says so.
+- Helper programs (GitHub CLI, Git, Docker, Python, the language servers, `taskkill`, `icacls`) are started by the absolute path of the installed program, never from the workspace; one that is not installed is reported as not installed.
+- In plan mode, calls that the model put behind an approved plan in the same turn wait for the next turn, so a step you took out of the plan does not run. A plan is addressed by its task id exactly as the Hub writes it, and a plan that masking makes too long is reported to the model instead of ending the run.
 
 **Downloads.** `DatGoldSetup.exe` and `DatGold-Browser-Companion.zip` (each with its `.sha256`) and `RELEASE-MANIFEST.json` with its signature, as in v3.11.2.
 
